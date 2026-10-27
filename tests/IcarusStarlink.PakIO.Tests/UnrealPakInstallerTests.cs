@@ -1,244 +1,65 @@
-using System.IO.Compression;
-using System.Net;
 using IcarusStarlink.PakIO.Pak;
 
 namespace IcarusStarlink.PakIO.Tests;
 
 public sealed class UnrealPakInstallerTests : IDisposable
 {
-    private readonly string _appBase = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests", $"UPak_{Guid.NewGuid():N}");
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "UnrealPakTrustTests", Guid.NewGuid().ToString("N"));
 
-    public UnrealPakInstallerTests()
+    public UnrealPakInstallerTests() => Directory.CreateDirectory(_root);
+    public void Dispose() => Directory.Delete(_root, recursive: true);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Install_RefusesWithoutNetworkExecutionOrChanges_EvenWithLegacyPayload(bool legacyPayload)
     {
-        Directory.CreateDirectory(_appBase);
-    }
+        var runner = new RecordingRunner();
+        var installer = new UnrealPakInstaller(runner, _root);
+        Directory.CreateDirectory(Path.GetDirectoryName(installer.InstalledExePath)!);
+        await File.WriteAllTextAsync(installer.InstalledExePath, "existing tool");
+        if (legacyPayload)
+            await File.WriteAllTextAsync(Path.Combine(_root, "Tools", "UnrealPak.zip"), "untrusted payload");
 
-    public void Dispose()
-    {
-        if (Directory.Exists(_appBase))
-        {
-            Directory.Delete(_appBase, recursive: true);
-        }
-    }
+        Assert.False(installer.PayloadAvailable);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
 
-    private UnrealPakInstaller CreateInstaller(FakeRunner? runner = null, HttpMessageHandler? httpHandler = null) =>
-        new(runner ?? new FakeRunner("usage: UnrealPak ..."), new HttpClient(httpHandler ?? new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound))), _appBase);
-
-    /// <summary>Builds an UnrealPak payload zip with Epic's own relative layout, the way packaging would — as bytes, since both the local Tools\UnrealPak.zip path and the fake remote download response need the exact same shape.</summary>
-    private static byte[] BuildPayloadZipBytes(bool includeExe = true)
-    {
-        var staging = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests", $"payload_staging_{Guid.NewGuid():N}");
-        var win64 = Path.Combine(staging, "Engine", "Binaries", "Win64");
-        Directory.CreateDirectory(win64);
-        if (includeExe)
-        {
-            File.WriteAllText(Path.Combine(win64, "UnrealPak.exe"), "exe bytes");
-            File.WriteAllText(Path.Combine(win64, "UnrealPak-Core.dll"), "dll bytes");
-            File.WriteAllText(Path.Combine(win64, "UnrealPak.version"), """{"MajorVersion":4,"MinorVersion":27,"PatchVersion":0}""");
-        }
-
-        var zipPath = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests", $"payload_{Guid.NewGuid():N}.zip");
-        ZipFile.CreateFromDirectory(staging, zipPath);
-        Directory.Delete(staging, recursive: true);
-        try
-        {
-            return File.ReadAllBytes(zipPath);
-        }
-        finally
-        {
-            File.Delete(zipPath);
-        }
-    }
-
-    /// <summary>Writes a local Tools\UnrealPak.zip payload — the offline, bundled-in-the-release-zip path InstallAsync prefers when present.</summary>
-    private void WritePayload(bool includeExe = true)
-    {
-        Directory.CreateDirectory(Path.Combine(_appBase, "Tools"));
-        File.WriteAllBytes(Path.Combine(_appBase, "Tools", "UnrealPak.zip"), BuildPayloadZipBytes(includeExe));
+        Assert.Contains("Epic-sourced or locally built", error.Message);
+        Assert.Equal(0, runner.Calls);
+        Assert.Equal("existing tool", await File.ReadAllTextAsync(installer.InstalledExePath));
+        Assert.False(Directory.EnumerateDirectories(_root, "*_partial_*", SearchOption.AllDirectories).Any());
     }
 
     [Fact]
-    public async Task Verify_NoFileAtPath_ReportsMissing()
+    public async Task Verify_MissingFile_DoesNotExecute()
     {
-        var result = await CreateInstaller().VerifyAsync(Path.Combine(_appBase, "nowhere", "UnrealPak.exe"));
-
+        var runner = new RecordingRunner();
+        var result = await new UnrealPakInstaller(runner, _root).VerifyAsync(Path.Combine(_root, "missing.exe"));
         Assert.Equal(UnrealPakHealth.Missing, result.Health);
+        Assert.Equal(0, runner.Calls);
     }
 
     [Fact]
-    public async Task Verify_RunnableExe_ReportsOkWithEngineVersion()
+    public async Task Verify_SelectedFile_RunsOperationalCheckAndReadsVersion()
     {
-        WritePayload();
-        var installer = CreateInstaller();
-        var exePath = await installer.InstallAsync();
-
-        var result = await installer.VerifyAsync(exePath);
-
+        var runner = new RecordingRunner();
+        var path = Path.Combine(_root, "UnrealPak.exe");
+        await File.WriteAllTextAsync(path, "selected tool");
+        await File.WriteAllTextAsync(Path.Combine(_root, "UnrealPak.version"), """{"MajorVersion":4,"MinorVersion":27,"PatchVersion":2}""");
+        var result = await new UnrealPakInstaller(runner, _root).VerifyAsync(path);
         Assert.Equal(UnrealPakHealth.Ok, result.Health);
-        Assert.Equal("4.27.0", result.EngineVersion);
+        Assert.Equal("4.27.2", result.EngineVersion);
+        Assert.Equal(1, runner.Calls);
     }
 
-    [Fact]
-    public async Task Verify_ExeThatWontStart_ReportsBroken()
+    private sealed class RecordingRunner : IProcessRunner
     {
-        // The real corruption case: the exe file exists but a sibling DLL is gone, so launching it
-        // fails — which File.Exists alone can never see.
-        WritePayload();
-        var installer = CreateInstaller(new FakeRunner(throwOnRun: true));
-        var exePath = await installer.InstallAsync();
-
-        var result = await installer.VerifyAsync(exePath);
-
-        Assert.Equal(UnrealPakHealth.Broken, result.Health);
-        Assert.Equal("4.27.0", result.EngineVersion);
-    }
-
-    [Fact]
-    public async Task Install_ExtractsLocalPayloadNextToApp()
-    {
-        WritePayload();
-        var installer = CreateInstaller();
-
-        var exePath = await installer.InstallAsync();
-
-        Assert.Equal(installer.InstalledExePath, exePath);
-        Assert.True(File.Exists(exePath));
-        Assert.StartsWith(Path.Combine(_appBase, "Tools", "UnrealPak"), exePath);
-    }
-
-    [Fact]
-    public async Task Reinstall_RemovesStaleFilesRatherThanExtractingOverThem()
-    {
-        // Reinstall's whole purpose is repair — a stray/corrupt extra file must not survive it.
-        WritePayload();
-        var installer = CreateInstaller();
-        await installer.InstallAsync();
-        var stalePath = Path.Combine(Path.GetDirectoryName(installer.InstalledExePath)!, "stale_corrupt.dll");
-        File.WriteAllText(stalePath, "junk");
-
-        await installer.InstallAsync();
-
-        Assert.False(File.Exists(stalePath));
-        Assert.True(File.Exists(installer.InstalledExePath));
-    }
-
-    /// <summary>A Reinstall that can't get a new copy (no local payload, no internet) keeps the working one.</summary>
-    [Fact]
-    public async Task Reinstall_WhenTheDownloadFails_KeepsTheWorkingCopy()
-    {
-        WritePayload();
-        await CreateInstaller().InstallAsync();
-        File.Delete(Path.Combine(_appBase, "Tools", "UnrealPak.zip"));
-        var offline = CreateInstaller(httpHandler: new FakeHttpMessageHandler(_ => throw new HttpRequestException("No such host is known.")));
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => offline.InstallAsync());
-
-        Assert.True(File.Exists(offline.InstalledExePath));
-    }
-
-    /// <summary>A payload without the exe is refused before the working copy is touched.</summary>
-    [Fact]
-    public async Task Reinstall_WithAMispackagedPayload_KeepsTheWorkingCopy()
-    {
-        WritePayload();
-        var installer = CreateInstaller();
-        await installer.InstallAsync();
-        WritePayload(includeExe: false);
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
-
-        Assert.True(File.Exists(installer.InstalledExePath));
-        Assert.Single(Directory.GetDirectories(Path.Combine(_appBase, "Tools")));
-    }
-
-    /// <summary>Audit finding: extraction straight into InstallRoot wasn't transactional — a corrupt payload left a half-extracted tool behind for VerifyAsync to misreport, and surfaced a raw InvalidDataException.</summary>
-    [Fact]
-    public async Task Install_CorruptLocalPayload_ThrowsPlainMessageAndLeavesNothingUnderInstallRoot()
-    {
-        Directory.CreateDirectory(Path.Combine(_appBase, "Tools"));
-        File.WriteAllBytes(Path.Combine(_appBase, "Tools", "UnrealPak.zip"), [0x50, 0x4B, 0x03, 0x04, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        var installer = CreateInstaller();
-
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
-
-        Assert.Contains("couldn't be unpacked", ex.Message);
-        Assert.False(Directory.Exists(Path.Combine(_appBase, "Tools", "UnrealPak")));
-        Assert.Empty(Directory.GetDirectories(Path.Combine(_appBase, "Tools"), "UnrealPak_partial_*"));
-    }
-
-    [Fact]
-    public async Task Install_MispackagedLocalPayload_SaysSoClearly()
-    {
-        WritePayload(includeExe: false);
-        var installer = CreateInstaller();
-
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
-        Assert.Contains("can't be used", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task Install_NoLocalPayload_DownloadsFromRemoteAndExtracts()
-    {
-        // No WritePayload() call — nothing at Tools\UnrealPak.zip, so this exercises the fallback.
-        var payloadBytes = BuildPayloadZipBytes();
-        var handler = new FakeHttpMessageHandler(request =>
+        public int Calls;
+        public Task<ProcessRunResult> RunAsync(string fileName, IReadOnlyList<string> arguments, CancellationToken cancellationToken = default)
         {
-            Assert.Equal("https://github.com/MK-HATERS/IcarusStarlink/releases/download/unrealpak-4.27/UnrealPak.zip", request.RequestUri!.ToString());
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(payloadBytes) };
-        });
-        var installer = CreateInstaller(httpHandler: handler);
-
-        var exePath = await installer.InstallAsync();
-
-        Assert.Equal(installer.InstalledExePath, exePath);
-        Assert.True(File.Exists(exePath));
-        // The temp download file must not linger after a successful install.
-        Assert.Empty(Directory.GetFiles(Path.GetTempPath(), "UnrealPak-*.zip"));
+            Calls++;
+            return Task.FromResult(new ProcessRunResult(1, "usage", ""));
+        }
     }
 
-    [Fact]
-    public async Task Install_NoLocalPayloadAndRemoteReturnsError_ThrowsWithGuidance()
-    {
-        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
-        var installer = CreateInstaller(httpHandler: handler);
-
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
-        Assert.Contains("Couldn't download UnrealPak", ex.Message);
-        Assert.Contains("404", ex.Message);
-    }
-
-    [Fact]
-    public async Task Install_NoLocalPayloadAndNetworkUnreachable_ThrowsMentioningInternetConnection()
-    {
-        var handler = new FakeHttpMessageHandler(_ => throw new HttpRequestException("No such host is known."));
-        var installer = CreateInstaller(httpHandler: handler);
-
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
-        Assert.Contains("internet connection", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task Install_NoLocalPayloadAndMispackagedRemotePayload_SaysSoClearly()
-    {
-        var payloadBytes = BuildPayloadZipBytes(includeExe: false);
-        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(payloadBytes) });
-        var installer = CreateInstaller(httpHandler: handler);
-
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
-        Assert.Contains("can't be used", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private sealed class FakeRunner(string output = "", bool throwOnRun = false) : IProcessRunner
-    {
-        public Task<ProcessRunResult> RunAsync(string fileName, IReadOnlyList<string> arguments, CancellationToken cancellationToken = default) =>
-            throwOnRun
-                ? throw new System.ComponentModel.Win32Exception("The specified module could not be found.")
-                : Task.FromResult(new ProcessRunResult(1, output, ""));
-    }
-
-    private sealed class FakeHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(respond(request));
-    }
 }

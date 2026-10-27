@@ -8,17 +8,21 @@ public class GitHubAssetIntegrityTests
     // same fixture value AppUpdateClientTests already relies on for the same reason.
     private const string MatchingDigestForZipBytes = "sha256:4b9a4ac59f3c3aa32273260df6cf4bf358d1c46f8415126aa35b6380d0abb8f7";
 
-    [Fact]
-    public async Task VerifySha256Async_NullDigest_SkipsVerificationAndKeepsFile()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("sha512:abc")]
+    [InlineData("sha256:abc")]
+    [InlineData("sha256:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")]
+    public async Task VerifySha256Async_InvalidOrMissingDigest_RejectsAndDeletesFile(string? digest)
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.zip");
         await File.WriteAllTextAsync(path, "zip-bytes");
 
         try
         {
-            await GitHubAssetIntegrity.VerifySha256Async(null, path);
-
-            Assert.True(File.Exists(path));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => GitHubAssetIntegrity.VerifySha256Async(digest, path));
+            Assert.False(File.Exists(path));
         }
         finally
         {

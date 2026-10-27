@@ -21,6 +21,22 @@ public class Ue4ssLoaderInstallServiceTests : IDisposable
     private string Win64Folder => Ue4ssGamePaths.ResolveWin64Folder(_fakeContentPath);
     private string LoaderFolder => Ue4ssGamePaths.ResolveLoaderFolder(_fakeContentPath);
 
+    [Fact]
+    public async Task LocalArchive_PersistsHonestSourceAndDoesNotInferVersionFromFilename()
+    {
+        var zip = CreateFakeReleaseZip();
+        var namedZip = Path.Combine(_tempDir, "UE4SS_v3.0.1-1181-g83330635.zip");
+        File.Move(zip, namedZip);
+        await _service.InstallOrUpdateAsync(_fakeContentPath, namedZip, _backupDirectory);
+        Assert.True(File.Exists(Path.Combine(LoaderFolder, Ue4ssInstalledBuild.LocalSourceMarkerFileName)));
+        Assert.Null(_service.GetStatus(_fakeContentPath).InstalledCommit);
+
+        // A subsequent explicitly chosen, known build replaces the local-source marker.
+        await _service.InstallOrUpdateAsync(_fakeContentPath, namedZip, _backupDirectory, "3.0.1", "83330635");
+        Assert.False(File.Exists(Path.Combine(LoaderFolder, Ue4ssInstalledBuild.LocalSourceMarkerFileName)));
+        Assert.Equal("83330635", _service.GetStatus(_fakeContentPath).InstalledCommit);
+    }
+
     /// <summary>Matches the real UE4SS_v3.0.1.zip structure confirmed during Phase 8.5 planning: dwmapi.dll/UE4SS.dll/UE4SS-settings.ini at the zip root, a Mods\ folder with a built-in mod plus mods.txt.</summary>
     private string CreateFakeReleaseZip(string dwmapiContent = "new dwmapi bytes", string dllContent = "new UE4SS.dll bytes")
     {

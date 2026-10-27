@@ -675,6 +675,22 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.True(File.Exists(Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(_install), "StorageLink", "Scripts", "main.lua")));
     }
 
+    [Fact]
+    public void Ue4ss_ServerInstallDeclined_DoesNotCopyLoader()
+    {
+        var gameWin64 = MakeGameWithUe4ss(("StorageLink", true));
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        var (vm, _, _, dialogs) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        Assert.False(vm.ServerHasUe4ss);
+        dialogs.Answers.Enqueue(false);
+
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+
+        Assert.False(DedicatedServerLayout.IsUe4ssInstalled(_install));
+        Assert.Contains(dialogs.Messages, m => m.Contains("optional, unofficial") && m.Contains("server account's permissions"));
+    }
+
     /// <summary>
     /// User request 2026-10-27: the same mod with different settings in the game and on the server
     /// read as "Same as your game". The row says so, and Match settings… copies the chosen copy's

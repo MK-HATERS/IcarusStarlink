@@ -189,9 +189,7 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
             throw last;
         }
 
-        // See AppUpdateAssetDto.Digest's own doc comment for exactly what is and isn't confirmed
-        // about GitHub's "sha256:<hex>" digest field shape. Shared with the UE4SS loader install
-        // flow — see GitHubAssetIntegrity's own doc comment.
+        // Require valid matching SHA-256 metadata before handing executable downloads to callers.
         await GitHubAssetIntegrity.VerifySha256Async(digest, destinationPath, cancellationToken);
     }
 

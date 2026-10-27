@@ -63,11 +63,8 @@
                             <TextBox Text="{Binding UnrealPakExePath, UpdateSourceTrigger=PropertyChanged}"/>
                         </DockPanel>
 
+                        <TextBlock Text="Select your own Epic-sourced or locally built UnrealPak 4.27, keeping its DLLs and Engine folders together. No tool is downloaded. Check runs the selected executable; it checks operation, not authenticity. See Help for build guidance." TextWrapping="Wrap" Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,8"/>
                         <WrapPanel Margin="0,0,0,12">
-                            <Button Command="{Binding InstallBundledUnrealPakCommand}" IsEnabled="{Binding CanInstallBundledUnrealPak}"
-                                    Content="{Binding InstallUnrealPakButtonLabel}"
-                                    ToolTip="Installs UnrealPak 4.27 (the UE4 version Icarus itself uses) into Tools\UnrealPak next to the exe — from a copy shipped with this app if there is one, else downloaded fresh. Reinstalling repairs a broken copy. A newer UnrealPak is deliberately NOT offered: UE5 builds write pak formats Icarus's engine can't load."
-                                    ToolTipService.ShowOnDisabled="True"/>
                             <Button Content="Check" Command="{Binding VerifyUnrealPakCommand}" Margin="8,0,0,0"
                                     ToolTip="Actually runs the configured UnrealPak.exe to confirm it works, and reports its engine version"/>
                             <TextBlock Text="{Binding UnrealPakStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="420"

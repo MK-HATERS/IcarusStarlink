@@ -234,7 +234,7 @@ public sealed class SettingsViewModelTests
         await vm.UpdateDataFolderCommand.ExecuteAsync(null);
 
         Assert.Contains("your UnrealPak.exe copy looks broken", vm.DataFolderStatusMessage);
-        Assert.Contains("Reinstall", vm.DataFolderStatusMessage);
+        Assert.Contains("Select a working copy", vm.DataFolderStatusMessage);
     }
 
     // =====================================================================================
@@ -279,41 +279,56 @@ public sealed class SettingsViewModelTests
         Assert.Equal(harness.ValidUnrealPakExePath, harness.UnrealPakInstaller.LastVerifiedExePath);
     }
 
-    [Fact]
-    public async Task InstallBundledUnrealPakCommand_Success_SetsPathSavesSettingsAndVerifies()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FirstLaunch_NoSelectedTool_NeverAdoptsInstallsOrExecutesLegacyCopy(bool legacyCopy)
     {
         using var harness = new Harness();
+        harness.Settings.UnrealPakExePath = null;
+        harness.Settings.FirstLaunchSetupCompletedAtUtc = null;
+        harness.UnrealPakInstaller.InstalledExePath = Path.Combine(harness.TempDir, "legacy", "UnrealPak.exe");
+        if (legacyCopy)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(harness.UnrealPakInstaller.InstalledExePath)!);
+            File.WriteAllText(harness.UnrealPakInstaller.InstalledExePath, "untrusted tool");
+        }
         var vm = harness.BuildViewModel();
-        var installedPath = harness.UnrealPakInstaller.InstalledExePath;
-        harness.UnrealPakInstaller.InstallResultPath = installedPath;
-        harness.UnrealPakInstaller.VerifyResult = new UnrealPakVerifyResult(UnrealPakHealth.Ok, "4.27.0", null);
-        var saveCallsBefore = harness.SettingsService.SaveCallCount;
-
-        await vm.InstallBundledUnrealPakCommand.ExecuteAsync(null);
-
-        Assert.Equal(installedPath, vm.UnrealPakExePath);
-        Assert.True(harness.SettingsService.SaveCallCount > saveCallsBefore);
-        Assert.Contains("Working — UnrealPak 4.27.0", vm.UnrealPakStatusMessage);
-        Assert.Equal("Reinstall UnrealPak", vm.InstallUnrealPakButtonLabel);
-        Assert.Equal(1, harness.UnrealPakInstaller.InstallCallCount);
-        Assert.Equal(1, harness.UnrealPakInstaller.VerifyCallCount);
-    }
-
-    [Fact]
-    public async Task InstallBundledUnrealPakCommand_InstallThrows_ShowsInstallFailedMessage_PathUnchanged()
-    {
-        using var harness = new Harness();
-        var vm = harness.BuildViewModel();
-        var originalPath = vm.UnrealPakExePath;
-        harness.UnrealPakInstaller.InstallException = new IOException("access denied");
-
-        await vm.InstallBundledUnrealPakCommand.ExecuteAsync(null);
-
-        Assert.Equal("Install failed: access denied", vm.UnrealPakStatusMessage);
-        Assert.Equal(originalPath, vm.UnrealPakExePath);
+        await vm.FirstLaunchSetupTask;
+        Assert.Null(vm.UnrealPakExePath);
+        Assert.Equal(0, harness.UnrealPakInstaller.InstallCallCount);
         Assert.Equal(0, harness.UnrealPakInstaller.VerifyCallCount);
+        Assert.Equal(0, harness.UnrealPakService.ExtractCallCount);
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+        Assert.Contains("Epic-sourced or locally built", vm.UnrealPakStatusMessage);
     }
 
+    [Fact]
+    public void BrowseUnrealPak_SelectsWithoutExecuting()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+        harness.DialogService.FileToPick = @"C:\my-build\UnrealPak.exe";
+        vm.BrowseUnrealPakExeCommand.Execute(null);
+        Assert.Equal(harness.DialogService.FileToPick, vm.UnrealPakExePath);
+        Assert.Equal(0, harness.UnrealPakInstaller.VerifyCallCount);
+        Assert.Equal(0, harness.UnrealPakInstaller.InstallCallCount);
+    }
+
+    [Fact]
+    public async Task LocalUe4ssSource_RemainsLabeledAndIsNotReplacedOnUpdateCheck()
+    {
+        using var harness = new Harness();
+        var loader = Ue4ssGamePaths.ResolveLoaderFolder(harness.Settings.IcarusContentPath!);
+        Directory.CreateDirectory(loader);
+        File.WriteAllText(Path.Combine(loader, Ue4ssInstalledBuild.LocalSourceMarkerFileName), "local source");
+        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "3.0.1", BundledUe4ss.Commit);
+        var vm = harness.BuildViewModel();
+        await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null);
+        Assert.Contains("Local archive", vm.Ue4ssStatusText);
+        Assert.Contains("not upstream verified", vm.Ue4ssStatusText);
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+    }
     // =====================================================================================
     // 3. InstallOrUpdateUe4ssAsync / UninstallUe4ssAsync — the riskiest, most complex,
     //    completely-untested method in this class before this file: its own doc comment calls
@@ -411,7 +426,7 @@ public sealed class SettingsViewModelTests
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
 
         Assert.Equal("Update UE4SS", harness.DialogService.LastConfirmTitle);
-        Assert.Contains("downloads UE4SS 3.0.1 dev build 1200 from GitHub", harness.DialogService.LastConfirmMessage);
+        Assert.Contains("downloads UE4SS 3.0.1 dev build 1200 from UE4SS-RE/RE-UE4SS on GitHub", harness.DialogService.LastConfirmMessage);
         Assert.Contains("IcarusStutterFix, NoStability", harness.DialogService.LastConfirmMessage);
         Assert.Contains("C++ mods", harness.DialogService.LastConfirmMessage);
         Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
@@ -476,9 +491,9 @@ public sealed class SettingsViewModelTests
         await vm.InstallUe4ssFromZipCommand.ExecuteAsync(null);
 
         Assert.Equal(@"C:\Downloads\UE4SS_v3.0.1-1176-g1ba38db4.zip", harness.Ue4ssLoaderInstallService.LastDownloadedZipPath);
-        // The zip's GitHub name says which build it is, so Starlink records it.
-        Assert.Equal("1ba38db4", harness.Ue4ssLoaderInstallService.LastKnownCommit);
-        Assert.Equal("Installed UE4SS 3.0.1 dev build 1ba38db4 from UE4SS_v3.0.1-1176-g1ba38db4.zip.", vm.Ue4ssStatusMessage);
+        // A familiar filename is not proof of an upstream build.
+        Assert.Null(harness.Ue4ssLoaderInstallService.LastKnownCommit);
+        Assert.Contains("local archive UE4SS_v3.0.1-1176-g1ba38db4.zip (not upstream verified)", vm.Ue4ssStatusMessage);
         Assert.Equal(1, harness.DialogService.ConfirmCallCount);
     }
 
@@ -525,12 +540,49 @@ public sealed class SettingsViewModelTests
         Assert.False(vm.IsInstallingUe4ss);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Ue4ss_BundledOrLocalInstallDeclined_PreservesExistingLoader(bool local)
+    {
+        using var harness = new Harness(dialogConfirmResult: false);
+        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "3.0.1", "local-build");
+        harness.DialogService.FileToPick = @"C:\build\UE4SS_v3.0.1-1181-g83330635.zip";
+        var vm = harness.BuildViewModel();
+        await vm.FirstLaunchSetupTask;
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+
+        if (local) await vm.InstallUe4ssFromZipCommand.ExecuteAsync(null);
+        else await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+        Assert.Equal("local-build", vm.Ue4ssInstalledCommit);
+        Assert.Contains("optional, unofficial", harness.DialogService.LastConfirmMessage);
+        Assert.Contains("user permissions", harness.DialogService.LastConfirmMessage);
+        Assert.Contains("data/pak", harness.DialogService.LastConfirmMessage);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("sha256:invalid")]
+    [InlineData("sha512:unsupported")]
+    public async Task Ue4ss_DownloadWithoutValidDigest_NeverReachesInstaller(string? digest)
+    {
+        using var harness = new Harness(httpHandler: SucceedingHandler([1, 2, 3]));
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", digest, 1200, "abcdef12");
+        var vm = harness.BuildViewModel();
+        await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null);
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+        Assert.Contains("integrity verification", vm.Ue4ssStatusMessage);
+    }
+
     [Fact]
     public async Task InstallOrUpdateUe4ssCommand_Confirmed_DownloadsInstallsAndRefreshesStatus()
     {
         var payloadBytes = new byte[] { 1, 2, 3, 4 };
         using var harness = new Harness(dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes));
-        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", "sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(payloadBytes)), 1200, "abcdef12");
         harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, "3.0.1", "abcdef12");
         var vm = harness.BuildViewModel();
 
@@ -591,7 +643,7 @@ public sealed class SettingsViewModelTests
     {
         var payloadBytes = new byte[] { 9, 9 };
         using var harness = new Harness(dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes));
-        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", "sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(payloadBytes)), 1200, "abcdef12");
         harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "3.0.1", "1c1a1497");
         harness.Ue4ssReleaseClient.OrderToReturn = Ue4ssBuildOrder.Newer;
         harness.Ue4ssLoaderInstallService.InstallOrUpdateException = new IOException("locked file");
@@ -734,7 +786,7 @@ public sealed class SettingsViewModelTests
         var payloadBytes = new byte[] { 1, 2, 3 };
         using var harness = new Harness(
             dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes), gameProcessChecker: new FakeGameProcessChecker(false, true));
-        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", "sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(payloadBytes)), 1200, "abcdef12");
         var vm = harness.BuildViewModel();
         await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null); // so the install downloads, as the name says
 

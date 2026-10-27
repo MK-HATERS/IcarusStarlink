@@ -46,8 +46,8 @@ jobs:
       # The app's own Release build output — not a packaged release (that's still a deliberate,
       # separate manual step: dotnet publish + zip + a GitHub release with real notes), just a
       # downloadable sanity check that a given commit still produces a working build. UnrealPak.exe
-      # itself is never part of this output either way — the app fetches it separately, on first
-      # launch, from its own small dedicated GitHub release (see UnrealPakInstaller.cs).
+      # itself is never part of this output — users select an Epic-sourced or locally built
+      # UE 4.27 copy; the app does not download it.
       - name: Upload build output
         if: always()
         uses: actions/upload-artifact@v4

@@ -84,7 +84,7 @@ public sealed partial class SettingsViewModel
         if (_dialogService.PickFile("Select UnrealPak.exe", "UnrealPak.exe|UnrealPak.exe|Executable files (*.exe)|*.exe") is { } exePath)
         {
             UnrealPakExePath = exePath;
-            _ = VerifyUnrealPakAsync();
+            UnrealPakStatusMessage = "Selected. Check runs this executable with your user permissions; it does not verify its source or safety.";
         }
     }
 
@@ -92,22 +92,6 @@ public sealed partial class SettingsViewModel
 
     [ObservableProperty]
     private string? _unrealPakStatusMessage;
-
-    /// <summary>
-    /// Always true (see IUnrealPakInstaller.PayloadAvailable) — kept as the binding target for the
-    /// install button's IsEnabled rather than removed, so a future build that genuinely can't offer
-    /// an install (e.g. a sandboxed environment with no filesystem/network access at all) has
-    /// somewhere to wire that in without touching the view.
-    /// </summary>
-    public bool CanInstallBundledUnrealPak => _unrealPakInstaller.PayloadAvailable;
-
-    /// <summary>Label flips to Reinstall once the installed copy is what's configured — same button, and reinstalling IS the repair path for a broken copy. Says "UnrealPak" rather than "bundled copy" since installing it may mean downloading it, not just extracting something already shipped alongside the app.</summary>
-    public string InstallUnrealPakButtonLabel =>
-        string.Equals(UnrealPakExePath, _unrealPakInstaller.InstalledExePath, StringComparison.OrdinalIgnoreCase)
-            ? "Reinstall UnrealPak"
-            : "Install UnrealPak";
-
-    partial void OnUnrealPakExePathChanged(string? value) => OnPropertyChanged(nameof(InstallUnrealPakButtonLabel));
 
     /// <summary>
     /// Really runs the exe (see UnrealPakInstaller.VerifyAsync) — deliberately NOT a "check for
@@ -120,7 +104,7 @@ public sealed partial class SettingsViewModel
     {
         if (string.IsNullOrWhiteSpace(UnrealPakExePath))
         {
-            UnrealPakStatusMessage = "No UnrealPak.exe set — install it, or Browse… to one you already have.";
+            UnrealPakStatusMessage = "No UnrealPak.exe set — Browse to your own Epic-sourced or locally built UE 4.27 copy.";
             return;
         }
 
@@ -133,25 +117,8 @@ public sealed partial class SettingsViewModel
                 + (result.EngineVersion.StartsWith('4') ? " (UE4, matches Icarus)." : " — WARNING: not a UE4 build; its paks may not load in Icarus."),
             UnrealPakHealth.Ok => "Working.",
             UnrealPakHealth.Missing => $"Not found at that path. {result.Detail}",
-            _ => $"Broken copy: {result.Detail} Reinstall fixes this.",
+            _ => $"Broken copy: {result.Detail} Select a working UE 4.27 copy.",
         };
-    }
-
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
-    private async Task InstallBundledUnrealPakAsync()
-    {
-        try
-        {
-            UnrealPakStatusMessage = "Installing…";
-            var exePath = await _unrealPakInstaller.InstallAsync();
-            UnrealPakExePath = exePath;
-            Save();
-            await VerifyUnrealPakAsync();
-        }
-        catch (Exception ex)
-        {
-            UnrealPakStatusMessage = $"Install failed: {ex.Message}";
-        }
     }
 
     /// <summary>Refresh game data, for Merge &amp; Install's "Refresh game data, then build" (a no-op while one is already running).</summary>
@@ -257,9 +224,9 @@ public sealed partial class SettingsViewModel
             {
                 UnrealPakHealth.Ok => $"Refresh failed: {ex.Message}",
                 UnrealPakHealth.Missing => $"Refresh failed: {(verify.Detail ?? "UnrealPak.exe isn't at that path").TrimEnd('.')}. "
-                    + "Reinstall in the UnrealPak section above.",
+                    + "Select your own copy in the UnrealPak section above.",
                 _ => $"Refresh failed: your UnrealPak.exe copy looks broken ({verify.Detail?.TrimEnd('.')}). "
-                    + "Reinstall in the UnrealPak section above fixes this.",
+                    + "Select a working copy in the UnrealPak section above.",
             };
         }
         finally

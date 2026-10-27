@@ -11,8 +11,7 @@ public sealed partial class SettingsViewModel
     /// <summary>
     /// Set synchronously, at the start of the launch flow, whenever any prerequisite turned out
     /// to be missing. App.xaml.cs reads it right after constructing this VM to land that launch
-    /// on the Settings page, so what the steps below did (found the game via Steam, installed
-    /// UnrealPak, is extracting game data — all reported through this page's own status lines)
+    /// on the Settings page, so what the steps below did (found the game via Steam, selected UnrealPak, is extracting game data — all reported through this page's own status lines)
     /// is actually visible instead of happening behind the Library page. Deliberately not
     /// navigated from in here: this runs inside the constructor's own fire-and-forget call, and
     /// a NavigateToPageMessage handled mid-construction would resolve this same singleton
@@ -32,7 +31,7 @@ public sealed partial class SettingsViewModel
     /// sees nothing.
     ///   1. Icarus Content folder — auto-detected through Steam and saved silently when found,
     ///      else a Browse offer. Re-checked every launch while still empty, same as UnrealPak.
-    ///   2. UnrealPak.exe — the existing adopt / install / Browse offer.
+    ///   2. UnrealPak.exe — select your own Epic-sourced or locally built tool in Settings.
     ///   3. The first "Update data folder" extraction — offered ONCE (FirstLaunchSetupCompletedAtUtc),
     ///      and only once 1 and 2 are both set, since it needs both. Declining just leaves the
     ///      button in Settings, where it always was.
@@ -157,42 +156,15 @@ public sealed partial class SettingsViewModel
         _settingsService.Save();
     }
 
-    /// <summary>
-    /// First-launch (or any launch with no working UnrealPak): silently adopt a copy that's
-    /// already installed next to the app, else offer to install the bundled payload, else point
-    /// the user at Browse — the "verify, locate, or install next to the exe" flow. Step 2 of
-    /// RunFirstLaunchSetupAsync; quiet whenever the configured path simply works.
-    /// </summary>
-    private async Task EnsureUnrealPakOnLaunchAsync()
+    /// <summary>Never adopt, download or run an unselected tool during setup.</summary>
+    private Task EnsureUnrealPakOnLaunchAsync()
     {
-        if (!string.IsNullOrWhiteSpace(UnrealPakExePath) && File.Exists(UnrealPakExePath))
+        if (string.IsNullOrWhiteSpace(UnrealPakExePath) || !File.Exists(UnrealPakExePath))
         {
-            return;
+            FirstLaunchSetupNeededAttention = true;
+            UnrealPakStatusMessage = "Select your own Epic-sourced or locally built UE 4.27 UnrealPak.exe using Browse, then Save settings. See Help for source/build guidance.";
         }
 
-        FirstLaunchSetupNeededAttention = true;
-
-        // A release zip whose Tools folder was pre-extracted (or a previous install) — adopt it
-        // without ceremony; there's nothing to ask.
-        if (File.Exists(_unrealPakInstaller.InstalledExePath))
-        {
-            UnrealPakExePath = _unrealPakInstaller.InstalledExePath;
-            Save();
-            UnrealPakStatusMessage = "Using the copy installed next to the app.";
-            return;
-        }
-
-        var answer = _dialogService.Confirm(
-            "IcarusStarlink needs UnrealPak.exe to build and unpack mod paks, and none is set up yet.\n\n"
-            + "Install it now? (Downloads a small, one-time payload if there isn't already a copy shipped alongside the app. Choose No to point at one you already have, in Settings.)",
-            "Set up UnrealPak", ThemedConfirmSeverity.Question);
-        if (answer)
-        {
-            await InstallBundledUnrealPakAsync();
-        }
-        else
-        {
-            UnrealPakStatusMessage = "No UnrealPak.exe set — install it, or Browse… to one you already have.";
-        }
+        return Task.CompletedTask;
     }
 }

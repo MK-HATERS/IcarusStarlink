@@ -54,6 +54,15 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
         {
             InstallOrUpdateCore(icarusContentPath, downloadedZipPath, backupDirectory);
             Ue4ssInstalledBuild.RecordInstalled(Ue4ssGamePaths.ResolveLoaderFolder(icarusContentPath), knownVersion, knownCommit);
+            var localMarker = Path.Combine(Ue4ssGamePaths.ResolveLoaderFolder(icarusContentPath), Ue4ssInstalledBuild.LocalSourceMarkerFileName);
+            if (knownVersion is null && knownCommit is null)
+            {
+                File.WriteAllText(localMarker, "User-selected local archive; upstream provenance not verified.");
+            }
+            else
+            {
+                File.Delete(localMarker);
+            }
         }, cancellationToken);
 
     private static void InstallOrUpdateCore(string icarusContentPath, string downloadedZipPath, string backupDirectory)

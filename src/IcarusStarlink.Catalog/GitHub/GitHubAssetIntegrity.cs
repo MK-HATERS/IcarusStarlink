@@ -3,55 +3,39 @@ using System.Security.Cryptography;
 namespace IcarusStarlink.Catalog.GitHub;
 
 /// <summary>
-/// Shared SHA-256 verification for a file downloaded from a GitHub release asset, against that
-/// asset's own "sha256:&lt;hex&gt;" digest field (when GitHub's API happens to include one) — used
-/// by both AppUpdateClient (this app's own self-update) and the UE4SS loader install flow, so a
-/// tampered/corrupted download is caught the same way regardless of which GitHub repo the asset
-/// came from. Previously only the self-update path had this check; the UE4SS loader download
-/// (writes a third-party DLL into the game's own Binaries\Win64 folder) had none at all.
+/// Requires a valid SHA-256 release-asset digest before executable downloads can be used.
+/// Checks integrity against GitHub metadata, not publisher safety or provenance.
 /// </summary>
 public static class GitHubAssetIntegrity
 {
-    /// <summary>
-    /// A null digest — field absent from the response, an older cached response, or GitHub
-    /// changing the shape again — is deliberately NOT a failure: this only ever hard-fails on a
-    /// digest that IS present and does not match, which means the bytes just written to disk are
-    /// not what GitHub says it published and must not be handed off to whatever installs them.
-    /// Deletes the file before throwing so a caller can't accidentally proceed with an
-    /// unverified download.
-    /// </summary>
     public static async Task VerifySha256Async(string? digest, string filePath, CancellationToken cancellationToken = default)
     {
-        const string sha256Prefix = "sha256:";
-        if (digest is null || !digest.StartsWith(sha256Prefix, StringComparison.OrdinalIgnoreCase))
+        const string prefix = "sha256:";
+        if (digest is null || !digest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            || digest.Length != prefix.Length + 64 || !digest[prefix.Length..].All(Uri.IsHexDigit))
         {
-            return;
+            Reject(filePath, "Downloaded file has no valid SHA-256 integrity verification metadata — aborting.");
         }
 
-        var expectedHex = digest[sha256Prefix.Length..];
-
-        byte[] actualHashBytes;
-        await using (var fileStream = File.OpenRead(filePath))
+        byte[] actualHash;
+        await using (var stream = File.OpenRead(filePath))
         {
-            actualHashBytes = await SHA256.HashDataAsync(fileStream, cancellationToken);
+            actualHash = await SHA256.HashDataAsync(stream, cancellationToken);
         }
 
-        var actualHex = Convert.ToHexString(actualHashBytes);
-        if (string.Equals(expectedHex, actualHex, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(digest![prefix.Length..], Convert.ToHexString(actualHash), StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            Reject(filePath, "Downloaded file failed integrity verification — aborting.");
         }
+    }
 
-        try
+    private static void Reject(string path, string message)
+    {
+        try { File.Delete(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            File.Delete(filePath);
+            // Cleanup is best-effort; rejection still prevents use of the file.
         }
-        catch (Exception)
-        {
-            // Best-effort — the integrity failure below is what actually matters; a leftover temp
-            // file on top of it doesn't change that this download must be rejected.
-        }
-
-        throw new InvalidOperationException("Downloaded file failed integrity verification — aborting.");
+        throw new InvalidOperationException(message);
     }
 }

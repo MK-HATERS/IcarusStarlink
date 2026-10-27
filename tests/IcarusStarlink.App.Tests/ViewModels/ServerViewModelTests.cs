@@ -613,6 +613,29 @@ public sealed class ServerViewModelTests
         }
     }
 
+    [Fact]
+    public async Task SyncUe4ssLoader_Declined_DoesNotUploadExecutableCode()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        try
+        {
+            WriteFile(Ue4ssGamePaths.ResolveLoaderDllPath(settings.Current.IcarusContentPath!));
+            WriteFile(Ue4ssGamePaths.ResolveDwmapiPath(settings.Current.IcarusContentPath!));
+            var ftp = new MemoryFtpClient();
+            var dialogs = new FakeDialogService(confirmResult: false);
+            var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), ftp, dialogs, settings: settings);
+            vm.SelectedSite = vm.Sites.Single();
+            vm.PasswordInput = "irrelevant-password";
+            await vm.ConnectCommand.ExecuteAsync(null);
+
+            await vm.SyncUe4ssLoaderToServerCommand.ExecuteAsync(null);
+
+            Assert.Empty(ftp.Files);
+            Assert.Equal(1, dialogs.ConfirmCallCount);
+        }
+        finally { Directory.Delete(folder, recursive: true); }
+    }
+
     /// <summary>An FTP server in memory with real folders and file contents: listing shows the direct children.</summary>
     private sealed class MemoryFtpClient : IFtpClient
     {

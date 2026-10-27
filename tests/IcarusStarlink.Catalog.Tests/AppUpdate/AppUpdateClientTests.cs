@@ -157,9 +157,8 @@ public class AppUpdateClientTests
     public async Task DownloadAssetAsync_UsesBrowserDownloadUrl()
     {
         var client = CreateClient(new Dictionary<string, string> { [BrowserDownloadUrl] = "zip-bytes" });
-        // No AssetDigest at all — this doubles as the "digest absent still proceeds" coverage:
-        // an old/uncommon GitHub response shape must not block every download.
-        var release = new AppUpdateRelease("0.10.0", "", BrowserDownloadUrl);
+        // Executable downloads require integrity metadata.
+        var release = new AppUpdateRelease("0.10.0", "", BrowserDownloadUrl, MatchingDigestForZipBytes);
         var destinationPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.zip");
 
         try

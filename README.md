@@ -25,7 +25,7 @@ below.*
    self-contained, portable build, so nothing else needs to be installed separately (no .NET
    runtime download required).
 3. Run `IcarusStarlink.exe` from that folder (before 3.0 it was `IcarusStarlink.App.exe`; that name is now a small launcher that Starlink offers to remove once your shortcuts point at the new one). First launch sets itself up: it finds your
-   Icarus install through Steam (or asks you to browse to it), installs UnrealPak, and offers to
+   Icarus install through Steam (or asks you to browse to it), asks you to select your own UnrealPak, and offers to
    extract the game's data. Everything it set lives in **Settings** if you ever need to change
    it — see [Getting started](#faq--troubleshooting) below if anything's unclear.
 
@@ -207,7 +207,7 @@ gathered from the feature descriptions above:
   registered so "Download with Manager" on the Nexus website opens straight into this app.
 - **Network calls this app makes**: the Nexus API (only once you've entered an API key, for
   browsing/search/downloads); GitHub (this app's own release check on every launch, the community
-  mod catalog, and — only when you click Install/Update in Settings — UnrealPak.exe and a newer
+  mod catalog, and — only when you click Install/Update in Settings — a newer
   UE4SS loader); SteamCMD and Steam's own servers, only when you install or update a dedicated
   server; and, only if you configure one, your own FTP server on the Server tab. Nothing
   else. There is no telemetry, analytics, or usage tracking of any kind anywhere in this app.
@@ -244,9 +244,9 @@ description on the [Releases page](https://github.com/MK-HATERS/IcarusStarlink/r
 for a VirusTotal scan link.
 
 **How do I get started after installing?** Just run it — first launch finds your Icarus install
-through Steam (or asks you to browse to it), installs UnrealPak, and offers to extract the game's
+through Steam (or asks you to browse to it), asks you to select your own UnrealPak, and offers to extract the game's
 data. If you skipped any of that, it's all in Settings: Icarus Content folder (Auto-detect or
-Browse) → UnrealPak → Install → Update data folder. Then import mods on the Library tab. The in-app **Help** page walks through this in more detail and covers every feature.
+Browse) → UnrealPak → Browse to your own UE 4.27 copy → Update data folder. Then import mods on the Library tab. The in-app **Help** page walks through this in more detail and covers every feature.
 
 ## Support & bug reports
 
@@ -263,7 +263,7 @@ changed since the last version.
 
 ## Building
 
-Requires the .NET 10 SDK on Windows (WPF).
+Requires the .NET 10 SDK on Windows (WPF). See [Executable tools and local builds](docs/EXECUTABLE-TOOLS.md) for pinned source builds, Epic-sourced UnrealPak, optional local UE4SS distributions, and remaining trust boundaries.
 
 ```console
 dotnet build IcarusStarlink.slnx

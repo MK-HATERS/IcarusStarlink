@@ -9,6 +9,7 @@ namespace IcarusStarlink.Core.Ue4ss;
 public static class Ue4ssInstalledBuild
 {
     public const string MarkerFileName = "UE4SS.starlink-build.txt";
+    public const string LocalSourceMarkerFileName = "UE4SS.starlink-local.txt";
 
     /// <summary>Version and commit from UE4SS.log, else from Starlink's marker; nulls when neither says.</summary>
     public static (string? Version, string? Commit) Read(string ue4ssFolder)

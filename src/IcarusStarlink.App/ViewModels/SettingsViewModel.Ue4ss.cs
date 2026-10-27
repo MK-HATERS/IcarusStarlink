@@ -15,8 +15,13 @@ namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class SettingsViewModel
 {
+    internal const string Ue4ssExecutionWarning =
+        "UE4SS is an optional, unofficial framework. The loader and Lua/native mods execute code with the game's user permissions. Ordinary data/pak mod management does not need it. Only install code you trust.\n\n";
+
     [ObservableProperty]
     private bool _isUe4ssInstalled;
+
+    private bool _ue4ssIsLocalSource;
 
     [ObservableProperty]
     private string? _ue4ssInstalledVersion;
@@ -66,12 +71,19 @@ public sealed partial class SettingsViewModel
         {
             if (!IsUe4ssInstalled)
             {
-                return $"Not installed. Starlink comes with UE4SS {BundledUe4ss.Label}.";
+                return $"Not installed (optional). Bundled UE4SS {BundledUe4ss.Label} is available only if you choose to install it.";
             }
 
             if (Ue4ssInstalledVersion is null)
             {
-                return "Installed (its build shows once the game has started with it).";
+                return _ue4ssIsLocalSource
+                    ? "Installed from a user-selected local archive (not upstream verified)."
+                    : "Installed (its build shows once the game has started with it).";
+            }
+
+            if (_ue4ssIsLocalSource)
+            {
+                return $"Local archive installed; reports {Ue4ssInstalledLabel} (not upstream verified). Kept until you explicitly replace it.";
             }
 
             return Ue4ssInstallOrder switch
@@ -194,9 +206,11 @@ public sealed partial class SettingsViewModel
         try
         {
             var status = _ue4ssLoaderInstallService.GetStatus(contentPath);
+            _ue4ssIsLocalSource = File.Exists(Path.Combine(Ue4ssGamePaths.ResolveLoaderFolder(contentPath), Ue4ssInstalledBuild.LocalSourceMarkerFileName));
             IsUe4ssInstalled = status.IsInstalled;
             Ue4ssInstalledVersion = status.InstalledVersion;
             Ue4ssInstalledCommit = status.InstalledCommit;
+            NotifyUe4ssLabels();
         }
         catch (Exception)
         {
@@ -317,10 +331,10 @@ public sealed partial class SettingsViewModel
             ? "Yours is newer: this replaces it with an older build. To keep yours, cancel.\n\n"
             : "";
         var result = _dialogService.Confirm(
-            current + downgrade + (fromGitHub
-                ? $"This downloads UE4SS {label} from GitHub and installs it into your game's Binaries\\Win64 folder "
+            Ue4ssExecutionWarning + current + downgrade + (fromGitHub
+                ? $"This downloads UE4SS {label} from UE4SS-RE/RE-UE4SS on GitHub and installs it into your game's Binaries\\Win64 folder "
                 : $"This installs UE4SS {label}, which comes with Starlink (no download), into your game's Binaries\\Win64 folder ") +
-            "— the loader that lets Lua/scripting mods run.\n\n" +
+            "— the loader that lets Lua/native mods run.\n\n" +
             NativeModsWarning() +
             "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Any mods already in your Mods folder, " +
             "and your own UE4SS-settings.ini if you've customized it, are left untouched.\n\n" +
@@ -351,7 +365,7 @@ public sealed partial class SettingsViewModel
                 // A real bug found live: unlike this app's own self-update (AppUpdateClient), this
                 // download had no integrity check at all — it writes a third-party DLL loader straight
                 // into the game's own Binaries\Win64 folder. Same GitHubAssetIntegrity check, same
-                // "null digest skips rather than fails" tolerance — see its own doc comment.
+                // strict rejection of missing or malformed digests.
                 await GitHubAssetIntegrity.VerifySha256Async(release.Digest, tempZipPath);
             }
             else
@@ -426,12 +440,11 @@ public sealed partial class SettingsViewModel
             return;
         }
 
-        // A release zip keeps GitHub's name ("UE4SS_v3.0.1-1176-g1ba38db4.zip"), which says which build it is.
-        var knownBuild = Ue4ssBuild.TryParseDevAssetName(Path.GetFileName(zipPath), out var zipVersion, out _, out var zipCommit);
-        var changesBuild = !knownBuild || !Ue4ssBuild.SameCommit(zipCommit, Ue4ssInstalledCommit);
+        // A filename cannot establish the build or native-mod compatibility.
         if (!_dialogService.Confirm(
+                Ue4ssExecutionWarning + "Local archive: selected by you; not verified as an upstream release.\n\n" +
                 $"Install UE4SS from\n{zipPath}\ninto your game's Binaries\\Win64 folder?\n\n" +
-                (changesBuild ? NativeModsWarningFor(changing: true) : "") +
+                NativeModsWarningFor(changing: true) +
                 "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Mods already in your Mods folder, " +
                 "and your own UE4SS-settings.ini, are left untouched.",
                 "Install UE4SS from a zip", ThemedConfirmSeverity.Question))
@@ -450,10 +463,10 @@ public sealed partial class SettingsViewModel
         try
         {
             await _ue4ssLoaderInstallService.InstallOrUpdateAsync(
-                contentPath, zipPath, _backupDirectory, knownBuild ? zipVersion : null, knownBuild ? zipCommit : null);
+                contentPath, zipPath, _backupDirectory, knownVersion: null, knownCommit: null);
             RefreshUe4ssStatus();
             Ue4ssCheckedOrder = Ue4ssBuildOrder.Unknown;
-            Ue4ssStatusMessage = $"Installed UE4SS{(Ue4ssInstalledVersion is not null ? $" {Ue4ssInstalledLabel}" : "")} from {Path.GetFileName(zipPath)}.";
+            Ue4ssStatusMessage = $"Installed UE4SS{(Ue4ssInstalledVersion is not null ? $" {Ue4ssInstalledLabel}" : "")} from local archive {Path.GetFileName(zipPath)} (not upstream verified).";
             WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage(Ue4ssStatusMessage));
         }
         catch (Exception ex)

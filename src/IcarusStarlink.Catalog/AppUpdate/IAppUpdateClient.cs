@@ -28,9 +28,8 @@ public interface IAppUpdateClient
     /// Downloads release's own zip asset to destinationPath. Throws on failure — unlike
     /// GetLatestReleaseAsync, a caller that got this far already knows a real update exists and
     /// needs to know if fetching it failed. Also throws (deleting the downloaded file first) if
-    /// release.AssetDigest was present and doesn't match the downloaded file's own SHA-256 — a
-    /// caller must NOT proceed to Apply on that exception. A null/absent AssetDigest is not an
-    /// error: verification is simply skipped and the download is returned as successful.
+    /// release.AssetDigest is missing, malformed, unsupported or does not match the file's SHA-256.
+    /// A caller must NOT proceed to Apply on that exception.
     /// </summary>
     Task DownloadAssetAsync(AppUpdateRelease release, string destinationPath, CancellationToken cancellationToken = default);
 

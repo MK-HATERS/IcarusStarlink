@@ -1,30 +1,13 @@
-using System.IO.Compression;
 using System.Text.Json;
-using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.PakIO.Pak;
 
-public sealed class UnrealPakInstaller(IProcessRunner processRunner, HttpClient httpClient, string appBaseDirectory) : IUnrealPakInstaller
+public sealed class UnrealPakInstaller(IProcessRunner processRunner, string appBaseDirectory) : IUnrealPakInstaller
 {
-    /// <summary>Relative layout inside the payload zip mirrors Epic's own tree — the exe needs its sibling DLLs and the Engine\Config/Oodle-plugin folders at their expected relative paths, so the whole tree ships as-is rather than being flattened.</summary>
-    private const string ExeRelativePath = @"Engine\Binaries\Win64\UnrealPak.exe";
+    // Legacy location is exposed for callers, but never adopted or executed automatically.
+    public string InstalledExePath => Path.Combine(appBaseDirectory, "Tools", "UnrealPak", "Engine", "Binaries", "Win64", "UnrealPak.exe");
 
-    /// <summary>
-    /// A fixed, dedicated release tag — deliberately NOT one of the app's own version tags —
-    /// since UnrealPak.exe is pinned to UE 4.27 and doesn't change release to release; re-bundling
-    /// the same ~10MB payload into every future app release zip would be pure churn. A release
-    /// asset's download URL is a plain static-file redirect (unlike api.github.com), so this needs
-    /// no API call, User-Agent header, or JSON parsing — just a direct GET.
-    /// </summary>
-    private const string RemotePayloadUrl = "https://github.com/MK-HATERS/IcarusStarlink/releases/download/unrealpak-4.27/UnrealPak.zip";
-
-    private string InstallRoot => Path.Combine(appBaseDirectory, "Tools", "UnrealPak");
-
-    private string PayloadZipPath => Path.Combine(appBaseDirectory, "Tools", "UnrealPak.zip");
-
-    public string InstalledExePath => Path.Combine(InstallRoot, ExeRelativePath);
-
-    public bool PayloadAvailable => true;
+    public bool PayloadAvailable => false;
 
     public async Task<UnrealPakVerifyResult> VerifyAsync(string exePath, CancellationToken cancellationToken = default)
     {
@@ -52,117 +35,10 @@ public sealed class UnrealPakInstaller(IProcessRunner processRunner, HttpClient 
         }
     }
 
-    public async Task<string> InstallAsync(CancellationToken cancellationToken = default)
-    {
-        // Replaced rather than extracted over (a Reinstall's whole purpose is repairing a corrupt
-        // copy, and extracting over one leaves any extra/renamed stale file in place) — but only
-        // once the new copy is fully unpacked and checked (ExtractPayloadIntoInstallRootAsync): a
-        // Reinstall with no internet used to delete the working copy first and leave none at all.
-        if (File.Exists(PayloadZipPath))
-        {
-            await ExtractPayloadIntoInstallRootAsync(PayloadZipPath, cancellationToken);
-        }
-        else
-        {
-            await DownloadAndExtractRemotePayloadAsync(cancellationToken);
-        }
-
-        return InstalledExePath;
-    }
-
-    private async Task DownloadAndExtractRemotePayloadAsync(CancellationToken cancellationToken)
-    {
-        // Downloads to a temp file rather than straight into InstallRoot — ZipFile.ExtractToDirectory
-        // needs a real file on disk (no stream overload), and a partial/corrupt download must not
-        // leave anything behind under InstallRoot for VerifyAsync to later find and misreport as "Ok".
-        var tempZipPath = Path.Combine(Path.GetTempPath(), $"UnrealPak-{Guid.NewGuid():N}.zip");
-        try
-        {
-            try
-            {
-                await HttpFileDownloader.DownloadToFileAsync(httpClient, [RemotePayloadUrl], tempZipPath, HttpFileDownloader.DefaultIdleTimeout, cancellationToken);
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TimeoutException)
-            {
-                throw new InvalidOperationException(
-                    $"Couldn't download UnrealPak from GitHub — check your internet connection. ({ex.Message})", ex);
-            }
-
-            await ExtractPayloadIntoInstallRootAsync(tempZipPath, cancellationToken);
-        }
-        finally
-        {
-            File.Delete(tempZipPath);
-        }
-    }
-
-    /// <summary>
-    /// ZipFile.ExtractToDirectory isn't transactional: a corrupt entry halfway through a payload,
-    /// disk-full, or an antivirus lock on one DLL used to leave whatever had already been
-    /// extracted — possibly UnrealPak.exe itself — sitting under InstallRoot, so a later
-    /// VerifyAsync reported a half-installed tool as Ok (or Broken with a baffling message), and
-    /// the raw InvalidDataException surfaced instead of the plain-language errors every other
-    /// failure here produces. Extracting into a sibling scratch folder, checking it holds the exe,
-    /// and only then swapping it in means InstallRoot is either the whole new copy or, on any
-    /// failure, whatever was there before (the previous copy is put back if the swap fails).
-    /// </summary>
-    private async Task ExtractPayloadIntoInstallRootAsync(string zipPath, CancellationToken cancellationToken)
-    {
-        var partialRoot = $"{InstallRoot}_partial_{Guid.NewGuid():N}";
-        var retiredRoot = $"{InstallRoot}_old_{Guid.NewGuid():N}";
-        try
-        {
-            await Task.Run(() => ZipFile.ExtractToDirectory(zipPath, partialRoot), cancellationToken);
-            if (!File.Exists(Path.Combine(partialRoot, ExeRelativePath)))
-            {
-                throw new InvalidOperationException(
-                    $"The download doesn't contain '{ExeRelativePath}', so it can't be used. Your current UnrealPak (if any) was left as it was.");
-            }
-
-            if (Directory.Exists(InstallRoot))
-            {
-                Directory.Move(InstallRoot, retiredRoot);
-            }
-
-            try
-            {
-                Directory.Move(partialRoot, InstallRoot);
-            }
-            catch when (Directory.Exists(retiredRoot) && !Directory.Exists(InstallRoot))
-            {
-                Directory.Move(retiredRoot, InstallRoot);
-                throw;
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException and not InvalidOperationException)
-        {
-            throw new InvalidOperationException(
-                $"The UnrealPak payload couldn't be unpacked ({ex.Message}) — it may be a corrupt or incomplete download; try Install again.", ex);
-        }
-        finally
-        {
-            DeleteScratch(partialRoot);
-            DeleteScratch(retiredRoot);
-        }
-    }
-
-    private static void DeleteScratch(string folder)
-    {
-        if (!Directory.Exists(folder))
-        {
-            return;
-        }
-
-        try
-        {
-            Directory.Delete(folder, recursive: true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // Scratch only — nothing reads it, and the next Install attempt uses a fresh name.
-        }
-    }
-
+    // No authenticated Epic payload is pinned here. Refuse even an old Tools/UnrealPak.zip.
+    public Task<string> InstallAsync(CancellationToken cancellationToken = default) =>
+        Task.FromException<string>(new InvalidOperationException(
+            "Automatic UnrealPak installation is disabled. Select your own Epic-sourced or locally built UE 4.27 UnrealPak.exe in Settings."));
     /// <summary>Epic's own UnrealPak.version JSON sits next to the exe ({"MajorVersion":4,"MinorVersion":27,...}) — best-effort, since a hand-assembled copy may not carry it.</summary>
     private static string? TryReadEngineVersion(string exePath)
     {

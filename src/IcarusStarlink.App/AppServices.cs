@@ -131,7 +131,7 @@ internal static class AppServices
         services.AddSingleton<IInstallService, InstallService>();
         services.AddSingleton<IPakCompareService, PakCompareService>();
         services.AddSingleton<IUnrealPakInstaller>(sp =>
-            new UnrealPakInstaller(sp.GetRequiredService<IProcessRunner>(), sp.GetRequiredService<HttpClient>(), appDataDirectory));
+            new UnrealPakInstaller(sp.GetRequiredService<IProcessRunner>(), appDataDirectory));
         services.AddSingleton<IModVersionComparer, ModVersionComparer>();
         services.AddSingleton(sp => new ImmMigrationService(
             sp.GetRequiredService<ILibraryRepository>(),

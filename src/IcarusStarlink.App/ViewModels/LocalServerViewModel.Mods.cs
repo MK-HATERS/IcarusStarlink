@@ -330,6 +330,14 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        if (!_dialogService.Confirm(
+                SettingsViewModel.Ue4ssExecutionWarning +
+                $"Copy your game's UE4SS loader to '{p.Name}', replacing any existing loader? The server runs this code with the server account's permissions. Its settings and mods are kept.",
+                "Install UE4SS on server", ThemedConfirmSeverity.Warning))
+        {
+            return;
+        }
+
         try
         {
             StatusMessage = ServerModFiles.InstallUe4ssFromGame(gameWin64, p.InstallFolder)

@@ -265,7 +265,8 @@ public sealed partial class ServerViewModel
                 .Select(r => Path.Combine(localLoaderFolder, r))
                 .ToList();
 
-            var prompt =
+            var prompt = SettingsViewModel.Ue4ssExecutionWarning +
+                "On the remote server this code runs with the server account's permissions.\n\n" +
                 $"This will upload {localFiles.Count} loader file(s) (UE4SS.dll, dwmapi.dll, etc.) to '{RemoteWin64Path}' on "
                 + $"'{_connectedSite?.Name}', replacing its current loader ({(remoteVersion is null ? "not installed" : Ue4ssBuild.Describe(remoteVersion, remoteCommit))}) with yours ({localLabel}). "
                 + $"The server's own Mods folder{(remoteHasSettings ? " and its existing UE4SS-settings.ini" : "")} won't be touched. Continue?";

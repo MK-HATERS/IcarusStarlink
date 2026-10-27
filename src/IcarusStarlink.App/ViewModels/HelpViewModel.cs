@@ -11,10 +11,10 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Getting started", """
             # Getting started
 
-            First launch does the setup for you: it finds your Icarus install through Steam (or asks you to browse to it), installs UnrealPak, and offers to extract the game's data — then lands on Settings so you can see what it did. If you skipped a step, or ever need to change one, here's the same setup by hand, in order:
+            First launch does the setup for you: it finds your Icarus install through Steam (or asks you to browse to it), asks you to select your own UnrealPak, and offers to extract the game's data — then lands on Settings so you can see what it did. If you skipped a step, or ever need to change one, here's the same setup by hand, in order:
 
             - Open **Settings** and set your Icarus **Content folder** (…\Icarus\Icarus\Content). Click **Auto-detect** first — it reads your real Steam library and usually finds it without you browsing manually.
-            - Set **UnrealPak.exe** — on first launch the app offers to install the bundled copy next to itself (one click), or Browse… to one you already have (classic IMM ships one under its own UnrealPak folder). The bundle is UnrealPak **4.27**, the same UE4 version Icarus is built on — deliberately not "the latest": newer UE5 builds write pak formats Icarus's engine can't load. **Check** in Settings verifies your copy actually runs; **Reinstall bundled copy** repairs a broken one.
+            - Set **UnrealPak.exe** — Browse to a copy obtained directly from Epic or built from Epic UE **4.27** source. Keep its DLLs and Engine folders together. Starlink does not download or silently adopt a tool. **Check** executes it with your user permissions; output checks operation, not authenticity or safety. UE5 tools may produce incompatible paks. See **docs/EXECUTABLE-TOOLS.md** in the source repository for source/build guidance and Epic access requirements.
             - Click **Refresh game data**. This extracts the game's current mod-relevant data so merge/edit has something real to work against — re-run it whenever the game updates.
             - Go to **Library** and import a mod (EXMODZ, a folder, or a .pak), or find one on the **Database** page (Nexus and the IMM Database).
             """),
