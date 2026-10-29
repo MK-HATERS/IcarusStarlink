@@ -36,13 +36,18 @@ public sealed partial class SaveBestiaryEntryViewModel : DirtyRow
     /// <summary>"Forest", "Great Hunt arenas" — the heading it's listed under.</summary>
     public string Group { get; }
 
+    /// <summary>Where its group is listed: biomes in the game table's order; a creature the tables lack goes last.</summary>
+    public int GroupOrder { get; }
+
     /// <summary>Its field-guide entry is fully unlocked.</summary>
     public bool IsComplete => PointsRequired > 0 && EffectivePoints >= PointsRequired;
 
-    public SaveBestiaryEntryViewModel(string rowName, string displayName, int pointsRequired, bool isBoss, int currentPoints, string? imagePath, Action onDirtyChanged, string group = "")
+    public SaveBestiaryEntryViewModel(string rowName, string displayName, int pointsRequired, bool isBoss, int currentPoints, string? imagePath, Action onDirtyChanged, string group = "",
+        int groupOrder = int.MaxValue)
         : base(onDirtyChanged)
     {
         Group = group.Length > 0 ? group : "Not in the game's tables";
+        GroupOrder = group.Length > 0 ? groupOrder : int.MaxValue;
         RowName = rowName;
         DisplayName = displayName;
         PointsRequired = pointsRequired;

@@ -32,8 +32,14 @@ public sealed partial class SaveTalentViewModel : DirtyRow
     /// <summary>The row's own bDefaultUnlocked: the game grants it from the start without ever writing it into the save, so rank 0 here still means "unlocked in game".</summary>
     public bool IsDefaultUnlocked { get; }
 
-    /// <summary>The heading it's listed under: "Survival · Resources", "Tier 2 · Bench", "Olympus".</summary>
+    /// <summary>The heading it's listed under: "Survival · Resources", "Tier 2 · Crafting Bench", "Olympus".</summary>
     public string Group { get; }
+
+    /// <summary>Where its group is listed (SaveGroupOrder): blueprint tiers 1 to 5, the game's tree order; int.MaxValue last.</summary>
+    public int GroupOrder { get; }
+
+    /// <summary>Its row's place in the game's D_Talents: missions list in this order.</summary>
+    public int Order { get; }
 
     /// <summary>Player, Blueprint, Solo, Workshop or Prospect.</summary>
     public string Model { get; }
@@ -84,6 +90,8 @@ public sealed partial class SaveTalentViewModel : DirtyRow
         MaxRank = info.MaxRank;
         IsDefaultUnlocked = info.IsDefaultUnlocked;
         Group = info.Group.Length > 0 ? info.Group : info.Tree;
+        GroupOrder = info.GroupOrder;
+        Order = info.Order;
         Model = info.Model;
         Cost = info.Cost;
         // A rank the save already carries above the table's cap is kept as-is (an older game
@@ -127,8 +135,10 @@ public sealed partial class SaveTalentViewModel : DirtyRow
 /// <summary>The slice of TalentInfo the row needs, with a fallback for talents the game table doesn't know (an ID from a different game version) — those show by RowName, uncapped.</summary>
 /// <param name="Group">"Survival · Resources" — the tree it's listed under.</param>
 /// <param name="Model">Player, Blueprint, Solo, Workshop or Prospect (SaveGameNames.TreeInfo).</param>
+/// <param name="GroupOrder">Where its group is listed (TreeInfo.Order): blueprint tiers 1 to 5, trees in the game's order.</param>
+/// <param name="Order">Its row's place in D_Talents (TalentInfo.Order).</param>
 public sealed record TalentDisplayInfo(string DisplayName, string Description, string Tree, int MaxRank, bool IsDefaultUnlocked,
-    string Group = "", string Model = "", string? Cost = null)
+    string Group = "", string Model = "", string? Cost = null, int GroupOrder = int.MaxValue, int Order = int.MaxValue)
 {
     public static TalentDisplayInfo Fallback(string rowName) =>
         new(ReadableRowName(rowName), "", "", 0, false, "Not in the game's tables (from a mod, or removed)") { IsInGameTables = false };

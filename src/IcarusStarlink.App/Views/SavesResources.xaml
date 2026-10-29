@@ -101,6 +101,39 @@
         </Setter>
     </Style>
 
+    <!-- The Bestiary's biome group: the same Expander, plus "Complete all" for that biome's
+         listed creatures (CompleteBestiaryGroupCommand, with the group's name). -->
+    <Style x:Key="SaveBestiaryGroupItemStyle" TargetType="GroupItem">
+        <Setter Property="Margin" Value="0,0,0,6"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="GroupItem">
+                    <Expander IsExpanded="True" views:SaveGroupExpansion.Remember="True" AutomationProperties.Name="{Binding Name}">
+                        <Expander.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Name}" Style="{StaticResource ExpanderHeaderTitleStyle}" VerticalAlignment="Center"/>
+                                <TextBlock Style="{StaticResource ExpanderHeaderStateStyle}">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource SaveGroupCountConverter}">
+                                            <Binding/>
+                                            <Binding Path="Tag" RelativeSource="{RelativeSource AncestorType=ItemsControl}"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                                <Button Content="Complete all" Padding="8,1" Margin="12,0,0,0" FontSize="11.5" VerticalAlignment="Center"
+                                        Command="{Binding DataContext.CompleteBestiaryGroupCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                        CommandParameter="{Binding Name}"
+                                        AutomationProperties.Name="{Binding Name, StringFormat='Complete all: {0}'}"
+                                        ToolTip="Fills every creature listed in this group (after the search and filter) to its full points"/>
+                            </StackPanel>
+                        </Expander.Header>
+                        <ItemsPresenter/>
+                    </Expander>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- One tier of a tiered accolade ("III"): a small chip, filled when earned. -->
     <Style x:Key="AccoladeTierChipStyle" TargetType="ToggleButton">
         <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>

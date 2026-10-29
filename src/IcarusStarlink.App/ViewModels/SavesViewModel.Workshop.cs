@@ -55,9 +55,9 @@ public sealed partial class SavesViewModel
 
     private void RefreshAccountTalentFilters()
     {
-        RefreshFilter(WorkshopTalents.Where(t => !IsMission(t)).OrderBy(t => t.Group, StringComparer.OrdinalIgnoreCase), FilteredWorkshop, WorkshopSearchText, null,
+        RefreshFilter(SaveGroupOrder.Talents(WorkshopTalents.Where(t => !IsMission(t))), FilteredWorkshop, WorkshopSearchText, null,
             t => t.DisplayName, t => t.RowName, t => t.Group);
-        RefreshFilter(WorkshopTalents.Where(t => IsMission(t) && !IsDevMission(t)).OrderBy(t => t.Group, StringComparer.OrdinalIgnoreCase), FilteredMissions, MissionSearchText,
+        RefreshFilter(SaveGroupOrder.Missions(WorkshopTalents.Where(t => IsMission(t) && !IsDevMission(t))), FilteredMissions, MissionSearchText,
             ShowUndoneMissionsOnly ? t => t.Rank == 0 : null,
             t => t.DisplayName, t => t.RowName, t => t.Group);
         OnPropertyChanged(nameof(WorkshopSummary));

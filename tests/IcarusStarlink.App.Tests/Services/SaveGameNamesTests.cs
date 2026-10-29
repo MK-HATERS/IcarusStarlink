@@ -210,4 +210,115 @@ public sealed class SaveGameNamesTests : IDisposable
         Assert.Equal(2, names.TalentPointModifiers["GrantedTalent_Story"]);
         Assert.Equal(FlagKind.FromTalent, names.CharacterFlagInfo(0).Kind);
     }
+
+    /// <summary>
+    /// The user's ask (2026-10-28): blueprints by tier. Blueprint trees have no name of their own
+    /// and listed as "Tier 2 · Blueprint T2 Crafting", alphabetically. Now each says its bench and
+    /// they come Tier 1 to Tier 5, after the talent trees and before Solo, as in the real tables
+    /// (Tier 5's archetype comes after Solo there).
+    /// </summary>
+    [Fact]
+    public void BlueprintTrees_AreTiersInOrder_NamedAfterTheirBench()
+    {
+        Write(@"Talents\D_TalentArchetypes.json", """
+            { "Defaults": { "RequiredLevel": 0 },
+              "Rows": [
+                { "Name": "Survival", "Model": { "RowName": "Player" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Survival\")" },
+                { "Name": "Blueprint_Player", "Model": { "RowName": "Blueprint" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Tier 1\")" },
+                { "Name": "Blueprint_Crafting", "Model": { "RowName": "Blueprint" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Tier 2\")", "RequiredLevel": 10 },
+                { "Name": "Blueprint_Machine", "Model": { "RowName": "Blueprint" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Tier 3\")", "RequiredLevel": 20 },
+                { "Name": "Solo", "Model": { "RowName": "Solo" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Solo\")" },
+                { "Name": "Blueprint_Tier5_Manufacturer", "Model": { "RowName": "Blueprint" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Tier 5\")", "RequiredLevel": 40 } ] }
+            """);
+        Write(@"Talents\D_TalentTrees.json", """
+            { "Rows": [
+                { "Name": "Solo_Player", "Archetype": { "RowName": "Solo" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Solo\")" },
+                { "Name": "Blueprint_T3_Machine", "Archetype": { "RowName": "Blueprint_Machine" } },
+                { "Name": "Blueprint_T1_Player", "Archetype": { "RowName": "Blueprint_Player" } },
+                { "Name": "Survival_Resources", "Archetype": { "RowName": "Survival" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Resources\")" },
+                { "Name": "Blueprint_T5_Manufacturer", "Archetype": { "RowName": "Blueprint_Tier5_Manufacturer" } },
+                { "Name": "Blueprint_T2_Crafting", "Archetype": { "RowName": "Blueprint_Crafting" } } ] }
+            """);
+        Write(@"Talents\D_Talents.json", """
+            { "Rows": [
+                { "Name": "Bone_Knife", "TalentTree": { "RowName": "Blueprint_T1_Player" } },
+                { "Name": "Drill", "TalentTree": { "RowName": "Blueprint_T3_Machine" } } ] }
+            """);
+        Write(@"Crafting\D_RecipeSets.json", """
+            { "Rows": [
+                { "Name": "Character", "RecipeSetName": "NSLOCTEXT(\"a\", \"b\", \"Character\")" },
+                { "Name": "Crafting_Bench", "RecipeSetName": "NSLOCTEXT(\"a\", \"b\", \"Crafting Bench\")" },
+                { "Name": "Machining_Bench", "RecipeSetName": "NSLOCTEXT(\"a\", \"b\", \"Machining Bench\")" },
+                { "Name": "Fabricator", "RecipeSetName": "NSLOCTEXT(\"a\", \"b\", \"Fabricator\")" },
+                { "Name": "Manufacturer", "RecipeSetName": "NSLOCTEXT(\"a\", \"b\", \"Manufacturer\")" } ] }
+            """);
+        // Tier 3's recipes are made at the Fabricator more often than the Machining Bench (as in
+        // the real data, 157 to 155): the tree's own word picks the bench, not the count.
+        Write(@"Crafting\D_ProcessorRecipes.json", """
+            { "Rows": [
+                { "Name": "Bone_Knife", "Requirement": { "RowName": "Bone_Knife" }, "RecipeSets": [ { "RowName": "Character" } ] },
+                { "Name": "Drill", "Requirement": { "RowName": "Drill" }, "RecipeSets": [ { "RowName": "Fabricator" }, { "RowName": "Machining_Bench" } ] },
+                { "Name": "Drill2", "Requirement": { "RowName": "Drill" }, "RecipeSets": [ { "RowName": "Fabricator" } ] } ] }
+            """);
+
+        var trees = new SaveGameNames(_data).TalentTrees;
+
+        Assert.Equal(
+            ["Survival · Resources", "Tier 1 · Character crafting", "Tier 2 · Crafting Bench", "Tier 3 · Machining Bench", "Tier 5 · Manufacturer", "Solo"],
+            trees.Values.OrderBy(t => t.Order).Select(t => t.Group));
+        Assert.Equal("Blueprint", trees["Blueprint_T5_Manufacturer"].Model);
+    }
+
+    /// <summary>A mod's blueprint tree whose archetype the tables lack still finds its tier in its name; a mod tree with nothing to go on comes last.</summary>
+    [Fact]
+    public void ModTrees_WithoutAnArchetype_FallBackToTheirName()
+    {
+        Write(@"Talents\D_TalentArchetypes.json", """
+            { "Rows": [
+                { "Name": "Survival", "Model": { "RowName": "Player" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Survival\")" },
+                { "Name": "Blueprint_Player", "Model": { "RowName": "Blueprint" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Tier 1\")" },
+                { "Name": "Solo", "Model": { "RowName": "Solo" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Solo\")" } ] }
+            """);
+        Write(@"Talents\D_TalentTrees.json", """
+            { "Rows": [
+                { "Name": "Mod_Extras", "Archetype": { "RowName": "Mod_Missing" } },
+                { "Name": "Blueprint_T6_Forge_Works", "Archetype": { "RowName": "Mod_Missing" } },
+                { "Name": "Solo_Player", "Archetype": { "RowName": "Solo" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Solo\")" },
+                { "Name": "Blueprint_T1_Player", "Archetype": { "RowName": "Blueprint_Player" } },
+                { "Name": "Survival_Resources", "Archetype": { "RowName": "Survival" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Resources\")" } ] }
+            """);
+
+        var trees = new SaveGameNames(_data).TalentTrees;
+
+        // No recipe tables: Tier 1 has no bench to name, so it reads just "Tier 1".
+        Assert.Equal(
+            ["Survival · Resources", "Tier 1", "Tier 6 · Forge Works", "Solo", "Mod Missing · Mod Extras"],
+            trees.Values.OrderBy(t => t.Order).Select(t => t.Group));
+        Assert.Equal("", trees["Blueprint_T6_Forge_Works"].Model); // display only: budgets still go by the tables' model
+    }
+
+    [Theory]
+    [InlineData("Blueprint_T2_Crafting", "Blueprint_Crafting", "Tier 2", 2)]
+    [InlineData("Blueprint_T5_Manufacturer", "Blueprint_Tier5_Manufacturer", "", 5)]
+    [InlineData("Mod_Tree", "Blueprint_Tier7_Mod", "", 7)]
+    [InlineData("Blueprint_Extra", "Mod_Blueprints", "Tier 12", 12)]
+    [InlineData("Blueprint_Extra", "Mod_Blueprints", "Extras", null)]
+    public void BlueprintTier_ComesFromTheArchetypeNameOrTheRowNames(string tree, string archetype, string display, int? expected) =>
+        Assert.Equal(expected, SaveGameNames.BlueprintTier(tree, archetype, display));
+
+    /// <summary>Biomes listed as the bestiary table first names them, "Other" last (they were alphabetical: Arctic before Forest).</summary>
+    [Fact]
+    public void BestiaryGroups_FollowTheTablesOrder_OtherLast()
+    {
+        Write(@"Bestiary\D_BestiaryData.json", """
+            { "Rows": [
+                { "Name": "Mystery", "Biomes": [ { "RowName": "Unknown" } ] },
+                { "Name": "Wolf", "Biomes": [ { "RowName": "Conifer" } ] },
+                { "Name": "Polar_Bear", "Biomes": [ { "RowName": "Arctic" } ] },
+                { "Name": "Deer", "Biomes": [ { "RowName": "Conifer" } ] } ] }
+            """);
+        var creatures = new SaveGameNames(_data).BestiaryCreatures;
+
+        Assert.Equal(["Forest", "Arctic", "Other"], creatures.Values.OrderBy(c => c.GroupOrder).Select(c => c.Group).Distinct());
+    }
 }
