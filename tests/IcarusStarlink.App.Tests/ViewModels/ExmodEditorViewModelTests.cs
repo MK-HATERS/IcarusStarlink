@@ -122,6 +122,62 @@ public sealed class ExmodEditorViewModelTests : IDisposable
         Assert.False(WeakReferenceMessenger.Default.IsRegistered<UnsavedEditsRequestMessage>(editor));
     }
 
+    /// <summary>Since the raw JSON views went, a row copied in by mistake couldn't be taken out of the mod at all.</summary>
+    [Fact]
+    public void RemoveSelectedItems_TakesTheRowOutOfTheSavedMod_AndUndoPutsItBack()
+    {
+        var editor = OpenMod();
+        editor.NewItemCurrentFile = "Traits/D_Itemable.json";
+        editor.NewItemName = "Item_Fiber";
+        editor.AddItemCommand.Execute(null);
+        Assert.Equal(2, editor.Items.Count);
+
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Fiber");
+        editor.RemoveSelectedItemsCommand.Execute(null);
+
+        Assert.Equal("Item_Envirosuit", Assert.Single(editor.Items).ItemName);
+        editor.SaveCommand.Execute(null);
+        var saved = ExmodFolder.ReadPackageOnly(_library.GetFolderPath(_library.GetAll().Single().FolderName));
+        Assert.Equal("Item_Envirosuit", Assert.Single(saved.Rows.Single(r => r.CurrentFile == "Traits-D_Itemable.json").FileItems).Name);
+
+        editor.UndoCommand.Execute(null);
+        Assert.Equal(2, editor.Items.Count);
+    }
+
+    /// <summary>The last row of a file goes with its file, so the mod isn't left with an empty table nobody can see.</summary>
+    [Fact]
+    public void RemoveSelectedItems_TheLastRowOfAFile_TakesTheFileOutToo()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single();
+
+        editor.RemoveSelectedItemsCommand.Execute(null);
+        editor.SaveCommand.Execute(null);
+
+        Assert.Empty(editor.Items);
+        var saved = ExmodFolder.ReadPackageOnly(_library.GetFolderPath(_library.GetAll().Single().FolderName));
+        Assert.DoesNotContain(saved.Rows, r => r.CurrentFile == "Traits-D_Itemable.json");
+    }
+
+    /// <summary>A number typed with a comma ("2,5") didn't parse; Save said "Saved." over the old value and reset the box.</summary>
+    [Fact]
+    public void Save_WithATypedValueThatDidNotParse_IsRefused_InsteadOfSavingTheOldValue()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single();
+        var weight = editor.Fields.Single(f => f.FieldName == "Weight");
+
+        weight.ValueText = "2,5";
+        editor.SaveCommand.Execute(null);
+
+        Assert.StartsWith("Not saved", editor.StatusMessage);
+        Assert.Equal("2,5", editor.Fields.Single(f => f.FieldName == "Weight").ValueText); // still on show to fix
+
+        weight.ValueText = "25";
+        editor.SaveCommand.Execute(null);
+        Assert.StartsWith("Saved", editor.StatusMessage);
+    }
+
     /// <summary>The editor kept the game tables it read for its whole life, so after Refresh game data it compared with the old game.</summary>
     [Fact]
     public void RefreshGameData_IsReadAgain()
