@@ -301,6 +301,13 @@ public partial class App : Application
                         _host.Services.GetRequiredService<IActivityLog>(), existingInstall);
                 });
 
+                // Find the broken mod: built now so Merge & Install's menu entry reaches it, and a
+                // search the app closed in the middle of offers to put the mods back.
+                WhileRunning(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () =>
+                {
+                    _ = _host.Services.GetRequiredService<FindBrokenModLauncher>().OfferPutBackAtStartupAsync();
+                });
+
                 // This launch's own nxm:// argument (e.g. the very first time the OS protocol
                 // registration is used) goes first, then any link a second launch handed over
                 // while this one was starting.
