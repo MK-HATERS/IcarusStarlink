@@ -1756,9 +1756,13 @@ public sealed class LibraryViewModelTests
     {
         var harness = new TestHarness();
         harness.AddMod("OldFolderName", name: "Some Mod", source: "Nexus", nexusModId: 555);
+        // A real file: Activate refuses a download whose file is gone (the pak importer here is a fake).
+        var pakPath = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests", $"SomeMod-v2_{Guid.NewGuid():N}.pak");
+        Directory.CreateDirectory(Path.GetDirectoryName(pakPath)!);
+        File.WriteAllBytes(pakPath, [1]);
         harness.PendingDownloadStore.EntriesList.Add(new PendingDownloadEntry
         {
-            ModId = 555, FileId = 999, FileName = "SomeMod-v2.pak", LocalFilePath = @"C:\fake\SomeMod-v2.pak",
+            ModId = 555, FileId = 999, FileName = "SomeMod-v2.pak", LocalFilePath = pakPath,
         });
         harness.PrebuiltPakImporter.Result = new LibraryEntry
         {
