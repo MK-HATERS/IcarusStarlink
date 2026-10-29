@@ -118,6 +118,30 @@ public class Ue4ssConfigViewModelTests : IDisposable
         Assert.Equal(2, Directory.GetFiles(Path.Combine(_root, "Backups", "UE4SS-Settings"), "*.ini", SearchOption.AllDirectories).Length);
     }
 
+    /// <summary>Report 2026-10-28: an "ANSI" UE4SS-settings.ini came back with "é" mangled and a BOM dropped after Save.</summary>
+    [Theory]
+    [MemberData(nameof(ModConfigEditorViewModelTests.Encodings), MemberType = typeof(ModConfigEditorViewModelTests))]
+    public void Save_KeepsEachFilesEncodingAndBom_ByteForByte(ConfigTextEncoding encoding)
+    {
+        var game = GameIni.Replace("; Whether to reload all mods.", "; Recharger tous les mods (très utile).");
+        File.WriteAllBytes(GameIniPath, ModConfigEditorViewModelTests.Bytes(game, encoding));
+        File.WriteAllBytes(ServerIniPath, ModConfigEditorViewModelTests.Bytes(ServerIni, ConfigTextEncoding.Utf8Bom));
+        var vm = Build();
+        var hotReload = vm.Sections.Single().Fields.Single(f => f.Key == "EnableHotReloadSystem");
+        Assert.Contains("très utile", hotReload.Description);
+        hotReload.IsOn = true;
+        vm.AlsoSaveTo.Single().IsChecked = true;
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(ModConfigEditorViewModelTests.Bytes(game.Replace("EnableHotReloadSystem = 0", "EnableHotReloadSystem = 1"), encoding), File.ReadAllBytes(GameIniPath));
+        Assert.Equal(ModConfigEditorViewModelTests.Bytes(ServerIni, ConfigTextEncoding.Utf8Bom), File.ReadAllBytes(ServerIniPath));
+
+        hotReload.IsOn = false;
+        vm.SaveCommand.Execute(null);
+        Assert.Equal(ModConfigEditorViewModelTests.Bytes(game, encoding), File.ReadAllBytes(GameIniPath));
+    }
+
     [Fact]
     public void Save_NothingTicked_LeavesTheServerAlone()
     {

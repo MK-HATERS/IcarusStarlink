@@ -51,14 +51,17 @@ public static class Ue4ssModConfigCarryOver
             }
 
             var review = new Ue4ssConfigReview { File = config.RelativePath, UpdatedAtUtc = DateTime.UtcNow, Version = newVersion };
-            var merged = Merge(config.Format, File.ReadAllText(previous), File.ReadAllText(target), review);
+            // Each file read in its own encoding (an "ANSI" config.lua with "é" in a comment came
+            // back as "�"); the merged file is written in the player's file's encoding, BOM and all.
+            var players = ConfigTextFile.Read(previous);
+            var merged = Merge(config.Format, players.Text, ConfigTextFile.Read(target).Text, review);
             if (merged is null)
             {
                 File.Copy(previous, target, overwrite: true);
             }
             else
             {
-                IO.AtomicFile.WriteAllText(target, merged);
+                ConfigTextFile.Write(target, merged, players.Encoding);
             }
 
             kept.Add(config.RelativePath);
@@ -170,11 +173,12 @@ public static class Ue4ssModConfigCarryOver
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         if (!File.Exists(target))
         {
-            IO.AtomicFile.WriteAllText(target, text);
+            ConfigTextFile.Write(target, text, ConfigTextEncoding.Utf8);
             return [];
         }
 
-        var current = File.ReadAllText(target);
+        // Read and written back in this copy's own encoding (an "ANSI" file stays ANSI, a BOM stays).
+        var (current, encoding) = ConfigTextFile.Read(target);
         if (current == text)
         {
             return [];
@@ -195,7 +199,7 @@ public static class Ue4ssModConfigCarryOver
         File.Copy(target, backup, overwrite: true);
         // No layout to merge into (plain text, or a file holding tables over several lines): the
         // given text is what the other copy runs, so it's taken whole.
-        IO.AtomicFile.WriteAllText(target, merged ?? text);
+        ConfigTextFile.Write(target, merged ?? text, encoding);
         return merged is null ? [] : review.Removed;
     }
 }

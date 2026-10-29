@@ -297,6 +297,61 @@ public class Ue4ssModStateServiceTests : IDisposable
         Assert.Equal("-- old leftover", File.ReadAllText(Path.Combine(leftover, "Scripts", "main.lua")));
     }
 
+    private string CreateSharedFolder(string root)
+    {
+        var helpers = Path.Combine(root, "shared", "UEHelpers");
+        Directory.CreateDirectory(helpers);
+        File.WriteAllText(Path.Combine(helpers, "UEHelpers.lua"), "-- UE4SS's own helpers");
+        return Path.Combine(root, "shared");
+    }
+
+    /// <summary>
+    /// Report 2026-10-28: with "Show UE4SS built-ins" on, unticking UE4SS's shared\ folder and
+    /// clicking Apply moved it into staging, breaking every Lua mod that uses it. Apply refuses it
+    /// whoever asks, and the rest of the batch still goes through.
+    /// </summary>
+    [Fact]
+    public void Apply_TurningOffUe4ssSharedFolder_IsRefused_AndNothingMoves()
+    {
+        var shared = CreateSharedFolder(_gameModsFolder);
+        CreateGameMod("MkHatersTools");
+
+        var failures = _service.Apply(_gameModsFolder, new Dictionary<string, bool> { ["shared"] = false, ["MkHatersTools"] = false }, _backupDirectory);
+
+        var failure = Assert.Single(failures);
+        Assert.Equal("shared", failure.Name);
+        Assert.Contains("part of UE4SS", failure.Reason);
+        Assert.True(File.Exists(Path.Combine(shared, "UEHelpers", "UEHelpers.lua")));
+        Assert.Equal(["MkHatersTools"], _stagingRepository.GetAll());
+        Assert.True(_service.GetAll(_gameModsFolder).Single(m => m.Name == "shared").IsEnabled);
+    }
+
+    /// <summary>Ticking shared\ (it isn't a mod) wrote an enabled.txt into it: it's on by being there.</summary>
+    [Fact]
+    public void Apply_TurningOnUe4ssSharedFolder_WritesNoEnabledTxt()
+    {
+        var shared = CreateSharedFolder(_gameModsFolder);
+
+        var failures = _service.Apply(_gameModsFolder, new Dictionary<string, bool> { ["shared"] = true }, _backupDirectory);
+
+        Assert.Empty(failures);
+        Assert.False(File.Exists(Path.Combine(shared, "enabled.txt")));
+    }
+
+    /// <summary>A shared\ already moved to staging by that bug can be ticked to go back in, with no enabled.txt.</summary>
+    [Fact]
+    public void Apply_SharedFolderInStaging_GoesBackIntoTheGame_WithNoEnabledTxt()
+    {
+        CreateSharedFolder(_stagedDirectory);
+
+        var failures = _service.Apply(_gameModsFolder, new Dictionary<string, bool> { ["shared"] = true }, _backupDirectory);
+
+        Assert.Empty(failures);
+        Assert.True(File.Exists(Path.Combine(_gameModsFolder, "shared", "UEHelpers", "UEHelpers.lua")));
+        Assert.False(File.Exists(Path.Combine(_gameModsFolder, "shared", "enabled.txt")));
+        Assert.Empty(_stagingRepository.GetAll());
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))

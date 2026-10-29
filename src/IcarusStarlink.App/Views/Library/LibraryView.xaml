@@ -206,7 +206,16 @@
 
                 <CheckBox Grid.Column="1" VerticalAlignment="Center" Margin="4,0,4,0" IsChecked="{Binding IsEnabled}" Click="EnabledCheckbox_Click"
                           ToolTip="On = UE4SS starts it in the game. Changes apply when you click Apply under this list. With several rows selected, ticking one ticks them all."
-                          AutomationProperties.Name="{Binding Name, StringFormat='Enable {0}'}"/>
+                          AutomationProperties.Name="{Binding Name, StringFormat='Enable {0}'}"
+                          Visibility="{Binding CanToggle, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                <!-- UE4SS's own shared folder (its Lua library, not a mod): a lock, no checkbox. -->
+                <Border Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="4,0,4,0" Background="Transparent"
+                        ToolTip="{x:Static vm:Ue4ssModRowViewModel.AlwaysOnTooltip}"
+                        AutomationProperties.Name="{x:Static vm:Ue4ssModRowViewModel.AlwaysOnText}"
+                        Visibility="{Binding IsAlwaysOn, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Path Data="M3,7 L13,7 L13,15 L3,15 Z M5,7 L5,5 A3,3 0 0 1 11,5 L11,7" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.4"
+                          StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform"/>
+                </Border>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Path Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.4"
@@ -227,8 +236,14 @@
                     <Border Grid.Column="1" Margin="8,0,0,0" CornerRadius="8" Padding="7,1" VerticalAlignment="Center"
                             Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                             ToolTip="Comes with UE4SS itself: you didn't install it on its own"
-                            Visibility="{Binding IsBuiltIn, Converter={StaticResource BoolToVisibilityConverter}}">
+                            Visibility="{Binding ShowDefaultBadge, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="Default" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    </Border>
+                    <Border Grid.Column="1" Margin="8,0,0,0" CornerRadius="8" Padding="7,1" VerticalAlignment="Center"
+                            Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                            ToolTip="{x:Static vm:Ue4ssModRowViewModel.AlwaysOnTooltip}"
+                            Visibility="{Binding IsAlwaysOn, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock Text="{x:Static vm:Ue4ssModRowViewModel.AlwaysOnText}" FontSize="10" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                     </Border>
                     <Border x:Name="LinkPill" Grid.Column="2" Margin="8,0,0,0" CornerRadius="8" Padding="7,1" VerticalAlignment="Center"
                                 BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" IsHitTestVisible="False" Visibility="Collapsed">

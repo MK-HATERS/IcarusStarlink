@@ -240,6 +240,12 @@ public sealed partial class LibraryViewModel
     /// </summary>
     private string? DeleteUe4ssModCore(string folderName)
     {
+        // UE4SS's own shared\ (its Lua library) is never deleted, whichever path asks.
+        if (Ue4ssModStart.IsFrameworkFolder(folderName))
+        {
+            return $"not deleted: {Ue4ssModStart.FrameworkFolderReason}";
+        }
+
         try
         {
             var backedUp = false;
@@ -292,6 +298,12 @@ public sealed partial class LibraryViewModel
     {
         if (item is null)
         {
+            return;
+        }
+
+        if (Ue4ssModStart.IsFrameworkFolder(item.Name))
+        {
+            Ue4ssStatusMessage = $"'{item.Name}' is part of UE4SS (the Lua library its mods use), so it's always on and can't be deleted.";
             return;
         }
 

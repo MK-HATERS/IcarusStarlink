@@ -128,7 +128,8 @@ public sealed partial class LibraryViewModel
             changed++;
         }
 
-        foreach (var lua in BulkSelectedUe4ssRows.ToList().Where(r => !ReferenceEquals(r, clickedRow) && r.IsEnabled != enabled))
+        // An always-on row (UE4SS's shared\) keeps its tick, and isn't counted as changed.
+        foreach (var lua in BulkSelectedUe4ssRows.ToList().Where(r => !ReferenceEquals(r, clickedRow) && r.IsEnabled != enabled && !r.IsAlwaysOn))
         {
             lua.IsEnabled = enabled;
             changed++;

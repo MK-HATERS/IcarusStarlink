@@ -365,6 +365,55 @@ public sealed class LibraryViewModelTests
         Assert.Contains("Icarus is running", vm.Ue4ssStatusMessage);
     }
 
+    /// <summary>
+    /// Report 2026-10-28: with "Show UE4SS built-ins" on, UE4SS's own shared\ folder (its Lua
+    /// library, not a mod) could be unticked, and Apply moved it out of the game, breaking every Lua
+    /// mod that uses it. Its row is locked: no tick changes it (the box, Turn off, Space, a
+    /// multi-selection tick), nothing waits for Apply, and Delete refuses it without asking.
+    /// </summary>
+    [Fact]
+    public void Ue4ssSharedFolder_IsAlwaysOn_CantBeUnticked_OrDeleted()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("shared", IsEnabled: true, IsInGame: true));
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("MkHatersTools", IsEnabled: true, IsInGame: true));
+        harness.Ue4ssLoaderInstallService.BuiltIns.Add("shared");
+        harness.SettingsService.Current.LibraryShowUe4ssBuiltIns = true;
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        vm.IsGameRunningCheck = () => false;
+        var shared = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "shared");
+        var tools = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "MkHatersTools");
+
+        Assert.True(shared.IsAlwaysOn);
+        Assert.False(shared.CanToggle);
+        Assert.False(shared.ShowDefaultBadge);
+        Assert.False(tools.IsAlwaysOn);
+
+        shared.IsEnabled = false;
+        Assert.True(shared.IsEnabled);
+
+        vm.SelectAllForBulkCommand.Execute("ue4ss");
+        vm.TurnOffSelectedCommand.Execute("ue4ss");
+        Assert.True(shared.IsEnabled);
+        Assert.False(tools.IsEnabled);
+        vm.TurnOnSelectedCommand.Execute("ue4ss");
+        vm.ToggleSelectedEnabled();
+        Assert.True(shared.IsEnabled);
+        tools.IsEnabled = true;
+        // Unticking one selected row unticks the others: shared isn't one of them.
+        Assert.Equal(0, vm.ApplyEnabledToSelection(tools, false));
+        Assert.True(shared.IsEnabled);
+        Assert.False(shared.IsDirty);
+
+        vm.DeleteUe4ssModCommand.Execute(shared);
+
+        Assert.Empty(harness.DialogService.ConfirmMessages);
+        Assert.Empty(harness.Ue4ssModRepository.DeleteCalls);
+        Assert.Contains("part of UE4SS", vm.Ue4ssStatusMessage);
+    }
+
     /// <summary>Review 2026-10-28: the UE4SS panel's Apply moved mod folders in and out of the game's Mods folder with the game running (a C++ mod's dll is locked: a move stops halfway).</summary>
     [Fact]
     public void ApplyUe4ssChanges_WhileTheGameRuns_IsRefused()

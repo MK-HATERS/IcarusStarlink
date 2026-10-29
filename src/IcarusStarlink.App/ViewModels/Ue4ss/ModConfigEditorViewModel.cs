@@ -24,7 +24,8 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
     private IConfigText? _diskDocument;
     private IConfigText? _defaults;
     private string _diskText = "";
-    private bool _diskHasBom;
+    /// <summary>The shown file's encoding and BOM on disk (an "ANSI" file is written back as ANSI).</summary>
+    private ConfigTextEncoding _diskEncoding;
     private List<Ue4ssConfigField> _fields = [];
     private bool _loading;
 
@@ -43,7 +44,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
     /// <param name="Text">The file as edited so far (text-view edits in it).</param>
     /// <param name="FieldValues">The fields edited and not yet written into the text, by section and key.</param>
     /// <param name="BaseText">The file as it was on disk when these edits were made: Save compares the file with it, so a change made on disk meanwhile isn't written over.</param>
-    private sealed record Draft(string Text, bool TextMode, Dictionary<(string Section, string Key), string> FieldValues, string Label, string BaseText, bool BaseBom);
+    private sealed record Draft(string Text, bool TextMode, Dictionary<(string Section, string Key), string> FieldValues, string Label, string BaseText, ConfigTextEncoding BaseEncoding);
 
     /// <summary>"[MkHatersSettings] Stability [server]": every setting of the file is the server's, but those tagged [local].</summary>
     private bool _fileWideServer;
@@ -351,8 +352,8 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
             ? $"{key.File} ({_allLocations.FirstOrDefault(l => l.ModFolder == key.Folder)?.Name})"
             : key.File;
         _drafts[key] = IsTextMode
-            ? new Draft(RawText, true, [], label, _diskText, _diskHasBom)
-            : new Draft(_document.ToText(), false, EditedFieldValues(), label, _diskText, _diskHasBom);
+            ? new Draft(RawText, true, [], label, _diskText, _diskEncoding)
+            : new Draft(_document.ToText(), false, EditedFieldValues(), label, _diskText, _diskEncoding);
     }
 
     partial void OnIsTextModeChanged(bool value)
@@ -426,9 +427,8 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
                         throw new IOException($"it's over {MaxConfigBytes / 1024 / 1024} MB, too big for a config. Open it in a text editor.");
                     }
 
-                    var bytes = File.ReadAllBytes(CurrentPath);
-                    _diskHasBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
-                    _diskText = Encoding.UTF8.GetString(bytes, _diskHasBom ? 3 : 0, bytes.Length - (_diskHasBom ? 3 : 0));
+                    // In its own encoding: an "ANSI" file's "é" used to show (and save) as "�".
+                    (_diskText, _diskEncoding) = ConfigTextFile.Read(CurrentPath, MaxConfigBytes);
                     _fileWideServer = FileWideServerTag().IsMatch(_diskText);
                     _diskDocument = Parse(file.Format, _diskText);
                     _loadedKey = (file.RelativePath, location.ModFolder);
@@ -443,7 +443,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
                         // the edits were made on, Save sees the file changed and writes only the
                         // edits into it (or refuses, for the text view).
                         _diskText = draft.BaseText;
-                        _diskHasBom = draft.BaseBom;
+                        _diskEncoding = draft.BaseEncoding;
                         _diskDocument = Parse(file.Format, _diskText);
                     }
 
@@ -501,7 +501,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
 
         try
         {
-            return Parse(file.Format, File.ReadAllText(path));
+            return Parse(file.Format, ConfigTextFile.Read(path, MaxConfigBytes).Text);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

@@ -129,7 +129,17 @@ public sealed partial class Ue4ssSettingsDocument
         return new Ue4ssSettingsDocument(lines, endings, TextLines.NewLineOf(text), keepCommentLines ? "\n" : " ");
     }
 
-    public static Ue4ssSettingsDocument Load(string path, bool keepCommentLines = false) => Parse(File.ReadAllText(path), keepCommentLines);
+    /// <summary>Reads the file in its own encoding (<see cref="ConfigTextFile"/>), which <see cref="Save"/> writes back.</summary>
+    public static Ue4ssSettingsDocument Load(string path, bool keepCommentLines = false)
+    {
+        var config = ConfigTextFile.Read(path);
+        var document = Parse(config.Text, keepCommentLines);
+        document.Encoding = config.Encoding;
+        return document;
+    }
+
+    /// <summary>The encoding <see cref="Save"/> writes: the file's own when it was loaded, else UTF-8 with no BOM.</summary>
+    public ConfigTextEncoding Encoding { get; set; } = ConfigTextEncoding.Utf8;
 
     public string ToText() => TextLines.Join(_lines, _endings);
 
@@ -141,8 +151,11 @@ public sealed partial class Ue4ssSettingsDocument
         _endings.Add("");
     }
 
-    /// <summary>Written to a temp file and moved into place, so a crash mid-save can't leave the game's settings cut short.</summary>
-    public void Save(string path) => AtomicFile.WriteAllText(path, ToText());
+    /// <summary>
+    /// Written to a temp file and moved into place, so a crash mid-save can't leave the game's
+    /// settings cut short; in the encoding it was loaded in (an "ANSI" file stays ANSI, a BOM stays).
+    /// </summary>
+    public void Save(string path) => Encoding = ConfigTextFile.Write(path, ToText(), Encoding);
 
     /// <summary>Every setting in file order, with its section and what its comment block says.</summary>
     public IReadOnlyList<Ue4ssSetting> Settings
