@@ -1,6 +1,7 @@
 using System.IO;
 using System.Net.Http;
 using System.Windows;
+using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.ViewModels;
@@ -410,6 +411,36 @@ internal static class AppServices
             ue4ssMetaStore: sp.GetRequiredService<IUe4ssModMetaStore>(),
             patchImporter: sp.GetRequiredService<MergeInstallViewModel>()));
         services.AddSingleton<IFirewallService, FirewallService>();
+        // Find the broken mod (Merge & Install › More ▾): rounds of part-installs through Merge &
+        // Install, the search saved beside the settings so a closed app can still put the mods back.
+        services.AddSingleton(sp => new FindBrokenModLauncher(() => new FindBrokenModContext
+        {
+            Host = new MergeInstallFinderHost(
+                sp.GetRequiredService<MergeInstallViewModel>,
+                sp.GetRequiredService<ISaveRepository>(),
+                sp.GetRequiredService<IGameProcessChecker>(),
+                Path.Combine(appDataDirectory, "Cache", "save_backups", "Worlds")),
+            Store = new BrokenModSearchStore(Path.Combine(appDataDirectory, "find_broken_mod.json")),
+            Dialogs = sp.GetRequiredService<IDialogService>(),
+            ReadCandidates = () => sp.GetRequiredService<MergeInstallViewModel>().ReadFinderCandidatesAsync(),
+            GameIndex = () => sp.GetRequiredService<MergeInstallViewModel>().FinderGameIndex() is { } index && index.HasAnyTable() ? index : null,
+            GameRows = () => sp.GetRequiredService<GameDataIndexCache>().GetItemIndexAsync(Path.Combine(appDataDirectory, "Data")),
+            ProblemCounts = async () =>
+            {
+                var mergeInstall = sp.GetRequiredService<MergeInstallViewModel>();
+                await mergeInstall.RecomputeChecksAsync();
+                return mergeInstall.ModsWithProblems.ToDictionary(p => p.FolderName, p => p.ProblemCount, StringComparer.OrdinalIgnoreCase);
+            },
+            // The Library's fix window, as Merge & Install's check opens it.
+            OpenFixWindow = async folderName =>
+            {
+                var request = ((IMessenger)WeakReferenceMessenger.Default).Send(new IcarusStarlink.App.Messages.OpenModFixMessage(folderName));
+                return request.HasReceivedResponse ? await request.Response : "the Library page isn't ready yet. Try again in a moment.";
+            },
+            NexusModIdOf = folderName => sp.GetRequiredService<ILibraryRepository>().GetAll()
+                .FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase))?.NexusModId,
+            OpenUrl = url => UrlOpener.TryOpen(url),
+        }));
         services.AddSingleton<HelpViewModel>();
 
         services.AddSingleton<MainWindow>();

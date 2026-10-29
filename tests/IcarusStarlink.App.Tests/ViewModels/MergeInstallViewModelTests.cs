@@ -2359,6 +2359,129 @@ public sealed class MergeInstallViewModelTests : IDisposable
     }
 
     // ---------------------------------------------------------------------------------------
+    // Find the broken mod: a round builds part of the queue, the queue itself never changes
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>Three queued EXMOD mods, UnrealPak set and a game Content folder with an empty mods folder.</summary>
+    private (MergeInstallViewModel Vm, FakeLibraryRepository Library, FakeRebuildService Rebuild, FakeInstallService Install, string ModsFolder) FinderSetup(bool gameRunning = false)
+    {
+        var library = new FakeLibraryRepository();
+        foreach (var name in new[] { "ModA", "ModB", "ModC" })
+        {
+            library.FolderPaths[name] = CreateExmodFolder(name, BuildCraftTimeExmodJson(name, craftTime: name.Length), out _);
+            library.AllEntries.Add(MakeEntry(name));
+        }
+
+        var settings = new FakeSettingsService();
+        settings.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Game", "Icarus", "Content");
+        var modsFolder = Path.Combine(settings.Current.IcarusContentPath, "Paks", "mods");
+        Directory.CreateDirectory(modsFolder);
+        var rebuild = new FakeRebuildService { Result = new RebuildResult(1, 1, "out.pak", "out.manifest", [], []) };
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, installService: install, settingsService: settings, gameRunning: gameRunning);
+        foreach (var entry in library.AllEntries)
+        {
+            vm.Queue.Add(entry);
+        }
+
+        return (vm, library, rebuild, install, modsFolder);
+    }
+
+    [Fact]
+    public async Task FindBrokenRound_BuildsAndInstallsOnlyThoseMods_AndLeavesTheQueueAsItIs()
+    {
+        var (vm, _, rebuild, install, _) = FinderSetup();
+        // No question expected: the finder's window said what this round installs.
+
+        var failed = await vm.InstallForFinderAsync(["ModB"]);
+
+        Assert.Null(failed);
+        Assert.Equal(["ModB"], rebuild.LastQueuedMods!.Select(m => m.Package.Name));
+        Assert.Equal(1, install.InstallCallCount);
+        Assert.Equal(["ModA", "ModB", "ModC"], vm.Queue.Select(e => e.FolderName));
+    }
+
+    [Fact]
+    public async Task FindBrokenRound_DoesNotUseConflictPicks_WhichArePositionsInTheWholeQueue()
+    {
+        var (vm, _, rebuild, _, _) = FinderSetup();
+        vm.ManualPicksForTesting = new Dictionary<(string, string, string), int> { [("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime")] = 2 };
+
+        await vm.InstallForFinderAsync(["ModA", "ModC"]);
+
+        Assert.Null(rebuild.LastManualPicks);
+    }
+
+    [Fact]
+    public async Task FindBrokenRound_ThenANormalInstall_AsksBeforeInstallingAgain()
+    {
+        var (vm, _, rebuild, install, _) = FinderSetup();
+        await vm.InstallForFinderAsync(["ModA"]);
+        var asked = 0;
+        _dialogs.OnConfirm = (_, title) => { asked += title == "Install to Icarus" ? 1 : 0; return true; };
+
+        await vm.RebuildAndInstallCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, asked);
+        Assert.Equal(3, rebuild.LastQueuedMods!.Count);
+        Assert.Equal(2, install.InstallCallCount);
+    }
+
+    [Fact]
+    public async Task FindBrokenRound_OtherFilesInTheModsFolder_StillAsksFirst()
+    {
+        var (vm, _, _, install, modsFolder) = FinderSetup();
+        File.WriteAllBytes(Path.Combine(modsFolder, "SomeoneElses_P.pak"), [1]);
+        string? asked = null;
+        _dialogs.OnConfirm = (message, _) => { asked = message; return false; };
+
+        var failed = await vm.InstallForFinderAsync(["ModA"]);
+
+        Assert.Contains("SomeoneElses_P.pak", asked);
+        Assert.NotNull(failed);
+        Assert.Equal(0, install.InstallCallCount);
+    }
+
+    [Fact]
+    public async Task FindBrokenRound_WhileTheGameRuns_BuildsNothing()
+    {
+        var (vm, _, rebuild, install, _) = FinderSetup(gameRunning: true);
+
+        var failed = await vm.InstallForFinderAsync(["ModA"]);
+
+        Assert.Equal(BrokenModFinderSession.GameRunningMessage, failed);
+        Assert.Equal(0, rebuild.RebuildCallCount);
+        Assert.Equal(0, install.InstallCallCount);
+    }
+
+    [Fact]
+    public async Task FindBrokenRound_WithNoModsIn_TakesTheMergedPakOutOfTheGame()
+    {
+        var (vm, _, rebuild, install, _) = FinderSetup();
+
+        var failed = await vm.InstallForFinderAsync([]);
+
+        Assert.Null(failed);
+        Assert.Equal(0, rebuild.RebuildCallCount);
+        Assert.Equal(1, install.RemoveCallCount);
+    }
+
+    [Fact]
+    public async Task FindBrokenPutBack_ModTakenOutOfTheQueueMeanwhile_GoesBackInAndEverythingIsInstalled()
+    {
+        var (vm, _, rebuild, install, _) = FinderSetup();
+        vm.RemoveFromQueueByFolderNames(["ModB"]);
+
+        var failed = await vm.InstallWholeQueueForFinderAsync(["ModA", "ModB", "ModC"]);
+
+        Assert.Null(failed);
+        Assert.Contains("ModB", vm.Queue.Select(e => e.FolderName));
+        Assert.Equal(3, rebuild.LastQueuedMods!.Count);
+        Assert.Equal(1, install.InstallCallCount);
+    }
+
+    // ---------------------------------------------------------------------------------------
     // Fakes — one per constructor dependency, following this project's established
     // fake-per-interface convention (SavesViewModelTests/LibraryItemViewModelTests) rather than a
     // mocking framework. Every method not exercised by a test above throws NotSupportedException,

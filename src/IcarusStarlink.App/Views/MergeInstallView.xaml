@@ -260,11 +260,13 @@
                         </StackPanel>
                     </Button>
                     <Button Content="Clear" Command="{Binding ClearQueueCommand}" Margin="0,0,8,0" ToolTip="Empties the list: each mod's ON tick in Library goes off too. Asks first; nothing is deleted, and Profile ▾ › Restore profile backup brings the list back"/>
-                    <Button Content="More ▾" Click="DropdownButton_Click" Margin="0,0,0,0" ToolTip="Suggest an order">
+                    <Button Content="More ▾" Click="DropdownButton_Click" Margin="0,0,0,0" ToolTip="Suggest an order, find the broken mod">
                         <Button.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Suggest order" Command="{Binding SuggestQueueOrderCommand}"
                                           ToolTip="Proposes reordering the queue so mods making fewer real edits sit later and win conflicts. Shows the new order and asks before changing anything."/>
+                                <MenuItem Header="Find the broken mod…" Command="{Binding FindBrokenModCommand}"
+                                          ToolTip="Something broken in game? Tests your mods in rounds (half in, half out) until it finds the one that breaks it. Your saves are backed up first, and all your mods go back in at the end."/>
                             </ContextMenu>
                         </Button.ContextMenu>
                     </Button>
