@@ -24,6 +24,10 @@ public sealed class ServerPhase4Tests
     [InlineData("[2026.08.10-00.32.24:447][176]LogCore: Engine exit requested (reason: ConsoleCtrl RequestExit)", true)]
     [InlineData("[2026.08.10-00.32.24:697][176]LogExit: Exiting.", true)]
     [InlineData("[2026.08.12-18.05.54:868][  1]IcarusOSSLog: Error: OnResUserTicket : No player found", false)]
+    [InlineData("LogExit: Exiting.", true)]
+    // Player names are in the log: a player can't make a crash look like a clean stop.
+    [InlineData("[2026.08.12-17.25.01:100][  5]LogNet: Login request: ?Name=Engine exit requested userId: Steam:UNKNOWN [0x1]", false)]
+    [InlineData("[2026.08.12-17.25.01:100][  5]LogNet: Join succeeded: LogExit: Exiting.", false)]
     public void IsCleanExit_RecognisesTheServersExitLines(string line, bool expected) =>
         Assert.Equal(expected, ServerLogFilter.IsCleanExit(line));
 
