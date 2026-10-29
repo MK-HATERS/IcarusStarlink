@@ -1440,6 +1440,35 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
+    /// <summary>A talent edit rebuilt every entry as a bare {RowName, Rank} and dropped one it couldn't read: a field a game update adds was lost on the first edit.</summary>
+    [Fact]
+    public async Task SaveChangesCommand_TalentRanked_KeepsTheEntrysOtherFieldsAndEntriesItCantRead()
+    {
+        var character = MakeCharacter("Alpha", 0);
+        character["Talents"] = new JsonArray(
+            new JsonObject { ["RowName"] = "Solo_Stamina", ["Rank"] = 2, ["AddedByAGameUpdate"] = "keep me" },
+            new JsonObject { ["Unreadable"] = 1 });
+        var repository = new FakeSaveRepository { Characters = [character], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+
+            vm.Characters.Single().Talents.Single(t => t.RowName == "Solo_Stamina").RankUpCommand.Execute(null);
+            vm.SaveChangesCommand.Execute(null);
+
+            var talents = repository.LastSavedCharacters!.Single()["Talents"]!.AsArray();
+            Assert.Equal(2, talents.Count);
+            Assert.Equal(3, talents[0]!["Rank"]!.GetValue<int>());
+            Assert.Equal("keep me", talents[0]!["AddedByAGameUpdate"]!.GetValue<string>());
+            Assert.Equal(1, talents[1]!["Unreadable"]!.GetValue<int>());
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     /// <summary>Remove leftovers sets a rank straight to 0: a talent that was at its highest rank kept + greyed out.</summary>
     [Fact]
     public void TalentRow_RankSetFromOutside_RefreshesWhetherItCanRankUp()
