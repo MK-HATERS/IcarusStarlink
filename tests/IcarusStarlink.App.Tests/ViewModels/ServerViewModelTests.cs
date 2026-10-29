@@ -815,8 +815,6 @@ public sealed class ServerViewModelTests
     {
         public IReadOnlyList<string> GetAll() => throw new NotSupportedException("Not exercised by these tests.");
 
-        public string Import(string zipFilePath, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
-
         public string ImportFromFolder(string sourceFolder, string fallbackName, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
 
         public void Delete(string folderName) => throw new NotSupportedException("Not exercised by these tests.");

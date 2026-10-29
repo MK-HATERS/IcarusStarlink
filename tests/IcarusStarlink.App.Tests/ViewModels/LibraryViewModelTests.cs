@@ -2394,7 +2394,6 @@ public sealed class LibraryViewModelTests
         public List<string> DeleteCalls { get; } = [];
 
         public IReadOnlyList<string> GetAll() => [.. Staged];
-        public string Import(string zipFilePath, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
 
         public void Delete(string folderName)
         {

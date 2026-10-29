@@ -62,7 +62,6 @@ public sealed class ServerPageQolTests : IDisposable
         Assert.Equal(["New", "Old"], files.Select(f => f.Name));
         Assert.Equal(5, files[1].SizeBytes);
         Assert.Equal(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), files[1].ModifiedUtc);
-        Assert.Equal(["New", "Old"], DedicatedServerLayout.ListProspects(_root, null));
         Assert.Empty(DedicatedServerLayout.ListProspectFiles(Path.Combine(_root, "nothing"), null));
     }
 }

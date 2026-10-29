@@ -348,8 +348,7 @@ public class ExmodJsonTests
     [Fact]
     public void ParseRow_RealisticShape_MatchesWhatParseWouldProduceForTheSameRow()
     {
-        // ParseRow (Phase 7.2's File JSON raw view) is ParseCore's per-row logic pulled out into
-        // its own public method — this confirms it still produces exactly the same row a full
+        // ParseRow is ParseCore's per-row logic pulled out into its own public method — this confirms it still produces exactly the same row a full
         // Parse() of the same JSON would, not a divergent code path.
         var fullPackage = ExmodJson.Parse(RealisticJson);
         var rowObject = ExmodJson.ToJsonObject(fullPackage).AsObject()["Rows"]!.AsArray()[0]!.AsObject();

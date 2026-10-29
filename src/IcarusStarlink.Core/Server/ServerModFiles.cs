@@ -5,12 +5,6 @@ namespace IcarusStarlink.Core.Server;
 
 public sealed record ServerPakFile(string FileName, long SizeBytes, DateTime ModifiedLocal);
 
-public sealed record ServerUe4ssMod(string Name, bool Enabled)
-{
-    /// <summary>"(on)" or "(off)", for the server's mod list.</summary>
-    public string StateText => Enabled ? "  (on)" : "  (off)";
-}
-
 /// <summary>
 /// The mod side of a local dedicated server: its Content\Paks\mods folder and its UE4SS install.
 /// Every write here expects the server to be stopped (the caller checks) and never deletes: a pak
@@ -84,23 +78,6 @@ public static class ServerModFiles
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
         File.Move(source, dest);
         return dest;
-    }
-
-    /// <summary>UE4SS mod folders on the server, on when UE4SS starts them (mods.txt says 1, or the folder has an enabled.txt: Ue4ssModStart).</summary>
-    public static IReadOnlyList<ServerUe4ssMod> ListUe4ssMods(string installFolder)
-    {
-        var mods = DedicatedServerLayout.Ue4ssModsFolder(installFolder);
-        if (!Directory.Exists(mods))
-        {
-            return [];
-        }
-
-        var txt = Ue4ssModsTxt.Load(Path.Combine(mods, "mods.txt"));
-        return [.. Directory.GetDirectories(mods)
-            .Select(Path.GetFileName)
-            .Where(n => n is not null)
-            .Select(n => new ServerUe4ssMod(n!, Ue4ss.Ue4ssModStart.Starts(mods, n!, txt)))
-            .OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase)];
     }
 
     /// <summary>

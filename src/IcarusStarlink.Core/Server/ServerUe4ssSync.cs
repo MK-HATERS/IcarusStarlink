@@ -207,28 +207,6 @@ public static class ServerUe4ssSync
         return Parse(a) is { } x && Parse(b) is { } y ? x.CompareTo(y) : null;
     }
 
-    /// <summary>The mod's own files (not its config, enabled.txt or logs) are byte-for-byte the same in both folders.</summary>
-    public static bool SameContent(string modA, string modB)
-    {
-        var a = ContentFiles(modA);
-        var b = ContentFiles(modB);
-        if (a.Count != b.Count || !a.Keys.All(b.ContainsKey))
-        {
-            return false;
-        }
-
-        foreach (var (relative, pathA) in a)
-        {
-            var pathB = b[relative];
-            if (new FileInfo(pathA).Length != new FileInfo(pathB).Length || !HashOf(pathA).SequenceEqual(HashOf(pathB)))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     private static Dictionary<string, string> ContentFiles(string modFolder)
     {
         var local = LocalFiles(modFolder);

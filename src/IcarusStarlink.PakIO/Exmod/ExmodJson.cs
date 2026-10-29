@@ -122,10 +122,8 @@ public static class ExmodJson
     }
 
     /// <summary>
-    /// One Rows entry: {"CurrentFile": ..., "File_Items": [...]}. Extracted out of ParseCore's own
-    /// loop (Phase 7.2) so the EXMOD editor's "File JSON" raw view — one file's worth of a mod's
-    /// changes, edited as text — can parse/reserialize a single row through the exact same
-    /// validation ParseCore/ToJsonObject already apply to every row, rather than a laxer path.
+    /// One Rows entry: {"CurrentFile": ..., "File_Items": [...]}, parsed with the same validation
+    /// ParseCore applies to every row (ParseCore's own loop calls it).
     /// </summary>
     public static ExmodFileRow ParseRow(JsonObject rowObj)
     {

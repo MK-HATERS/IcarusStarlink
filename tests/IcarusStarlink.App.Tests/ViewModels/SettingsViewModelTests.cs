@@ -521,16 +521,6 @@ public sealed class SettingsViewModelTests
         Assert.False(vm.IsInstallingUe4ss);
     }
 
-    [Theory]
-    [InlineData("3.1.0", "3.0.1", true)]
-    [InlineData("v3.0.2", "3.0.1", true)]
-    [InlineData("3.0.1", "3.0.1", false)]
-    [InlineData("3.0.0", "3.0.1", false)]
-    [InlineData("3.0.1", null, true)]
-    [InlineData("nonsense", "3.0.1", false)]
-    public void BundledUe4ss_IsNewer_ComparesVersions(string candidate, string? current, bool expected) =>
-        Assert.Equal(expected, BundledUe4ss.IsNewer(candidate, current));
-
     [Fact]
     public async Task InstallOrUpdateUe4ssCommand_Declined_DoesNotDownloadOrInstall()
     {

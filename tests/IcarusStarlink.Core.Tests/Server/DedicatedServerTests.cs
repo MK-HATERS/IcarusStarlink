@@ -104,8 +104,8 @@ public sealed class DedicatedServerTests : IDisposable
         File.WriteAllText(Path.Combine(prospects, "New.json"), "{}");
         File.WriteAllText(Path.Combine(prospects, "New.json.backup"), "{}");
 
-        Assert.Equal(["New", "Old"], DedicatedServerLayout.ListProspects(_root, null));
-        Assert.Empty(DedicatedServerLayout.ListProspects(_root, "_nope"));
+        Assert.Equal(["New", "Old"], DedicatedServerLayout.ListProspectFiles(_root, null).Select(f => f.Name));
+        Assert.Empty(DedicatedServerLayout.ListProspectFiles(_root, "_nope"));
     }
 
     [Fact]

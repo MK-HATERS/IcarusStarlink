@@ -20,10 +20,6 @@ public sealed record DiffRow(string? Mod, string? Game, string? After, DiffSide 
     public bool IsOnlyGame => Side == DiffSide.OnlyGame;
 
     public bool IsChanged => Side == DiffSide.Changed;
-
-    public string ModMark => Mod is null ? "" : Side is DiffSide.OnlyMod or DiffSide.Changed ? "+" : "";
-
-    public string GameMark => Game is null ? "" : Side is DiffSide.OnlyGame or DiffSide.Changed ? "+" : "";
 }
 
 /// <summary>

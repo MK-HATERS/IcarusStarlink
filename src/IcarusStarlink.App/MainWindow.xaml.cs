@@ -147,7 +147,7 @@ public partial class MainWindow : Window
             Height = settings.WindowHeight.Value;
         }
 
-        if (settings.WindowLeft is { } left && settings.WindowTop is { } top && IsReachable(left, top, Width, Height))
+        if (settings.WindowLeft is { } left && settings.WindowTop is { } top && IsReachable(left, top, Width))
         {
             WindowStartupLocation = WindowStartupLocation.Manual;
             Left = left;
@@ -171,7 +171,7 @@ public partial class MainWindow : Window
     /// be reachable, not just any single pixel overlapping, so the window doesn't restore mostly
     /// off-screen and undraggable back.
     /// </summary>
-    private static bool IsReachable(double left, double top, double width, double height)
+    private static bool IsReachable(double left, double top, double width)
     {
         var virtualLeft = SystemParameters.VirtualScreenLeft;
         var virtualTop = SystemParameters.VirtualScreenTop;
