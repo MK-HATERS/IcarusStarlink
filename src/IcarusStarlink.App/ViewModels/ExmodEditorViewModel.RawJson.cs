@@ -4,7 +4,7 @@ using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.App.ViewModels;
 
-/// <summary>The File JSON and Full EXMOD JSON views: the mod as text, applied back with Apply.</summary>
+/// <summary>The File JSON view: one file of the mod as text, applied back with Apply.</summary>
 public sealed partial class ExmodEditorViewModel
 {
     [RelayCommand]
@@ -89,41 +89,6 @@ public sealed partial class ExmodEditorViewModel
         return null;
     }
 
-    [RelayCommand]
-    private void ApplyFullExmodJson()
-    {
-        ExmodPackage parsed;
-        try
-        {
-            parsed = ExmodJson.Parse(FullExmodJsonText);
-        }
-        catch (Exception ex)
-        {
-            RawJsonStatusMessage = $"Invalid EXMOD JSON: {ex.Message}";
-            return;
-        }
-
-        // Guards the same ambiguous-.EXMOD-files state 7.1's design already keeps FileName out of
-        // the Item fields view for — Save() writes to "<FileName>.EXMOD" without deleting any
-        // differently-named file already on disk, so silently accepting a changed fileName here
-        // would leave two .EXMOD files in the mod's folder.
-        if (parsed.FileName != _package.FileName)
-        {
-            RawJsonStatusMessage = $"Can't change \"fileName\" here (would leave two .EXMOD files on disk) — it must stay \"{_package.FileName}\".";
-            return;
-        }
-
-        if (FractionalStatIn(parsed.Rows) is { } fractional)
-        {
-            RawJsonStatusMessage = $"Not applied: stats are whole numbers in the game, so {fractional} would lose its fraction.";
-            return;
-        }
-
-        PushUndoSnapshot();
-        ApplyParsedPackage(parsed);
-        RawJsonStatusMessage = "Applied.";
-    }
-
     private void RefreshFileJsonText()
     {
         if (SelectedItem is null)
@@ -135,6 +100,4 @@ public sealed partial class ExmodEditorViewModel
         var row = _package.Rows.FirstOrDefault(r => Same(r.CurrentFile, SelectedItem.CurrentFile));
         FileJsonText = row is null ? "" : ExmodJson.RowToJsonObject(row).ToJsonString(ExmodJson.DisplayOptions);
     }
-
-    private void RefreshFullExmodJsonText() => FullExmodJsonText = ExmodJson.ToJsonObject(_package).ToJsonString(ExmodJson.DisplayOptions);
 }

@@ -91,6 +91,34 @@ public sealed partial class EditorFieldViewModel : ObservableObject
 
     public bool HasHint => Hint.Length > 0;
 
+    /// <summary>The Fields view's section for this field, by what kind of value it is ("Numbers", "Names and text"…).</summary>
+    public string Group => Kind switch
+    {
+        EditorFieldKind.Text or EditorFieldKind.String => "Names and text",
+        EditorFieldKind.Number => "Numbers",
+        EditorFieldKind.Bool => "On or off",
+        EditorFieldKind.Link or EditorFieldKind.Choice => "Links and choices",
+        EditorFieldKind.Stats => "Stats",
+        _ => "Lists and other values",
+    };
+
+    /// <summary>Where Group sits in the view: names first, the raw JSON last.</summary>
+    internal int GroupOrder => Kind switch
+    {
+        EditorFieldKind.Text or EditorFieldKind.String => 0,
+        EditorFieldKind.Number => 1,
+        EditorFieldKind.Bool => 2,
+        EditorFieldKind.Link or EditorFieldKind.Choice => 3,
+        EditorFieldKind.Stats => 4,
+        _ => 5,
+    };
+
+    /// <summary>↺ shows: the value differs from the game's, and the game has one to go back to.</summary>
+    public bool CanUseGameValue => IsChanged && _baseValue is not null;
+
+    /// <summary>Added in this sitting (Add a field): stays in view even with "Only changed fields" on, while it still has the game's value.</summary>
+    internal bool KeepInView { get; set; }
+
     /// <summary>One row per stat (Stats fields only), including game stats this mod's list leaves out.</summary>
     public ObservableCollection<StatEntryViewModel> Stats { get; } = [];
 
@@ -106,6 +134,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     private string _valueText;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanUseGameValue))]
     private bool _isChanged;
 
     /// <summary>True when the live value differs from OriginalValueText — drives whether the "was: X" line shows at all.</summary>
@@ -274,6 +303,33 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         }
 
         RecomputeChanged();
+    }
+
+    /// <summary>
+    /// ↺: the game's own value again, in every view of the field (the box, the checkbox, the
+    /// dropdown, each stat row). The field stays in the mod with that value, which changes nothing
+    /// in game (Save drops it when the game's row sets it). Undoable like any edit.
+    /// </summary>
+    [RelayCommand]
+    private void UseGameValue()
+    {
+        if (_baseValue is null)
+        {
+            return;
+        }
+
+        if (Kind == EditorFieldKind.Stats)
+        {
+            _syncingStats = true;
+            Stats.Clear();
+            BuildStats(_baseValue as JsonObject);
+        }
+
+        ValueText = FormatForDisplay(_baseValue);
+        OnPropertyChanged(nameof(PlainText));
+        OnPropertyChanged(nameof(PlainString));
+        OnPropertyChanged(nameof(BoolValue));
+        OnPropertyChanged(nameof(SelectedOption));
     }
 
     /// <summary>Called by a stat row: rebuilds this field's JSON from the rows.</summary>

@@ -26,15 +26,17 @@ public sealed record GameDataItemRef(string CurrentFile, string RealPath, string
 /// <summary>One row plus its own serialized JSON — the searchable unit for the Search game data window's reference search. Kept separate from GameDataItemRef so the (much lighter) add-item picker never pays for the serialized text it doesn't use.</summary>
 public sealed record GameDataSearchEntry(string RealPath, string ItemName, string RowJson);
 
-/// <summary>Which of the editor's three views (spec: "Item fields, File JSON, or Full EXMOD JSON views") is showing in the right-hand pane.</summary>
+/// <summary>Which of the editor's views is showing in the right-hand pane. (The old "Full EXMOD JSON" view is gone: File JSON covers raw edits, one file at a time.)</summary>
 public enum ExmodEditorViewMode
 {
     ItemFields,
     FileJson,
-    FullExmodJson,
 
     /// <summary>"Scale a field across a table" rules (ExmodEditorViewModel.Scale.cs).</summary>
     ScaleRules,
+
+    /// <summary>Game rows of this mod's tables that it doesn't have yet (ExmodEditorViewModel.NotInMod.cs).</summary>
+    NotInMod,
 }
 
 /// <summary>
@@ -44,7 +46,7 @@ public enum ExmodEditorViewMode
 /// pairing matches (see the plan's "7.1 — Core editor" section) — LibraryViewModel constructs a
 /// fresh instance per Edit… / New mod… click via the Func&lt;string, ExmodEditorViewModel&gt;
 /// factory registered in App.xaml.cs, rather than this being resolved as a singleton.
-/// Phase 7.2 added the File JSON / Full EXMOD JSON raw-text views alongside Item fields.
+/// Phase 7.2 added the File JSON raw-text view alongside Item fields.
 /// </summary>
 public sealed partial class ExmodEditorViewModel : ObservableObject
 {
@@ -154,9 +156,6 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     private string _fileJsonText = "";
 
     [ObservableProperty]
-    private string _fullExmodJsonText = "";
-
-    [ObservableProperty]
     private string? _rawJsonStatusMessage;
 
     // Shared scroll position per view — not per window. When the same view (e.g. Item fields) is
@@ -169,9 +168,6 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
     [ObservableProperty]
     private double _fileJsonScrollOffset;
-
-    [ObservableProperty]
-    private double _fullExmodJsonScrollOffset;
 
     /// <summary>Filters Items by a substring of its Display text (file or item name) — Ctrl+F focuses the box this is bound to.</summary>
     [ObservableProperty]
@@ -190,7 +186,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedItemCount;
 
-    /// <summary>2+ items selected at once — mass edit becomes available. A single selection (the common case) keeps using the normal Item fields/File JSON/Full EXMOD JSON views instead.</summary>
+    /// <summary>2+ items selected at once — mass edit becomes available. A single selection (the common case) keeps using the normal Fields / File JSON views instead.</summary>
     public bool IsMassEditActive => SelectedItemCount > 1;
 
     [ObservableProperty]
@@ -387,9 +383,13 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         {
             RefreshFileJsonText();
         }
-        else if (value == ExmodEditorViewMode.FullExmodJson)
+        else if (value == ExmodEditorViewMode.NotInMod)
         {
-            RefreshFullExmodJsonText();
+            OpenNotInMod();
+        }
+        else if (value == ExmodEditorViewMode.ScaleRules)
+        {
+            FindScaleSuggestions();
         }
     }
 
@@ -411,9 +411,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [RelayCommand]
     private void PopOutCurrentView()
     {
-        if (ViewMode == ExmodEditorViewMode.ScaleRules)
+        if (ViewMode is ExmodEditorViewMode.ScaleRules or ExmodEditorViewMode.NotInMod)
         {
-            StatusMessage = "Scale rules stay in this window — pop out Fields or a JSON view to watch the rows they write.";
+            StatusMessage = "This view stays in this window. Pop out Fields or File JSON to watch the rows it writes.";
             return;
         }
 
@@ -439,7 +439,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         pane.Show();
     }
 
-    /// <summary>Copies every field but FileName (the caller's own responsibility to guard, per ApplyFullExmodJson's own check above) from parsed onto the live _package in place, then refreshes every view derived from it. Shared by ApplyFullExmodJson and Undo — both are, structurally, "replace the whole package's content with something else."</summary>
+    /// <summary>Copies every field but FileName from parsed onto the live _package in place, then refreshes every view derived from it. Used by Undo/Redo ("replace the whole package's content with a snapshot").</summary>
     /// <param name="reloadRules">False keeps the Scale rules view as it is — Undo of some other edit mustn't throw away rule changes not applied yet.</param>
     private void ApplyParsedPackage(ExmodPackage parsed, bool reloadRules = true)
     {
@@ -582,8 +582,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _baseValuesByKey = baseDiff.ToDictionary(c => (c.CurrentFile, c.ItemName, c.FieldName), c => c.OriginalValue);
 
         // Explicitly clears a stale warning from an earlier refresh (e.g. a prior package version
-        // had a row with no matching base file) when a later refresh — after a File JSON/Full
-        // EXMOD JSON Apply changed what Rows actually contains — no longer has anything to warn
+        // had a row with no matching base file) when a later refresh — after a File JSON
+        // Apply changed what Rows actually contains — no longer has anything to warn
         // about; a bare "only set when there are warnings" would leave the old message showing
         // even though it no longer applies to the package's current content.
         StatusMessage = report.Warnings.Count > 0 ? report.Warnings[0] : null;
@@ -592,30 +592,84 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// <summary>Shared by OnSelectedItemChanged and a successful Save (which needs the just-saved item's own "was:" indicators to clear immediately, not just on next reselect).</summary>
     private void PopulateFieldsForSelection()
     {
-        Fields.Clear();
-        if (SelectedItem is null)
+        _allFields.Clear();
+        try
         {
-            return;
-        }
+            if (SelectedItem is null || FindItem(SelectedItem.CurrentFile, SelectedItem.ItemName) is not { } item)
+            {
+                return;
+            }
 
-        var item = FindItem(SelectedItem.CurrentFile, SelectedItem.ItemName);
-        if (item is null)
-        {
-            return;
+            var selected = SelectedItem;
+            foreach (var fieldName in item.Fields.Keys.ToList())
+            {
+                var baseValue = BaseValueFor(selected.CurrentFile, selected.ItemName, fieldName, item);
+                var originalValue = LookupOrFallback(_originalValuesByKey, selected.CurrentFile, selected.ItemName, fieldName, item);
+                AddFieldRow(new EditorFieldViewModel(fieldName, item.Fields, baseValue, originalValue, StatChoicesForFields(),
+                    ChoicesFor(selected.CurrentFile, fieldName, item.Fields.GetValueOrDefault(fieldName) ?? baseValue)), selected);
+            }
         }
-
-        var selected = SelectedItem;
-        foreach (var fieldName in item.Fields.Keys.ToList())
+        finally
         {
-            var baseValue = BaseValueFor(selected.CurrentFile, selected.ItemName, fieldName, item);
-            var originalValue = LookupOrFallback(_originalValuesByKey, selected.CurrentFile, selected.ItemName, fieldName, item);
-            AddFieldRow(new EditorFieldViewModel(fieldName, item.Fields, baseValue, originalValue, StatChoicesForFields(),
-                ChoicesFor(selected.CurrentFile, fieldName, item.Fields.GetValueOrDefault(fieldName) ?? baseValue)), selected);
+            ShowFields();
+            RefreshAddableFields();
         }
     }
 
+    /// <summary>Every field of the selected row; Fields is the part on show (see ShowFields).</summary>
+    private readonly List<EditorFieldViewModel> _allFields = [];
+
+    /// <summary>"Only fields that differ from the game": hides the ones a copied game row carries unchanged.</summary>
+    [ObservableProperty]
+    private bool _showChangedFieldsOnly;
+
+    partial void OnShowChangedFieldsOnlyChanged(bool value) => ShowFields();
+
+    /// <summary>
+    /// Puts the selected row's fields on show, in sections (names, numbers, on/off, links, stats,
+    /// lists), each section in the row's own order. With "Only changed fields" on, a field that
+    /// matches the game is left out unless it was just added. Not re-run while typing: a field
+    /// typed back to the game's value stays in view until the next item or toggle.
+    /// </summary>
+    private void ShowFields()
+    {
+        Fields.Clear();
+        foreach (var field in _allFields.Select((f, i) => (Field: f, Index: i)).OrderBy(x => x.Field.GroupOrder).ThenBy(x => x.Index).Select(x => x.Field))
+        {
+            if (!ShowChangedFieldsOnly || field.IsChanged || field.KeepInView)
+            {
+                Fields.Add(field);
+            }
+        }
+
+        OnPropertyChanged(nameof(FieldsSummary));
+        OnPropertyChanged(nameof(FieldsEmptyText));
+    }
+
+    /// <summary>"12 fields, 3 differ from the game" for the selected row; null with nothing picked.</summary>
+    public string? FieldsSummary
+    {
+        get
+        {
+            if (SelectedItem is null || NoDataRowsMessage is not null)
+            {
+                return null;
+            }
+
+            var changed = _allFields.Count(f => f.IsChanged);
+            var text = $"{_allFields.Count} field(s), {changed} differ from the game";
+            return Fields.Count < _allFields.Count ? $"{text} (showing {Fields.Count})" : text;
+        }
+    }
+
+    /// <summary>Why the Fields list is empty for a picked row; null while it shows fields.</summary>
+    public string? FieldsEmptyText =>
+        SelectedItem is null || Fields.Count > 0 || NoDataRowsMessage is not null ? null
+        : _allFields.Count > 0 ? $"No field differs from the game yet. Untick \"Only changed fields\" to see all {_allFields.Count}."
+        : "This row has no fields yet. Add one below.";
+
     /// <summary>Adds a field row; its edits keep the list's change badge for the row up to date.</summary>
-    private void AddFieldRow(EditorFieldViewModel field, EditorItemViewModel owner)
+    private EditorFieldViewModel AddFieldRow(EditorFieldViewModel field, EditorItemViewModel owner)
     {
         field.BeforeWrite = () => SnapshotBeforeFieldEdit(owner.CurrentFile, owner.ItemName, field.FieldName);
         field.PropertyChanged += (_, e) =>
@@ -624,8 +678,13 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
             {
                 Recount(owner);
             }
+            else if (e.PropertyName == nameof(EditorFieldViewModel.IsChanged))
+            {
+                OnPropertyChanged(nameof(FieldsSummary));
+            }
         };
-        Fields.Add(field);
+        _allFields.Add(field);
+        return field;
     }
 
     /// <summary>A field genuinely not found in the given lookup (never diffed against base, or didn't exist at the last snapshot) falls back to "same as current" — no highlight, matching the established convention for both _baseValuesByKey and _originalValuesByKey.</summary>
@@ -700,7 +759,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         var baseValue = BaseValueFor(SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
         var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
         AddFieldRow(new EditorFieldViewModel(NewFieldName, item.Fields, baseValue, originalValue, StatChoicesForFields(),
-            ChoicesFor(SelectedItem.CurrentFile, NewFieldName, parsedValue ?? baseValue)), SelectedItem);
+            ChoicesFor(SelectedItem.CurrentFile, NewFieldName, parsedValue ?? baseValue)), SelectedItem).KeepInView = true;
+        ShowFields();
+        RefreshAddableFields();
         Recount(SelectedItem);
 
         NewFieldName = "";
@@ -719,7 +780,11 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         var item = FindItem(SelectedItem.CurrentFile, SelectedItem.ItemName)!;
         PushUndoSnapshot();
         item.Fields.Remove(field.FieldName);
+        _allFields.Remove(field);
         Fields.Remove(field);
+        OnPropertyChanged(nameof(FieldsSummary));
+        OnPropertyChanged(nameof(FieldsEmptyText));
+        RefreshAddableFields();
         Recount(SelectedItem);
     }
 
@@ -826,7 +891,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         // Library doesn't list, so the work would look saved but be nowhere to be found.
         if (!ModFolderExists())
         {
-            StatusMessage = "Not saved: this mod's folder is gone (deleted or moved in Library?). To keep your work, copy it from the Full EXMOD JSON view into a new mod.";
+            StatusMessage = "Not saved: this mod's folder is gone (deleted or moved in Library?). To keep your work, copy each file from the File JSON view into a new mod.";
             return;
         }
 

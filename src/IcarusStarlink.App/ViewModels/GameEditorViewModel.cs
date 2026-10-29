@@ -417,6 +417,18 @@ public sealed partial class GameEditorViewModel : ObservableObject
         }
     }
 
+    /// <summary>"Only changed values": each card shows just the values that differ from the game's (taken when switched, not while typing).</summary>
+    [ObservableProperty]
+    private bool _showChangedValuesOnly;
+
+    partial void OnShowChangedValuesOnlyChanged(bool value)
+    {
+        foreach (var section in Sections)
+        {
+            section.ShowOnlyChanged(value);
+        }
+    }
+
     private void LoadItem()
     {
         _shownItem = SelectedItem;
@@ -444,7 +456,9 @@ public sealed partial class GameEditorViewModel : ObservableObject
         _statChoices ??= GameStats.StatChoices(game);
         foreach (var section in view.Sections)
         {
-            Sections.Add(new GameItemSectionViewModel(section, _statChoices, UpdatePending, game));
+            var card = new GameItemSectionViewModel(section, _statChoices, UpdatePending, game);
+            card.ShowOnlyChanged(ShowChangedValuesOnly);
+            Sections.Add(card);
         }
 
         UpdatePending();

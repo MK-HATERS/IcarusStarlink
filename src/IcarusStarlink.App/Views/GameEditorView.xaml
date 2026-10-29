@@ -102,8 +102,12 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding HasItem, Converter={StaticResource BoolToVisibilityConverter}}">
                         <StackPanel Margin="14">
                             <TextBlock Text="{Binding ItemTitle}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                            <TextBlock TextWrapping="Wrap" Margin="0,4,0,10" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                       Text="Each card is one of the game rows this item uses; click its title to fold it away. An orange border marks a value that differs from the game's."/>
+                            <DockPanel Margin="0,4,0,10">
+                                <CheckBox DockPanel.Dock="Right" Content="Only changed values" IsChecked="{Binding ShowChangedValuesOnly}" VerticalAlignment="Top" Margin="12,0,0,0"
+                                          ToolTip="Hide the values that are still the game's, so you see just what you (or the mod you save to) change. Untick to see them all."/>
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                           Text="Each card is one of the game rows this item uses; click its title to fold it away. An orange border marks a value that differs from the game's; ↺ puts the game's value back."/>
+                            </DockPanel>
                             <ItemsControl ItemsSource="{Binding Sections}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:GameItemSectionViewModel}">
@@ -143,12 +147,15 @@
                                                     </StackPanel>
                                                 </Border>
 
+                                                <TextBlock Text="Every value here is still the game's (untick Only changed values to see them)." FontSize="12" Margin="0,2,0,6"
+                                                           Foreground="{DynamicResource FaintForegroundBrush}" TextWrapping="Wrap"
+                                                           Visibility="{Binding AllHidden, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                 <ItemsControl ItemsSource="{Binding Fields}" Margin="0,0,0,6">
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate DataType="{x:Type vm:GameItemFieldViewModel}">
                                                             <!-- A number gets a short box with the game's value right beside it, so
                                                                  every number lines up at the same place; text gets the whole width. -->
-                                                            <Grid Margin="0,4">
+                                                            <Grid Margin="0,4" Visibility="{Binding IsShown, Converter={StaticResource BoolToVisibilityConverter}}">
                                                                 <Grid.ColumnDefinitions>
                                                                     <ColumnDefinition Width="190"/>
                                                                     <ColumnDefinition>

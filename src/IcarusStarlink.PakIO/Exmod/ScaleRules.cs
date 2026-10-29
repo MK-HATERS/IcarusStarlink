@@ -311,25 +311,9 @@ public static class ScaleRules
         // game doesn't fill (then a value written "100" is whole, one made in code is real).
         var isInteger = decimalField is { } isDecimal ? !isDecimal : valueIsInteger;
 
-        var after = rule.Operation == ScaleOperation.Set ? rule.Value : before * rule.Value;
-        JsonNode result;
-        if (isInteger && (rule.Operation == ScaleOperation.Multiply || after == Math.Round(after)))
-        {
-            // Whole-number fields stay whole numbers. Scaling never rounds a real amount down to
-            // nothing (an ingredient count of 1 × 0.4 stays 1, not free) unless the factor is 0.
-            var rounded = (long)Math.Clamp(Math.Round(after, MidpointRounding.AwayFromZero), int.MinValue, int.MaxValue);
-            if (rounded == 0 && before != 0 && after != 0)
-            {
-                rounded = Math.Sign(after);
-            }
-
-            result = JsonValue.Create(rounded);
-        }
-        else
-        {
-            result = JsonValue.Create(Math.Round(after, 6));
-        }
-        if (TryGetNumber(result, out var resultNumber, out _) && resultNumber == before)
+        var (resultNumber, whole) = Compute(before, rule.Operation, rule.Value, isInteger);
+        JsonNode result = whole ? JsonValue.Create((long)resultNumber) : JsonValue.Create(resultNumber);
+        if (resultNumber == before)
         {
             return node;
         }
@@ -340,11 +324,37 @@ public static class ScaleRules
     }
 
     /// <summary>
+    /// The number a rule makes of one game value, and whether it is written as a whole number.
+    /// Whole-number fields stay whole numbers. Scaling never rounds a real amount down to nothing
+    /// (an ingredient count of 1 × 0.4 stays 1, not free) unless the factor is 0. Shared with
+    /// ScaleRuleSuggester, so a suggested rule is judged by exactly what Apply would write.
+    /// </summary>
+    internal static (double Value, bool Whole) Compute(double before, ScaleOperation operation, double value, bool isInteger)
+    {
+        var after = operation == ScaleOperation.Set ? value : before * value;
+        if (isInteger && (operation == ScaleOperation.Multiply || after == Math.Round(after)))
+        {
+            var rounded = (long)Math.Clamp(Math.Round(after, MidpointRounding.AwayFromZero), int.MinValue, int.MaxValue);
+            if (rounded == 0 && before != 0 && after != 0)
+            {
+                rounded = Math.Sign(after);
+            }
+
+            return (rounded, true);
+        }
+
+        return (Math.Round(after, 6), false);
+    }
+
+    /// <summary>
     /// A JSON number as a double, whatever it is held as: values parsed from a file convert freely,
     /// but values built in code (JsonValue.Create(5)) only answer to their own CLR type, so each
     /// numeric type is tried. Booleans and strings are not numbers.
     /// </summary>
     public static bool TryReadNumber(JsonNode? node, out double value) => TryGetNumber(node, out value, out _);
+
+    /// <summary>TryReadNumber, plus whether the number is written whole in the file ("100", not "100.0").</summary>
+    internal static bool TryReadNumber(JsonNode? node, out double value, out bool isInteger) => TryGetNumber(node, out value, out isInteger);
 
     private static bool TryGetNumber(JsonNode? node, out double value, out bool isInteger)
     {

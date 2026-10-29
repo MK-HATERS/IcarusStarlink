@@ -54,6 +54,10 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(DiffersFromGame), nameof(IsPending), nameof(Error), nameof(ValueHint))]
     private string _valueText;
 
+    /// <summary>False while the page's "Only changed values" hides it (set when that's switched, never while typing, so a field doesn't vanish under the cursor).</summary>
+    [ObservableProperty]
+    private bool _isShown = true;
+
     /// <summary>A time in seconds read the way people think of it ("= 3 h" for 10800); null for any other field.</summary>
     public string? ValueHint =>
         Label.Contains("(seconds)", StringComparison.OrdinalIgnoreCase) && EditorValueText.TryParseNumber(ValueText, out var seconds) && seconds >= 60
@@ -199,6 +203,21 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
 
     public bool CanAddStat => Section.StatGroups.Count > 0;
 
+    /// <summary>"Only changed values" hides every value of this card: it says so instead of showing an empty card.</summary>
+    [ObservableProperty]
+    private bool _allHidden;
+
+    /// <summary>Hides the values that are still the game's (on), or shows them all (off).</summary>
+    public void ShowOnlyChanged(bool on)
+    {
+        foreach (var field in Fields)
+        {
+            field.IsShown = !on || field.DiffersFromGame;
+        }
+
+        AllHidden = on && Fields.Count > 0 && Fields.All(f => !f.IsShown);
+    }
+
     /// <summary>"Add a stat" for this card (cards with a stats list only).</summary>
     public StatPickerViewModel Picker { get; }
 
@@ -220,6 +239,7 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
                 _changed();
             },
         });
+        AllHidden = false;
         _changed();
         return null;
     }

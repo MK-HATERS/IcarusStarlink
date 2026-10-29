@@ -9,6 +9,14 @@
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource ContentBackgroundBrush}">
 
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="ExmodEditorResources.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+
     <Window.InputBindings>
         <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCommand}"/>
         <KeyBinding Key="D" Modifiers="Control" Command="{Binding DuplicateItemCommand}"/>
@@ -145,10 +153,8 @@
             </Expander>
         </Grid>
 
-        <!-- Right: three views over the same selected item/package — Item fields (structured,
-             amber-highlighted), File JSON (one file's raw JSON), Full EXMOD JSON (the whole
-             package's raw JSON) — sharing the left-hand selection per the spec's "Item fields,
-             File JSON, or Full EXMOD JSON views" + "sync scroll" bullets. -->
+        <!-- Right: views over the same selected item/package — Fields (structured, orange-marked),
+             File JSON (one file's raw JSON) and Scale rules — sharing the left-hand selection. -->
         <Grid Grid.Column="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -179,16 +185,6 @@
                         </MultiBinding>
                     </Button.Tag>
                 </Button>
-                <Button Content="Full EXMOD JSON" Style="{StaticResource ThemeButtonStyle}"
-                        Command="{Binding SetViewModeCommand}" CommandParameter="FullExmodJson"
-                        ToolTip="The whole mod's .EXMOD, as raw JSON you can edit directly">
-                    <Button.Tag>
-                        <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
-                            <Binding Path="ViewMode"/>
-                            <Binding Source="{x:Static vm:ExmodEditorViewMode.FullExmodJson}"/>
-                        </MultiBinding>
-                    </Button.Tag>
-                </Button>
                 <Button Content="Scale rules" Style="{StaticResource ThemeButtonStyle}"
                         Command="{Binding SetViewModeCommand}" CommandParameter="ScaleRules"
                         ToolTip="Change one field across a whole game table — e.g. every item's Weight ×0.5 — and rebuild it from current game data after an update">
@@ -196,6 +192,16 @@
                         <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
                             <Binding Path="ViewMode"/>
                             <Binding Source="{x:Static vm:ExmodEditorViewMode.ScaleRules}"/>
+                        </MultiBinding>
+                    </Button.Tag>
+                </Button>
+                <Button Content="Not in this mod yet" Style="{StaticResource ThemeButtonStyle}"
+                        Command="{Binding SetViewModeCommand}" CommandParameter="NotInMod"
+                        ToolTip="Game rows of the tables this mod changes that it doesn't have yet (new items after a game update, say). Tick some and add them in one go.">
+                    <Button.Tag>
+                        <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
+                            <Binding Path="ViewMode"/>
+                            <Binding Source="{x:Static vm:ExmodEditorViewMode.NotInMod}"/>
                         </MultiBinding>
                     </Button.Tag>
                 </Button>
@@ -263,11 +269,21 @@
                                 <TextBlock FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" FontFamily="Consolas" TextWrapping="Wrap">
                                     <Run Text="{Binding SelectedItem.RealPath, Mode=OneWay}"/><Run Text=" › "/><Run Text="{Binding SelectedItem.ItemName, Mode=OneWay}"/>
                                 </TextBlock>
-                                <TextBlock Text="An orange border marks a value that differs from the game's. Every number says what lower and higher do." FontSize="12"
+                                <TextBlock Text="An orange border marks a value that differs from the game's. ↺ puts the game's value back; ✕ takes the field out of the mod." FontSize="12"
                                            Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,4,0,2" TextWrapping="Wrap"/>
                             </StackPanel>
                         </DockPanel>
-                        <ItemsControl ItemsSource="{Binding Fields}" ItemTemplate="{StaticResource EditorFieldTemplate}"/>
+                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ExmodFieldsBarTemplate}"
+                                        Visibility="{Binding FieldsSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <ItemsControl x:Name="FieldsList" ItemsSource="{Binding Fields}" ItemTemplate="{StaticResource EditorFieldTemplate}">
+                            <ItemsControl.GroupStyle>
+                                <GroupStyle ContainerStyle="{StaticResource ExmodFieldGroupItemStyle}"/>
+                            </ItemsControl.GroupStyle>
+                        </ItemsControl>
+                        <TextBlock Text="{Binding FieldsEmptyText}" TextWrapping="Wrap" Margin="0,12,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   Visibility="{Binding FieldsEmptyText, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ExmodAddFieldTemplate}"
+                                        Visibility="{Binding SelectedItem, Converter={StaticResource NullToVisibilityConverter}}"/>
                     </StackPanel>
                 </ScrollViewer>
                 </Grid>
@@ -283,24 +299,69 @@
             </Border>
 
             <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
-                    Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
-                <TextBox x:Name="FullExmodJsonTextBox" Text="{Binding FullExmodJsonText, UpdateSourceTrigger=PropertyChanged}"
-                         AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
-                         BorderThickness="0" Background="Transparent"
-                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                         ToolTip="The whole mod's .EXMOD as raw JSON. Edit freely, then click Apply full EXMOD JSON below to update the mod — nothing here is saved until you do."/>
-            </Border>
-
-            <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
                     Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ScaleRules}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="10">
-                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"
-                                   Text="Each rule changes one field across a whole game table, like every item's Weight ×0.5. Apply writes the rows into this mod from current game data. After a game update, click Apply again to catch up."/>
+                        <TextBlock Text="What a rule is" FontWeight="SemiBold"/>
+                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,2,0,8"
+                                   Text="A rule changes one field on every row of a game table, like every item's Weight ×0.5 or every crate's Slots ×2. Apply writes those rows into this mod from your current game data. After a game update, click Apply again: new items get the same change, so the mod doesn't go out of date."/>
                         <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"
                                    Text="Multiply by: a number below 1 lowers the value (0.5 = half), above 1 raises it (2 = double), 1 leaves it as is, 0 makes it zero. Set to: every row gets exactly that number."/>
-                        <TextBlock Text="No rules yet. Click Add rule." Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"
-                                   Visibility="{Binding HasNoScaleRules, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+                        <!-- Rules this mod's own rows already follow -->
+                        <Border BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,0,0,8"
+                                Background="{DynamicResource AccentSoftBrush}"
+                                Visibility="{Binding HasScaleSuggestions, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <StackPanel>
+                                <TextBlock Text="Suggested from this mod" FontWeight="SemiBold"/>
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,2,0,6"
+                                           Text="This mod already changes these fields the same way on many rows. As a rule, it writes the same values it has now, and after a game update it also changes the new rows."/>
+                                <ItemsControl ItemsSource="{Binding ScaleSuggestions}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <DockPanel Margin="0,0,0,4">
+                                                <Button DockPanel.Dock="Left" Content="Add as rule" Padding="8,1" VerticalAlignment="Top" Margin="0,0,8,0"
+                                                        Command="{Binding DataContext.AddSuggestedRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                        ToolTip="Adds this rule to the list below. Apply rules then writes it (the same values this mod has now)."/>
+                                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12" VerticalAlignment="Center"/>
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                        <DockPanel Margin="0,0,0,8" Visibility="{Binding ScaleSuggestionsMessage, Converter={StaticResource NullToVisibilityConverter}}">
+                            <Button DockPanel.Dock="Right" Content="Look again" Padding="8,1" Command="{Binding FindScaleSuggestionsCommand}" VerticalAlignment="Top" Margin="8,0,0,0"
+                                    ToolTip="Looks through this mod's rows again for a field changed the same way on many rows"/>
+                            <TextBlock Text="{Binding ScaleSuggestionsMessage}" TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                        </DockPanel>
+
+                        <TextBlock Text="No rules yet. Start from a suggestion above, a starter below, or Add rule." Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"
+                                   TextWrapping="Wrap" Visibility="{Binding HasNoScaleRules, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+                        <!-- One-click starters: the Quality of life template's rules -->
+                        <Expander Margin="0,0,0,10" IsExpanded="{Binding HasNoScaleRules, Mode=OneWay}" AutomationProperties.Name="Starter rules">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="False">
+                                    <TextBlock DockPanel.Dock="Left" Text="Starter rules" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock DockPanel.Dock="Left" Text="one click adds a ready rule; change its number after" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                            <ItemsControl ItemsSource="{Binding ScaleStarters}" Margin="0,6,0,0">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Content="{Binding Label}" Margin="0,0,6,6" Padding="8,2"
+                                                Command="{Binding DataContext.AddStarterRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                ToolTip="{Binding Details}"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Expander>
                         <ItemsControl ItemsSource="{Binding ScaleRuleRows}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
@@ -357,34 +418,82 @@
                 </ScrollViewer>
             </Border>
 
-            <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0"
-                        Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
-                <Grid Width="160">
-                    <TextBox Text="{Binding NewFieldName, UpdateSourceTrigger=PropertyChanged}" ToolTip="Field name"/>
-                    <TextBlock Text="e.g. MaxStack" Style="{StaticResource PlaceholderTextStyle}"
-                               Visibility="{Binding NewFieldName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+            <!-- Game rows this mod doesn't have yet (ExmodEditorViewModel.NotInMod.cs) -->
+            <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
+                    Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=NotInMod}">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"
+                               Text="Game rows of a table this mod changes that it doesn't have yet. After a game update, the new items show up here. Tick the ones you want and add them in one go."/>
+                    <WrapPanel Grid.Row="1">
+                        <StackPanel Margin="0,0,8,4">
+                            <TextBlock Text="Table" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                            <ComboBox ItemsSource="{Binding NotInModTables}" SelectedItem="{Binding NotInModTable}" Width="260"
+                                      ToolTip="One of the game tables this mod changes"/>
+                        </StackPanel>
+                        <StackPanel Margin="0,0,8,4">
+                            <TextBlock Text="Only rows that set" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                            <ComboBox ItemsSource="{Binding NotInModFieldOptions}" SelectedItem="{Binding NotInModField}" Width="200"
+                                      ToolTip="A field this mod changes in that table. Only game rows that set it themselves are listed (a stack mod: only items that stack)."/>
+                        </StackPanel>
+                        <StackPanel Margin="0,0,8,4">
+                            <TextBlock Text="Search" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                            <TextBox Text="{Binding NotInModSearch, UpdateSourceTrigger=PropertyChanged, Delay=250}" Width="180"
+                                     ToolTip="Part of the in-game name or the row name" AutomationProperties.Name="Search rows not in this mod"/>
+                        </StackPanel>
+                    </WrapPanel>
+                    <TextBlock Grid.Row="2" Text="{Binding NotInModSummary}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,4,0,6"
+                               Visibility="{Binding NotInModSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    <ListBox Grid.Row="3" ItemsSource="{Binding NotInModRows}" Background="Transparent" HorizontalContentAlignment="Stretch"
+                             VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             Visibility="{Binding HasNotInModRows, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel>
+                                    <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsPicked}" VerticalAlignment="Center" Margin="0,0,8,0"
+                                              AutomationProperties.Name="{Binding Title}"/>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding GameValueText}" VerticalAlignment="Center" FontSize="12" Margin="8,0,0,0"
+                                               Foreground="{DynamicResource FaintForegroundBrush}"/>
+                                    <StackPanel Margin="0,1">
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding RowName}" FontFamily="Consolas" FontSize="10.5" Foreground="{DynamicResource FaintForegroundBrush}" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding ShowRowName, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <StackPanel Grid.Row="4" Margin="0,8,0,0">
+                        <CheckBox IsChecked="{Binding NotInModUseModChange}" Visibility="{Binding HasNotInModChange, Converter={StaticResource BoolToVisibilityConverter}}"
+                                  ToolTip="Off: they're added with the game's value, for you to change">
+                            <TextBlock Text="{Binding NotInModChangeText}" TextWrapping="Wrap"/>
+                        </CheckBox>
+                        <TextBlock Text="{Binding NotInModAddHint}" TextWrapping="Wrap" FontSize="11.5" Margin="0,4,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    </StackPanel>
                 </Grid>
-                <Grid Width="200" Margin="8,0,0,0">
-                    <TextBox Text="{Binding NewFieldValue, UpdateSourceTrigger=PropertyChanged}" ToolTip="JSON value, e.g. 1313 or &quot;text&quot;"/>
-                    <TextBlock Text="e.g. 1313 or &quot;text&quot;" Style="{StaticResource PlaceholderTextStyle}"
-                               Visibility="{Binding NewFieldValue, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-                </Grid>
-                <Button Content="Add field" Command="{Binding AddFieldCommand}" Margin="8,0,0,0"
-                        ToolTip="Adds this field to the selected item"/>
-            </StackPanel>
+            </Border>
+
+            <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,8,0,0" VerticalAlignment="Center"
+                        Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=NotInMod}">
+                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Tick all" Command="{Binding PickAllNotInModCommand}" ToolTip="Ticks every row in the list (the search narrows it)"/>
+                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Tick none" Command="{Binding PickNoNotInModCommand}" Margin="8,0,0,0"/>
+                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Add ticked rows" Command="{Binding AddNotInModRowsCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"
+                        ToolTip="{Binding NotInModAddHint}"/>
+                <TextBlock Text="{Binding NotInModStatus}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"
+                           Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+            </DockPanel>
 
             <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,8,0,0" VerticalAlignment="Center"
                         Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Apply file JSON" Command="{Binding ApplyFileJsonCommand}"
                         ToolTip="Re-parse this box and replace the selected item's file in the mod"/>
-                <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                           Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
-            </DockPanel>
-
-            <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,8,0,0" VerticalAlignment="Center"
-                        Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
-                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Apply full EXMOD JSON" Command="{Binding ApplyFullExmodJsonCommand}"
-                        ToolTip="Re-parse this box and replace the whole mod's contents"/>
                 <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                            Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
             </DockPanel>
@@ -402,7 +511,7 @@
 
             <DockPanel Grid.Row="4" LastChildFill="True" Margin="0,12,0,0" VerticalAlignment="Center">
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                        ToolTip="Writes every change so far to this mod's .EXMOD file — from any view (Fields, File JSON, Full EXMOD JSON, Scale rules): they all edit the same mod"/>
+                        ToolTip="Writes every change so far to this mod's .EXMOD file — from any view (Fields, File JSON, Scale rules): they all edit the same mod"/>
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Turn on &amp; go to Merge &amp; Install" Command="{Binding TurnOnAndGoToMergeCommand}" Margin="8,0,0,0"
                         Visibility="{Binding HasSaved, Converter={StaticResource BoolToVisibilityConverter}}"
                         ToolTip="Ticks this mod ON (adds it to the merge queue) and opens Merge &amp; Install, where Install puts it in the game"/>
