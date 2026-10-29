@@ -105,6 +105,18 @@ public sealed class SaveRepositoryTests : IDisposable
         Assert.Equal(1787399187, reloaded["TimeLastPlayed"]!.GetValue<long>());
     }
 
+    /// <summary>An entry that isn't a character was skipped on read, so the next Save of the characters wrote the file without it.</summary>
+    [Fact]
+    public void LoadCharacters_AnEntryThatIsntACharacter_FailsTheReadInsteadOfDroppingIt()
+    {
+        var path = Path.Combine(_playerData, SteamId, "Characters.json");
+        var wrapper = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        wrapper["Characters.json"]!.AsArray().Add(JsonValue.Create("null"));
+        File.WriteAllText(path, wrapper.ToJsonString());
+
+        Assert.Throws<FormatException>(() => _repository.LoadCharacters(SteamId));
+    }
+
     [Fact]
     public void SaveCharacters_KeepsTheJsonInJsonShapeTheGameExpects()
     {
@@ -232,6 +244,42 @@ public sealed class SaveRepositoryTests : IDisposable
         Assert.DoesNotContain(
             Directory.GetDirectories(_playerData),
             dir => Path.GetFileName(dir).Contains("_restore_scratch_"));
+    }
+
+    /// <summary>The backup picker named each backup by its zip (a Steam ID and a timestamp): it now says what each one is.</summary>
+    [Fact]
+    public void ListBackups_EachSaysWhatItIs_NotItsZipName()
+    {
+        var beforeSave = _repository.BackupSlot(SteamId);
+        _repository.BackupSlotManually(SteamId);
+        _repository.RestoreSlot(SteamId, beforeSave);
+
+        var kinds = _repository.ListBackups(SteamId).Select(b => b.Kind).Order().ToList();
+
+        Assert.Equal(["before a restore", "before a save", "made with Backup now"], kinds);
+        Assert.All(_repository.ListBackups(SteamId), b => Assert.DoesNotContain(SteamId, b.Display));
+    }
+
+    /// <summary>
+    /// A zip with no Profile.json at its top (the slot folder zipped by hand, with the folder inside)
+    /// replaced every player file with nothing; the slot then wasn't listed, so its Restore was gone too.
+    /// </summary>
+    [Fact]
+    public void RestoreSlot_BackupWithoutProfileAtItsTop_RefusesAndLeavesTheSlotAlone()
+    {
+        Directory.CreateDirectory(_backups);
+        var nested = Path.Combine(_backups, $"{SteamId}_by_hand.zip");
+        using (var zip = ZipFile.Open(nested, ZipArchiveMode.Create))
+        {
+            zip.CreateEntryFromFile(Path.Combine(_playerData, SteamId, "Profile.json"), $"{SteamId}/Profile.json");
+        }
+
+        var ex = Assert.Throws<InvalidDataException>(() => _repository.RestoreSlot(SteamId, nested));
+
+        Assert.Contains("Nothing was changed", ex.Message);
+        Assert.Single(_repository.ListSlots());
+        Assert.True(File.Exists(Path.Combine(_playerData, SteamId, "Characters.json")));
+        Assert.DoesNotContain(Directory.GetFiles(_backups), f => f.Contains("pre_restore"));
     }
 
     /// <summary>A failure partway through the swap (here: the second rename into place) puts every live file back as it was.</summary>

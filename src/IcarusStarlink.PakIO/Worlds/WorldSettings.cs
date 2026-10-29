@@ -212,7 +212,20 @@ public sealed class WorldSave
 
         if (FindKey(text, "CustomSettings", infoOpen) is { } key && key < infoClose)
         {
-            var open = text.IndexOf('[', key);
+            // The list must be the value right after the colon. The next '[' anywhere used to be
+            // taken, so a value that isn't a list (null) had text past ProspectInfo, in the world
+            // blob itself, cut out and replaced. Nothing is written when this throws.
+            var open = text.IndexOf(':', key) + 1;
+            while (open < text.Length && char.IsWhiteSpace(text[open]))
+            {
+                open++;
+            }
+
+            if (open >= infoClose || text[open] != '[')
+            {
+                throw new FormatException("This world's CustomSettings isn't a list, so its settings can't be changed here.");
+            }
+
             var close = MatchingClose(text, open);
             return string.Concat(text.AsSpan(0, open), list.ToString(), text.AsSpan(close + 1));
         }

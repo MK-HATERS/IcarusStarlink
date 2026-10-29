@@ -106,6 +106,10 @@ public sealed partial class SaveTalentViewModel : DirtyRow
         OnPropertyChanged(nameof(IsDone));
         OnPropertyChanged(nameof(IsUnlockedInGame));
         OnPropertyChanged(nameof(RankDisplay));
+
+        // On every rank change, not only + and −: Remove leftovers and the save check set Rank
+        // directly, and a talent taken from its highest rank down to 0 kept its + greyed out.
+        OnPropertyChanged(nameof(CanRankUp));
         Changed();
     }
 
@@ -118,16 +122,10 @@ public sealed partial class SaveTalentViewModel : DirtyRow
         {
             Rank++;
         }
-
-        OnPropertyChanged(nameof(CanRankUp));
     }
 
     [RelayCommand]
-    private void RankDown()
-    {
-        Rank = Math.Max(0, Rank - 1);
-        OnPropertyChanged(nameof(CanRankUp));
-    }
+    private void RankDown() => Rank = Math.Max(0, Rank - 1);
 
     protected override void Snapshot() => _originalRank = Rank;
 }

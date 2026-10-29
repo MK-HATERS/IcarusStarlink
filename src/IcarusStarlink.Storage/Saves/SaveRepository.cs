@@ -74,9 +74,16 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         {
             // Each element is an escaped JSON STRING, not an object — the format's own quirk,
             // unwrapped here so nothing above this layer ever deals with it.
-            if (element?.GetValue<string>() is { } raw && JsonNode.Parse(raw) is JsonObject character)
+            // One that isn't a character fails the read (the page then hides Characters and leaves
+            // the file alone): skipped, it was missing from the list the next Save wrote back.
+            if (element is JsonValue value && value.GetValueKind() == JsonValueKind.String
+                && JsonNode.Parse(value.GetValue<string>()) is JsonObject character)
             {
                 characters.Add(character);
+            }
+            else
+            {
+                throw new FormatException($"{CharactersFileName} holds an entry that isn't a character.");
             }
         }
 
@@ -305,6 +312,18 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         }
 
         var slotFolder = ResolveSlot(steamId);
+
+        // A zip without Profile.json at its top (made by hand, or with the slot folder inside it)
+        // would replace every player file with nothing, and a slot without Profile.json isn't
+        // listed (ListSlots), so the page lost the slot and its Restore with it. Checked before
+        // anything is written; a damaged zip already fails here too.
+        using (var backup = ZipFile.OpenRead(backupFilePath))
+        {
+            if (!backup.Entries.Any(e => string.Equals(e.FullName, ProfileFileName, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidDataException($"That backup has no {ProfileFileName} in it, so it isn't a whole player save. Nothing was changed.");
+            }
+        }
 
         // The spec's own safety rule, verbatim: "Restore writes a pre_restore safety zip first,
         // then replaces the slot" — so even a restore of the wrong backup is itself undoable.

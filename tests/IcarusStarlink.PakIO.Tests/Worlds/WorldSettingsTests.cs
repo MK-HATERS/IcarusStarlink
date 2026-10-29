@@ -100,6 +100,21 @@ public sealed class WorldSettingsTests : IDisposable
         Assert.Contains("\"BinaryBlob\": \"BBBB\"", File.ReadAllText(path));
     }
 
+    /// <summary>A CustomSettings that isn't a list: the next '[' anywhere was taken, in the world blob, and that text was cut out. Now nothing is written.</summary>
+    [Fact]
+    public void Save_CustomSettingsNotAList_ThrowsAndLeavesTheWorldExactlyAsItWas()
+    {
+        var text = SaveWithSettings.Replace(
+            SaveWithSettings[SaveWithSettings.IndexOf("[\r\n\t\t\t{")..(SaveWithSettings.IndexOf("\t\t],") + 3)],
+            "null");
+        Assert.Contains("\"CustomSettings\": null,", text);
+        var path = Write("a.json", text);
+
+        Assert.Throws<FormatException>(() => WorldSave.Load(path)!.Save(new Dictionary<string, int> { ["Arachnophobia"] = 1 }, Path.Combine(_root, "bk")));
+
+        Assert.Equal(text, File.ReadAllText(path));
+    }
+
     /// <summary>The game rewrote the world after it was loaded: settings the user didn't touch keep the file's newer value.</summary>
     [Fact]
     public void Save_FileChangedSinceLoad_KeepsTheNewerValuesOfUntouchedSettings()

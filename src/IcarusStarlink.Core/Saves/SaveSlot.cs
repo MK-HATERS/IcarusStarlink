@@ -12,5 +12,18 @@ public sealed record SaveFileStamp(DateTime LastWriteTimeUtc, long Length);
 /// <summary>One backup zip of a whole slot, newest-first in listings.</summary>
 public sealed record SaveBackupInfo(string FilePath, DateTimeOffset TakenAtUtc)
 {
-    public string Display => $"{TakenAtUtc.LocalDateTime:g} — {Path.GetFileName(FilePath)}";
+    /// <summary>"28/10/2026 14:03 — before a restore": what the backup is, not its zip name (a Steam ID and a timestamp).</summary>
+    public string Display => $"{TakenAtUtc.LocalDateTime:g} — {Kind}";
+
+    /// <summary>Told apart by the name SaveRepository gives each kind ("_pre_restore_", "_manual_"); every other one is the backup Save takes.</summary>
+    public string Kind
+    {
+        get
+        {
+            var name = Path.GetFileName(FilePath);
+            return name.Contains("_pre_restore_", StringComparison.OrdinalIgnoreCase) ? "before a restore"
+                : name.Contains("_manual_", StringComparison.OrdinalIgnoreCase) ? "made with Backup now"
+                : "before a save";
+        }
+    }
 }

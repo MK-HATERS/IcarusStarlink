@@ -163,11 +163,26 @@ internal static class TalentArray
         var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (existing is JsonArray entries)
         {
-            foreach (var entry in entries.OfType<JsonObject>())
+            foreach (var node in entries)
             {
-                if (SaveJson.String(entry["RowName"]) is { } rowName && byRow.GetValueOrDefault(rowName) > 0)
+                // An entry with no readable row name isn't on the page, so nobody took it out: it
+                // stays as it is. A kept entry keeps every field the game wrote; only Rank changes
+                // (both used to be lost: entries were rebuilt as bare {RowName, Rank}).
+                if (node is not JsonObject entry || SaveJson.String(entry["RowName"]) is not { } rowName)
                 {
-                    array.Add(new JsonObject { ["RowName"] = rowName, ["Rank"] = byRow[rowName] });
+                    array.Add(node?.DeepClone());
+                    continue;
+                }
+
+                if (byRow.GetValueOrDefault(rowName) > 0)
+                {
+                    var copy = entry.DeepClone().AsObject();
+                    if (SaveJson.Int(copy["Rank"]) != byRow[rowName])
+                    {
+                        copy["Rank"] = byRow[rowName];
+                    }
+
+                    array.Add(copy);
                     written.Add(rowName);
                 }
             }
