@@ -64,7 +64,7 @@ public sealed partial class LocalServerViewModel
             : UpdateAvailable ? "Update available"
             : LatestBuildId is not null ? "Up to date"
             : InstalledBuildId.Value.ToString(CultureInfo.InvariantCulture);
-        BuildHint = InstalledBuildId is null ? "no Steam manifest" : $"build {InstalledBuildId} · {InstalledBranch ?? "public"}";
+        BuildHint = InstalledBuildId is null ? "build not known" : $"build {InstalledBuildId} · {InstalledBranch ?? "public"}";
 
         var newest = Backups.OrderByDescending(b => b.CreatedLocal).FirstOrDefault();
         BackupTile = newest is null ? "None" : newest.CreatedLocal.Date == DateTime.Today ? newest.CreatedLocal.ToString("HH:mm", CultureInfo.CurrentCulture) : newest.CreatedLocal.ToString("d MMM", CultureInfo.CurrentCulture);

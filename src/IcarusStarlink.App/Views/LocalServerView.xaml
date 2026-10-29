@@ -69,7 +69,7 @@
             </ListBox>
             <StackPanel Grid.Row="2" Margin="0,8,0,0">
                 <Button Content="Install new server…" Command="{Binding InstallNewServerCommand}" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Stretch"
-                        ToolTip="Downloads the Icarus dedicated server with SteamCMD (app 2089300 — free, no Icarus licence needed, about 10 GB) into a folder you choose"/>
+                        ToolTip="Downloads the Icarus dedicated server with SteamCMD into a folder you choose. It's free (you don't need to own Icarus) and about 10 GB."/>
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <Button Content="Add existing server…" Command="{Binding AddExistingServerCommand}"
                             ToolTip="Point at a dedicated server you already installed (the folder with IcarusServer.exe). Its settings are read from its own ServerSettings.ini."/>
@@ -144,13 +144,13 @@
                         <Button Content="Start" Command="{Binding StartCommand}" Style="{StaticResource PrimaryButtonStyle}"
                                 ToolTip="Saves the settings below, then launches IcarusServer.exe in its own console window"/>
                         <Button Content="Stop" Command="{Binding StopCommand}" Margin="8,0,0,0"
-                                ToolTip="Asks the server to shut down cleanly (it saves then only if 'Save on exit' is on in Settings); ends it after 60 seconds if it hasn't closed"/>
+                                ToolTip="Asks the server to shut down cleanly. It only saves on the way out if 'Save on exit' is on in Settings. If it hasn't closed after 60 seconds, it is ended."/>
                         <Button Content="Restart" Command="{Binding RestartCommand}" Margin="8,0,0,0"
                                 ToolTip="Stops the server cleanly, then starts it again (with 'Update on restart' on, a newer build is installed in between)"/>
                         <Button Content="Open folder" Command="{Binding OpenInstallFolderCommand}" Margin="16,0,0,0"
                                 ToolTip="The server's install folder (the one with IcarusServer.exe)"/>
                         <Button Content="Open Saved" Command="{Binding OpenSavedFolderCommand}" Margin="8,0,0,0"
-                                ToolTip="The server's Saved folder: settings, logs, worlds (PlayerData\DedicatedServer\Prospects)"/>
+                                ToolTip="Opens the server's Saved folder, with its settings, logs and worlds"/>
                     </StackPanel>
                     <StackPanel VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
@@ -196,7 +196,7 @@
                                 </TextBlock.Style>
                             </TextBlock>
                             <Button Content="Check for update" Command="{Binding CheckForUpdateCommand}" Margin="12,0,0,0" Padding="8,2" FontSize="11.5"
-                                    ToolTip="Asks Steam (through SteamCMD, anonymous) for the newest build on this profile's branch"/>
+                                    ToolTip="Asks Steam whether a newer server build is out on this server's branch. No Steam login needed."/>
                             <Button Content="Update" Command="{Binding UpdateServerCommand}" Margin="6,0,0,0" Padding="8,2" FontSize="11.5"
                                     ToolTip="Stops the server if it's running, backs up its worlds and settings, then updates it with SteamCMD — also how a branch switch is applied"/>
                         </StackPanel>
@@ -424,7 +424,7 @@
                                            Visibility="{Binding FirewallNetworkText, Converter={StaticResource NullToVisibilityConverter}}"/>
                                 <StackPanel Orientation="Horizontal">
                                     <Button Content="Open these ports" Command="{Binding OpenFirewallPortsCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                            ToolTip="Adds inbound allow rules for the ports that aren't open yet, only for this server's exe. Windows asks for administrator approval once."/>
+                                            ToolTip="Opens the ports that aren't open yet in Windows Firewall, for this server only. Windows asks for administrator approval once."/>
                                     <Button Content="Remove Starlink's rules" Command="{Binding RemoveFirewallRulesCommand}" Margin="8,0,0,0"
                                             ToolTip="Removes only the rules Starlink added for this server. Rules you made yourself stay."/>
                                 </StackPanel>
@@ -577,7 +577,7 @@
                                     <TextBox Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}" Width="360" HorizontalAlignment="Left" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StackPanel}}" Margin="0,2,0,8"/>
                                     <TextBlock Text="Server name in the browser (64 characters max)" FontSize="12"/>
                                     <TextBox Text="{Binding SteamServerName, UpdateSourceTrigger=PropertyChanged}" MaxLength="64" Width="360" HorizontalAlignment="Left" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StackPanel}}" Margin="0,2,0,8"
-                                             ToolTip="Sent as -SteamServerName — the ini's SessionName key does nothing, per the official docs"/>
+                                             ToolTip="The name players see in the server list. Starlink sets it when it starts the server (the SessionName line in the settings file does nothing)."/>
                                     <TextBlock Text="Max players (1-8, blank = game default)" FontSize="12"/>
                                     <TextBox Text="{Binding MaxPlayersText, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" Margin="0,2,0,2"/>
                                     <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8" Text="Higher = more people can play at once; lower = a smaller group."/>
@@ -693,7 +693,7 @@
                                     </TextBlock>
                                     <TextBlock Text="Load prospect on start (blank = none)" FontSize="12"/>
                                     <ComboBox ItemsSource="{Binding Prospects}" Text="{Binding LoadProspect, UpdateSourceTrigger=PropertyChanged}" IsEditable="True" Width="360" HorizontalAlignment="Left" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StackPanel}}" Margin="0,2,0,8"
-                                              ToolTip="A save under Saved\PlayerData\DedicatedServer\Prospects. Applied before Resume and Create."/>
+                                              ToolTip="A world the server has saved. When set, the server loads this one instead of resuming its last world or creating a new one."/>
                                     <TextBlock Text="Create a new world on start" FontSize="12"/>
                                     <StackPanel Visibility="{Binding HasProspectChoices, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,2,0,2">
                                         <ComboBox ItemsSource="{Binding ProspectChoices}" SelectedItem="{Binding NewProspectType}" DisplayMemberPath="Display" Width="360" HorizontalAlignment="Left" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StackPanel}}"
@@ -711,7 +711,7 @@
                                     </StackPanel>
                                     <TextBox Text="{Binding CreateProspect, UpdateSourceTrigger=PropertyChanged}" Width="360" HorizontalAlignment="Left" MaxWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=StackPanel}}" Margin="0,2,0,2"
                                              Visibility="{Binding HasNoProspectChoices, Converter={StaticResource BoolToVisibilityConverter}}"
-                                             ToolTip="[ProspectType] [Difficulty 1-4] [Hardcore True/False] [SaveName] — run Refresh game data in Settings to pick from a list instead"/>
+                                             ToolTip="Type, in order: prospect, difficulty (1-4), hardcore (True or False), world name. Run Refresh game data in Settings to pick from a list instead."/>
                                     <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,0,0,8"
                                                Text="{Binding ProspectHint}"/>
                                     <TextBlock Text="Autosave every (minutes, blank = game default)" FontSize="12"/>
@@ -754,7 +754,7 @@
                                     <TextBox Text="{Binding Multihome, UpdateSourceTrigger=PropertyChanged}" Width="200" HorizontalAlignment="Left" Margin="0,2,0,8"/>
                                     <TextBlock Text="Saved folder suffix (for a second server on the same install)" FontSize="12"/>
                                     <TextBox Text="{Binding SavedDirSuffix, UpdateSourceTrigger=PropertyChanged}" Width="140" HorizontalAlignment="Left" Margin="0,2,0,8"
-                                             ToolTip="-saveddirsuffix — e.g. _2 makes this profile use Icarus\Saved_2 for its settings, logs and worlds"/>
+                                             ToolTip="Lets a second server run from the same install. E.g. _2 makes this server keep its settings, logs and worlds in Icarus\Saved_2."/>
                                     <TextBlock Text="Log file name (blank = Icarus.log)" FontSize="12"/>
                                     <TextBox Text="{Binding LogFileName, UpdateSourceTrigger=PropertyChanged}" Width="200" HorizontalAlignment="Left" Margin="0,2,0,8"/>
                                     <TextBlock Text="Command line Starlink runs" FontSize="12" Margin="0,4,0,2"/>
@@ -777,7 +777,7 @@
                                            Visibility="{Binding ValidationMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                                 <Button Content="Save settings" Command="{Binding SaveSettingsCommand}" Style="{StaticResource PrimaryButtonStyle}"
                                         HorizontalAlignment="Left" Margin="0,6,0,0"
-                                        ToolTip="Writes the launch options here and the game settings into ServerSettings.ini (every other line in that file is kept). A running server picks them up on restart."/>
+                                        ToolTip="Saves these settings. Any other lines in the server's settings file are kept. A running server uses them after a restart."/>
                             </StackPanel>
                         </Border>
                     </Grid>
@@ -789,7 +789,7 @@
                             <!-- One Refresh for the whole tab (paks, the merged pak and the UE4SS table): it used to sit only beside the UE4SS table. -->
                             <DockPanel Margin="0,0,0,10">
                                 <Button DockPanel.Dock="Right" Content="Refresh mods" Command="{Binding RefreshServerModsCommand}" Margin="10,0,0,0" VerticalAlignment="Top"
-                                        ToolTip="Reads the server's paks, its merged pak and its UE4SS mods again, and your game's, after a change made outside Starlink"
+                                        ToolTip="Looks again at the mods on the server and in your game, after you changed them outside Starlink"
                                         AutomationProperties.Name="Refresh server mods"/>
                                 <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                            Text="Stop the server before changing its mods. Installing mods backs up its worlds and settings first, and anything taken off the server is moved into its backups folder, never deleted. Players need the same content mods as the server."/>
@@ -812,7 +812,7 @@
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                 <Button Content="{Binding InstallMergedPakLabel}" Command="{Binding InstallMergedPakCommand}" Style="{StaticResource PrimaryButtonStyle}"
                                         IsEnabled="{Binding HasMergedPak}"
-                                        ToolTip="Copies the pak your last Merge &amp; Install built (and its mod list) into the server's Content\Paks\mods"/>
+                                        ToolTip="Puts the merged pak your last Merge &amp; Install built (and its mod list) on the server"/>
                                 <Button Content="Open folder" Command="{Binding OpenServerPaksFolderCommand}" Margin="8,0,0,0"/>
                             </StackPanel>
                             <Expander Margin="0,0,0,16" AutomationProperties.Name="All paks on the server">
@@ -873,7 +873,7 @@
                             <StackPanel>
                             <DockPanel Margin="0,0,0,10">
                                 <Button DockPanel.Dock="Right" Content="Install UE4SS from my game" Command="{Binding InstallUe4ssOnServerCommand}" VerticalAlignment="Center" Margin="10,0,0,0"
-                                        ToolTip="Copies the loader (dwmapi.dll, UE4SS.dll), its settings and framework mods from your game's install — verified to run on the dedicated server. Existing settings on the server are kept."/>
+                                        ToolTip="Copies UE4SS (the loader, its settings and its built-in mods) from your game to the server. It's known to work there. Settings already on the server are kept."/>
                                 <TextBlock Text="{Binding ServerUe4ssSummary}" FontSize="12.5" TextWrapping="Wrap" VerticalAlignment="Center"/>
                             </DockPanel>
 
@@ -1002,13 +1002,13 @@
                                        Text="A patch is what this server runs: the mods in its merged pak, its UE4SS mods and their settings. Players import it on Merge &amp; Install and get the same setup. Apply does the reverse: a patch's mods into your Library and its UE4SS mods onto this server."/>
                             <WrapPanel>
                                 <Button Content="Export patch for players…" Command="{Binding ExportServerPatchCommand}" Margin="0,0,8,6"
-                                        ToolTip="Writes a patch of what the server runs (its mod list from ISL-Merged.txt, matched to your Library; its UE4SS mods on, from its own folder)"/>
+                                        ToolTip="Saves a patch of what this server runs: the mods in its merged pak (matched to your Library) and the UE4SS mods that are on there"/>
                                 <Button Content="Apply a patch to this server…" Command="{Binding ApplyPatchToServerCommand}" Margin="0,0,8,6"
-                                        ToolTip="Imports the patch on Merge &amp; Install (its mods, downloads, UE4SS mods, settings, the profile), then puts its UE4SS mods and settings on this server. The merged pak is built on Merge &amp; Install and installed from here. The server must be stopped."/>
+                                        ToolTip="Loads a patch: its mods, downloads and profile go to Merge &amp; Install, and its UE4SS mods and their settings go on this server. Then build the pak on Merge &amp; Install and install it from here. Stop the server first."/>
                                 <Button Content="Compare a patch…" Command="{Binding ComparePatchCommand}" Margin="0,0,8,6"
                                         ToolTip="Lines a patch up against your game and this server, one row per mod"/>
                                 <CheckBox Content="Include UE4SS mod settings" IsChecked="{Binding ServerExportIncludesConfigs}" VerticalAlignment="Center" Margin="0,0,0,6"
-                                          ToolTip="The export carries the server's config files (config.lua, config.ini), so players get its keys and values too"/>
+                                          ToolTip="The patch includes the server's UE4SS mod settings (config.lua, config.ini), so players get the same keys and values"/>
                             </WrapPanel>
                             <TextBlock Text="{Binding ShareStatusMessage}" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,2,0,6"
                                        Visibility="{Binding ShareStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
@@ -1109,7 +1109,7 @@
                                                     <TextBlock Text="LOADS ON START" FontSize="10" FontFamily="Consolas" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}"/>
                                                 </Border>
                                                         <Border CornerRadius="8" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center" Background="{DynamicResource SuccessSoftBrush}"
-                                                        Visibility="{Binding IsLastPlayed, Converter={StaticResource BoolToVisibilityConverter}}" ToolTip="The world the server ran last (LastProspectName in its settings)">
+                                                        Visibility="{Binding IsLastPlayed, Converter={StaticResource BoolToVisibilityConverter}}" ToolTip="The world the server ran last">
                                                     <TextBlock Text="LAST RUN" FontSize="10" FontFamily="Consolas" FontWeight="SemiBold" Foreground="{DynamicResource SuccessBrush}"/>
                                                 </Border>
                                                     </StackPanel>
@@ -1149,7 +1149,7 @@
                                     <Button Content="Open folder" Command="{Binding OpenBackupsFolderCommand}" Margin="0,0,16,4"/>
                                     <!-- One line: "Keep [10] of each kind · 0 keeps all". -->
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4" VerticalAlignment="Center"
-                                                ToolTip="Older backups of the same kind (manual, daily, before-update, before-mods, before-restore) are deleted after each new one, and when you leave this box. 0 keeps every backup.">
+                                                ToolTip="How many backups of each kind to keep (manual, daily, before update, before mods, before restore). Lower = less disk space used; higher = more points to go back to. Older ones are deleted after each new backup and when you leave this box. 0 keeps them all.">
                                         <TextBlock Text="Keep" VerticalAlignment="Center" FontSize="12"/>
                                         <TextBox Text="{Binding BackupsToKeepText, UpdateSourceTrigger=PropertyChanged}" Width="44" Margin="6,0,6,0" Padding="2,0"
                                                  HorizontalContentAlignment="Center" LostFocus="OnBackupsToKeepLostFocus"
@@ -1215,7 +1215,7 @@
                                 </Grid.RowDefinitions>
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="ADMINS" Style="{StaticResource ServerSectionLabelStyle}"/>
                                 <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource ServerHintStyle}" Margin="0,0,0,6"
-                                           Text="Steam64 ids, one per line. These players are admin without typing /AdminLogin (AdminWhitelist.txt). Known side effect from the official wiki: it breaks the lobby's prospect Delete button."/>
+                                           Text="Steam64 ids, one per line. These players are admin without typing /AdminLogin. Known side effect: the lobby's Delete button for prospects stops working."/>
                                 <Grid Grid.Row="2" Grid.Column="0">
                                     <TextBox Text="{Binding AdminWhitelistText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" FontFamily="Consolas"
                                              Height="240" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
@@ -1228,7 +1228,7 @@
 
                                 <TextBlock Grid.Row="0" Grid.Column="2" Text="BAN LIST" Style="{StaticResource ServerSectionLabelStyle}"/>
                                 <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource ServerHintStyle}" Margin="0,0,0,6"
-                                           Text="PlayerBanList.txt as the server stores it. In game, admins can also type /BanPlayer name and /UnbanPlayer name in chat."/>
+                                           Text="The server's ban list, as it stores it. In game, admins can also type /BanPlayer name and /UnbanPlayer name in chat."/>
                                 <Grid Grid.Row="2" Grid.Column="2">
                                     <TextBox Text="{Binding BanListText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" FontFamily="Consolas"
                                              Height="240" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"

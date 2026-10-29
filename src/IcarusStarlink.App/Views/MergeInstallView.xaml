@@ -30,7 +30,7 @@
                         <MenuItem Header="New profile…" Command="{Binding NewProfileCommand}" ToolTip="Saves the current queue and options as a new profile"/>
                         <MenuItem Header="Rename profile…" Command="{Binding RenameProfileCommand}"/>
                         <MenuItem Header="Restore profile backup" Command="{Binding RestoreProfileBackupCommand}" IsEnabled="{Binding CanRestoreProfileBackup}"
-                                  ToolTip="Replaces this profile with its own most recent backup — every save keeps a backup of the version before it (greyed out: no backup yet)"
+                                  ToolTip="Puts this profile back the way it was before its last save (every save keeps a backup of the one before). Greyed out: no backup yet."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <Separator/>
                         <MenuItem Header="Delete profile" Command="{Binding DeleteProfileCommand}" ToolTip="Deletes this saved list and its options (asks first). Your mods stay in the Library; the ticks switch to the 'Default' profile's list"/>
@@ -53,9 +53,9 @@
                 <DockPanel LastChildFill="True">
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                         <CheckBox Content="Include UE4SS mod settings" IsChecked="{Binding ExportIncludesConfigs}" VerticalAlignment="Center" Margin="0,0,12,0"
-                                  ToolTip="The config files (config.lua, config.ini) of the UE4SS mods on in your game travel in the patch, so a friend gets your settings and keys too. Untick to share the mods alone."/>
+                                  ToolTip="Puts the settings of your UE4SS mods in the patch too, so a friend gets your settings and keys. Untick to share just the mods."/>
                         <Button Command="{Binding ExportPatchCommand}" IsEnabled="{Binding IsNotExportingPatch}"
-                                ToolTip="Writes a patch of the selected profile: its mods by their Nexus or IMM Database source (bundled when they have none), the UE4SS mods on in your game, and their settings"
+                                ToolTip="Saves this profile as a patch file to share. Mods from Nexus or the IMM Database are listed so your friend can download them; other mods go inside the file. The UE4SS mods on in your game and their settings go in too."
                                 AutomationProperties.Name="Export patch">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
@@ -64,7 +64,7 @@
                             </StackPanel>
                         </Button>
                         <Button Command="{Binding ImportPatchCommand}" Margin="8,0,0,0"
-                                ToolTip="Loads a patch someone shared: its profile is recreated, mods you lack are offered as one download, its UE4SS mods land with their settings and can be turned on"
+                                ToolTip="Opens a patch someone shared. You get their profile, the mods you don't have are offered as one download, and their UE4SS mods come with their settings, ready to turn on."
                                 AutomationProperties.Name="Import patch">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconFolder}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
@@ -135,7 +135,7 @@
                             <Path DockPanel.Dock="Left" Data="{StaticResource IconWarning}" Stroke="{DynamicResource DangerBrush}"
                                   StrokeThickness="1.6" StrokeLineJoin="Round" Width="15" Height="15" Stretch="Uniform" Margin="0,0,8,0" VerticalAlignment="Top"/>
                             <StackPanel Margin="0,0,10,0" VerticalAlignment="Center"
-                                        ToolTip="Conflicts: values two mods change differently (the mod lower in the queue wins unless you pick). Clashes between mods: the same file in two mods, talent nodes on top of each other, a mod that needs one that isn't queued. Mods with problems: what the Library's check finds in a mod. None of these stop the merge.">
+                                        ToolTip="Conflicts: values two mods set differently (the mod lower in the list wins unless you pick). Clashes: the same file in two mods, talents on top of each other, or a mod that needs one that isn't in the list. Mods with problems: what the Library's check finds. None of these stop the merge.">
                                 <TextBlock Text="{Binding CheckSummary}" TextWrapping="Wrap" FontSize="11.5" FontWeight="SemiBold"/>
                                 <TextBlock Text="Review lists them. None of them stop the merge." TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0"
                                            Foreground="{DynamicResource SecondaryForegroundBrush}"/>
@@ -259,12 +259,12 @@
                             <TextBlock Text="Remove" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Content="Clear" Command="{Binding ClearQueueCommand}" Margin="0,0,8,0" ToolTip="Empties the list: each mod's ON tick in Library goes off too. Asks first; nothing is deleted, and Profile ▾ › Restore profile backup brings the list back"/>
+                    <Button Content="Clear" Command="{Binding ClearQueueCommand}" Margin="0,0,8,0" ToolTip="Empties the list and turns off each mod's ON tick in the Library. Asks first. Nothing is deleted, and Profile ▾ › Restore profile backup brings the list back."/>
                     <Button Content="More ▾" Click="DropdownButton_Click" Margin="0,0,0,0" ToolTip="Suggest an order, find the broken mod">
                         <Button.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="Suggest order" Command="{Binding SuggestQueueOrderCommand}"
-                                          ToolTip="Proposes reordering the queue so mods making fewer real edits sit later and win conflicts. Shows the new order and asks before changing anything."/>
+                                          ToolTip="Suggests a new order where mods that change fewer things go lower, so they win conflicts. Shows the order and asks before changing anything."/>
                                 <MenuItem Header="Find the broken mod…" Command="{Binding FindBrokenModCommand}"
                                           ToolTip="Something broken in game? Tests your mods in rounds (half in, half out) until it finds the one that breaks it. Your saves are backed up first, and all your mods go back in at the end."/>
                             </ContextMenu>
@@ -282,7 +282,7 @@
                          has something installed (a fresh "Install" vs. re-running it as "Update install"). -->
                     <Button DockPanel.Dock="Right" Command="{Binding RebuildAndInstallCommand}" Style="{StaticResource PrimaryButtonStyle}"
                             AutomationProperties.Name="{Binding InstallButtonLabel}"
-                            ToolTip="Merges the queue into a pak and installs it into the real game folder, in one step (it asks before writing to the game)">
+                            ToolTip="Builds the mods in the list into one pak and puts it in the game, in one step. Asks before changing the game folder.">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconMerge}" Stroke="{DynamicResource AccentForegroundBrush}" StrokeThickness="1.8"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -361,7 +361,7 @@
                             <Button Content="Compare to installed" Command="{Binding CompareToInstalledCommand}" Margin="0,0,0,4"
                                     ToolTip="Lists which mods Install would add (+), take out (-) or leave (=), against the merged pak in the game now."/>
                             <Button Content="Compare paks…" Command="{Binding ComparePaksCommand}" Margin="8,0,0,4"
-                                    ToolTip="Unpack any two .pak files and see exactly how they differ, row by row — e.g. check a rebuilt pak matches a known-good one from another tool."/>
+                                    ToolTip="Pick any two pak files and see how they differ, row by row. E.g. check a pak you built matches one that works."/>
                         </WrapPanel>
                         <TextBlock Text="{Binding ComparisonStatusMessage}" Margin="0,6,0,0"
                                    Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap"
@@ -385,7 +385,7 @@
                                  pak without remerging. Shown only when there is one to copy. -->
                             <Button Command="{Binding CopyToGameCommand}" Margin="0,0,8,4"
                                     Visibility="{Binding CanCopyToGame, Converter={StaticResource BoolToVisibilityConverter}}"
-                                    ToolTip="Copies the already-built pak into the game without rebuilding it — use this if Icarus was running when Install failed"
+                                    ToolTip="Copies the pak you already built into the game without building it again. Use this if Install failed because Icarus was running."
                                     AutomationProperties.Name="Copy to game">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
@@ -394,7 +394,7 @@
                                 </StackPanel>
                             </Button>
                             <Button Command="{Binding RemoveFromGameCommand}" Margin="0,0,0,4"
-                                    ToolTip="Uninstalls IcarusStarlink's pak from the real game folder (backed up first) — doesn't touch your Library"
+                                    ToolTip="Takes Starlink's pak out of the game (backed up first). Your Library stays as it is."
                                     AutomationProperties.Name="Remove from game">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
@@ -444,7 +444,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,2">
                         <TextBlock Text="Speed Boost" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="Level 1: +100 move speed, +19 crouch/+50 sprint speed coefficient. Level 2: +245 move speed, +34 crouch/+100 sprint speed coefficient. (Classic IMM's own documented values.)">
+                                ToolTip="Level 1: +100 move speed, crouch +19, sprint +50. Level 2: +245 move speed, crouch +34, sprint +100. Same numbers as the classic mod manager.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                     </StackPanel>
@@ -461,7 +461,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Player Boost" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="Level 1/2: more health/stamina/weight capacity, less food/water/oxygen consumption, faster regen, no fall damage, cold/heat resistance. (Classic IMM's own documented values.)">
+                                ToolTip="Level 1 and 2: more health, stamina and carry weight; you use less food, water and oxygen; faster healing; no fall damage; better cold and heat resistance. Same numbers as the classic mod manager.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                     </StackPanel>
@@ -478,7 +478,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="XP Boost" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="Level 1: +200% XP. Level 2: +500% XP. Level 3: +1000% XP. (Classic IMM's own documented values.)">
+                                ToolTip="Level 1: +200% XP. Level 2: +500% XP. Level 3: +1000% XP. Same numbers as the classic mod manager.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                     </StackPanel>
@@ -497,7 +497,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,2">
                         <TextBlock Text="Craft Cost" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="Reduces the item/resource inputs every crafting-bench recipe needs. Never touches what a recipe outputs. Free (Creative mode) zeroes every input outright rather than rounding it down. Trades with the vendors (vestiges, crops, fish and Biomass for Ren or trophies, the food shop) keep their normal price. (Classic IMM's own documented values.)">
+                                ToolTip="Recipes at every bench need fewer ingredients. What you get out stays the same. Free (creative mode) needs no ingredients at all. Trades with vendors (vestiges, crops, fish or Biomass for Ren or trophies, the food shop) keep their normal price.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                     </StackPanel>
@@ -532,7 +532,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Slots multiplier" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="e.g. 2x = double every backpack/container's slot count. Off = unchanged.">
+                                ToolTip="E.g. 2x = twice as many slots in every backpack and container. Off = unchanged.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                     </StackPanel>
@@ -550,7 +550,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Speed Crafting" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="e.g. 50% = halve every recipe's crafting time, including recipes that use the game's default time. 0 = unchanged.">
+                                ToolTip="E.g. 50% = every recipe takes half as long to craft. 0 = unchanged.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                         <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -559,7 +559,7 @@
                     </StackPanel>
                     <Slider Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
                             Value="{Binding SpeedCraftingPercent}" Margin="0,4,0,0"
-                            ToolTip="Drag or click to set — 0 means unchanged"/>
+                            ToolTip="Lower = closer to normal crafting time (0 = unchanged). Higher = faster crafting."/>
                     <TextBlock FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
                                Text="Lower = closer to normal crafting time (0% = unchanged). Higher = faster crafting (50% = half the time)."/>
 
@@ -575,7 +575,7 @@
                     </StackPanel>
                     <Slider Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
                             Value="{Binding TamingSpeedPercent}" Margin="0,4,0,0"
-                            ToolTip="Drag or click to set — 0 means unchanged"/>
+                            ToolTip="Lower = closer to normal taming time (0 = unchanged). Higher = faster taming."/>
                     <TextBlock FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
                                Text="Lower = closer to normal taming time (0% = unchanged). Higher = faster taming (50% = half the time)."/>
 
@@ -586,7 +586,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Lighter Items" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="e.g. 50% = every item weighs half as much. 100% = weightless, the old Remove Weight. 0 = unchanged.">
+                                ToolTip="E.g. 50% = every item weighs half as much. 100% = weightless (what Remove Weight used to do). 0 = unchanged.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                         <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -595,18 +595,18 @@
                     </StackPanel>
                     <Slider Minimum="0" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True"
                             Value="{Binding WeightReductionPercent}" Margin="0,4,0,0"
-                            ToolTip="Drag or click to set — 0 means unchanged, 100 means weightless"/>
+                            ToolTip="Lower = closer to normal weight (0 = unchanged). Higher = lighter items (100 = weightless)."/>
                     <TextBlock FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
                                Text="Lower = closer to normal weight (0% = unchanged). Higher = lighter items (50% = half the weight, 100% = weightless)."/>
                     <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding UnlimitedAmmo}" Margin="0,12,0,0"
                               Content="Unlimited Ammo"
-                              ToolTip="Weapons stop consuming ammo on fire, but still need at least 1 round in the magazine"/>
+                              ToolTip="Shooting doesn't use up ammo. You still need at least 1 round loaded."/>
                     <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding DisableTemperatures}" Margin="0,12,0,0"
                               Content="Disable Temperatures"
-                              ToolTip="Removes hot/cold environmental damage and temperature management entirely"/>
+                              ToolTip="No more heat or cold damage: you never need to warm up or cool down."/>
                     <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding RemoveLevelCap}" Margin="0,12,0,0"
                               Content="Remove Level Cap"
-                              ToolTip="Raises the displayed/tracked level cap from 60 to 50000 (and the underlying XP cap from 1000 to match), matching the real community mod laanp-RealLevels — display/tracking only, does not itself grant extra talent, blueprint, or solo points beyond what the base progression curves award past level 60"/>
+                              ToolTip="Lets your level go past 60 (up to 50,000). It doesn't give extra talent, blueprint or solo points."/>
                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding FreeItemRepair}"
                                   Content="Free Item Repair" AutomationProperties.Name="Free Item Repair (beta)"

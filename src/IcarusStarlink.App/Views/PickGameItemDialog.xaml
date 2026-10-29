@@ -17,7 +17,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Pick any row of the game's data: all its current values are copied into this mod, ready to edit. Nothing changes in game until you change a value (an unchanged copy merges as nothing)."
+        <TextBlock Grid.Row="0" Text="Pick any row of the game's data: all its current values are copied into this mod, ready to edit. Nothing changes in game until you change a value (an unchanged copy does nothing in game)."
                    Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
         <Grid Grid.Row="1" Margin="0,0,0,8">
@@ -35,7 +35,7 @@
                  accounted for yet. -->
             <CheckBox x:Name="HideCoveredBox" Grid.Column="1" Content="Hide items already in this mod"
                       Margin="10,0,0,0" VerticalAlignment="Center" Checked="HideCoveredBox_Changed" Unchecked="HideCoveredBox_Changed"
-                      ToolTip="Shows only items this mod does NOT already touch — the quickest way to spot what's new in a file after a game update"/>
+                      ToolTip="Shows only items this mod doesn't change yet: the quickest way to spot what's new in a file after a game update"/>
         </Grid>
 
         <!-- ListBox virtualizes by default — the real game data is ~10k+ rows across ~300 files,

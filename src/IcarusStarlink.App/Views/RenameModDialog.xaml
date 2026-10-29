@@ -10,7 +10,7 @@
 
     <StackPanel Margin="20">
         <TextBlock x:Name="DescriptionText"
-                   Text="Changes how this mod displays in your Library only — its real folder, file name, and mod content are never touched."
+                   Text="Changes the name your Library shows for this mod, nothing else. Its folder, files and content are never touched."
                    Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,16"/>
 
         <TextBlock x:Name="FieldLabelText" Text="Display name" Style="{StaticResource FieldLabelStyle}"/>
@@ -18,7 +18,7 @@
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="ResetButton" Content="Reset to default" Click="Reset_Click" Margin="0,0,8,0"
-                    ToolTip="Clears the override — goes back to the mod's own declared name"/>
+                    ToolTip="Goes back to the mod's own name"/>
             <Button Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0" IsCancel="True"/>
             <Button Content="Save" Click="Save_Click" Style="{StaticResource PrimaryButtonStyle}" IsDefault="True"/>
         </StackPanel>

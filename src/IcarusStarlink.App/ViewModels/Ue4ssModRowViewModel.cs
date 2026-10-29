@@ -101,7 +101,7 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     private bool _configNeedsReview;
 
     public string EditConfigTooltip => ConfigNeedsReview
-        ? "Edit config… — look over the settings: the last update added some or dropped some"
+        ? "Edit config… The last update added or removed some settings: have a look"
         : "Edit config…";
 
     public bool NeedsAction => IsDirty || (LoaderMissing && IsEnabled) || IsSwitchedOffInGame;
@@ -242,7 +242,7 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     public bool HasVersionWarning => VersionCompatibility == Ue4ssVersionCompatibility.BelowMinimum;
 
     public string? VersionWarningTooltip => HasVersionWarning
-        ? $"Declares a minimum UE4SS v{MinUe4ssVersion}, but the installed loader is v{_installedLoaderVersion} — this mod may not work correctly until UE4SS is updated."
+        ? $"Needs UE4SS v{MinUe4ssVersion} or newer, but you have v{_installedLoaderVersion}. It may not work right until you update UE4SS."
         : null;
 
     [ObservableProperty]

@@ -119,8 +119,8 @@ public sealed partial class PakCompareViewModel : ObservableObject
             HasAssetDifferences = AssetDifferences.Count > 0;
 
             SummaryMessage = result.DataDifferences.Count == 0 && result.AssetDifferences.Count == 0
-                ? $"The two paks are equivalent — every DataTable row and every asset matches. ({result.FirstFileCount} file(s) in the first pak, {result.SecondFileCount} in the second.)"
-                : $"{result.DataDifferences.Count} DataTable file(s) differ, {result.AssetDifferences.Count} other file(s) differ. ({result.FirstFileCount} file(s) in the first pak, {result.SecondFileCount} in the second.)";
+                ? $"The two paks are the same: every game table row and every other file match. ({result.FirstFileCount} file(s) in the first pak, {result.SecondFileCount} in the second.)"
+                : $"{result.DataDifferences.Count} game table file(s) differ, {result.AssetDifferences.Count} other file(s) differ. ({result.FirstFileCount} file(s) in the first pak, {result.SecondFileCount} in the second.)";
         }
         catch (Exception ex)
         {

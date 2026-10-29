@@ -67,7 +67,7 @@
                             Command="{Binding LibraryViewModel.GetUpdateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                             CommandParameter="{Binding}"
                             Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
-                            ToolTip="Database mod: re-downloads from the catalog and replaces this copy in place (pin/favorite/notes kept, backup taken first). Nexus mod: opens its page — use Mod Manager Download there."
+                            ToolTip="Database mod: downloads it again and replaces this copy (backed up first; pin, favourite and notes kept). Nexus mod: opens its Nexus page; use Mod Manager Download there."
                             AutomationProperties.Name="Get update">
                         <TextBlock Text="Get update" VerticalAlignment="Center"/>
                     </Button>
@@ -134,7 +134,7 @@
                     <Button Margin="0,0,0,4"
                             Command="{Binding LibraryViewModel.LinkToNexusCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                             CommandParameter="{Binding}"
-                            ToolTip="Connect this mod to a real Nexus mod ID for update-checking"
+                            ToolTip="Link this mod to its Nexus mod ID so Starlink can check it for updates"
                             AutomationProperties.Name="Link to Nexus ID">
                         <TextBlock Text="{Binding NexusLinkActionLabel}" VerticalAlignment="Center"/>
                     </Button>
@@ -186,7 +186,7 @@
                                 BorderThickness="1" CornerRadius="4" Padding="10,8">
                             <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
                                 <TextBlock Text="{Binding ChangesSummary}" TextWrapping="Wrap" FontSize="12.5"
-                                           ToolTip="Compared with your current game data: each line is one field changed the same way across a table."/>
+                                           ToolTip="Compared with your current game data: each line is one value changed the same way across a whole table."/>
                             </ScrollViewer>
                         </Border>
                     </Expander>
@@ -197,7 +197,7 @@
                                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                                      AcceptsReturn="True" BorderThickness="0" Padding="8"/>
                             <!-- A prebuilt .pak has no EXMOD to list changes from. -->
-                            <TextBlock Text="No list of changes for this mod — it's a prebuilt .pak. The Files tab shows what's inside it."
+                            <TextBlock Text="No list of changes for this mod: it's a ready-made .pak. The Files tab shows what's inside it."
                                        Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
                                        Visibility="{Binding IsOpaquePak, Converter={StaticResource BoolToVisibilityConverter}}"/>
                         </Grid>

@@ -20,7 +20,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
-        <TextBlock Grid.Row="1" Text="Edits Icarus player data. Every save and restore takes a full backup of the slot first, and nothing writes while the game is running — but a manual backup before experimenting is still the smart move."
+        <TextBlock Grid.Row="1" Text="Edits your Icarus saves. Every save and restore backs up all the saves first, and nothing is written while the game is running. Still, make a backup yourself before you try things."
                    Style="{StaticResource PageBodyTextStyle}" Margin="0,4,0,12" TextWrapping="Wrap" MaxWidth="720"/>
 
         <!-- Slot picker + backup/restore. The slot picker stays inline (every tab depends on it);
@@ -29,7 +29,7 @@
              don't compete with the picker for attention on every visit. -->
         <DockPanel Grid.Row="2" Margin="0,0,0,12" LastChildFill="True">
             <ComboBox DockPanel.Dock="Left" ItemsSource="{Binding Slots}" SelectedItem="{Binding SelectedSlot}" MinWidth="240" Margin="0,0,8,0"
-                      ToolTip="Steam player slots found under the game's own PlayerData folder">
+                      ToolTip="The Steam accounts that have Icarus saves on this PC">
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
                         <TextBlock Text="{Binding Display}"/>
@@ -45,7 +45,7 @@
                 </Expander.Header>
                 <WrapPanel>
                     <Button Command="{Binding BackupNowCommand}" AutomationProperties.Name="Backup now"
-                            ToolTip="Zips the whole slot into this app's own save_backups cache — never inside the game's folders">
+                            ToolTip="Saves a zip of all this account's saves in Starlink's own backup folder (never in the game's folders)">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -53,7 +53,7 @@
                         </StackPanel>
                     </Button>
                     <ComboBox ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}" MinWidth="230" Margin="8,0,0,0"
-                              ToolTip="Backups of this slot, newest first">
+                              ToolTip="Backups of this account's saves, newest first">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding Display}"/>
@@ -61,7 +61,7 @@
                         </ComboBox.ItemTemplate>
                     </ComboBox>
                     <Button Content="Restore" Command="{Binding RestoreBackupCommand}" Margin="8,0,0,0"
-                            ToolTip="Replaces the slot with the selected backup — writes a pre_restore safety zip of the current state first, so this is itself undoable"/>
+                            ToolTip="Puts the selected backup back in place of these saves. Backs up what's there now first, so you can undo it."/>
                     <Button Content="Open backups folder" Command="{Binding OpenBackupsFolderCommand}" Margin="8,0,0,0"/>
                 </WrapPanel>
             </Expander>
@@ -115,7 +115,7 @@
                         <WrapPanel Grid.Row="1" Margin="0,8,0,0">
                             <Button Command="{Binding DuplicateCharacterCommand}" CommandParameter="{Binding SelectedCharacter}"
                                     AutomationProperties.Name="Duplicate character"
-                                    ToolTip="Clones the selected character under a fresh character slot — talents/flags/cosmetics all come along, the name is suffixed '(Copy)'">
+                                    ToolTip="Makes a copy of the selected character, with its talents, unlocks and looks. The copy's name ends in '(Copy)'.">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconCopy}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"
                                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -124,7 +124,7 @@
                             </Button>
                             <Button Command="{Binding DeleteCharacterCommand}" CommandParameter="{Binding SelectedCharacter}"
                                     Margin="8,0,0,0" AutomationProperties.Name="Delete character"
-                                    ToolTip="Permanently removes the selected character's entire progress — confirms first">
+                                    ToolTip="Deletes the selected character and all its progress for good. Asks first.">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
                                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -186,7 +186,7 @@
                             <!-- Appearance (was its own Cosmetics tab): raw values, folded away. -->
                             <Expander Header="Appearance (raw values)" Margin="0,0,12,0">
                                 <StackPanel Margin="0,8,0,0">
-                                    <TextBlock Text="Raw hash values with no known way to map them to option names: useful for copying an exact look from one of your characters to another (read the value here, paste it there)."
+                                    <TextBlock Text="Raw numbers with no known option names. Use them to copy an exact look from one of your characters to another (read the number here, paste it there)."
                                                Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,10"/>
                                     <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Male" IsChecked="{Binding SelectedCharacter.IsMale}" Margin="0,0,0,12"/>
                                     <ItemsControl ItemsSource="{Binding SelectedCharacter.Cosmetics}">
@@ -228,7 +228,7 @@
                         <ComboBox ItemsSource="{Binding TalentKindOptions}" SelectedItem="{Binding TalentKind}" Width="110" AutomationProperties.Name="Which trees"/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Show unlearned" IsChecked="{Binding ShowUnlearnedTalents}"
                                   Margin="14,0,0,0" VerticalAlignment="Center"
-                                  ToolTip="Lists every talent the game defines, not just this character's — set a rank above 0 to grant one"/>
+                                  ToolTip="Lists every talent in the game, not just this character's. Set a rank above 0 to give one."/>
                     </WrapPanel>
                     <TextBlock DockPanel.Dock="Top" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,2">
                         <Run Text="{Binding SelectedCharacter.Name, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text=" · "/><Run Text="{Binding TalentRanksSummary, Mode=OneWay}"/>
@@ -432,7 +432,7 @@
                                         <TextBlock Text="{Binding PointsRequired, StringFormat='/ {0}'}" Width="56" VerticalAlignment="Center" Margin="6,0,0,0"
                                                    Foreground="{DynamicResource SecondaryForegroundBrush}" FontFamily="Consolas" FontSize="12"/>
                                         <Button Content="Set max" Command="{Binding SetMaxCommand}" Padding="8,2" Margin="4,0,0,0"
-                                                ToolTip="Fills in this creature's own TotalPointsRequired — fully unlocks its field-guide entry"/>
+                                                ToolTip="Gives this creature all the points it needs, so its field guide entry is fully unlocked"/>
                                     </StackPanel>
                                     <!-- Resolved lazily off the base game's own extracted pak content (see
                                          IBaseGameIconDecoder) — collapsed entirely until (if ever) it
@@ -555,7 +555,7 @@
                                     <Button DockPanel.Dock="Right" Content="Delete" Padding="8,2"
                                             Command="{Binding DataContext.DeleteMetaInventoryItemCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                             CommandParameter="{Binding}" AutomationProperties.Name="{Binding DisplayName, StringFormat='Delete {0}'}"
-                                            ToolTip="Removes this item from the meta bank — nothing else in the bank is touched"/>
+                                            ToolTip="Takes this item out of the bank. Nothing else in the bank changes."/>
                                     <!-- Resolved lazily off the base game's own extracted pak content (see
                                          IBaseGameIconDecoder) — collapsed entirely until (if ever) it
                                          resolves, so a row never shows an empty placeholder box. -->
@@ -602,7 +602,7 @@
                  world settings button, and two save buttons there read as one choice. -->
             <Button Command="{Binding SaveChangesCommand}"
                     IsEnabled="{Binding HasUnsavedChanges}" AutomationProperties.Name="Save player data"
-                    ToolTip="Writes your edits into the save — a full backup of the slot is taken automatically first. Refused while Icarus is running. Greyed out: nothing changed yet."
+                    ToolTip="Saves your edits into the game save. Backs up all this account's saves first. Won't run while Icarus is open. Greyed out: nothing changed yet."
                     ToolTipService.ShowOnDisabled="True">
                 <Button.Style>
                     <Style TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
