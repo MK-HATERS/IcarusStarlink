@@ -786,8 +786,14 @@
                 <TabItem Header="{Binding ModsTabHeader}" AutomationProperties.Name="Mods">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
                         <StackPanel Margin="0,0,8,0">
-                            <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,10"
-                                       Text="Stop the server before changing its mods. Installing mods backs up its worlds and settings first, and anything taken off the server is moved into its backups folder, never deleted. Players need the same content mods as the server."/>
+                            <!-- One Refresh for the whole tab (paks, the merged pak and the UE4SS table): it used to sit only beside the UE4SS table. -->
+                            <DockPanel Margin="0,0,0,10">
+                                <Button DockPanel.Dock="Right" Content="Refresh mods" Command="{Binding RefreshServerModsCommand}" Margin="10,0,0,0" VerticalAlignment="Top"
+                                        ToolTip="Reads the server's paks, its merged pak and its UE4SS mods again, and your game's, after a change made outside Starlink"
+                                        AutomationProperties.Name="Refresh server mods"/>
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                           Text="Stop the server before changing its mods. Installing mods backs up its worlds and settings first, and anything taken off the server is moved into its backups folder, never deleted. Players need the same content mods as the server."/>
+                            </DockPanel>
 
                             <TextBlock Text="PAK MODS ON THE SERVER" Style="{StaticResource ServerSectionLabelStyle}"/>
                             <!-- Whether the server has the merged pak Merge & Install last built (compared by contents). -->
@@ -873,8 +879,6 @@
 
                             <!-- One row per mod: your game's copy, the server's, how they compare, and the action. -->
                             <DockPanel Margin="0,0,0,6">
-                                <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshServerModsCommand}" Margin="8,0,0,0"
-                                        ToolTip="Reads the server's and your game's UE4SS mods again"/>
                                 <Button DockPanel.Dock="Right" Content="Make the server match my game" Command="{Binding MatchServerToGameCommand}"
                                         IsEnabled="{Binding ServerHasUe4ss}"
                                         ToolTip="Updates every out-of-date mod on the server and copies the ones on in your game that it lacks. Keeps the server's own settings; never removes anything; backs up worlds first.">

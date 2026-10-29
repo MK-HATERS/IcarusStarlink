@@ -551,7 +551,10 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         StatusMessage = "Library refreshed.";
-        Reload(fullResync: true);
+        // Both panels: the UE4SS mods are read from the game folder and staging again too (user
+        // report 2026-10-28: Refresh only re-read Extracted_Mods, so a mod put in the game's Mods
+        // folder by hand, or a server copy, never showed until the page was left and re-opened).
+        ReloadUe4ssRows(fullResync: true);
     }
 
     /// <summary>Snapshots the mod's whole folder — a safety net before a risky manual edit, independent of the EXMOD editor's own transient per-field preview.</summary>

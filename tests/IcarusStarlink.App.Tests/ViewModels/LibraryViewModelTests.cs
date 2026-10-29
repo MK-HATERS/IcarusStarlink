@@ -406,6 +406,24 @@ public sealed class LibraryViewModelTests
         Assert.Equal(1, vm.ModCount);
     }
 
+    /// <summary>User report 2026-10-28: Refresh re-read Extracted_Mods only, so a UE4SS mod added to the game's Mods folder outside Starlink never showed in the right panel.</summary>
+    [Fact]
+    public void Refresh_ReadsTheUe4ssModsAgainToo()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("ArcFissionLibrary", IsEnabled: true));
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        Assert.Single(vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>());
+
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("MkHatersTools", IsEnabled: true));
+        vm.RefreshCommand.Execute(null);
+
+        Assert.Equal(["ArcFissionLibrary", "MkHatersTools"], vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Select(r => r.Name).Order(StringComparer.Ordinal));
+        Assert.Equal("Library refreshed.", vm.StatusMessage);
+    }
+
     /// <summary>Clearing the Content path empties the right panel (it used to keep the old rows, and their selection).</summary>
     [Fact]
     public void ReloadInstalledUe4ssMods_ContentPathCleared_EmptiesTheUe4ssPanelAndItsSelection()
