@@ -128,6 +128,16 @@
                         </TextBlock>
                         <TextBlock Text=" — loading…" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" FontSize="12"
                                    Visibility="{Binding Downloads.IsLoadingCatalog, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <!-- Classic IMM's Show New: mods added or updated since your last visit. -->
+                        <StackPanel Orientation="Horizontal" Margin="16,0,0,0"
+                                    Visibility="{Binding Downloads.HasCatalogNew, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" FontSize="12" Margin="0,0,10,0"
+                                       Text="{Binding Downloads.CatalogNewCount, StringFormat='{}{0} new since your last visit'}"/>
+                            <CheckBox Content="New only" IsChecked="{Binding Downloads.ShowNewOnly}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                      ToolTip="Only mods added or updated since your last visit"/>
+                            <Button Content="Mark all seen" Command="{Binding Downloads.MarkCatalogSeenCommand}" Padding="8,2"
+                                    ToolTip="Clears the New tags now. They also clear by themselves when you close Starlink after looking here."/>
+                        </StackPanel>
                     </StackPanel>
 
                     <Grid Grid.Row="4">
@@ -166,6 +176,19 @@
                                      crunches the rest; the DataGrid's default ControlTemplate already
                                      shows a horizontal scrollbar (HorizontalScrollBarVisibility="Auto"
                                      is its own built-in default) once that happens. -->
+                                <!-- New / Updated since your last visit (sorts with the tagged ones together). -->
+                                <DataGridTemplateColumn Header="New" Width="64" SortMemberPath="NewTag"
+                                                         Visibility="{Binding Data.HasCatalogNew, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Border CornerRadius="8" Padding="7,2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                    Background="{DynamicResource AccentSoftBrush}"
+                                                    Visibility="{Binding HasNewTag, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                <TextBlock Text="{Binding NewTag}" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource AccentBrush}"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="Mod Name" Binding="{Binding Name}" Width="220"/>
                                 <DataGridTextColumn Header="Author" Binding="{Binding Author}" Width="120"
                                                      Visibility="{Binding Data.ShowAuthorColumn, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>

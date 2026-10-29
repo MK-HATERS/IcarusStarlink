@@ -34,7 +34,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// game-folder bundle with a UE4SS mod plus two paks, and a plain zip wrapping an EXMODZ.
 /// </summary>
 [Collection(MessengerCollection.Name)]
-public sealed class DownloadsViewModelTests : IDisposable
+public sealed partial class DownloadsViewModelTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests", $"Downloads_{Guid.NewGuid():N}");
 
@@ -81,16 +81,22 @@ public sealed class DownloadsViewModelTests : IDisposable
         /// <summary>Both catalog sources (Daedalus and Jimk72) — a test can swap in one that counts fetches.</summary>
         public FakeCatalogClient Catalog { get; set; } = new();
 
+        /// <summary>When set, Jimk72's own source (Catalog then answers for Daedalus only).</summary>
+        public FakeCatalogClient? Jimk72Catalog { get; set; }
+
+        /// <summary>When set, the settings the built view model uses (a test can read what was saved, or build twice over the same settings).</summary>
+        public FakeSettingsService? Settings { get; set; }
+
         /// <summary>What any HTTP download returns — a catalog download test hands it the archive bytes.</summary>
         public byte[]? HttpResponseBytes { get; set; }
 
         public DownloadsViewModel Build()
         {
-            var settings = new FakeSettingsService();
+            var settings = Settings ?? new FakeSettingsService();
             settings.Current.IcarusContentPath = IcarusContentPath;
             var httpClient = HttpResponseBytes is null ? new HttpClient() : new HttpClient(new FixedBytesHandler(HttpResponseBytes));
             return new DownloadsViewModel(
-                Catalog, Catalog, new FakeGitHubRepoDateClient(),
+                Catalog, Jimk72Catalog ?? Catalog, new FakeGitHubRepoDateClient(),
                 Library, Ue4ss, Ue4ssMeta, settings, NexusApi, new FakeCredentialStore(), PendingStore,
                 httpClient, new PerformanceTracker(settings, Path.Combine(PendingDownloadsDirectory, "..", "Perf")),
                 ActivityLog, new ActiveDownloadsTracker(), PendingDownloadsDirectory, PakImporter, Path.Combine(PendingDownloadsDirectory, "..", "Data"),
@@ -1071,10 +1077,13 @@ public sealed class DownloadsViewModelTests : IDisposable
 
         public int FetchCount { get; private set; }
 
+        /// <summary>What a fetch answers (none by default).</summary>
+        public IReadOnlyList<CatalogEntry> Entries { get; set; } = [];
+
         public Task<IReadOnlyList<CatalogEntry>> FetchAsync(CancellationToken cancellationToken = default)
         {
             FetchCount++;
-            return Pending?.Task ?? Task.FromResult<IReadOnlyList<CatalogEntry>>([]);
+            return Pending?.Task ?? Task.FromResult(Entries);
         }
     }
 

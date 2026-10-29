@@ -67,6 +67,16 @@
             <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Tracked"
                       IsChecked="{Binding TrackedOnly}" Margin="0,0,16,4" VerticalAlignment="Center"
                       ToolTip="Shows only mods you've tracked — click Track on a card to add one, click again to untrack"/>
+            <!-- Classic IMM's Show New: mods published on Nexus since your last visit. -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,16,4" VerticalAlignment="Center"
+                        Visibility="{Binding HasNew, Converter={StaticResource BoolToVisibilityConverter}}">
+                <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding NewOnly}" VerticalAlignment="Center" Margin="0,0,10,0"
+                          ToolTip="Shows only mods published since your last visit, newest first, in place of the list">
+                    <TextBlock Text="{Binding NewCountDisplay, StringFormat='New only ({0})'}"/>
+                </CheckBox>
+                <Button Content="Mark all seen" Command="{Binding MarkSeenCommand}" Padding="8,2" VerticalAlignment="Center"
+                        ToolTip="Clears the New tags now. They also clear by themselves when you close Starlink after looking here."/>
+            </StackPanel>
             <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" MaxWidth="420"
                        Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" TextWrapping="Wrap"
                        Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
@@ -125,6 +135,15 @@
                                          already have this," so it reads at a glance without competing with the
                                          title text for room. -->
                                     <StackPanel Margin="8" VerticalAlignment="Top" HorizontalAlignment="Left">
+                                        <!-- New / Updated since your last visit. -->
+                                        <Border Margin="0,0,0,4" CornerRadius="8" Padding="6,2" Background="{DynamicResource SuccessBrush}"
+                                                ToolTip="Published or updated on Nexus since your last visit"
+                                                Visibility="{Binding NewTag, Converter={StaticResource NullToVisibilityConverter}}">
+                                            <Border.Effect>
+                                                <DropShadowEffect BlurRadius="6" ShadowDepth="1" Opacity="0.5" Color="Black"/>
+                                            </Border.Effect>
+                                            <TextBlock Text="{Binding NewTag}" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
+                                        </Border>
                                         <Border CornerRadius="8" Padding="6,2" Background="{DynamicResource InfoBrush}"
                                                 Visibility="{Binding LocalBadge, Converter={StaticResource NullToVisibilityConverter}}">
                                             <Border.Effect>
@@ -292,7 +311,7 @@
             <!-- Real Prev/Next paging, not an ever-appending "Load more" — 229 real mods would be
                  8 clicks deep before this fix, and the list would never stop growing. -->
             <StackPanel Orientation="Horizontal" Margin="0,4,0,12"
-                        Visibility="{Binding PageDisplay, Converter={StaticResource NullToVisibilityConverter}}">
+                        Visibility="{Binding IsPagingShown, Converter={StaticResource BoolToVisibilityConverter}}">
                 <Button Command="{Binding PreviousPageCommand}" IsEnabled="{Binding CanGoToPreviousPage}"
                         Style="{StaticResource IconButtonStyle}" Width="30" ToolTip="Previous page" AutomationProperties.Name="Previous page">
                     <Path Data="{StaticResource IconChevronLeft}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"

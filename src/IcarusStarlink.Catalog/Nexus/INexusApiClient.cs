@@ -78,6 +78,15 @@ public interface INexusApiClient
     Task<NexusModPage> ListAllModsAsync(string? apiKey, string gameDomain, int offset, int count, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The game's newest mods, most recently published first (the Database page's "new since your
+    /// last visit"). Same v2 GraphQL query as ListAllModsAsync with a createdAt-DESC sort (checked
+    /// live 2026-10-28; a createdAt filter is NOT accepted by the endpoint, so the caller counts).
+    /// Answers unauthenticated. The default (fakes) returns nothing.
+    /// </summary>
+    Task<NexusModPage> ListNewestModsAsync(string? apiKey, string gameDomain, int count, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new NexusModPage([], 0));
+
+    /// <summary>
     /// A mod's own changelog history — version number to its list of change lines (e.g.
     /// {"1.1": ["PAK-file updated 26th of August 2026"]}), matching Nexus's own real
     /// per-version changelog display on a mod's page. Endpoint confirmed against the official

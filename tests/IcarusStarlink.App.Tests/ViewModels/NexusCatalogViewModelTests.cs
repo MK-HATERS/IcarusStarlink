@@ -36,9 +36,12 @@ public class NexusCatalogViewModelTests
         public FakeNexusApiClient NexusApiClient { get; } = new();
         public FakeCredentialStore CredentialStore { get; } = new();
 
+        /// <summary>The settings the page reads its "seen up to" from (null: built without settings, as before).</summary>
+        public FakeSettingsService? Settings { get; set; }
+
         public NexusCatalogViewModel Build()
         {
-            var settingsService = new FakeSettingsService();
+            var settingsService = Settings ?? new FakeSettingsService();
             var downloads = new DownloadsViewModel(
                 new FakeDaedalusClient(), new FakeJimk72Client(), new FakeGitHubRepoDateClient(),
                 new FakeLibraryRepository(), new FakeUe4ssModRepository(), new FakeUe4ssModMetaStore(),
@@ -49,7 +52,7 @@ public class NexusCatalogViewModelTests
 
             return new NexusCatalogViewModel(
                 NexusApiClient, CredentialStore, new FakeNexusWatchlistStore(), new FakeLibraryRepository(),
-                new FakePendingDownloadStore(), downloads, new ActivityLog(), new FakeDialogService());
+                new FakePendingDownloadStore(), downloads, new ActivityLog(), new FakeDialogService(), Settings);
         }
     }
 
@@ -203,6 +206,59 @@ public class NexusCatalogViewModelTests
         Assert.Single(vm.Mods);
     }
 
+    private static NexusModInfo DatedMod(int id, string name, DateTimeOffset created, DateTimeOffset? updated = null) =>
+        new(id, name, "a", null, "1.0", null, created, updated ?? created);
+
+    /// <summary>Classic IMM's Show New on the Nexus tab: published since the last visit = New, changed since = Updated; New only lists the new ones; Mark all seen clears them.</summary>
+    [Fact]
+    public void NewSinceLastVisit_TagsCountsFiltersAndMarksSeen()
+    {
+        var lastVisit = DateTimeOffset.UtcNow.AddDays(-10);
+        var settings = new FakeSettingsService();
+        settings.Current.CatalogSeen.NexusSeenUpToUtc = lastVisit;
+        var harness = new Harness { Settings = settings };
+        var brandNew = DatedMod(383, "Brand new", lastVisit.AddDays(8));
+        var alsoNew = DatedMod(381, "Also new", lastVisit.AddDays(5));
+        var updatedOld = DatedMod(9, "Old but updated", lastVisit.AddDays(-300), lastVisit.AddDays(7));
+        var old = DatedMod(22, "Old", lastVisit.AddDays(-200));
+        harness.NexusApiClient.NewestMods = [brandNew, alsoNew, updatedOld];
+        harness.NexusApiClient.AllModsPage = Task.FromResult(new NexusModPage([updatedOld, old], 2));
+
+        var vm = harness.Build();
+
+        Assert.Equal(2, vm.NewCount);
+        Assert.Equal("2 new", vm.NewCountDisplay);
+        Assert.Equal("Updated", vm.Mods.Single(r => r.Mod.ModId == 9).NewTag);
+        Assert.Null(vm.Mods.Single(r => r.Mod.ModId == 22).NewTag);
+
+        vm.NewOnly = true;
+        Assert.Equal([383, 381], vm.Mods.Select(r => r.Mod.ModId));
+        Assert.All(vm.Mods, r => Assert.Equal("New", r.NewTag));
+        Assert.False(vm.IsPagingShown);
+
+        vm.MarkSeenCommand.Execute(null);
+
+        Assert.Equal(0, vm.NewCount);
+        Assert.False(vm.NewOnly);
+        Assert.True(settings.Current.CatalogSeen.NexusSeenUpToUtc > brandNew.CreatedAt);
+        Assert.DoesNotContain(vm.Mods, r => r.NewTag is not null);
+    }
+
+    /// <summary>The first time ever, everything already on Nexus counts as seen — no wall of "new".</summary>
+    [Fact]
+    public void NewSinceLastVisit_FirstTimeEver_NothingIsNew()
+    {
+        var settings = new FakeSettingsService();
+        var harness = new Harness { Settings = settings };
+        harness.NexusApiClient.NewestMods = [DatedMod(383, "Yesterday's mod", DateTimeOffset.UtcNow.AddDays(-1))];
+
+        var vm = harness.Build();
+
+        Assert.NotNull(settings.Current.CatalogSeen.NexusSeenUpToUtc);
+        Assert.Equal(0, vm.NewCount);
+        Assert.False(vm.HasNew);
+    }
+
     private sealed class FakeNexusApiClient : INexusApiClient
     {
         public NexusUserInfo? UserToReturn { get; set; }
@@ -239,6 +295,12 @@ public class NexusCatalogViewModelTests
 
         public Task<NexusModPage> ListAllModsAsync(string? apiKey, string gameDomain, int offset, int count, CancellationToken cancellationToken = default) =>
             AllModsPage ?? throw new NotSupportedException("Not exercised by these tests — this VM's own construction-time load is expected to fail internally and is caught by its own try/catch.");
+
+        /// <summary>The newest-published mods (for the New tags); empty unless a test sets them.</summary>
+        public IReadOnlyList<NexusModInfo> NewestMods { get; set; } = [];
+
+        public Task<NexusModPage> ListNewestModsAsync(string? apiKey, string gameDomain, int count, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new NexusModPage(NewestMods, NewestMods.Count));
         public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetChangelogsAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
         public Task<IReadOnlyList<NexusEndorsement>> GetEndorsementsAsync(string apiKey, CancellationToken cancellationToken = default) =>
