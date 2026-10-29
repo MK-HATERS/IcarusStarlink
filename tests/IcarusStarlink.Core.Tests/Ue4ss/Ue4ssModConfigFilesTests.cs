@@ -17,6 +17,18 @@ public sealed class Ue4ssModConfigFilesTests : IDisposable
         File.WriteAllText(path, "");
     }
 
+    /// <summary>Every Library reload checks each UE4SS mod for a config: a downloaded mod's huge Scripts\*config*.lua isn't read whole to decide, it's taken as code.</summary>
+    [Fact]
+    public void Find_AHugeScriptsConfigFile_IsNotReadAndNotListed()
+    {
+        Touch("config.lua");
+        var big = Path.Combine(_mod, "Scripts", "data_config.lua");
+        Directory.CreateDirectory(Path.GetDirectoryName(big)!);
+        File.WriteAllText(big, "return {\n" + new string(' ', 3 * 1024 * 1024) + "}\n");
+
+        Assert.Equal(["config.lua"], Ue4ssModConfigFiles.Find(_mod).Select(f => f.RelativePath));
+    }
+
     [Fact]
     public void Find_TheConfigsRealModsShip()
     {
