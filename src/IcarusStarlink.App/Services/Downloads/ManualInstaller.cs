@@ -229,7 +229,8 @@ public static class ManualInstaller
                     {
                         foreach (var pak in paks)
                         {
-                            if (ModLints.CheckPakVersion(pak) is { } wrongVersion)
+                            // A real pak (not a web page or cut-off file) the game can load, as for a single pak.
+                            if ((ModLints.CheckIsPak(pak) ?? ModLints.CheckPakVersion(pak)) is { } wrongVersion)
                             {
                                 throw new FormatException(wrongVersion);
                             }

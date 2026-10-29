@@ -1936,7 +1936,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         var library = new FakeLibraryRepository { AllEntries = [renamed] };
         var extracted = Path.Combine(_tempRoot, "Extracted");
         Directory.CreateDirectory(Path.Combine(extracted, "Paks", "My_Pak"));
-        File.WriteAllBytes(Path.Combine(extracted, "Paks", "My_Pak", "Model_P.pak"), [1]);
+        File.WriteAllBytes(Path.Combine(extracted, "Paks", "My_Pak", "Model_P.pak"), TestPaks.Bytes(1));
         Directory.CreateDirectory(Path.Combine(extracted, "Ue4ss", "LocalLua", "LocalLua", "Scripts"));
         File.WriteAllText(Path.Combine(extracted, "Ue4ss", "LocalLua", "LocalLua", "Scripts", "main.lua"), "lua");
         var patches = new FakePatchService
@@ -2193,7 +2193,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
     {
         var extracted = Path.Combine(_tempRoot, "Extracted", "My_Pak");
         Directory.CreateDirectory(extracted);
-        File.WriteAllBytes(Path.Combine(extracted, "Model_P.pak"), [1]);
+        File.WriteAllBytes(Path.Combine(extracted, "Model_P.pak"), TestPaks.Bytes(1));
         var library = new FakeLibraryRepository();
         var patches = new FakePatchService
         {
@@ -2219,7 +2219,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
     {
         var extracted = Path.Combine(_tempRoot, "Extracted", folderName);
         Directory.CreateDirectory(extracted);
-        File.WriteAllBytes(Path.Combine(extracted, "Model_P.pak"), [1]);
+        File.WriteAllBytes(Path.Combine(extracted, "Model_P.pak"), TestPaks.Bytes(1));
         return new PatchImportContents(
             new PatchManifest
             {

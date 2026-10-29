@@ -361,9 +361,11 @@ public static class ExtractedModClassifier
             return single;
         }
 
+        // Every pak of a bundle is a real pak (a web page or cut-off file saved as ".pak" used to go
+        // in when it came with others; a single pak was already checked) and one the game can load.
         foreach (var pak in pakFiles)
         {
-            if (ModLints.CheckPakVersion(pak) is { } wrongVersion)
+            if ((ModLints.CheckIsPak(pak) ?? ModLints.CheckPakVersion(pak)) is { } wrongVersion)
             {
                 throw new FormatException(wrongVersion);
             }

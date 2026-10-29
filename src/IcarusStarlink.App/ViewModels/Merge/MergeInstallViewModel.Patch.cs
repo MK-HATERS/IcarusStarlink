@@ -556,6 +556,16 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             throw new FormatException($"The patch's bundled pak mod '{mod.Name}' has no pak files.");
         }
 
+        // A patch is someone else's file: each pak must be a real pak the game can load, checked
+        // before the Library copy is replaced (as a download's paks are).
+        foreach (var pak in ordered)
+        {
+            if ((IcarusStarlink.PakIO.Safety.ModLints.CheckIsPak(pak) ?? IcarusStarlink.PakIO.Safety.ModLints.CheckPakVersion(pak)) is { } notAPak)
+            {
+                throw new FormatException(notAPak);
+            }
+        }
+
         // Only a pak mod is the same mod: the patch's folder name can't take an EXMOD mod's place.
         var existing = _libraryRepository.GetAll().FirstOrDefault(e => e.IsOpaquePak && string.Equals(e.FolderName, mod.FolderName, StringComparison.OrdinalIgnoreCase));
         return ReplaceForPatch(existing, replaced,

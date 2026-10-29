@@ -69,8 +69,8 @@ public sealed class ExtractedModClassifierTests : IDisposable
         File.WriteAllText(Path.Combine(scripts, "main.lua"), "print('hi')");
         var paks = Path.Combine(_extractedDir, "Icarus", "Content", "Paks", "mods");
         Directory.CreateDirectory(paks);
-        File.WriteAllBytes(Path.Combine(paks, "ZZ_WirelessPower_Icon_P.pak"), [1, 2, 3]);
-        File.WriteAllBytes(Path.Combine(paks, "ZZ_WirelessPower_Model_P.pak"), [4, 5, 6]);
+        File.WriteAllBytes(Path.Combine(paks, "ZZ_WirelessPower_Icon_P.pak"), TestPaks.Bytes(1, 2, 3));
+        File.WriteAllBytes(Path.Combine(paks, "ZZ_WirelessPower_Model_P.pak"), TestPaks.Bytes(4, 5, 6));
         File.WriteAllText(Path.Combine(_extractedDir, "README_WirelessPower.txt"),
             "WirelessPower\n\nREQUIREMENTS\n- UE4SS (experimental build): https://x\n- ArcFission Library 1.2.0 or newer (separate download)\n\nINSTALL\n1. etc");
         var ue4ssModRepository = new FakeUe4ssModRepository { Result = "WirelessPower" };
@@ -259,8 +259,8 @@ public sealed class ExtractedModClassifierTests : IDisposable
     [Fact]
     public async Task ClassifyAndImport_MultiplePaksNoExmod_LandsAsOneLibraryModHoldingBothPaks()
     {
-        File.WriteAllBytes(Path.Combine(_extractedDir, "First.pak"), [1]);
-        File.WriteAllBytes(Path.Combine(_extractedDir, "Second.pak"), [2]);
+        File.WriteAllBytes(Path.Combine(_extractedDir, "First.pak"), TestPaks.Bytes(1));
+        File.WriteAllBytes(Path.Combine(_extractedDir, "Second.pak"), TestPaks.Bytes(2));
         var prebuiltPakImporter = new FakePrebuiltPakImporter();
         var library = new FakeLibraryRepository();
 
@@ -273,6 +273,24 @@ public sealed class ExtractedModClassifierTests : IDisposable
         Assert.Equal(0, prebuiltPakImporter.ImportCallCount);
         Assert.Single(result.Items);
         Assert.Equal(PendingDownloadActivationKind.Library, result.Kind);
+    }
+
+    /// <summary>
+    /// Final review 2026-10-28: a single pak was checked to be a real pak, but in a download with
+    /// several, a web page (or cut-off file) saved as ".pak" went into the Library and the game.
+    /// </summary>
+    [Fact]
+    public async Task ClassifyAndImport_SeveralPaks_OneThatIsntARealPak_IsRefusedAndNothingIsImported()
+    {
+        File.WriteAllBytes(Path.Combine(_extractedDir, "First.pak"), TestPaks.Bytes(1));
+        File.WriteAllText(Path.Combine(_extractedDir, "Second.pak"), "<!DOCTYPE html><html><body>Not Found</body></html>");
+        var library = new FakeLibraryRepository();
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Cool Mod 1.2 412 7 2026-10-12T13-49Z abc.zip", library, new FakeUe4ssModRepository(), new FakePrebuiltPakImporter(), "SomeDataFolder", null));
+
+        Assert.Contains("Second.pak", ex.Message);
+        Assert.Empty(library.ImportPaksCalls);
     }
 
     [Fact]

@@ -117,9 +117,16 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         }
     }
 
+    /// <summary>A zip entry with this text; a ".pak" entry gets a real pak footer after it (TestPaks), as every downloaded pak is checked.</summary>
     private static void WriteEntry(ZipArchive archive, string name, string content)
     {
         using var stream = archive.CreateEntry(name).Open();
+        if (name.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
+        {
+            stream.Write(TestPaks.Bytes(content));
+            return;
+        }
+
         using var writer = new StreamWriter(stream);
         writer.Write(content);
     }
