@@ -38,8 +38,43 @@ public static partial class GameStats
     /// <summary>The stat name inside a stats key: "(Value=\"BaseOxygenSlots_+\")" → "BaseOxygenSlots_+".</summary>
     public static string StatNameOf(string key) => StatKey().Match(key) is { Success: true } m ? m.Groups["stat"].Value : key;
 
-    /// <summary>Plain description of one stat for a row, from its label.</summary>
-    public static string StatHint(string statName) => StatDescription(StatLabel(statName));
+    /// <summary>
+    /// Plain description of one stat for a row, from its label, plus the line players read in the
+    /// game when it's known ("In game: +N kg Weight Capacity", D_Stats' PositiveDescription with
+    /// {0} as N). LearnGameText reads those lines once from the game data.
+    /// </summary>
+    public static string StatHint(string statName) =>
+        s_gameText.TryGetValue(statName, out var inGame) ? $"{StatDescription(StatLabel(statName))} In game: \"{inGame}\"." : StatDescription(StatLabel(statName));
+
+    private static System.Collections.Concurrent.ConcurrentDictionary<string, string> s_gameText = new(StringComparer.Ordinal);
+    private static string? s_gameTextFrom;
+
+    /// <summary>
+    /// Reads every stat's in-game line from D_Stats (PositiveDescription, else Title) for StatHint;
+    /// once per data folder per run (the wording seldom changes; the next start reads it again).
+    /// Quiet when the table isn't there: the hints keep their plain words.
+    /// </summary>
+    public static void LearnGameText(GameTableIndex game)
+    {
+        if (game.CurrentFileFor("D_Stats") is not { } statsFile || string.Equals(s_gameTextFrom, game.DataFolder, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var text = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (name, node) in game.Rows(statsFile) ?? [])
+        {
+            if (node is JsonObject row
+                && (NsLocText.TextOf(row["PositiveDescription"]?.GetValue<string>()) ?? NsLocText.TextOf(row["Title"]?.GetValue<string>())) is { Length: > 0 } line
+                && line != "None")
+            {
+                text[name] = line.Replace("{0}", "N", StringComparison.Ordinal).Trim();
+            }
+        }
+
+        s_gameText = text;
+        s_gameTextFrom = game.DataFolder;
+    }
 
     /// <summary>What kind of number a stat is, in words, for the stat picker.</summary>
     public static string StatKind(string statName) =>

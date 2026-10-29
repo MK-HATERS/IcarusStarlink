@@ -46,6 +46,35 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.Equal(label, GameItemEditor.FieldText(field, isNumber: false).Label);
     }
 
+    /// <summary>The user asked for a tip on what each setting does: the fields mods change most get a plain name and tip (FieldTips), the editor's own list still first.</summary>
+    [Fact]
+    public void CommonlyModdedFields_HaveATip_AndTheEditorsOwnWordsStillWin()
+    {
+        var recipeSets = GameItemEditor.FieldText("RecipeSets", isNumber: false);
+        Assert.Equal("Made at", recipeSets.Label);
+        Assert.Contains("benches", recipeSets.Description);
+
+        var stability = GameItemEditor.FieldText("MaxAnchoredStability", isNumber: true);
+        Assert.Contains("Higher", stability.Description);
+
+        Assert.Equal("Stack size", GameItemEditor.FieldText("MaxStack", isNumber: true).Label);
+    }
+
+    /// <summary>A stat's tip quotes the line players read in the game (D_Stats), with N for the number.</summary>
+    [Fact]
+    public void StatHint_QuotesTheGamesOwnLine()
+    {
+        var data = Path.Combine(_root, "StatsOnly");
+        Directory.CreateDirectory(Path.Combine(data, "Stats"));
+        File.WriteAllText(Path.Combine(data, "Stats", "D_Stats.json"), """
+            {"RowStruct":"S","Defaults":{},"Rows":[{"Name":"BaseWeightCapacity_+","PositiveDescription":"NSLOCTEXT(\"D_Stats\", \"BaseWeightCapacity_+-PositiveDescription\", \"+{0}kg Weight Capacity\")"}]}
+            """);
+
+        GameStats.LearnGameText(new GameTableIndex(data));
+
+        Assert.EndsWith("In game: \"+Nkg Weight Capacity\".", GameStats.StatHint("BaseWeightCapacity_+"));
+    }
+
     [Fact]
     public void Describe_ShowsEachRowTheItemUses_WithItsSharing()
     {

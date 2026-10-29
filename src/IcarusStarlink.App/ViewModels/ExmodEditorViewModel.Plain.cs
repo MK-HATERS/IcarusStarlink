@@ -170,6 +170,9 @@ public sealed partial class ExmodEditorViewModel
             }
 
             _itemNames = new GameItemNames(GameTables);
+
+            // The stat rows' tips quote the game's own line for each stat ("In game: +N kg Weight Capacity").
+            GameStats.LearnGameText(GameTables);
         }
 
         return _itemNames;

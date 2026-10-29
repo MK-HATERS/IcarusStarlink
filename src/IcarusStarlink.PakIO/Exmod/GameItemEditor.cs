@@ -225,9 +225,13 @@ public static partial class GameItemEditor
 
     /// <summary>A field in plain words: "MaxStack" → ("Stack size", "How many fit in one slot…"). Shared with the mod editor's Fields view.</summary>
     public static (string Label, string Description) FieldText(string field, bool isNumber) =>
-        KnownFields.TryGetValue(field, out var known) ? known
+        TryKnown(field, out var known) ? known
         : isNumber ? (Humanize(field), $"Higher = more {Humanize(field).ToLowerInvariant()}, lower = less. The game's value is shown beside it.")
         : (Humanize(field), "");
+
+    /// <summary>A field's plain name and tip: this editor's own short list first, then FieldTips (the fields mods change most).</summary>
+    private static bool TryKnown(string field, out (string Label, string Description) known) =>
+        KnownFields.TryGetValue(field, out known) || FieldTips.TryGet(field, out known);
 
     private static EditableSection BuildSection(GameTableIndex game, ExmodPackage? mod, string key, string title, string file, string rowName, string gameRowName, int sharedBy)
     {
@@ -250,11 +254,11 @@ public static partial class GameItemEditor
             switch (current ?? original)
             {
                 case JsonValue v when IsNumber(v):
-                    var (label, description) = KnownFields.TryGetValue(top, out var known) ? known : (Humanize(top), $"The game's value is shown on the right. Higher = more {Humanize(top).ToLowerInvariant()}, lower = less.");
+                    var (label, description) = TryKnown(top, out var known) ? known : (Humanize(top), $"The game's value is shown on the right. Higher = more {Humanize(top).ToLowerInvariant()}, lower = less.");
                     fields.Add(new EditableField(new EditPath(top, []), label, description, EditableKind.Number, original, current, inherited && !gameRow.ContainsKey(top)));
                     break;
                 case JsonValue v when NsLocText.TextOf(v.TryGetValue<string>(out var s) ? s : null) is { } shownText && shownText != "None":
-                    var (textLabel, textDescription) = KnownFields.TryGetValue(top, out var knownText) ? knownText : (Humanize(top), "Text players see.");
+                    var (textLabel, textDescription) = TryKnown(top, out var knownText) ? knownText : (Humanize(top), "Text players see.");
                     fields.Add(new EditableField(new EditPath(top, []), textLabel, textDescription, EditableKind.Text, original, current, false));
                     break;
                 case JsonObject obj when obj.Count == 0 || obj.All(kv => GameStats.IsStatKey(kv.Key)):
@@ -269,7 +273,8 @@ public static partial class GameItemEditor
                         }
 
                         var statLabel = GameStats.StatLabel(stat);
-                        fields.Add(new EditableField(new EditPath(top, [stat]), statLabel, GameStats.StatDescription(statLabel), EditableKind.Number, (original as JsonObject)?[stat], cur, false));
+                        GameStats.LearnGameText(game);
+                        fields.Add(new EditableField(new EditPath(top, [stat]), statLabel, GameStats.StatHint(GameStats.StatNameOf(stat)), EditableKind.Number, (original as JsonObject)?[stat], cur, false));
                     }
 
                     break;
@@ -279,7 +284,7 @@ public static partial class GameItemEditor
                     {
                         if (IsNumber(childValue))
                         {
-                            var (childLabel, childDescription) = KnownFields.TryGetValue(child, out var k) ? k : (Humanize(child), $"Higher = more {Humanize(child).ToLowerInvariant()}, lower = less.");
+                            var (childLabel, childDescription) = TryKnown(child, out var k) ? k : (Humanize(child), $"Higher = more {Humanize(child).ToLowerInvariant()}, lower = less.");
                             fields.Add(new EditableField(new EditPath(top, [child]), childLabel, childDescription, EditableKind.Number, (original as JsonObject)?[child], childValue, false));
                         }
                     }
