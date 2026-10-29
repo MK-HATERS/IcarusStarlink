@@ -12,6 +12,9 @@ public sealed record NexusModInfo(
     int ModId, string? Name, string Author, string? Summary, string Version, string? PictureUrl,
     DateTimeOffset? CreatedAt = null, DateTimeOffset? UpdatedAt = null)
 {
+    /// <summary>A web link or null: the Nexus card shows it as an image, so a network path would make Windows log in to that server (see WebLink).</summary>
+    public string? PictureUrl { get; init; } = WebLink.HttpOrNull(PictureUrl);
+
     /// <summary>The card-ready "published … · updated …" line, local time, or null when the API gave no dates (so the UI can hide the line entirely).</summary>
     public string? DatesDisplay
     {

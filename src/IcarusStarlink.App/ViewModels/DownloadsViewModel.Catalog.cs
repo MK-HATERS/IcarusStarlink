@@ -731,7 +731,8 @@ public sealed partial class DownloadsViewModel
     [RelayCommand]
     private void OpenCatalogReadme(CatalogEntryViewModel? entry)
     {
-        if ((entry ?? SelectedCatalogEntry)?.Entry.ReadmeUrl is not { } url)
+        // Web links only: the catalog is other people's data, and the shell would run a file path.
+        if (WebLink.HttpOrNull((entry ?? SelectedCatalogEntry)?.Entry.ReadmeUrl) is not { } url)
         {
             return;
         }

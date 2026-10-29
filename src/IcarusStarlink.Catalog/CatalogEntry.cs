@@ -18,4 +18,11 @@ public sealed record CatalogEntry(
     string? ReadmeUrl,
     string? PakUrl,
     string? ExmodzUrl,
-    IReadOnlyList<string> Categories);
+    IReadOnlyList<string> Categories)
+{
+    /// <summary>A web link or null — see WebLink (it is shown as an image, so a network path would make Windows log in to that server).</summary>
+    public string? ImageUrl { get; init; } = WebLink.HttpOrNull(ImageUrl);
+
+    /// <summary>A web link or null — see WebLink (Readme opens it through the shell, so a file path would run that program).</summary>
+    public string? ReadmeUrl { get; init; } = WebLink.HttpOrNull(ReadmeUrl);
+}

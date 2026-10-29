@@ -34,6 +34,22 @@ public sealed class JsonCatalogSnapshotStoreTests : IDisposable
         Assert.Equal("owner", Assert.Single(loaded.RepoDates).Owner);
     }
 
+    /// <summary>A snapshot cached by an older build can still hold a readme/picture that isn't a web link: loading it drops them too (see WebLink).</summary>
+    [Fact]
+    public void TryLoad_CachedReadmeOrImageThatIsNotAWebLink_IsDropped()
+    {
+        var store = new JsonCatalogSnapshotStore(Path.Combine(_dir, "catalog_snapshot.json"));
+        // `with` skips the constructor's check, standing in for a file an older build wrote.
+        var cached = new CatalogEntry(CatalogSource.Daedalus, "id-1", "Cool Mod", "Someone", "1.0", "D", "All", null, null, null, "https://x/a.pak", null, [])
+            with { ReadmeUrl = @"C:\Windows\System32\calc.exe", ImageUrl = @"\\evil-host\share\x.png" };
+
+        store.Save(new CatalogSnapshot(DateTimeOffset.UtcNow, [cached], []));
+        var loaded = Assert.Single(store.TryLoad()!.Entries);
+
+        Assert.Null(loaded.ReadmeUrl);
+        Assert.Null(loaded.ImageUrl);
+    }
+
     [Fact]
     public void TryLoad_MissingOrCorruptFile_ReturnsNullNeverThrows()
     {
