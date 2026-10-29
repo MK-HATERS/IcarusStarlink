@@ -100,6 +100,17 @@ public sealed partial class LibraryViewModel
             }
         }
 
+        // A UE4SS part that is on in the game can't come out of its Mods folder while the game runs.
+        // Asked anyway, the Library parts went after the Yes and the Lua half stayed in the game:
+        // half a mod left behind. Refused before the question (the UE4SS panel's own Delete of a
+        // linked half lands here too). Needed again since in-game halves are linked (2026-10-28).
+        if (ue4ssParts.Count > 0 && Ue4ssPartsInGame(ue4ssParts) is { Count: > 0 } inGameParts && IsGameRunningCheck())
+        {
+            StatusMessage = $"Icarus is running, and {string.Join(", ", inGameParts)} from the same download is on in the game. Close the game, then delete.";
+            Ue4ssStatusMessage = StatusMessage;
+            return;
+        }
+
         var confirm = _dialogService.Confirm(message, "Delete mod(s)", ThemedConfirmSeverity.Warning);
         if (!(confirm))
         {
@@ -162,5 +173,24 @@ public sealed partial class LibraryViewModel
         };
         // Its own handler reloads both panels (the UE4SS parts too): no Reload of its own here.
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+    }
+
+    /// <summary>Which of these UE4SS mods are in the game's Mods folder (none without a game path, or when it can't be read).</summary>
+    private List<string> Ue4ssPartsInGame(IEnumerable<string> names)
+    {
+        if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
+        {
+            return [];
+        }
+
+        try
+        {
+            var inGame = _ue4ssModRepository.ListInstalledInGame(IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath));
+            return [.. names.Where(n => inGame.Contains(n, StringComparer.OrdinalIgnoreCase))];
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
     }
 }
