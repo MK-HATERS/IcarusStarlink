@@ -26,12 +26,11 @@ public sealed record GameDataItemRef(string CurrentFile, string RealPath, string
 /// <summary>One row plus its own serialized JSON — the searchable unit for the Search game data window's reference search. Kept separate from GameDataItemRef so the (much lighter) add-item picker never pays for the serialized text it doesn't use.</summary>
 public sealed record GameDataSearchEntry(string RealPath, string ItemName, string RowJson);
 
-/// <summary>Which of the editor's three views (spec: "Item fields, File JSON, or Full EXMOD JSON views") is showing in the right-hand pane.</summary>
+/// <summary>Which of the editor's views is showing in the right-hand pane. (The old "Full EXMOD JSON" view is gone: File JSON covers raw edits, one file at a time.)</summary>
 public enum ExmodEditorViewMode
 {
     ItemFields,
     FileJson,
-    FullExmodJson,
 
     /// <summary>"Scale a field across a table" rules (ExmodEditorViewModel.Scale.cs).</summary>
     ScaleRules,
@@ -44,7 +43,7 @@ public enum ExmodEditorViewMode
 /// pairing matches (see the plan's "7.1 — Core editor" section) — LibraryViewModel constructs a
 /// fresh instance per Edit… / New mod… click via the Func&lt;string, ExmodEditorViewModel&gt;
 /// factory registered in App.xaml.cs, rather than this being resolved as a singleton.
-/// Phase 7.2 added the File JSON / Full EXMOD JSON raw-text views alongside Item fields.
+/// Phase 7.2 added the File JSON raw-text view alongside Item fields.
 /// </summary>
 public sealed partial class ExmodEditorViewModel : ObservableObject
 {
@@ -154,9 +153,6 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     private string _fileJsonText = "";
 
     [ObservableProperty]
-    private string _fullExmodJsonText = "";
-
-    [ObservableProperty]
     private string? _rawJsonStatusMessage;
 
     // Shared scroll position per view — not per window. When the same view (e.g. Item fields) is
@@ -169,9 +165,6 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
     [ObservableProperty]
     private double _fileJsonScrollOffset;
-
-    [ObservableProperty]
-    private double _fullExmodJsonScrollOffset;
 
     /// <summary>Filters Items by a substring of its Display text (file or item name) — Ctrl+F focuses the box this is bound to.</summary>
     [ObservableProperty]
@@ -190,7 +183,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedItemCount;
 
-    /// <summary>2+ items selected at once — mass edit becomes available. A single selection (the common case) keeps using the normal Item fields/File JSON/Full EXMOD JSON views instead.</summary>
+    /// <summary>2+ items selected at once — mass edit becomes available. A single selection (the common case) keeps using the normal Fields / File JSON views instead.</summary>
     public bool IsMassEditActive => SelectedItemCount > 1;
 
     [ObservableProperty]
@@ -387,10 +380,6 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         {
             RefreshFileJsonText();
         }
-        else if (value == ExmodEditorViewMode.FullExmodJson)
-        {
-            RefreshFullExmodJsonText();
-        }
     }
 
     [RelayCommand]
@@ -439,7 +428,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         pane.Show();
     }
 
-    /// <summary>Copies every field but FileName (the caller's own responsibility to guard, per ApplyFullExmodJson's own check above) from parsed onto the live _package in place, then refreshes every view derived from it. Shared by ApplyFullExmodJson and Undo — both are, structurally, "replace the whole package's content with something else."</summary>
+    /// <summary>Copies every field but FileName from parsed onto the live _package in place, then refreshes every view derived from it. Used by Undo/Redo ("replace the whole package's content with a snapshot").</summary>
     /// <param name="reloadRules">False keeps the Scale rules view as it is — Undo of some other edit mustn't throw away rule changes not applied yet.</param>
     private void ApplyParsedPackage(ExmodPackage parsed, bool reloadRules = true)
     {
@@ -582,8 +571,8 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _baseValuesByKey = baseDiff.ToDictionary(c => (c.CurrentFile, c.ItemName, c.FieldName), c => c.OriginalValue);
 
         // Explicitly clears a stale warning from an earlier refresh (e.g. a prior package version
-        // had a row with no matching base file) when a later refresh — after a File JSON/Full
-        // EXMOD JSON Apply changed what Rows actually contains — no longer has anything to warn
+        // had a row with no matching base file) when a later refresh — after a File JSON
+        // Apply changed what Rows actually contains — no longer has anything to warn
         // about; a bare "only set when there are warnings" would leave the old message showing
         // even though it no longer applies to the package's current content.
         StatusMessage = report.Warnings.Count > 0 ? report.Warnings[0] : null;
@@ -826,7 +815,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         // Library doesn't list, so the work would look saved but be nowhere to be found.
         if (!ModFolderExists())
         {
-            StatusMessage = "Not saved: this mod's folder is gone (deleted or moved in Library?). To keep your work, copy it from the Full EXMOD JSON view into a new mod.";
+            StatusMessage = "Not saved: this mod's folder is gone (deleted or moved in Library?). To keep your work, copy each file from the File JSON view into a new mod.";
             return;
         }
 

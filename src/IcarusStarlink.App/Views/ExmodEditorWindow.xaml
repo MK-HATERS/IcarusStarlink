@@ -145,10 +145,8 @@
             </Expander>
         </Grid>
 
-        <!-- Right: three views over the same selected item/package — Item fields (structured,
-             amber-highlighted), File JSON (one file's raw JSON), Full EXMOD JSON (the whole
-             package's raw JSON) — sharing the left-hand selection per the spec's "Item fields,
-             File JSON, or Full EXMOD JSON views" + "sync scroll" bullets. -->
+        <!-- Right: views over the same selected item/package — Fields (structured, orange-marked),
+             File JSON (one file's raw JSON) and Scale rules — sharing the left-hand selection. -->
         <Grid Grid.Column="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -176,16 +174,6 @@
                         <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
                             <Binding Path="ViewMode"/>
                             <Binding Source="{x:Static vm:ExmodEditorViewMode.FileJson}"/>
-                        </MultiBinding>
-                    </Button.Tag>
-                </Button>
-                <Button Content="Full EXMOD JSON" Style="{StaticResource ThemeButtonStyle}"
-                        Command="{Binding SetViewModeCommand}" CommandParameter="FullExmodJson"
-                        ToolTip="The whole mod's .EXMOD, as raw JSON you can edit directly">
-                    <Button.Tag>
-                        <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
-                            <Binding Path="ViewMode"/>
-                            <Binding Source="{x:Static vm:ExmodEditorViewMode.FullExmodJson}"/>
                         </MultiBinding>
                     </Button.Tag>
                 </Button>
@@ -283,15 +271,6 @@
             </Border>
 
             <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
-                    Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
-                <TextBox x:Name="FullExmodJsonTextBox" Text="{Binding FullExmodJsonText, UpdateSourceTrigger=PropertyChanged}"
-                         AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
-                         BorderThickness="0" Background="Transparent"
-                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                         ToolTip="The whole mod's .EXMOD as raw JSON. Edit freely, then click Apply full EXMOD JSON below to update the mod — nothing here is saved until you do."/>
-            </Border>
-
-            <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
                     Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ScaleRules}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="10">
@@ -382,14 +361,6 @@
             </DockPanel>
 
             <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,8,0,0" VerticalAlignment="Center"
-                        Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
-                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Apply full EXMOD JSON" Command="{Binding ApplyFullExmodJsonCommand}"
-                        ToolTip="Re-parse this box and replace the whole mod's contents"/>
-                <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                           Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
-            </DockPanel>
-
-            <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,8,0,0" VerticalAlignment="Center"
                         Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ScaleRules}">
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Add rule" Command="{Binding AddScaleRuleCommand}" ToolTip="Adds a new rule card above"/>
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Preview all" Command="{Binding PreviewScaleRulesCommand}" Margin="8,0,0,0"
@@ -402,7 +373,7 @@
 
             <DockPanel Grid.Row="4" LastChildFill="True" Margin="0,12,0,0" VerticalAlignment="Center">
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                        ToolTip="Writes every change so far to this mod's .EXMOD file — from any view (Fields, File JSON, Full EXMOD JSON, Scale rules): they all edit the same mod"/>
+                        ToolTip="Writes every change so far to this mod's .EXMOD file — from any view (Fields, File JSON, Scale rules): they all edit the same mod"/>
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Turn on &amp; go to Merge &amp; Install" Command="{Binding TurnOnAndGoToMergeCommand}" Margin="8,0,0,0"
                         Visibility="{Binding HasSaved, Converter={StaticResource BoolToVisibilityConverter}}"
                         ToolTip="Ticks this mod ON (adds it to the merge queue) and opens Merge &amp; Install, where Install puts it in the game"/>

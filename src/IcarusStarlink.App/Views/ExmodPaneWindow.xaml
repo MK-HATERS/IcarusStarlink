@@ -8,7 +8,7 @@
         Background="{DynamicResource ContentBackgroundBrush}">
 
     <!--
-    A popped-out editor pane — one of the three views (Item fields / File JSON / Full EXMOD JSON),
+    A popped-out editor pane — one of the views (Fields / File JSON),
     detached into its own window so it can sit alongside the main editor window (or another popped-
     out pane) instead of only ever showing one view at a time. DataContext is the SAME
     ExmodEditorViewModel the main editor window uses (set by ExmodEditorViewModel.PopOutCurrentView),
@@ -48,15 +48,6 @@
                      ToolTip="This file's items and fields as raw JSON. Edit freely, then click Apply file JSON below to update the mod — nothing here is saved until you do."/>
         </Border>
 
-        <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
-                Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
-            <TextBox x:Name="FullExmodJsonTextBox" Text="{Binding FullExmodJsonText, UpdateSourceTrigger=PropertyChanged}"
-                     AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
-                     BorderThickness="0" Background="Transparent"
-                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                     ToolTip="The whole mod's .EXMOD as raw JSON. Edit freely, then click Apply full EXMOD JSON below to update the mod — nothing here is saved until you do."/>
-        </Border>
-
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0"
                     Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
             <Grid Width="160">
@@ -77,14 +68,6 @@
                     Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
             <Button Content="Apply file JSON" Command="{Binding ApplyFileJsonCommand}"
                     ToolTip="Re-parse this box and replace the selected item's file in the mod"/>
-            <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                       Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
-        </StackPanel>
-
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
-                    Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FullExmodJson}">
-            <Button Content="Apply full EXMOD JSON" Command="{Binding ApplyFullExmodJsonCommand}"
-                    ToolTip="Re-parse this box and replace the whole mod's contents"/>
             <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                        Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
         </StackPanel>
