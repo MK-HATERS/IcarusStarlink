@@ -46,7 +46,8 @@ public sealed class DaedalusCatalogClient(HttpClient httpClient) : IDaedalusCata
 
             foreach (var modRef in tag.Mods ?? [])
             {
-                if (string.IsNullOrWhiteSpace(modRef.Name) || string.IsNullOrWhiteSpace(modRef.Author))
+                // A null in the list ("mods": [null, …]) took the whole Daedalus catalog down.
+                if (modRef is null || string.IsNullOrWhiteSpace(modRef.Name) || string.IsNullOrWhiteSpace(modRef.Author))
                 {
                     continue;
                 }

@@ -163,6 +163,24 @@ public class DaedalusCatalogClientTests
         Assert.Equal("https://github.com/o/r/raw/main/a.EXMODZ", entry.PakUrl ?? entry.ExmodzUrl);
     }
 
+    /// <summary>Review 2026-10-28: one null in a tag's mod list (other people's JSON) threw and the whole Daedalus catalog read as "unavailable".</summary>
+    [Fact]
+    public async Task FetchAsync_NullInATagsModList_IsSkippedNotFatal()
+    {
+        const string tags = """
+            [ { "tag": "building", "mods": [ null, { "name": "A WZG balance overhaul", "author": "Waldo" } ] } ]
+            """;
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/mods.json"] = ModsJson,
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/tags.json"] = tags,
+        });
+
+        var entries = await new DaedalusCatalogClient(new HttpClient(handler)).FetchAsync();
+
+        Assert.Equal(["building"], entries.Single(e => e.Id == "waldo--a-wzg-balance-overhaul").Categories);
+    }
+
     [Fact]
     public async Task FetchAsync_ReturnsAllModsFromModsJson()
     {
