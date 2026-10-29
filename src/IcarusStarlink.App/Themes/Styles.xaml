@@ -1009,6 +1009,22 @@
         </Style.Triggers>
     </Style>
 
+    <!-- "Beta" beside an option nobody has tried in the game yet (Free Item Repair, No Weather):
+         a small amber tag; put the TextBlock "Beta" inside. -->
+    <Style x:Key="BetaTagStyle" TargetType="Border">
+        <Setter Property="CornerRadius" Value="8"/>
+        <Setter Property="Padding" Value="6,0"/>
+        <Setter Property="Margin" Value="8,0,0,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource WarningBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource WarningSoftBrush}"/>
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource WarningBrush}"/>
+        <Setter Property="TextElement.FontSize" Value="10"/>
+        <Setter Property="TextElement.FontWeight" Value="SemiBold"/>
+        <Setter Property="ToolTip" Value="Beta: built from the game's files but not tried in the game yet. Tell us if it doesn't do what it says."/>
+    </Style>
+
     <!-- A mod's type tag (EXMOD / Pak / Pak + UE4SS / UE4SS, from its TypeLabel): outline and text
          in that type's colour, so the kinds of mod tell apart at a glance. -->
     <Style x:Key="TypeTagStyle" TargetType="Border">
