@@ -89,7 +89,7 @@
                                 Visibility="{Binding HasFixableFindings, Converter={StaticResource BoolToVisibilityConverter}}"
                                 ToolTip="Makes every fix offered for the problems and warnings below. Notes are left to you (DLC notes too, unless the switch beside this is on)."/>
                         <CheckBox DockPanel.Dock="Right" Style="{StaticResource ToggleSwitchStyle}" Content="Include DLC and Supporter" IsChecked="{Binding FixAllIncludesDlc}"
-                                  VerticalAlignment="Center" Margin="0,0,12,0" ToolTip="Fix all also turns on the DLC and Supporters Edition packs named in the notes below"/>
+                                  VerticalAlignment="Center" Margin="0,0,12,0" ToolTip="Fix all also ticks the DLC and Supporters Edition packs named in the notes below, in the save's DLC list. Icarus rebuilds that list from what your account owns when it starts."/>
                         <TextBlock VerticalAlignment="Center">
                             <Run Text="Save check" FontWeight="SemiBold" FontSize="14"/><Run Text="   "/><Run Text="{Binding CheckSummary, Mode=OneWay}" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                         </TextBlock>

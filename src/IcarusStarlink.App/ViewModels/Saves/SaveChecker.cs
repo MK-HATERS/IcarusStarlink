@@ -214,7 +214,7 @@ public static class SaveChecker
                 var things = used.Distinct().ToList();
                 findings.Add(new(SaveCheckSeverity.Note, DlcArea,
                     $"{things.Count} learned or researched thing{(things.Count == 1 ? " is" : "s are")} for {packLabels[pack]} ({string.Join(", ", things.Take(4))}{(things.Count > 4 ? ", …" : "")}), "
-                    + "which is off in the cached DLC list. The game checks DLC itself when it starts, so this only tidies the cache. Optional.",
+                    + "which is off in the save's DLC list. Turning it on writes it into that list, but Icarus rebuilds the list from what your account owns each time it starts, so it may be off again after you play. Optional.",
                     $"Turn on {pack.Name}", () => pack.IsUnlocked = true));
             }
         }

@@ -112,7 +112,7 @@
                     </DockPanel>
                 </Expander.Header>
             <StackPanel>
-                <TextBlock Text="The DLC the game last saw this account own. The game also checks DLC itself when it starts (Steam, or a DLC unlocker), so a pack that's off here can still work in game, and that check can undo a change made here."
+                <TextBlock Text="The DLC the game last saw this account own. Ticking a pack here writes it into the save, but Icarus rebuilds this list from what your account owns each time it starts, so a pack you don't own will be off again after you play. A pack that's off here can still work in game if you own it."
                            Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
                 <ItemsControl ItemsSource="{Binding FilteredBinaryFlags}">
                     <!-- One cell width, so the pack names line up in columns. -->
