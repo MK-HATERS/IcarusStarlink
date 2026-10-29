@@ -70,14 +70,26 @@ public sealed partial class ServerViewModel
             // whatever row happens to be selected in the list right now (see _connectedSite's own
             // doc comment on why those two can drift).
             var knownBlocked = existing.Count > 0 && _connectedSite?.SupportsDelete == false;
+
+            // A file with the same name as one going up is written over, not left behind: on a host
+            // that blocks delete, the old merged pak of the same name used to be listed as "will
+            // remain" and reported afterwards as a leftover that could load twice.
+            bool IsReplaced(string name) => toUpload.Contains(name, StringComparer.OrdinalIgnoreCase);
+            var leftBehind = existing.Where(e => !IsReplaced(e.Name)).ToList();
             string prompt;
-            if (knownBlocked)
+            if (knownBlocked && leftBehind.Count > 0)
             {
                 prompt =
                     $"'{_connectedSite?.Name}' doesn't allow deleting or replacing files via FTP, so the existing file(s) below will remain after this upload:\n"
-                    + string.Join('\n', existing.Select(e => $"  - {e.Name}"))
+                    + string.Join('\n', leftBehind.Select(e => $"  - {e.Name}"))
                     + $"\n\nUpload will add:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
                     + $"You'll need to remove the old file(s) yourself via {_connectedSite?.Name}'s own file manager afterward — otherwise the server may end up loading multiple conflicting merged paks. Upload anyway?";
+            }
+            else if (knownBlocked)
+            {
+                prompt =
+                    $"This will upload:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
+                    + $"to '{RemoteModsPath}' on '{_connectedSite?.Name}', writing over the copies already there.\n\nContinue?";
             }
             else
             {
@@ -107,7 +119,7 @@ public sealed partial class ServerViewModel
             if (knownBlocked)
             {
                 // Nothing can be deleted (or, likely, renamed) there: upload straight over the names.
-                deleteFailures.AddRange(existing.Select(e => e.Name));
+                deleteFailures.AddRange(leftBehind.Select(e => e.Name));
                 foreach (var name in toUpload)
                 {
                     await _connectedClient.UploadFileAsync(localFor[name], $"{RemoteModsPath}/{name}");
@@ -161,6 +173,9 @@ public sealed partial class ServerViewModel
                         }
                     }
                 }
+
+                // A same-name file whose delete was refused has been written over by now.
+                deleteFailures.RemoveAll(IsReplaced);
             }
 
             if (deleteFailures.Count > 0)
@@ -360,22 +375,55 @@ public sealed partial class ServerViewModel
                 return;
             }
 
+            // A mod is "done" only once every file of it is up. When the connection drops part way,
+            // the mods already up are still turned on: they used to stay off for good, since the
+            // next sync saw their folders and skipped them as "already on the server".
+            var done = new List<string>();
+            string? brokenOff = null;
+            Exception? failure = null;
             foreach (var modName in missing)
             {
-                var localModFolder = Path.Combine(localModsFolder, modName);
-                foreach (var localFile in Directory.GetFiles(localModFolder, "*", SearchOption.AllDirectories))
+                try
                 {
-                    if (string.Equals(Path.GetExtension(localFile), ".log", StringComparison.OrdinalIgnoreCase))
+                    var localModFolder = Path.Combine(localModsFolder, modName);
+                    foreach (var localFile in Directory.GetFiles(localModFolder, "*", SearchOption.AllDirectories))
                     {
-                        continue; // what the mod logged in the game, not part of it
+                        if (string.Equals(Path.GetExtension(localFile), ".log", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue; // what the mod logged in the game, not part of it
+                        }
+
+                        var relative = Path.GetRelativePath(localModFolder, localFile).Replace('\\', '/');
+                        await _connectedClient.UploadFileAsync(localFile, $"{RemoteModsRootPath}/{modName}/{relative}");
                     }
 
-                    var relative = Path.GetRelativePath(localModFolder, localFile).Replace('\\', '/');
-                    await _connectedClient.UploadFileAsync(localFile, $"{RemoteModsRootPath}/{modName}/{relative}");
+                    done.Add(modName);
+                }
+                catch (Exception ex)
+                {
+                    brokenOff = modName;
+                    failure = ex;
+                    break;
                 }
             }
 
-            await TurnOnInRemoteModsTxtAsync(missing);
+            if (done.Count > 0)
+            {
+                // The listing made above says whether the server has a mods.txt: a second listing
+                // that failed used to read as "none", and a fresh file with only these mods went up
+                // over the server's whole list.
+                await TurnOnInRemoteModsTxtAsync(done, remoteEntries);
+            }
+
+            if (failure is not null)
+            {
+                ConnectionStatusMessage =
+                    $"UE4SS mod sync stopped part way: {failure.Message} "
+                    + (done.Count > 0 ? $"{done.Count} mod(s) went up whole and were turned on ({string.Join(", ", done)}). " : "")
+                    + $"'{brokenOff}' is only partly on the server and was not turned on: delete its folder there in the host's file manager, then sync again.";
+                _activityLog.Log($"UE4SS mod sync to '{_connectedSite?.Name}' stopped part way at '{brokenOff}': {failure.Message}", ActivityEntryKind.Warning);
+                return;
+            }
 
             ConnectionStatusMessage = $"Uploaded {missing.Count} UE4SS mod(s) to '{_connectedSite?.Name}' and turned them on. They load when the server restarts.";
             _activityLog.Log($"Uploaded {missing.Count} UE4SS mod(s) to FTP site '{_connectedSite?.Name}': {string.Join(", ", missing)}.", ActivityEntryKind.Success);
@@ -408,13 +456,13 @@ public sealed partial class ServerViewModel
     /// lines and order stay; a new file when it has none). The edited file goes up under a
     /// temporary name and is renamed into place, like the merged pak.
     /// </summary>
-    private async Task TurnOnInRemoteModsTxtAsync(IReadOnlyList<string> modNames)
+    private async Task TurnOnInRemoteModsTxtAsync(IReadOnlyList<string> modNames, IReadOnlyList<FtpEntry> modsFolderListing)
     {
         var remoteTxt = $"{RemoteModsRootPath}/{Ue4ssModStart.ListFileName}";
         var temp = Path.GetTempFileName();
         try
         {
-            var hasOne = (await TryListRemoteAsync(RemoteModsRootPath))
+            var hasOne = modsFolderListing
                 .Any(e => !e.IsDirectory && string.Equals(e.Name, Ue4ssModStart.ListFileName, StringComparison.OrdinalIgnoreCase));
             if (hasOne)
             {

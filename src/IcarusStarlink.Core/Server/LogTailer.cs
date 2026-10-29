@@ -193,10 +193,36 @@ public static class ServerLogFilter
     /// closing the console ("Engine exit requested (reason: ConsoleCtrl RequestExit)"), the ini's
     /// shutdown-when-empty timers, and the normal engine exit ("LogExit: Exiting."). A run whose log
     /// simply stops, with no exit line, crashed or was killed.
+    /// The words must come right after the line's "[time][frame]Category: " start: player names
+    /// and chat are in the log too, and a player called "Engine exit requested" made a later crash
+    /// look like a clean stop, so crash restart never fired.
     /// </summary>
-    public static bool IsCleanExit(string line) =>
-        line.Contains("Engine exit requested", StringComparison.Ordinal)
-        || line.Contains("LogExit: Exiting.", StringComparison.Ordinal);
+    public static bool IsCleanExit(string line)
+    {
+        var message = SkipLogPrefix(line);
+        if (message.StartsWith("LogExit: Exiting.", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var colon = message.IndexOf(": ", StringComparison.Ordinal);
+        return colon > 0
+            && message.StartsWith("Log", StringComparison.Ordinal)
+            && !message[..colon].Contains(' ')
+            && message[(colon + 2)..].StartsWith("Engine exit requested", StringComparison.Ordinal);
+    }
+
+    /// <summary>The line without its leading "[2026.08.10-00.32.24:447][176]" groups.</summary>
+    private static ReadOnlySpan<char> SkipLogPrefix(string line)
+    {
+        var rest = line.AsSpan().TrimStart();
+        while (rest.Length > 0 && rest[0] == '[' && rest.IndexOf(']') is var close and > 0)
+        {
+            rest = rest[(close + 1)..];
+        }
+
+        return rest;
+    }
 
     /// <summary>The server logs every login request WITH the join password in plain text ("Login request: ?password=4543?Name=…") — masked before it is shown or copied anywhere.</summary>
     public static string Redact(string line)

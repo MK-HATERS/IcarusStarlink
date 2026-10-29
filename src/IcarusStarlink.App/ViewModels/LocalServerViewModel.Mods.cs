@@ -175,6 +175,15 @@ public sealed partial class LocalServerViewModel
     /// <summary>For what belongs to the selected server alone (its Saved folder: backups, admin and ban lists): it must be stopped.</summary>
     private bool EnsureStoppedFor(string action)
     {
+        // Running is still null while a start waits for the process, and while an update (by hand
+        // or by automation) runs between its stop and its start: a restore or mod copy in that gap
+        // wrote into a server that was booting, or that automation then started mid-copy.
+        if (IsBusy || IsAutomationBusy)
+        {
+            StatusMessage = $"Wait until the server has finished starting, stopping or updating, then {action}.";
+            return false;
+        }
+
         if (Running is null)
         {
             return true;
@@ -199,6 +208,16 @@ public sealed partial class LocalServerViewModel
         if (DescribeRunningSiblings(profile, RunningSiblings(profile), action) is { } refusal)
         {
             StatusMessage = refusal;
+            return false;
+        }
+
+        // Automation updating another profile on this install has it stopped (so it isn't in the
+        // running list above) and starts it again when SteamCMD is done.
+        var install = Path.TrimEndingDirectorySeparator(profile.InstallFolder);
+        if (_watches.Values.FirstOrDefault(w => w.AutomationBusy && w.Profile.Id != profile.Id
+                && string.Equals(Path.TrimEndingDirectorySeparator(w.Profile.InstallFolder), install, StringComparison.OrdinalIgnoreCase)) is { } busy)
+        {
+            StatusMessage = $"Wait until automation has finished restarting '{busy.Profile.Name}' (it runs from the same install), then {action}.";
             return false;
         }
 
