@@ -10,6 +10,7 @@ using IcarusStarlink.Catalog.AppUpdate;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
+using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Install;
 
@@ -108,14 +109,59 @@ public sealed partial class SettingsViewModel
         }
     }
 
+    // --- Backups to keep (each saved the moment it changes, held to 1..50) ---
+
+    /// <summary>Backups to keep › Merged pak installs: kept on every install, for Restore previous install.</summary>
+    public int MergedPakBackupsKept
+    {
+        get => BackupLimits.MergedPakKept(_settingsService);
+        set => SetBackupsKept(value, s => s.MergedPakBackupsKept, (s, v) => s.MergedPakBackupsKept = v);
+    }
+
+    /// <summary>Backups to keep › Mod backups (each mod): what Clean up backups keeps of each mod and server.</summary>
+    public int ModBackupsKept
+    {
+        get => BackupLimits.ModKept(_settingsService);
+        set => SetBackupsKept(value, s => s.ModBackupsKept, (s, v) => s.ModBackupsKept = v);
+    }
+
+    /// <summary>Backups to keep › Save backups (each slot): the automatic save backups kept per slot.</summary>
+    public int SaveBackupsKept
+    {
+        get => BackupLimits.SaveKept(_settingsService);
+        set => SetBackupsKept(value, s => s.SaveBackupsKept, (s, v) => s.SaveBackupsKept = v);
+    }
+
+    /// <summary>Backups to keep › Server backups (each server): what a newly added server keeps (its own Backups tab changes it after).</summary>
+    public int ServerBackupsKept
+    {
+        get => BackupLimits.ServerKept(_settingsService);
+        set => SetBackupsKept(value, s => s.ServerBackupsKept, (s, v) => s.ServerBackupsKept = v);
+    }
+
+    /// <summary>The Backups section's line about Clean up backups, naming the counts it uses.</summary>
+    public string CleanUpBackupsText =>
+        $"Starlink backs up your mods, the merged pak and your server before changing them. Clean up backups keeps the newest {ModBackupsKept} of each mod and server and the newest {MergedPakBackupsKept} merged pak installs (set under Backups to keep), and deletes the rest.";
+
+    private void SetBackupsKept(int value, Func<AppSettings, int> get, Action<AppSettings, int> set,
+        [System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
+    {
+        // 0, -3 or 900 typed in: held to 1..50, and the box shows what was kept.
+        _settingsService.SetAndSave(get, set, BackupLimits.Clamp(value));
+        OnPropertyChanged(propertyName);
+        OnPropertyChanged(nameof(CleanUpBackupsText));
+    }
+
     private bool CanCleanUpBackups() => !IsCleaningBackups;
 
     [RelayCommand(CanExecute = nameof(CanCleanUpBackups), FlowExceptionsToTaskScheduler = true)]
     private async Task CleanUpBackupsAsync()
     {
+        var keepPerSet = ModBackupsKept;
+        var keepMergedPak = MergedPakBackupsKept;
         if (!_dialogService.Confirm(
-                $"Keep only the newest {BackupCleanup.KeptPerSetOnCleanUp} backups of each mod, the merged pak and each server, and delete the rest?\n\n" +
-                "The newest backup of everything is always kept. Nothing outside the Backups folder is touched.",
+                $"Keep only the newest {keepPerSet} backups of each mod and each server, and the newest {keepMergedPak} merged pak installs, and delete the rest?\n\n" +
+                "You can change these under Backups to keep. The newest backup of everything is always kept. Nothing outside the Backups folder is touched.",
                 "Clean up backups", ThemedConfirmSeverity.Question))
         {
             return;
@@ -125,7 +171,7 @@ public sealed partial class SettingsViewModel
         BackupsStatusMessage = "Cleaning up…";
         try
         {
-            var result = await Task.Run(() => BackupCleanup.CleanUp(_backupDirectory));
+            var result = await Task.Run(() => BackupCleanup.CleanUp(_backupDirectory, keepPerSet, keepMergedPak));
             BackupsStatusMessage = result.FailedCount > 0
                 ? $"Freed {BackupCleanup.FormatSize(result.FreedBytes)}. {result.FailedCount} backup(s) couldn't be deleted (in use?)."
                 : $"Freed {BackupCleanup.FormatSize(result.FreedBytes)}.";

@@ -388,6 +388,58 @@ public sealed class SaveRepositoryTests : IDisposable
         Assert.Contains(paths[^1], remaining);
     }
 
+    /// <summary>Settings › Maintenance › Backups to keep › Save backups: the cap is the setting, not a fixed 10, and the original still survives.</summary>
+    [Theory]
+    [InlineData(4, 4)]
+    [InlineData(15, 15)]
+    public void Backups_CapFollowsTheSaveBackupsSetting(int setting, int expected)
+    {
+        var settings = new FakeSettings();
+        settings.Current.SaveBackupsKept = setting;
+        var repository = new SaveRepository(_playerData, _backups, new FakeLocator(), settings);
+        var paths = new List<string>();
+        for (var i = 0; i < 20; i++)
+        {
+            var path = repository.BackupSlot(SteamId);
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(i - 30));
+            paths.Add(path);
+        }
+
+        var remaining = Directory.GetFiles(_backups, $"{SteamId}_*.zip");
+        Assert.Equal(expected, remaining.Length);
+        Assert.Equal(paths[0], remaining.OrderBy(File.GetLastWriteTimeUtc).First());
+        Assert.Contains(paths[^1], remaining);
+    }
+
+    /// <summary>A count of 0 or less (a hand-edited settings.json) never deletes the newest backup: it reads as 1, which keeps the original and the newest.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-3)]
+    [InlineData(1)]
+    public void Backups_ZeroOrNegativeSetting_NeverDeletesTheNewest(int setting)
+    {
+        var settings = new FakeSettings();
+        settings.Current.SaveBackupsKept = setting;
+        var repository = new SaveRepository(_playerData, _backups, new FakeLocator(), settings);
+
+        var only = repository.BackupSlot(SteamId);
+        Assert.True(File.Exists(only));
+
+        var paths = new List<string> { only };
+        File.SetLastWriteTimeUtc(only, DateTime.UtcNow.AddMinutes(-30));
+        for (var i = 0; i < 5; i++)
+        {
+            var path = repository.BackupSlot(SteamId);
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(i - 20));
+            paths.Add(path);
+        }
+
+        var remaining = Directory.GetFiles(_backups, $"{SteamId}_*.zip");
+        Assert.Equal(2, remaining.Length);
+        Assert.Equal(paths[0], remaining.OrderBy(File.GetLastWriteTimeUtc).First());
+        Assert.Contains(paths[^1], remaining);
+    }
+
     /// <summary>Audit finding: a deliberate "Backup now" was pruned exactly like an automatic Save/Restore backup, so it silently vanished after nine more clicks.</summary>
     [Fact]
     public void Backups_ManualBackupNow_IsNeverPrunedByTheAutomaticCap()
@@ -612,6 +664,13 @@ public sealed class SaveRepositoryTests : IDisposable
         }
 
         File.WriteAllBytes(Path.Combine(_playerData, SteamId, $"flags_{SteamId}.dat"), stream.ToArray());
+    }
+
+    private sealed class FakeSettings : IcarusStarlink.Core.Settings.ISettingsService
+    {
+        public IcarusStarlink.Core.Settings.AppSettings Current { get; } = new();
+
+        public bool Save() => true;
     }
 
     private sealed class FakeLocator : ISteamInstallLocator

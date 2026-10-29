@@ -2587,6 +2587,55 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Equal(1, install.InstallCallCount);
     }
 
+    /// <summary>
+    /// Find the broken mod: the first round backs up what's in the game (the player's real install);
+    /// a later round, a no-mods round after it and putting the mods back reach InstallService with
+    /// backUpWhatsThere false, so the real install stays the newest backup. A normal install after
+    /// the search backs up again.
+    /// </summary>
+    [Fact]
+    public async Task FindBrokenRounds_OnlyTheFirstBacksUp_AndANormalInstallStillDoes()
+    {
+        var (vm, _, _, install, _) = FinderSetup();
+
+        await vm.InstallForFinderAsync(["ModA"], backUpWhatsThere: true);
+        await vm.InstallForFinderAsync(["ModB"], backUpWhatsThere: false);
+        await vm.InstallForFinderAsync([], backUpWhatsThere: false);
+        await vm.InstallWholeQueueForFinderAsync(["ModA", "ModB", "ModC"], backUpWhatsThere: false);
+        _dialogs.OnConfirm = (_, _) => true;
+        await vm.RebuildAndInstallCommand.ExecuteAsync(null);
+
+        // Install, install, remove, put-back install, normal install.
+        Assert.Equal([true, false, false, false, true], install.BackUps);
+        Assert.Equal(1, install.RemoveCallCount);
+    }
+
+    /// <summary>A no-mods first round (the merge taken out) is the search's first change: it backs up.</summary>
+    [Fact]
+    public async Task FindBrokenRound_NoModsAsTheFirstChange_BacksUp()
+    {
+        var (vm, _, _, install, _) = FinderSetup();
+
+        await vm.InstallForFinderAsync([], backUpWhatsThere: true);
+
+        Assert.Equal([true], install.BackUps);
+    }
+
+    /// <summary>When a later round still asks (other files to clear), it doesn't claim the round pak is backed up.</summary>
+    [Fact]
+    public async Task FindBrokenRound_NotBackingUp_TheQuestionSaysSo()
+    {
+        var (vm, _, _, _, modsFolder) = FinderSetup();
+        File.WriteAllBytes(Path.Combine(modsFolder, "SomeoneElses_P.pak"), [1]);
+        string? asked = null;
+        _dialogs.OnConfirm = (message, _) => { asked = message; return false; };
+
+        await vm.InstallForFinderAsync(["ModA"], backUpWhatsThere: false);
+
+        Assert.Contains("isn't backed up", asked);
+        Assert.DoesNotContain("backed up first (last", asked);
+    }
+
     // ---------------------------------------------------------------------------------------
     // Fakes — one per constructor dependency, following this project's established
     // fake-per-interface convention (SavesViewModelTests/LibraryItemViewModelTests) rather than a
@@ -2796,10 +2845,14 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public bool? LastKeepArcFissionDataPak { get; private set; }
         public InstallResult Result { get; set; } = new("installed.pak", null);
 
-        public Task<InstallResult> InstallAsync(string stagedPakPath, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default, bool keepArcFissionDataPak = true)
+        /// <summary>Each install's and remove's backUpWhatsThere, in order.</summary>
+        public List<bool> BackUps { get; } = [];
+
+        public Task<InstallResult> InstallAsync(string stagedPakPath, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default, bool keepArcFissionDataPak = true, bool backUpWhatsThere = true)
         {
             InstallCallCount++;
             LastKeepArcFissionDataPak = keepArcFissionDataPak;
+            BackUps.Add(backUpWhatsThere);
             return Task.FromResult(Result);
         }
 
@@ -2823,9 +2876,10 @@ public sealed class MergeInstallViewModelTests : IDisposable
         public Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default) =>
             Task.FromResult(new InstalledState(InstalledModNames));
 
-        public Task<bool> RemoveInstalledPakAsync(string stagedPakFileName, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default)
+        public Task<bool> RemoveInstalledPakAsync(string stagedPakFileName, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default, bool backUpWhatsThere = true)
         {
             RemoveCallCount++;
+            BackUps.Add(backUpWhatsThere);
             return Task.FromResult(false);
         }
     }

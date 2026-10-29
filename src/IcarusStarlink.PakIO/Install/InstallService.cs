@@ -1,5 +1,6 @@
 using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Settings;
 
 namespace IcarusStarlink.PakIO.Install;
 
@@ -11,11 +12,26 @@ namespace IcarusStarlink.PakIO.Install;
 /// are folded into the same staged pak by RebuildService itself — matching classic IMM's own real
 /// behavior, so there's only ever the one file for this service to install.
 /// </summary>
-public sealed class InstallService : IInstallService
+public sealed class InstallService(ISettingsService? settings = null) : IInstallService
 {
+    /// <summary>Settings › Maintenance › Backups to keep › Merged pak installs, read at each install (1..50).</summary>
+    private int MergedKept => BackupLimits.MergedPakKept(settings);
+
+    /// <summary>
+    /// A backup of a file from the mods folder. The merged pak under any of its names is kept to
+    /// the merged-pak count (its per-name trim must not cut below that setting); anything else
+    /// keeps FolderBackup's own count.
+    /// </summary>
+    /// <param name="atLeast">Keep at least this many by that name: Restore previous install backs up what's installed before it copies the backup it restores, which a count of 1 would delete first.</param>
+    private string? BackUp(string path, string backupDirectory, int atLeast = 1) =>
+        InstallManifestNames.IsMergedPakFile(Path.GetFileName(path))
+        || Path.GetFileName(path).Equals(InstallManifestNames.PakManifest, StringComparison.OrdinalIgnoreCase)
+            ? FolderBackup.BackupFile(path, backupDirectory, Math.Max(atLeast, MergedKept))
+            : FolderBackup.BackupFile(path, backupDirectory);
+
     public Task<InstallResult> InstallAsync(
         string stagedPakPath, string icarusContentPath, string backupDirectory,
-        CancellationToken cancellationToken = default, bool keepArcFissionDataPak = true) => Task.Run(() =>
+        CancellationToken cancellationToken = default, bool keepArcFissionDataPak = true, bool backUpWhatsThere = true) => Task.Run(() =>
     {
         if (!File.Exists(stagedPakPath))
         {
@@ -69,12 +85,17 @@ public sealed class InstallService : IInstallService
                 continue;
             }
 
-            FolderBackup.BackupFile(existingFile, backupDirectory);
+            // Always backed up, backUpWhatsThere or not: only Starlink's own merged pak (by its
+            // current name) and its list can be a Find the broken mod round's; anything else here
+            // is the player's.
+            BackUp(existingFile, backupDirectory);
             File.Delete(existingFile);
         }
 
         var targetPakPath = Path.Combine(modsDirectory, targetPakFileName);
-        var backupPakPath = FolderBackup.BackupFile(targetPakPath, backupDirectory);
+        // backUpWhatsThere false: a Find the broken mod round replacing an earlier round's pak (the
+        // first round already backed up the player's real install, which must stay the newest).
+        var backupPakPath = backUpWhatsThere ? BackUp(targetPakPath, backupDirectory) : null;
 
         // Via a sibling temp file plus rename (AtomicFile), never File.Copy(overwrite) straight onto
         // the live pak (an audit finding): that truncates the destination first and streams in
@@ -92,7 +113,11 @@ public sealed class InstallService : IInstallService
         // smaller queue than what's currently listed silently loses the previous manifest (and
         // its "installed mods" record GetInstalledStateAsync reads below) with no way to
         // recover what was previously installed.
-        FolderBackup.BackupFile(targetManifestPath, backupDirectory, BackupCleanup.MergedPakBackupsKept);
+        if (backUpWhatsThere)
+        {
+            BackUp(targetManifestPath, backupDirectory);
+        }
+
         if (File.Exists(stagedManifestPath))
         {
             AtomicFile.Copy(stagedManifestPath, targetManifestPath);
@@ -106,7 +131,7 @@ public sealed class InstallService : IInstallService
 
         // The merged pak's backups counted across its current and earlier names, so a rename
         // doesn't start another pile of ~130 MB copies.
-        BackupCleanup.PruneMergedPakBackups(backupDirectory);
+        BackupCleanup.PruneMergedPakBackups(backupDirectory, MergedKept);
 
         return new InstallResult(targetPakPath, backupPakPath);
     }, cancellationToken);
@@ -125,7 +150,7 @@ public sealed class InstallService : IInstallService
 
     public Task<bool> RemoveInstalledPakAsync(
         string stagedPakFileName, string icarusContentPath, string backupDirectory,
-        CancellationToken cancellationToken = default) => Task.Run(() =>
+        CancellationToken cancellationToken = default, bool backUpWhatsThere = true) => Task.Run(() =>
     {
         var modsDirectory = Path.Combine(icarusContentPath, "Paks", "mods");
         var targetPakPath = Path.Combine(modsDirectory, Path.GetFileName(stagedPakFileName));
@@ -143,7 +168,13 @@ public sealed class InstallService : IInstallService
         {
             if (File.Exists(pakPath))
             {
-                FolderBackup.BackupFile(pakPath, backupDirectory);
+                // A Find the broken mod round (backUpWhatsThere false) only ever wrote the current
+                // name: a pak under an earlier name is the player's own and is still backed up.
+                if (backUpWhatsThere || !pakPath.Equals(targetPakPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    BackUp(pakPath, backupDirectory);
+                }
+
                 File.Delete(pakPath);
                 removedAnything = true;
             }
@@ -151,12 +182,16 @@ public sealed class InstallService : IInstallService
 
         if (File.Exists(targetManifestPath))
         {
-            FolderBackup.BackupFile(targetManifestPath, backupDirectory, BackupCleanup.MergedPakBackupsKept);
+            if (backUpWhatsThere)
+            {
+                BackUp(targetManifestPath, backupDirectory);
+            }
+
             File.Delete(targetManifestPath);
             removedAnything = true;
         }
 
-        BackupCleanup.PruneMergedPakBackups(backupDirectory);
+        BackupCleanup.PruneMergedPakBackups(backupDirectory, MergedKept);
 
         return removedAnything;
     }, cancellationToken);
@@ -185,16 +220,17 @@ public sealed class InstallService : IInstallService
             .Select(name => Path.Combine(modsDirectory, name))
             .Prepend(targetPakPath)
             .Distinct(StringComparer.OrdinalIgnoreCase);
+        // At least 2 by each name here: the backup about to be restored must outlive this trim.
         foreach (var pakPath in pakPaths.Where(File.Exists))
         {
-            FolderBackup.BackupFile(pakPath, backupDirectory);
+            BackUp(pakPath, backupDirectory, atLeast: 2);
             if (!pakPath.Equals(targetPakPath, StringComparison.OrdinalIgnoreCase))
             {
                 File.Delete(pakPath);
             }
         }
 
-        FolderBackup.BackupFile(targetManifestPath, backupDirectory, BackupCleanup.MergedPakBackupsKept);
+        BackUp(targetManifestPath, backupDirectory, atLeast: 2);
 
         AtomicFile.Copy(previous.PakBackupPath, targetPakPath);
         if (previous.ManifestBackupPath is { } manifestBackup)
@@ -208,8 +244,8 @@ public sealed class InstallService : IInstallService
         }
 
         // The restored pair is still the second newest (after the copy of what was installed just
-        // now), so it's kept.
-        BackupCleanup.PruneMergedPakBackups(backupDirectory);
+        // now), so it's kept unless the setting keeps only 1 (it's in the game by now either way).
+        BackupCleanup.PruneMergedPakBackups(backupDirectory, MergedKept);
 
         return previous;
     }, cancellationToken);

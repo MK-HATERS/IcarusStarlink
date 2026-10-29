@@ -26,9 +26,11 @@ public sealed class MergeInstallFinderHost(Func<MergeInstallViewModel> mergeInst
 
     public IReadOnlyList<string> QueuedFolderNames() => [.. mergeInstall().FinderQueue().Select(e => e.FolderName)];
 
-    public Task<string?> InstallOnlyAsync(IReadOnlyCollection<string> folderNames) => mergeInstall().InstallForFinderAsync(folderNames);
+    public Task<string?> InstallOnlyAsync(IReadOnlyCollection<string> folderNames, bool backUpWhatsThere) =>
+        mergeInstall().InstallForFinderAsync(folderNames, backUpWhatsThere);
 
-    public Task<string?> InstallWholeQueueAsync(IReadOnlyCollection<string> putBack) => mergeInstall().InstallWholeQueueForFinderAsync(putBack);
+    public Task<string?> InstallWholeQueueAsync(IReadOnlyCollection<string> putBack, bool backUpWhatsThere) =>
+        mergeInstall().InstallWholeQueueForFinderAsync(putBack, backUpWhatsThere);
 
     public void RemoveFromQueue(string folderName) => mergeInstall().RemoveFromQueueByFolderNames([folderName]);
 

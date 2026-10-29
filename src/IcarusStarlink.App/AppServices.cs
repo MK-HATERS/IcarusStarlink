@@ -242,7 +242,7 @@ internal static class AppServices
             sp.GetRequiredService<SettingsViewModel>,
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IUe4ssModStateService>(),
-            new LastKnownGoodStore(Path.Combine(appDataDirectory, "Backups", "LastKnownGood")),
+            new LastKnownGoodStore(Path.Combine(appDataDirectory, "Backups", "LastKnownGood"), sp.GetRequiredService<ISettingsService>()),
             sp.GetRequiredService<GameUpdateDetector>(),
             sp.GetRequiredService<IGameProcessChecker>(),
             sp.GetRequiredService<IDialogService>(),
@@ -323,7 +323,8 @@ internal static class AppServices
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "Icarus", "Saved", "PlayerData"),
                 Path.Combine(appDataDirectory, "Cache", "save_backups"),
-                sp.GetRequiredService<ISteamInstallLocator>()));
+                sp.GetRequiredService<ISteamInstallLocator>(),
+                sp.GetRequiredService<ISettingsService>()));
         services.AddSingleton(new SaveGameNames(Path.Combine(appDataDirectory, "Data")));
         services.AddSingleton<IGameProcessChecker, GameProcessChecker>();
         services.AddSingleton(sp => new SavesViewModel(

@@ -601,16 +601,71 @@
                                 </DockPanel>
                             </Expander.Header>
                         <StackPanel>
-                        <TextBlock Text="Starlink backs up your mods, the merged pak and your server before changing them. Clean up backups keeps the newest 2 of each and deletes the rest."
+                        <TextBlock Text="{Binding CleanUpBackupsText}"
                                    Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10" TextWrapping="Wrap"/>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="{Binding BackupsSizeText}" VerticalAlignment="Center" Margin="0,0,12,0"/>
                             <Button Content="Clean up backups" Command="{Binding CleanUpBackupsCommand}" AutomationProperties.Name="Clean up backups"
-                                    ToolTip="Keeps the newest 2 backups of each mod, the merged pak and each server, and deletes older ones. The newest backup of anything is never deleted."/>
+                                    ToolTip="Keeps the newest backups of each mod, the merged pak and each server (as many as Backups to keep says), and deletes older ones. The newest backup of anything is never deleted."/>
                         </StackPanel>
                         <TextBlock Text="{Binding BackupsStatusMessage}" Margin="0,8,0,0" TextWrapping="Wrap"
                                    Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"
                                    Visibility="{Binding BackupsStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        </StackPanel>
+                        </Expander>
+
+                        <!-- How many backups each kind keeps (AppSettings.*BackupsKept): saved as soon as a box loses focus, held to 1..50. -->
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" IsExpanded="False" AutomationProperties.Name="Backups to keep">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Backups to keep" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="How many of each kind" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                        <StackPanel>
+                        <TextBlock Text="Higher keeps more history; lower saves disk space. The newest backup is always kept."
+                                   Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10" TextWrapping="Wrap"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Text="Merged pak installs" VerticalAlignment="Center" Margin="0,0,10,6"/>
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MergedPakBackupsKept}" Width="44" Padding="2,0" Margin="0,0,10,6"
+                                     HorizontalContentAlignment="Center" AutomationProperties.Name="Merged pak installs to keep"
+                                     ToolTip="How many earlier installs of the merged pak (and its mod list) to keep, for Restore previous install. 1 to 50."/>
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="For Restore previous install on Merge &amp; Install." VerticalAlignment="Center" Margin="0,0,0,6"
+                                       FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
+
+                            <TextBlock Grid.Row="1" Text="Mod backups (each mod)" VerticalAlignment="Center" Margin="0,0,10,6"/>
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ModBackupsKept}" Width="44" Padding="2,0" Margin="0,0,10,6"
+                                     HorizontalContentAlignment="Center" AutomationProperties.Name="Mod backups to keep"
+                                     ToolTip="How many backups of each mod (and each server) Clean up backups keeps. 1 to 50."/>
+                            <TextBlock Grid.Row="1" Grid.Column="2" Text="What Clean up backups keeps of each mod and server." VerticalAlignment="Center" Margin="0,0,0,6"
+                                       FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
+
+                            <TextBlock Grid.Row="2" Text="Save backups (each slot)" VerticalAlignment="Center" Margin="0,0,10,6"/>
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SaveBackupsKept}" Width="44" Padding="2,0" Margin="0,0,10,6"
+                                     HorizontalContentAlignment="Center" AutomationProperties.Name="Save backups to keep"
+                                     ToolTip="How many automatic save backups to keep for each save slot. The very first backup of a slot is kept on top of these, and Backup now zips are never deleted. 1 to 50."/>
+                            <TextBlock Grid.Row="2" Grid.Column="2" Text="The first backup of a slot is kept as well." VerticalAlignment="Center" Margin="0,0,0,6"
+                                       FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
+
+                            <TextBlock Grid.Row="3" Text="Server backups (each server)" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ServerBackupsKept}" Width="44" Padding="2,0" Margin="0,0,10,0"
+                                     HorizontalContentAlignment="Center" AutomationProperties.Name="Server backups to keep"
+                                     ToolTip="How many backups of each kind a server you add keeps. A server you already have keeps the number on its own Backups tab (Server page). 1 to 50."/>
+                            <TextBlock Grid.Row="3" Grid.Column="2" Text="For servers you add; each server's Backups tab sets its own." VerticalAlignment="Center"
+                                       FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
+                        </Grid>
                         </StackPanel>
                         </Expander>
                     </StackPanel>

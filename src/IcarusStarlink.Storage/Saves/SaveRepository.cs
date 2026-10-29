@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using IcarusStarlink.Core.Saves;
+using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Steam;
 using IcarusStarlink.PakIO.Install;
 
@@ -14,7 +15,7 @@ namespace IcarusStarlink.Storage.Saves;
 /// and Profile.json is plain JSON. Writes serialize with the game's own style — tab indentation,
 /// CRLF — so a diff of an edited file against the game's own output shows only the edited values.
 /// </summary>
-public sealed class SaveRepository(string playerDataDirectory, string backupsDirectory, ISteamInstallLocator steamLocator) : ISaveRepository
+public sealed class SaveRepository(string playerDataDirectory, string backupsDirectory, ISteamInstallLocator steamLocator, ISettingsService? settings = null) : ISaveRepository
 {
     private const string CharactersFileName = "Characters.json";
     private const string ProfileFileName = "Profile.json";
@@ -243,12 +244,14 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
     }
 
     /// <summary>
-    /// Keeps a slot's backups at MaxBackupsPerSlot — but the single OLDEST zip is always kept
-    /// regardless of age: the first backup ever taken is the slot's pristine pre-editor state,
-    /// exactly the one a user wants back if a long chain of edits went somewhere bad. So pruning
-    /// removes from the middle: the original survives, the newest (cap - 1) survive.
+    /// Keeps a slot's backups at the cap (Settings › Maintenance › Backups to keep › Save backups,
+    /// 10 by default) — but the single OLDEST zip is always kept regardless of age: the first
+    /// backup ever taken is the slot's pristine pre-editor state, exactly the one a user wants back
+    /// if a long chain of edits went somewhere bad. So pruning removes from the middle: the
+    /// original survives, the newest (cap - 1) survive, and never fewer than 1 newest (a cap of 1
+    /// keeps the original and the newest).
     /// </summary>
-    private const int MaxBackupsPerSlot = 10;
+    private int MaxBackupsPerSlot => BackupLimits.SaveKept(settings);
 
     private void PruneBackups(string steamId)
     {
@@ -258,14 +261,15 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
             .OrderBy(File.GetLastWriteTimeUtc)
             .ThenBy(f => f, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        if (backups.Count <= MaxBackupsPerSlot)
+        var newestKept = Math.Max(1, MaxBackupsPerSlot - 1);
+        if (backups.Count <= newestKept + 1)
         {
             return;
         }
 
         // Index 0 is the protected original; everything else is prunable, oldest-first.
         var prunable = backups.Skip(1).ToList();
-        foreach (var path in prunable.Take(prunable.Count - (MaxBackupsPerSlot - 1)))
+        foreach (var path in prunable.Take(prunable.Count - newestKept))
         {
             try
             {

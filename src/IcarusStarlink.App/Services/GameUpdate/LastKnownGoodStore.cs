@@ -57,7 +57,7 @@ public sealed class GameUpdateRunRecord
 /// (PreUpdate). Roll back puts the merged pak back from one (RestoreMergedPak); the profile and
 /// UE4SS parts are put back by the pages that own them.
 /// </summary>
-public sealed class LastKnownGoodStore(string rootDirectory)
+public sealed class LastKnownGoodStore(string rootDirectory, IcarusStarlink.Core.Settings.ISettingsService? settings = null)
 {
     public const int Kept = 3;
 
@@ -193,17 +193,12 @@ public sealed class LastKnownGoodStore(string rootDirectory)
         }
 
         var current = MergedFileNames().Select(name => Path.Combine(modsDirectory, name)).Where(File.Exists).ToList();
+        // Same backups Install makes, kept to Settings › Maintenance › Backups to keep › Merged pak
+        // installs (the pak's names and its list are trimmed together below).
+        var kept = IcarusStarlink.Core.Settings.BackupLimits.MergedPakKept(settings);
         foreach (var path in current)
         {
-            // Same backups Install makes (the pak's are trimmed together below).
-            if (string.Equals(Path.GetFileName(path), InstallManifestNames.PakManifest, StringComparison.OrdinalIgnoreCase))
-            {
-                FolderBackup.BackupFile(path, backupDirectory, BackupCleanup.MergedPakBackupsKept);
-            }
-            else
-            {
-                FolderBackup.BackupFile(path, backupDirectory);
-            }
+            FolderBackup.BackupFile(path, backupDirectory, kept);
         }
 
         foreach (var name in snapshot.MergedFiles)
@@ -216,7 +211,7 @@ public sealed class LastKnownGoodStore(string rootDirectory)
             File.Delete(path);
         }
 
-        BackupCleanup.PruneMergedPakBackups(backupDirectory);
+        BackupCleanup.PruneMergedPakBackups(backupDirectory, kept);
     }
 
     private static string GameModsDirectory(string icarusContentPath) => Path.Combine(icarusContentPath, "Paks", "mods");

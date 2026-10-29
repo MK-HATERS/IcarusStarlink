@@ -20,9 +20,16 @@ public interface IInstallService
     /// mods folder; false backs it up and removes it like any other file there — for a pak left
     /// behind after the library itself was uninstalled or turned off.
     /// </param>
+    /// <param name="backUpWhatsThere">
+    /// True (the default, every normal install) backs up the merged pak and its mod list already in
+    /// the game. False only for a Find the broken mod round after the first one (and putting the
+    /// mods back): what's there is a temporary round pak, and backing it up would push the
+    /// player's real install (backed up by the first round) out of Restore previous install. Other
+    /// files in the mods folder are backed up either way.
+    /// </param>
     Task<InstallResult> InstallAsync(
         string stagedPakPath, string icarusContentPath, string backupDirectory,
-        CancellationToken cancellationToken = default, bool keepArcFissionDataPak = true);
+        CancellationToken cancellationToken = default, bool keepArcFissionDataPak = true, bool backUpWhatsThere = true);
 
     /// <summary>The newest backup of the installed merged pak and its mod list, as Restore previous install would put back; null when there's none.</summary>
     Task<PreviousInstall?> FindPreviousInstallAsync(string backupDirectory, CancellationToken cancellationToken = default);
@@ -47,9 +54,10 @@ public interface IInstallService
     /// pak is always the same name across every Rebuild; the merged pak's earlier names,
     /// InstallManifestNames.LegacyMergedPakFileNames, are removed too) — no staged file needs to exist on disk
     /// for this to run, unlike InstallAsync. Returns false (not an error) if nothing this app
-    /// recognizes was installed there to begin with.
+    /// recognizes was installed there to begin with. backUpWhatsThere false: as InstallAsync's
+    /// (a later Find the broken mod round removes a round pak without backing it up).
     /// </summary>
     Task<bool> RemoveInstalledPakAsync(
         string stagedPakFileName, string icarusContentPath, string backupDirectory,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default, bool backUpWhatsThere = true);
 }
