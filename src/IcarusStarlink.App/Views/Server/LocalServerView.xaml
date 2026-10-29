@@ -811,8 +811,12 @@
                             </TextBlock>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                 <Button Content="{Binding InstallMergedPakLabel}" Command="{Binding InstallMergedPakCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                        IsEnabled="{Binding HasMergedPak}"
-                                        ToolTip="Puts the merged pak your last Merge &amp; Install built (and its mod list) on the server"/>
+                                        IsEnabled="{Binding HasMergedPak}" ToolTipService.ShowOnDisabled="True">
+                                    <!-- Greyed out while this server (or another on its install) runs or is busy; the tooltip then says why. -->
+                                    <Button.ToolTip>
+                                        <Binding Path="InstallFilesBlockedReason" TargetNullValue="Puts the merged pak your last Merge &amp; Install built (and its mod list) on the server"/>
+                                    </Button.ToolTip>
+                                </Button>
                                 <Button Content="Open folder" Command="{Binding OpenServerPaksFolderCommand}" Margin="8,0,0,0"/>
                             </StackPanel>
                             <Expander Margin="0,0,0,16" AutomationProperties.Name="All paks on the server">
@@ -856,7 +860,11 @@
                                         </TextBlock.Style>
                                     </TextBlock>
                                     <Button Content="Remove selected" Command="{Binding RemoveSelectedPakCommand}" HorizontalAlignment="Left" Margin="0,6,0,0"
-                                            ToolTip="Moves the selected pak into this server's backups folder"/>
+                                            ToolTipService.ShowOnDisabled="True">
+                                        <Button.ToolTip>
+                                            <Binding Path="InstallFilesBlockedReason" TargetNullValue="Moves the selected pak into this server's backups folder"/>
+                                        </Button.ToolTip>
+                                    </Button>
                                 </StackPanel>
                             </Expander>
 
@@ -873,15 +881,21 @@
                             <StackPanel>
                             <DockPanel Margin="0,0,0,10">
                                 <Button DockPanel.Dock="Right" Content="Install UE4SS from my game" Command="{Binding InstallUe4ssOnServerCommand}" VerticalAlignment="Center" Margin="10,0,0,0"
-                                        ToolTip="Copies UE4SS (the loader, its settings and its built-in mods) from your game to the server. It's known to work there. Settings already on the server are kept."/>
+                                        ToolTipService.ShowOnDisabled="True">
+                                    <Button.ToolTip>
+                                        <Binding Path="InstallFilesBlockedReason" TargetNullValue="Copies UE4SS (the loader, its settings and its built-in mods) from your game to the server. It's known to work there. Settings already on the server are kept."/>
+                                    </Button.ToolTip>
+                                </Button>
                                 <TextBlock Text="{Binding ServerUe4ssSummary}" FontSize="12.5" TextWrapping="Wrap" VerticalAlignment="Center"/>
                             </DockPanel>
 
                             <!-- One row per mod: your game's copy, the server's, how they compare, and the action. -->
                             <DockPanel Margin="0,0,0,6">
                                 <Button DockPanel.Dock="Right" Content="Make the server match my game" Command="{Binding MatchServerToGameCommand}"
-                                        IsEnabled="{Binding ServerHasUe4ss}"
-                                        ToolTip="Updates every out-of-date mod on the server and copies the ones on in your game that it lacks. Keeps the server's own settings; never removes anything; backs up worlds first.">
+                                        IsEnabled="{Binding ServerHasUe4ss}" ToolTipService.ShowOnDisabled="True">
+                                    <Button.ToolTip>
+                                        <Binding Path="InstallFilesBlockedReason" TargetNullValue="Updates every out-of-date mod on the server and copies the ones on in your game that it lacks. Keeps the server's own settings; never removes anything; backs up worlds first."/>
+                                    </Button.ToolTip>
                                     <Button.Style>
                                         <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                             <Style.Triggers>
@@ -934,7 +948,13 @@
                                                         <CheckBox Grid.Column="3" IsChecked="{Binding ServerOn}" VerticalAlignment="Center" Margin="0,0,14,0"
                                                                   Visibility="{Binding IsOnServer, Converter={StaticResource BoolToHiddenConverter}}"
                                                                   AutomationProperties.Name="{Binding Name, StringFormat='On on the server: {0}'}"
-                                                                  ToolTip="On or off on the server (takes effect when it starts). An unticked mod stays on the server, switched off; Remove takes it off. Your game isn't changed."/>
+                                                                  IsEnabled="{Binding DataContext.CanChangeInstallFiles, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                  ToolTipService.ShowOnDisabled="True">
+                                                            <CheckBox.ToolTip>
+                                                                <Binding Path="DataContext.InstallFilesBlockedReason" RelativeSource="{RelativeSource AncestorType=UserControl}"
+                                                                         TargetNullValue="On or off on the server (takes effect when it starts). An unticked mod stays on the server, switched off; Remove takes it off. Your game isn't changed."/>
+                                                            </CheckBox.ToolTip>
+                                                        </CheckBox>
                                                         <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
                                                             <!-- Same status colours as the Library: green = same as your game, amber = needs a look. -->
                                                             <Ellipse Width="7" Height="7" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{Binding Foreground, ElementName=ServerModStateText}"/>
@@ -959,7 +979,9 @@
                                                             <Button Content="{Binding CopyActionLabel}" Padding="8,1" FontSize="11.5" Margin="0,0,6,0"
                                                                     Command="{Binding DataContext.CopyUe4ssModToServerCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                     CommandParameter="{Binding}"
-                                                                    Visibility="{Binding HasCopyAction, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                                    Visibility="{Binding HasCopyAction, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                                    ToolTipService.ShowOnDisabled="True"
+                                                                    ToolTip="{Binding DataContext.InstallFilesBlockedReason, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
                                                             <Button Content="Match settings…" Padding="8,1" FontSize="11.5" Margin="0,0,6,0"
                                                                     Command="{Binding DataContext.MatchUe4ssModSettingsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                     CommandParameter="{Binding}"
@@ -969,7 +991,12 @@
                                                                     Command="{Binding DataContext.RemoveServerUe4ssModCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                     CommandParameter="{Binding}"
                                                                     Visibility="{Binding IsOnServer, Converter={StaticResource BoolToHiddenConverter}}"
-                                                                    ToolTip="Takes it off the server (moved into its backups folder)"/>
+                                                                    ToolTipService.ShowOnDisabled="True">
+                                                                <Button.ToolTip>
+                                                                    <Binding Path="DataContext.InstallFilesBlockedReason" RelativeSource="{RelativeSource AncestorType=UserControl}"
+                                                                             TargetNullValue="Takes it off the server (moved into its backups folder)"/>
+                                                                </Button.ToolTip>
+                                                            </Button>
                                                         </StackPanel>
                                                     </Grid>
                                                 </Border>
@@ -1004,7 +1031,11 @@
                                 <Button Content="Export patch for players…" Command="{Binding ExportServerPatchCommand}" Margin="0,0,8,6"
                                         ToolTip="Saves a patch of what this server runs: the mods in its merged pak (matched to your Library) and the UE4SS mods that are on there"/>
                                 <Button Content="Apply a patch to this server…" Command="{Binding ApplyPatchToServerCommand}" Margin="0,0,8,6"
-                                        ToolTip="Loads a patch: its mods, downloads and profile go to Merge &amp; Install, and its UE4SS mods and their settings go on this server. Then build the pak on Merge &amp; Install and install it from here. Stop the server first."/>
+                                        ToolTipService.ShowOnDisabled="True">
+                                    <Button.ToolTip>
+                                        <Binding Path="InstallFilesBlockedReason" TargetNullValue="Loads a patch: its mods, downloads and profile go to Merge &amp; Install, and its UE4SS mods and their settings go on this server. Then build the pak on Merge &amp; Install and install it from here. Stop the server first."/>
+                                    </Button.ToolTip>
+                                </Button>
                                 <Button Content="Compare a patch…" Command="{Binding ComparePatchCommand}" Margin="0,0,8,6"
                                         ToolTip="Lines a patch up against your game and this server, one row per mod"/>
                                 <CheckBox Content="Include UE4SS mod settings" IsChecked="{Binding ServerExportIncludesConfigs}" VerticalAlignment="Center" Margin="0,0,0,6"
@@ -1145,7 +1176,11 @@
                                     <Button Content="Back up now" Command="{Binding BackUpNowCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,4"
                                             ToolTip="Zips every world, ServerSettings.ini and the admin/ban lists (safe while the server runs)"/>
                                     <Button Content="Restore selected" Command="{Binding RestoreSelectedBackupCommand}" Margin="0,0,8,4"
-                                            ToolTip="Server must be stopped. The current state is backed up first, so a restore can be undone."/>
+                                            ToolTipService.ShowOnDisabled="True">
+                                        <Button.ToolTip>
+                                            <Binding Path="ServerFilesBlockedReason" TargetNullValue="Server must be stopped. The current state is backed up first, so a restore can be undone."/>
+                                        </Button.ToolTip>
+                                    </Button>
                                     <Button Content="Open folder" Command="{Binding OpenBackupsFolderCommand}" Margin="0,0,16,4"/>
                                     <!-- One line: "Keep [10] of each kind · 0 keeps all". -->
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4" VerticalAlignment="Center"
@@ -1239,7 +1274,11 @@
                             </Grid>
                             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                 <Button Content="Save lists" Command="{Binding SaveAccessListsCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                        ToolTip="Server must be stopped (it rewrites the ban list itself while running). Applies on the next start."/>
+                                        ToolTipService.ShowOnDisabled="True">
+                                    <Button.ToolTip>
+                                        <Binding Path="ServerFilesBlockedReason" TargetNullValue="Server must be stopped (it rewrites the ban list itself while running). Applies on the next start."/>
+                                    </Button.ToolTip>
+                                </Button>
                                 <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource ServerHintStyle}"
                                            Text="Saves both lists. The server must be stopped; they apply on its next start."/>
                             </StackPanel>

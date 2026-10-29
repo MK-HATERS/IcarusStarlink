@@ -75,7 +75,10 @@ public sealed partial class LocalServerViewModel : ObservableObject
                 : IsBusy || IsAutomationBusy ? "Wait until the server has finished starting, stopping or updating." : null,
             Path.Combine(_backupsRoot, "WorldSettings"),
             activityLog,
-            dialogService);
+            dialogService)
+        {
+            GreyOutWhenBlocked = true,
+        };
 
         foreach (var profile in store.GetAll())
         {
@@ -83,7 +86,11 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
 
         SelectedProfile = Profiles.FirstOrDefault();
-        Profiles.CollectionChanged += (_, _) => RaiseSteamCmdChanged();
+        Profiles.CollectionChanged += (_, _) =>
+        {
+            RaiseSteamCmdChanged();
+            RaiseServerFilesChanged();
+        };
         if (store.LoadProblem is { } problem)
         {
             StatusMessage = problem;
@@ -157,6 +164,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
     partial void OnSelectedProfileChanged(DedicatedServerProfile? value)
     {
+        RaiseServerFilesChanged();
         if (_suppressFormReload)
         {
             return;
@@ -207,7 +215,11 @@ public sealed partial class LocalServerViewModel : ObservableObject
         : Running is { } r ? $"RUNNING · up {FormatUptime(DateTime.Now - r.StartTime)}"
         : "STOPPED";
 
-    partial void OnRunningChanged(RunningServer? value) => OnPropertyChanged(nameof(IsRunning));
+    partial void OnRunningChanged(RunningServer? value)
+    {
+        OnPropertyChanged(nameof(IsRunning));
+        RaiseServerFilesChanged();
+    }
 
     // ---- Commands ----
 

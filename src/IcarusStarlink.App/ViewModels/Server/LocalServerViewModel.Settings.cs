@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Server;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -155,6 +156,7 @@ public sealed partial class LocalServerViewModel
         }
 
         ApplyIniToForm(s);
+        RememberIniOnDisk(_iniUnreadable ? null : DedicatedServerLayout.SettingsIniPath(p.InstallFolder, p.SavedDirSuffix));
         FillProspects(ReadProspectFiles(p));
 
         WorldSettings.Reload();
@@ -242,7 +244,17 @@ public sealed partial class LocalServerViewModel
 
             _iniUnreadable = false;
             ApplyIniToForm(onDisk);
+            RememberIniOnDisk(DedicatedServerLayout.SettingsIniPath(current.InstallFolder, current.SavedDirSuffix));
             ValidationMessage = "ServerSettings.ini can be read now, so its settings are loaded below in place of the blanks. Check them, then save again.";
+            return false;
+        }
+
+        // The form was read when the server was selected; the file may have been edited by hand
+        // (or rewritten by the server) since. A clean form takes the newer file first; edits here
+        // ask before they are written over it.
+        var ini = ReconcileIniWithDisk(DedicatedServerLayout.SettingsIniPath(current.InstallFolder, SavedDirSuffix.Trim()), ask: true);
+        if (ini == IniReconcile.Cancelled)
+        {
             return false;
         }
 
@@ -264,9 +276,10 @@ public sealed partial class LocalServerViewModel
         try
         {
             var iniPath = DedicatedServerLayout.SettingsIniPath(updated.InstallFolder, updated.SavedDirSuffix);
-            var ini = ServerSettingsIni.Load(iniPath);
-            ini.Write(settings);
-            ini.Save(iniPath);
+            var file = ServerSettingsIni.Load(iniPath);
+            file.Write(settings);
+            file.Save(iniPath);
+            RememberIniOnDisk(iniPath);
         }
         catch (Exception ex)
         {
@@ -302,7 +315,8 @@ public sealed partial class LocalServerViewModel
         ValidationMessage = null;
         if (stored)
         {
-            StatusMessage = Running is not null ? "Saved. Restart the server to apply." : "Saved.";
+            StatusMessage = (Running is not null ? "Saved. Restart the server to apply." : "Saved.")
+                + (ini == IniReconcile.Reloaded ? " ServerSettings.ini had been changed outside Starlink, so its settings were loaded into the form first." : "");
         }
         return true;
     }
@@ -429,4 +443,136 @@ public sealed partial class LocalServerViewModel
         value is null ? "" : value.Value.ToString(value.Value % 1 == 0 ? "0" : "0.###", CultureInfo.InvariantCulture);
 
     private static string? Blank(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
+    // ---- ServerSettings.ini changed on disk since the form read it ----
+
+    /// <summary>What the ini looked like on disk when the form last read or wrote it.</summary>
+    private readonly record struct IniStamp(string Path, bool Exists, long Length, DateTime WriteUtc, string? Hash);
+
+    /// <summary>The ini as the form last read or wrote it; null when it couldn't be read (the unreadable-ini guard covers that).</summary>
+    private IniStamp? _iniStamp;
+
+    /// <summary>The form's ini fields as they were then: unequal to FormIniSnapshot() means unsaved edits.</summary>
+    private string? _iniFormSnapshot;
+
+    internal enum IniReconcile { Unchanged, Reloaded, KeptMine, Cancelled }
+
+    private static IniStamp StampIni(string path)
+    {
+        var info = new FileInfo(path);
+        if (!info.Exists)
+        {
+            return new IniStamp(path, false, 0, default, null);
+        }
+
+        string? hash = null;
+        try
+        {
+            hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Locked right now: the size and time still tell a change apart.
+        }
+
+        return new IniStamp(path, true, info.Length, info.LastWriteTimeUtc, hash);
+    }
+
+    private static bool SameIni(IniStamp a, IniStamp b) =>
+        a.Exists == b.Exists && a.Length == b.Length && a.WriteUtc == b.WriteUtc
+        && (a.Hash is null || b.Hash is null || a.Hash == b.Hash);
+
+    /// <summary>The ini fields the form edits (LastProspectName is the server's, shown only; the session name comes from the profile).</summary>
+    private string FormIniSnapshot() => string.Join("\u001f",
+        JoinPassword, AdminPassword, MaxPlayersText, ShutdownIfNotJoinedForText, ShutdownIfEmptyForText, GameSaveFrequencyText, LoadProspect, CreateProspect,
+        AllowNonAdminsToLaunchProspects, AllowNonAdminsToDeleteProspects, ResumeProspect, SaveGameOnExit, FiberFoliageRespawn, LargeStonesRespawn);
+
+    /// <summary>The form has ini settings typed in that aren't in the file yet.</summary>
+    internal bool HasUnsavedIniEdits => _iniFormSnapshot is not null && _iniFormSnapshot != FormIniSnapshot();
+
+    /// <summary>The form now matches the ini at this path (just read or just written); null forgets it (the file couldn't be read).</summary>
+    private void RememberIniOnDisk(string? path)
+    {
+        _iniStamp = path is null ? null : StampIni(path);
+        _iniFormSnapshot = path is null ? null : FormIniSnapshot();
+    }
+
+    /// <summary>
+    /// Before the form is written to the ini at <paramref name="path"/> (Save, and Start, which
+    /// saves first), or when the page is shown: when the file changed since the form read it, a
+    /// form with no unsaved ini edits takes the file's settings; one with edits asks (only when
+    /// <paramref name="ask"/>: the page being shown never asks, Save does). Cancelled means write nothing.
+    /// </summary>
+    internal IniReconcile ReconcileIniWithDisk(string path, bool ask)
+    {
+        if (_iniStamp is not { } stamp || !string.Equals(stamp.Path, path, StringComparison.OrdinalIgnoreCase))
+        {
+            // Never read (unreadable at select: the guard above handles it), or Save goes to
+            // another Saved folder than the one the form came from: nothing to compare with.
+            return IniReconcile.Unchanged;
+        }
+
+        var now = StampIni(path);
+        if (SameIni(stamp, now))
+        {
+            return IniReconcile.Unchanged;
+        }
+
+        DedicatedServerSettings onDisk;
+        try
+        {
+            onDisk = ServerSettingsIni.Load(path).Read();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            if (!ask)
+            {
+                return IniReconcile.Unchanged;
+            }
+
+            // The same refusal as an ini unreadable at select: writing now could replace edits we can't see.
+            ValidationMessage = "ServerSettings.ini was changed outside Starlink and can't be read right now, so nothing was saved: it would have been written over without a look. Close whatever has the file open, then try again.";
+            return IniReconcile.Cancelled;
+        }
+
+        if (!HasUnsavedIniEdits)
+        {
+            ApplyIniToForm(onDisk);
+            RememberIniOnDisk(path);
+            return IniReconcile.Reloaded;
+        }
+
+        if (!ask)
+        {
+            // Edits here are kept; Save (or Start) asks before either side is lost.
+            return IniReconcile.Unchanged;
+        }
+
+        var answer = _dialogService.ConfirmWithCancel(
+            "ServerSettings.ini was changed outside Starlink (by hand, or by the server itself) since this page read it, and you have unsaved changes here.\n\n" +
+            "Reload it: the form takes the file's settings, and your unsaved changes here are lost.\n" +
+            "Keep mine: your settings here are written over the file's.",
+            "ServerSettings.ini changed", ThemedConfirmSeverity.Warning, "Reload it", "Keep mine");
+        switch (answer)
+        {
+            case true:
+                ApplyIniToForm(onDisk);
+                RememberIniOnDisk(path);
+                return IniReconcile.Reloaded;
+            case false:
+                return IniReconcile.KeptMine;
+            default:
+                ValidationMessage = "Nothing was saved. ServerSettings.ini and your changes here are both as they were.";
+                return IniReconcile.Cancelled;
+        }
+    }
+
+    /// <summary>The page was shown: a form with no unsaved edits takes an ini changed meanwhile (never asks).</summary>
+    private void ReloadIniIfChangedAndClean()
+    {
+        if (SelectedProfile is { } p)
+        {
+            ReconcileIniWithDisk(DedicatedServerLayout.SettingsIniPath(p.InstallFolder, p.SavedDirSuffix), ask: false);
+        }
+    }
 }

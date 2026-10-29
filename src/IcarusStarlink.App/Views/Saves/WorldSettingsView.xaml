@@ -40,8 +40,12 @@
             </StackPanel>
             <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" LastChildFill="False">
                 <Button DockPanel.Dock="Left" Content="Save world settings" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                        IsEnabled="{Binding HasChanges}" ToolTipService.ShowOnDisabled="True"
-                        ToolTip="Backs this world up, then writes these settings into it. Only this world's file is written. Greyed out: nothing changed."/>
+                        IsEnabled="{Binding HasChanges}" ToolTipService.ShowOnDisabled="True">
+                    <!-- On the Server page it also greys out while the server runs or is busy; the tooltip then says why. -->
+                    <Button.ToolTip>
+                        <Binding Path="SaveBlockedReason" TargetNullValue="Backs this world up, then writes these settings into it. Only this world's file is written. Greyed out: nothing changed."/>
+                    </Button.ToolTip>
+                </Button>
                 <Button DockPanel.Dock="Left" Content="Undo changes" Command="{Binding RevertCommand}" Margin="8,0,0,0" IsEnabled="{Binding HasChanges}"/>
                 <TextBlock DockPanel.Dock="Left" Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="460"
                            Foreground="{DynamicResource SecondaryForegroundBrush}"/>
