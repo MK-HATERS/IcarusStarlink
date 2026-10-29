@@ -37,7 +37,6 @@ public sealed partial class SettingsViewModel
         ("TagExmodBrush", "EXMOD tag"),
         ("TagPakBrush", "Pak tag"),
         ("TagUe4ssBrush", "UE4SS tag"),
-        ("TagPakUe4ssBrush", "Pak + UE4SS tag"),
         ("SourceNexusBrush", "Source: Nexus"),
         ("SourceDatabaseBrush", "Source: IMM Database"),
         ("GroupColor0Brush", "Group heading colour 1"),

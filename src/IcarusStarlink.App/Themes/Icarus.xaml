@@ -33,7 +33,6 @@
     <SolidColorBrush x:Key="TagExmodBrush" Color="#3ED6C8"/>
     <SolidColorBrush x:Key="TagPakBrush" Color="#6FA8FF"/>
     <SolidColorBrush x:Key="TagUe4ssBrush" Color="#B98CFF"/>
-    <SolidColorBrush x:Key="TagPakUe4ssBrush" Color="#F38BD0"/>
     <SolidColorBrush x:Key="SourceNexusBrush" Color="#F0A35E"/>
     <SolidColorBrush x:Key="SourceDatabaseBrush" Color="#7FD4F5"/>
     <SolidColorBrush x:Key="GroupColor0Brush" Color="#5FA8FF"/>

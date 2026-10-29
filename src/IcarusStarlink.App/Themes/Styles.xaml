@@ -1118,7 +1118,7 @@
         <Setter Property="ToolTip" Value="Beta: built from the game's files but not tried in the game yet. Tell us if it doesn't do what it says."/>
     </Style>
 
-    <!-- A mod's type tag (EXMOD / Pak / Pak + UE4SS / UE4SS, from its TypeLabel): outline and text
+    <!-- A mod's type tag (EXMOD / Pak / UE4SS, from its TypeLabel): outline and text
          in that type's colour, so the kinds of mod tell apart at a glance. -->
     <Style x:Key="TypeTagStyle" TargetType="Border">
         <Setter Property="CornerRadius" Value="8"/>
@@ -1131,10 +1131,6 @@
             <DataTrigger Binding="{Binding TypeLabel}" Value="Pak">
                 <Setter Property="BorderBrush" Value="{DynamicResource TagPakBrush}"/>
                 <Setter Property="TextElement.Foreground" Value="{DynamicResource TagPakBrush}"/>
-            </DataTrigger>
-            <DataTrigger Binding="{Binding TypeLabel}" Value="Pak + UE4SS">
-                <Setter Property="BorderBrush" Value="{DynamicResource TagPakUe4ssBrush}"/>
-                <Setter Property="TextElement.Foreground" Value="{DynamicResource TagPakUe4ssBrush}"/>
             </DataTrigger>
             <DataTrigger Binding="{Binding TypeLabel}" Value="UE4SS">
                 <Setter Property="BorderBrush" Value="{DynamicResource TagUe4ssBrush}"/>

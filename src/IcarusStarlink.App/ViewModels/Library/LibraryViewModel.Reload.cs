@@ -95,7 +95,7 @@ public sealed partial class LibraryViewModel
         }
 
         var ue4ssRows = TypeFilter is "All" or "UE4SS"
-            ? Ue4ssMods.Where(row => !row.IsLinkedToLibraryMod && (ShowUe4ssBuiltIns || !row.IsBuiltIn) && MatchesSearch(row)).Select(row => (SortName: row.Name, Pinned: false, Row: (object)row)).ToList()
+            ? Ue4ssMods.Where(row => (ShowUe4ssBuiltIns || !row.IsBuiltIn) && MatchesSearch(row)).Select(row => (SortName: row.Name, Pinned: false, Row: (object)row)).ToList()
             : [];
 
         // The filter chips need each row's current status (On, not in the game yet…) and count
@@ -138,7 +138,7 @@ public sealed partial class LibraryViewModel
             : ue4ssRows.OrderBy(r => r.SortName, StringComparer.OrdinalIgnoreCase);
         var targetLuaItems = luaInOrder.Select(r => r.Row).ToList();
 
-        Ue4ssBuiltInCount = Ue4ssMods.Count(row => row.IsBuiltIn && !row.IsLinkedToLibraryMod);
+        Ue4ssBuiltInCount = Ue4ssMods.Count(row => row.IsBuiltIn);
         ObservableCollectionSync.SyncTo(DataRootItems, targetDataItems);
         ObservableCollectionSync.SyncTo(Ue4ssRootItems, targetLuaItems);
         SyncRootItems([.. targetDataItems, .. targetLuaItems]);

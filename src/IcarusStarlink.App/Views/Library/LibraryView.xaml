@@ -540,7 +540,7 @@
 
                 <Border Grid.Column="4" Style="{StaticResource TypeTagStyle}" VerticalAlignment="Center" Margin="8,0,0,0" HorizontalAlignment="Left">
                     <Border.ToolTip>
-                        <TextBlock Text="EXMOD: a data mod you can edit; Merge &amp; Install merges it with the others. Pak: a ready-made pak, added as it is. Pak + UE4SS: the download also has Lua scripts, which turn on and off with it."/>
+                        <TextBlock Text="EXMOD: a data mod you can edit; Merge &amp; Install merges it with the others. Pak: a ready-made pak, added as it is. If the download also has Lua scripts, they're their own row in the UE4SS list, linked to this one (↔)."/>
                     </Border.ToolTip>
                     <TextBlock Text="{Binding TypeLabel}" FontSize="10.5" FontFamily="Consolas"/>
                 </Border>

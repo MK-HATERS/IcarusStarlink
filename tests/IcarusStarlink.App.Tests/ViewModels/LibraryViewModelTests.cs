@@ -390,7 +390,7 @@ public sealed class LibraryViewModelTests
         var vm = harness.Build();
         var mod = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
         Assert.Equal(["WirelessPower"], mod.LinkedUe4ssNames);
-        Assert.Equal("Pak + UE4SS", mod.TypeLabel);
+        Assert.Equal("Pak", mod.TypeLabel);
         Assert.Empty(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Unrelated").LinkedUe4ssNames);
 
         vm.DeleteItemCommand.Execute(mod);
@@ -511,7 +511,7 @@ public sealed class LibraryViewModelTests
     // ---------------------------------------------------------------------------------------
 
     [Fact]
-    public void Reload_WithUe4ssMods_ListsThemBesidePakRowsAndFoldsALuaHalfIntoItsPakRow()
+    public void Reload_WithUe4ssMods_ListsThemBesidePakRows_ALuaHalfAsItsOwnLinkedRow()
     {
         var harness = new TestHarness();
         harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
@@ -529,13 +529,16 @@ public sealed class LibraryViewModelTests
 
         vm.ReloadInstalledUe4ssModsCommand.Execute(null);
 
+        // The user's rule (2026-10-28): a download's Lua half is its own row in the UE4SS panel, linked to its data row.
         var ue4ssRows = vm.RootItems.OfType<Ue4ssModRowViewModel>().Select(r => r.Name).ToList();
-        Assert.Equal(["ArcFissionLibrary", "ConsoleEnablerMod"], ue4ssRows);
-        Assert.DoesNotContain("WirelessPower", ue4ssRows);
+        Assert.Equal(["ArcFissionLibrary", "ConsoleEnablerMod", "WirelessPower"], ue4ssRows);
 
         var wireless = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
-        Assert.Equal("Pak + UE4SS", wireless.TypeLabel);
+        Assert.Equal("Pak", wireless.TypeLabel);
         Assert.Equal(["WirelessPower"], wireless.LinkedUe4ssNames);
+        var wirelessLua = vm.RootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "WirelessPower");
+        Assert.Same(wireless, wirelessLua.LinkedPartner);
+        Assert.Same(wirelessLua, wireless.LinkedPartner);
         Assert.Equal("EXMOD", vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Steadfast").TypeLabel);
 
         var arcFission = vm.RootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "ArcFissionLibrary");
@@ -546,7 +549,35 @@ public sealed class LibraryViewModelTests
 
         // Two panels (2026-10-23): data mods on the left, UE4SS mods on the right, each by name.
         Assert.Equal(["Steadfast Structures", "Wireless Power"], vm.DataRootItems.OfType<LibraryItemViewModel>().Select(i => i.Name));
-        Assert.Equal(["ArcFissionLibrary", "ConsoleEnablerMod"], vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Select(r => r.Name));
+        Assert.Equal(["ArcFissionLibrary", "ConsoleEnablerMod", "WirelessPower"], vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Select(r => r.Name));
+    }
+
+    /// <summary>
+    /// The review case (2026-10-28): with its Lua half turned ON (in the game's Mods folder, not
+    /// staged), a download used to split into two unlinked rows, and deleting the data row left the
+    /// Lua half in the game. The user's rule: two linked rows either way, delete takes both.
+    /// </summary>
+    [Fact]
+    public void ALuaHalfThatIsOnInTheGame_StaysLinked_AndDeletingTheDataRowTakesItToo()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.Ue4ssModRepository.InGame.Add("WirelessPower");
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("WirelessPower", IsEnabled: true));
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+
+        var data = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
+        var lua = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "WirelessPower");
+        Assert.Equal(["WirelessPower"], data.LinkedUe4ssNames);
+        Assert.Same(lua, data.LinkedPartner);
+        Assert.Same(data, lua.LinkedPartner);
+
+        vm.DeleteItemCommand.Execute(data);
+
+        Assert.Contains("all 2 of its parts", Assert.Single(harness.DialogService.ConfirmMessages));
     }
 
     /// <summary>UE4SS's own built-ins (BPModLoaderMod, Keybinds…) cluttered the list with bare "v" versions — hidden by default, one remembered toggle brings them back.</summary>

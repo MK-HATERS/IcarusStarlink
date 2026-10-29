@@ -82,8 +82,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasLuaConfig;
 
-    /// <summary>"EXMOD", "Pak", or "Pak + UE4SS" — the Type column.</summary>
-    public string TypeLabel => !IsOpaquePak ? "EXMOD" : HasLuaPart ? "Pak + UE4SS" : "Pak";
+    /// <summary>"EXMOD" or "Pak", the Type column. A Lua half has its own row in the UE4SS panel, linked to this one (not "Pak + UE4SS" here: the two halves are two rows).</summary>
+    public string TypeLabel => !IsOpaquePak ? "EXMOD" : "Pak";
 
     partial void OnLinkedUe4ssNamesChanged(IReadOnlyList<string> value)
     {

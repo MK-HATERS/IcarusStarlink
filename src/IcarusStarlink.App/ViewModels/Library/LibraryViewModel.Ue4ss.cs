@@ -348,7 +348,7 @@ public sealed partial class LibraryViewModel
         }
     }
 
-    /// <summary>The same for a "Pak + UE4SS" row: its Lua half's config.</summary>
+    /// <summary>The same from a data mod's row whose download has a Lua half: that half's config.</summary>
     [RelayCommand]
     private void EditLinkedUe4ssConfig(LibraryItemViewModel? item)
     {

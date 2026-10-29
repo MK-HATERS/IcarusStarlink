@@ -106,18 +106,6 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     public bool NeedsAction => IsDirty || (LoaderMissing && IsEnabled) || IsSwitchedOffInGame;
 
-    /// <summary>
-    /// Set by LibraryViewModel when this Lua mod is the "Lua half" of a Mods-tab row (same Nexus
-    /// download as that row's paks): the list shows that one row with Type "Pak + UE4SS" and this
-    /// row is folded into it — its checkbox follows the Library row's, Apply still moves it.
-    /// </summary>
-    [ObservableProperty]
-    private string? _linkedLibraryModName;
-
-    public bool IsLinkedToLibraryMod => LinkedLibraryModName is not null;
-
-    partial void OnLinkedLibraryModNameChanged(string? value) => OnPropertyChanged(nameof(IsLinkedToLibraryMod));
-
     /// <summary>Whether this is one of UE4SS's own bundled mods (or its shared\ infrastructure folder) rather than something the user installed themselves — see IUe4ssLoaderInstallService.IsFrameworkOwned. Drives the "Default" badge, and whether Link to Nexus even makes sense to offer at all (a framework mod has no standalone Nexus page of its own).</summary>
     public bool IsBuiltIn { get; }
 

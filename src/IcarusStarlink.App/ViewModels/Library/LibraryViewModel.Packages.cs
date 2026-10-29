@@ -68,7 +68,8 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
-    /// Groups every Library entry and staged UE4SS mod by the Nexus download they came from; only
+    /// Groups every Library entry and UE4SS mod (staged or on in the game: the user's rule is that a
+    /// download's two halves stay linked either way, 2026-10-28) by the Nexus download they came from; only
     /// groups with two or more parts count. A part recorded before file IDs were (no NexusFileId)
     /// goes with its mod's one download when the Library knows only one; with several it can't tell
     /// which, so the parts without a file ID group only with each other.
@@ -81,7 +82,7 @@ public sealed partial class LibraryViewModel
             parts.Add((entry.NexusModId!.Value, entry.NexusFileId, entry.FolderName, null, null, entry.Name));
         }
 
-        foreach (var folderName in SafeStagedUe4ssNames())
+        foreach (var folderName in SafeUe4ssNames())
         {
             var meta = CachedUe4ssMeta(folderName);
             if (meta.NexusModId is { } id)
@@ -132,14 +133,27 @@ public sealed partial class LibraryViewModel
             item.LinkedUe4ssNames = PackageOf(item)?.Ue4ssFolderNames ?? [];
             item.HasLuaConfig = LinkedLuaRows(item).Any(r => r.HasConfig);
         }
+    }
 
-        foreach (var row in Ue4ssMods)
+    /// <summary>
+    /// Every UE4SS mod name, staged (off) and in the game (on): only staged ones were grouped before,
+    /// so turning a download's Lua half on split it from its data half (two unlinked rows; deleting
+    /// the data row left the Lua half in the game). None when they can't be read — package grouping
+    /// must never break the Library reload.
+    /// </summary>
+    private IReadOnlyList<string> SafeUe4ssNames()
+    {
+        try
         {
-            row.LinkedLibraryModName = PackageOf(row) is { LibraryFolderNames.Count: > 0 } package ? package.DisplayName : null;
+            return new Ue4ssInstalledNames(_ue4ssModRepository, _settingsService).All();
+        }
+        catch (Exception)
+        {
+            return [];
         }
     }
 
-    /// <summary>Staged UE4SS names, or none when staging can't be read — package grouping must never break the Library reload.</summary>
+    /// <summary>Staged (off) UE4SS names only, or none when staging can't be read: what Import UE4SS mod… compares to find the mod it just staged.</summary>
     private IReadOnlyList<string> SafeStagedUe4ssNames()
     {
         try
@@ -153,9 +167,11 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
-    /// Pairs each UE4SS mod with the data mod that is its other half: the same
-    /// name once spaces, case and "&amp;"/"and" are ignored (MkHaters Bags / MkHatersBags, Minimap &amp;
-    /// Map Icons / MiniMapa's Nexus title "Minimap and Map Icons"). Only a hint for the eye.
+    /// Pairs each UE4SS mod with the data mod that is its other half, shown as two rows (one per
+    /// panel) each saying which row it's linked to: first the same Nexus download (BuildPackages),
+    /// else the same name once spaces, case and "&amp;"/"and" are ignored (MkHaters Bags /
+    /// MkHatersBags, Minimap &amp; Map Icons / MiniMapa's Nexus title "Minimap and Map Icons").
+    /// The two halves are never folded into one row (library-model rule 2).
     /// </summary>
     private void LinkHalves()
     {
@@ -168,15 +184,18 @@ public sealed partial class LibraryViewModel
         foreach (var row in Ue4ssMods)
         {
             row.LinkedPartner = null;
-            if (row.IsLinkedToLibraryMod)
+
+            // The same Nexus download first; else by name (a row from a different file of the same
+            // mod is a separate mod, so the name has to match too).
+            var partner = PackageOf(row) is { LibraryFolderNames.Count: > 0 } package
+                ? items.FirstOrDefault(i => package.LibraryFolderNames.Contains(i.FolderName, StringComparer.OrdinalIgnoreCase))
+                : null;
+            if (partner is null)
             {
-                continue; // shown inside its data row ("Pak + UE4SS"), not as a row of its own
+                var keys = new[] { LinkKey(row.Name), row.NexusName is null ? null : LinkKey(row.NexusName) };
+                partner = items.FirstOrDefault(i => keys.Contains(LinkKey(i.Name)));
             }
 
-            // By name only: a row from the same Nexus download as a data mod is already folded into
-            // that row by BuildPackages; one from a different file of the same mod is a separate mod.
-            var keys = new[] { LinkKey(row.Name), row.NexusName is null ? null : LinkKey(row.NexusName) };
-            var partner = items.FirstOrDefault(i => keys.Contains(LinkKey(i.Name)));
             row.LinkedPartner = partner;
             if (partner is not null)
             {
