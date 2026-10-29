@@ -364,6 +364,77 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.All(vm.BestiaryEntries.Where(b => b.CanSetMax), b => Assert.True(b.IsComplete));
     }
 
+    /// <summary>The user's ask (2026-10-28): the Talents tab lists trees in the game's order (Survival before Combat) and blueprints Tier 1 to Tier 3, not A to Z by heading.</summary>
+    [Fact]
+    public async Task Talents_ListTreesInTheGamesOrder_BlueprintTiersInOrder()
+    {
+        var character = MakeCharacter("Alpha", 0);
+        character["Talents"] = new JsonArray(
+            new JsonObject { ["RowName"] = "Drill", ["Rank"] = 1 },
+            new JsonObject { ["RowName"] = "Slash", ["Rank"] = 1 },
+            new JsonObject { ["RowName"] = "Bench_Thing", ["Rank"] = 1 },
+            new JsonObject { ["RowName"] = "Gather", ["Rank"] = 1 },
+            new JsonObject { ["RowName"] = "Bone_Knife", ["Rank"] = 1 });
+        var repository = new FakeSaveRepository { Characters = [character], Profile = MakeProfile(nextChrSlot: 1) };
+        var data = CreateGameDataFolder();
+        Directory.CreateDirectory(Path.Combine(data, "Talents"));
+        File.WriteAllText(Path.Combine(data, "Talents", "D_TalentArchetypes.json"), """
+            { "Rows": [
+                { "Name": "Survival", "Model": { "RowName": "Player" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Survival\")" },
+                { "Name": "Combat", "Model": { "RowName": "Player" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Combat\")" },
+                { "Name": "Machine", "Model": { "RowName": "Blueprint" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Tier 3\")" },
+                { "Name": "Crafting", "Model": { "RowName": "Blueprint" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Tier 2\")" },
+                { "Name": "Player", "Model": { "RowName": "Blueprint" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Tier 1\")" } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "Talents", "D_TalentTrees.json"), """
+            { "Rows": [
+                { "Name": "Combat_Blades", "Archetype": { "RowName": "Combat" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Blades\")" },
+                { "Name": "Survival_Resources", "Archetype": { "RowName": "Survival" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Resources\")" },
+                { "Name": "Blueprint_T3_Machine", "Archetype": { "RowName": "Machine" } },
+                { "Name": "Blueprint_T2_Crafting", "Archetype": { "RowName": "Crafting" } },
+                { "Name": "Blueprint_T1_Player", "Archetype": { "RowName": "Player" } } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "Talents", "D_Talents.json"), """
+            { "Rows": [
+                { "Name": "Slash", "TalentTree": { "RowName": "Combat_Blades" } },
+                { "Name": "Gather", "TalentTree": { "RowName": "Survival_Resources" } },
+                { "Name": "Drill", "TalentTree": { "RowName": "Blueprint_T3_Machine" } },
+                { "Name": "Bench_Thing", "TalentTree": { "RowName": "Blueprint_T2_Crafting" } },
+                { "Name": "Bone_Knife", "TalentTree": { "RowName": "Blueprint_T1_Player" } } ] }
+            """);
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(data));
+        await vm.WaitForPendingSlotLoadAsync();
+        vm.SelectedCharacter = vm.Characters.Single();
+
+        Assert.Equal(["Survival · Resources", "Combat · Blades", "Tier 1", "Tier 2", "Tier 3"], vm.FilteredTalents.Select(t => t.Group));
+    }
+
+    /// <summary>A biome heading's "Complete all" fills that biome's creatures only; biomes list in the table's order.</summary>
+    [Fact]
+    public async Task CompleteBestiaryGroup_FillsOnlyThatBiome_AndBiomesKeepTheTablesOrder()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+        };
+        var data = CreateGameDataFolder();
+        File.WriteAllText(Path.Combine(data, "Bestiary", "D_BestiaryData.json"), """
+            { "Defaults": { "TotalPointsRequired": 100 }, "Rows": [
+                { "Name": "Wolf", "Biomes": [ { "RowName": "Conifer" } ] },
+                { "Name": "Polar_Bear", "Biomes": [ { "RowName": "Arctic" } ] },
+                { "Name": "Deer", "Biomes": [ { "RowName": "Conifer" } ] } ] }
+            """);
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(data));
+        await vm.WaitForPendingSlotLoadAsync();
+        Assert.Equal(["Forest", "Forest", "Arctic"], vm.FilteredBestiaryEntries.Select(b => b.Group));
+
+        vm.CompleteBestiaryGroupCommand.Execute("Forest");
+
+        Assert.Equal(["Wolf", "Deer"], vm.BestiaryEntries.Where(b => b.IsComplete).Select(b => b.RowName));
+        Assert.True(vm.HasUnsavedChanges);
+    }
+
     /// <summary>A duplicated character's talents had no Source, so Remove leftovers missed the copy's leftovers.</summary>
     [Fact]
     public async Task DuplicateCharacter_ItsLeftoverTalents_AreLabelledAndCounted()

@@ -43,7 +43,7 @@ public sealed partial class SavesViewModel
         // "Only what this character has" includes bDefaultUnlocked talents — the game grants those
         // from the start without writing them into the save, so rank alone under-reports.
         RefreshFilter(
-            (SelectedCharacter?.Talents ?? []).OrderBy(t => t.Group, StringComparer.OrdinalIgnoreCase), FilteredTalents, TalentSearchText,
+            SaveGroupOrder.Talents(SelectedCharacter?.Talents ?? []), FilteredTalents, TalentSearchText,
             t => (ShowUnlearnedTalents || t.IsUnlockedInGame || t.IsDirty) && MatchesTalentKind(t),
             t => t.DisplayName, t => t.RowName, t => t.Group);
         OnPropertyChanged(nameof(TalentRanksSummary));

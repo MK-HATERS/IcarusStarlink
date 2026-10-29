@@ -119,21 +119,183 @@ public sealed partial class SaveGameNames
             return trees;
         }
 
-        var archetypes = new Dictionary<string, (string Display, string Model)>(StringComparer.OrdinalIgnoreCase);
+        var archetypeDefaults = DefaultsOf(TalentArchetypesTable);
+        var archetypes = new Dictionary<string, (string Display, string Model, int RequiredLevel, int Index)>(StringComparer.OrdinalIgnoreCase);
         foreach (var (name, row) in RowsOf(TalentArchetypesTable))
         {
-            archetypes[name] = (ParseLocText(row, "DisplayName") ?? HumanizeMountType(name), RowNameOf(row, "Model") ?? "");
+            var requiredLevel = TryGet(row, archetypeDefaults, "RequiredLevel", out var level) && level.ValueKind == JsonValueKind.Number && level.TryGetInt32(out var l) ? l : 0;
+            archetypes.TryAdd(name, (ParseLocText(row, "DisplayName") ?? HumanizeMountType(name), RowNameOf(row, "Model") ?? "", requiredLevel, archetypes.Count));
         }
 
-        foreach (var (name, row) in RowsOf(TalentTreesTable))
+        // Blueprint trees have no name of their own (Blueprint_T2_Crafting); their archetype says
+        // "Tier 2", and the bench comes from the recipes the tree's talents unlock (D_RecipeSets).
+        var rows = RowsOf(TalentTreesTable).ToList();
+        var benches = LoadBlueprintBenches(rows
+            .Where(r => archetypes.TryGetValue(RowNameOf(r.Row, "Archetype") ?? "", out var a)
+                ? a.Model.Equals("Blueprint", StringComparison.OrdinalIgnoreCase)
+                : BlueprintTier(r.Name, "") is not null)
+            .Select(r => r.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+        var placed = new List<(string Name, TreeInfo Tree, (int, int, int, int, int) Key)>();
+        foreach (var (name, row) in rows)
         {
             var archetype = RowNameOf(row, "Archetype") ?? "";
-            var (archetypeDisplay, model) = archetypes.GetValueOrDefault(archetype, (HumanizeMountType(archetype), ""));
-            trees[name] = new TreeInfo(ParseLocText(row, "DisplayName") ?? HumanizeMountType(name), archetypeDisplay, model, archetype);
+            var known = archetypes.TryGetValue(archetype, out var a);
+            var archetypeDisplay = known ? a.Display : HumanizeMountType(archetype);
+            var model = known ? a.Model : "";
+            var tier = BlueprintTier(name, known ? archetype : "", known ? archetypeDisplay : "");
+            var isBlueprint = known ? model.Equals("Blueprint", StringComparison.OrdinalIgnoreCase) : tier is not null;
+            if (!known && tier is not null)
+            {
+                // A mod's tree whose archetype the tables lack: its name still says the tier.
+                archetypeDisplay = $"Tier {tier}";
+            }
+
+            var display = ParseLocText(row, "DisplayName")
+                ?? (isBlueprint ? benches.GetValueOrDefault(name) ?? (known ? null : BlueprintTreeWords(name)) ?? archetypeDisplay : HumanizeMountType(name));
+            var key = (
+                TreeModelRank(isBlueprint ? "Blueprint" : model),
+                isBlueprint ? tier ?? int.MaxValue : 0,
+                known ? a.RequiredLevel : int.MaxValue,
+                known ? a.Index : int.MaxValue,
+                placed.Count);
+            placed.Add((name, new TreeInfo(display, archetypeDisplay, model, archetype), key));
+        }
+
+        var order = 0;
+        foreach (var (name, tree, _) in placed.OrderBy(p => p.Key))
+        {
+            trees.TryAdd(name, tree with { Order = order++ });
         }
 
         return trees;
     }, () => new Dictionary<string, TreeInfo>(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>Talents, then blueprints, then solo (a character's); research, then missions (the account's); mounts and the rest after.</summary>
+    private static int TreeModelRank(string model) => model.ToLowerInvariant() switch
+    {
+        "player" => 0,
+        "blueprint" => 1,
+        "solo" => 2,
+        "workshop" => 3,
+        "prospect" => 4,
+        "" => 6,
+        _ => 5,
+    };
+
+    /// <summary>
+    /// A blueprint tree's tier: the archetype's own name ("Tier 2"), else the number in the tree's
+    /// or archetype's row name (Blueprint_T2_Crafting, Blueprint_Tier5_Manufacturer). Null when
+    /// neither says one.
+    /// </summary>
+    internal static int? BlueprintTier(string treeRow, string archetypeRow, string archetypeDisplay = "")
+    {
+        var shown = System.Text.RegularExpressions.Regex.Match(archetypeDisplay, @"^\s*Tier\s*(\d{1,3})\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (shown.Success)
+        {
+            return int.Parse(shown.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        foreach (var row in new[] { treeRow, archetypeRow })
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(row, @"^Blueprint_T(?:ier)?(\d{1,3})(?:_|$)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                return int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>"Blueprint_T6_Forge_Works" -> "Forge Works": what's left of a blueprint tree's row name after "Blueprint" and its tier. Null when nothing is.</summary>
+    private static string? BlueprintTreeWords(string treeRow)
+    {
+        var words = TreeNameWords(treeRow).ToList();
+        return words.Count == 0 ? null : HumanizeMountType(string.Join("_", words));
+    }
+
+    private static IEnumerable<string> TreeNameWords(string treeRow) =>
+        treeRow.Split('_', StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => !w.Equals("Blueprint", StringComparison.OrdinalIgnoreCase)
+                && !System.Text.RegularExpressions.Regex.IsMatch(w, @"^T(?:ier)?\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+
+    /// <summary>
+    /// Blueprint tree -> the bench its blueprints are for: the D_RecipeSets row that shares the
+    /// tree name's word (Crafting -> Crafting_Bench, Machine -> Machining_Bench, Fabricator), else
+    /// the bench most of the tree's recipes are made at (D_ProcessorRecipes Requirement ->
+    /// RecipeSets: Tier 1's is "Character", made by hand). Empty when the tables are missing.
+    /// </summary>
+    private Dictionary<string, string> LoadBlueprintBenches(IReadOnlySet<string> blueprintTrees) => Safe(() =>
+    {
+        var benches = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (blueprintTrees.Count == 0)
+        {
+            return benches;
+        }
+
+        var setsTable = Path.Combine("Crafting", "D_RecipeSets.json");
+        var setDefaults = DefaultsOf(setsTable);
+        var sets = RowsOf(setsTable)
+            .Select(r => (r.Name, Display: ParseLocText(r.Row, "RecipeSetName", setDefaults) ?? HumanizeMountType(r.Name)))
+            .ToList();
+        if (sets.Count == 0)
+        {
+            return benches;
+        }
+
+        var treeOfTalent = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (talent, row) in RowsOf(TalentsTable))
+        {
+            if (RowNameOf(row, "TalentTree") is { } tree && blueprintTrees.Contains(tree))
+            {
+                treeOfTalent.TryAdd(talent, tree);
+            }
+        }
+
+        var uses = new Dictionary<(string Tree, string Set), int>();
+        var recipesTable = Path.Combine("Crafting", "D_ProcessorRecipes.json");
+        var recipeDefaults = DefaultsOf(recipesTable);
+        foreach (var (_, recipe) in RowsOf(recipesTable))
+        {
+            if (RowNameOf(recipe, "Requirement") is { } talent && treeOfTalent.TryGetValue(talent, out var tree))
+            {
+                foreach (var set in RowNames(recipe, recipeDefaults, "RecipeSets"))
+                {
+                    uses[(tree, set)] = uses.GetValueOrDefault((tree, set)) + 1;
+                }
+            }
+        }
+
+        foreach (var tree in blueprintTrees)
+        {
+            var words = TreeNameWords(tree).ToList();
+            var scored = sets
+                .Select(s => (s.Name, s.Display, Prefix: words.Count == 0 ? 0 : words.Max(w => CommonPrefixLength(w, s.Name)), Uses: uses.GetValueOrDefault((tree, s.Name))))
+                .ToList();
+            var named = scored.Where(s => s.Prefix >= 5).OrderByDescending(s => s.Prefix).ThenByDescending(s => s.Uses).FirstOrDefault();
+            var bench = named.Name is not null ? named : scored.Where(s => s.Uses > 0).OrderByDescending(s => s.Uses).FirstOrDefault();
+            if (bench.Name is not null)
+            {
+                // The game's "Character" set is crafting by hand, from the character's own menu.
+                benches[tree] = bench.Name.Equals("Character", StringComparison.OrdinalIgnoreCase) ? $"{bench.Display} crafting" : bench.Display;
+            }
+        }
+
+        return benches;
+    }, () => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+
+    private static int CommonPrefixLength(string a, string b)
+    {
+        var length = 0;
+        while (length < a.Length && length < b.Length && char.ToLowerInvariant(a[length]) == char.ToLowerInvariant(b[length]))
+        {
+            length++;
+        }
+
+        return length;
+    }
 
     private static readonly HashSet<string> CharacterTalentModels = new(StringComparer.OrdinalIgnoreCase) { "Player", "Blueprint", "Solo" };
 
@@ -158,8 +320,10 @@ public sealed partial class SaveGameNames
         var workshopCosts = LoadWorkshopCosts();
         var missionNames = MissionNames;
         var itemableNames = LoadItemableNames();
+        var order = -1;
         foreach (var (talentName, row) in RowsOf(TalentsTable))
         {
+            order++;
             // "Reroute" (92 rows) and "MutuallyExclusive" (6 rows) are invisible tree-plumbing
             // nodes — 0x0 size, no rewards, no display name — that route lines between real
             // talents in the game's own tree UI. They are not talents a player can have, so
@@ -198,7 +362,8 @@ public sealed partial class SaveGameNames
                 tree,
                 maxRank,
                 defaultUnlocked,
-                cost));
+                cost,
+                order));
         }
 
         return talents;

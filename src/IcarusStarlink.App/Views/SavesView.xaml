@@ -209,8 +209,9 @@
                  Every talent the game defines is available via "Show unlearned" — turning a rank
                  up grants it (rank 0 is the format's own "doesn't have it"). -->
             <!-- Talents: the selected character's talent, blueprint and solo trees, grouped by tree under
-                 the game's own names (SaveGameNames.TalentTrees). Workshop research and missions are
-                 the account's and have their own tabs. -->
+                 the game's own names (SaveGameNames.TalentTrees), in the game's order: talent trees,
+                 then blueprints Tier 1 to Tier 5 with their bench, then Solo (SaveGroupOrder).
+                 Workshop research and missions are the account's and have their own tabs. -->
             <TabItem Header="Talents">
                 <TabItem.Resources>
                     <CollectionViewSource x:Key="TalentGroups" Source="{Binding FilteredTalents}">
@@ -412,7 +413,7 @@
                              views:SaveGroupExpansion.Scope="Bestiary" BorderThickness="0" Background="Transparent"
                              VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>
-                            <GroupStyle ContainerStyle="{StaticResource SaveCollapsibleGroupItemStyle}"/>
+                            <GroupStyle ContainerStyle="{StaticResource SaveBestiaryGroupItemStyle}"/>
                         </ListBox.GroupStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>

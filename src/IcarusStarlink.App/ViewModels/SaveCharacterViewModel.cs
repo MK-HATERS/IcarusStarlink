@@ -154,7 +154,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
     {
         var tree = names.TalentTrees.GetValueOrDefault(info.Tree);
         return new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank, info.IsDefaultUnlocked,
-            tree?.Group ?? info.Tree, tree?.Model ?? "", info.Cost);
+            tree?.Group ?? info.Tree, tree?.Model ?? "", info.Cost, tree?.Order ?? int.MaxValue, info.Order);
     }
 
     partial void OnNameChanged(string value) => _onDirtyChanged();

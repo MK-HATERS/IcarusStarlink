@@ -46,19 +46,23 @@ public sealed partial class SaveGameNames
         var creatures = new Dictionary<string, BestiaryCreatureInfo>(StringComparer.OrdinalIgnoreCase);
         var table = Path.Combine("Bestiary", "D_BestiaryData.json");
         var defaults = DefaultsOf(table);
+        // Biomes in the order the table first lists them (Forest, Arctic, Desert, ...); "Other" last.
+        var groupOrder = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["Other"] = int.MaxValue - 1 };
         foreach (var (rowName, row) in RowsOf(table))
         {
             var pointsRequired = TryGet(row, defaults, "TotalPointsRequired", out var points) && points.ValueKind == JsonValueKind.Number ? points.GetInt32() : 0;
             var isBoss = TryGet(row, defaults, "bIsBoss", out var boss) && boss.ValueKind == JsonValueKind.True;
             var imagePath = TryGet(row, defaults, "Image", out var image) && image.ValueKind == JsonValueKind.String && image.GetString() is { Length: > 0 } img && img != "None" ? img : null;
 
-            var biome = RowNames(row, defaults, "Biomes").FirstOrDefault();
+            var group = BiomeGroup(RowNames(row, defaults, "Biomes").FirstOrDefault());
+            groupOrder.TryAdd(group, groupOrder.Count);
             creatures.TryAdd(rowName, new BestiaryCreatureInfo(
                 ParseLocText(row, "CreatureName", defaults) ?? rowName,
                 pointsRequired,
                 isBoss,
                 imagePath,
-                BiomeGroup(biome)));
+                group,
+                groupOrder[group]));
         }
 
         return creatures;

@@ -27,17 +27,24 @@ public sealed partial class SavesViewModel
     /// <summary>"61 of 107 complete".</summary>
     public string BestiarySummary => $"{BestiaryEntries.Count(b => b.IsComplete)} of {BestiaryEntries.Count(b => b.PointsRequired > 0)} complete";
 
-    // Listed by biome (Forest, Arctic, Desert..., Great Hunt arenas).
+    // Listed by biome in the game table's order (Forest, Arctic, Desert..., Great Hunt arenas).
     private void RefreshBestiaryFilter() =>
-        RefreshFilter(BestiaryEntries.OrderBy(b => b.Group, StringComparer.OrdinalIgnoreCase), FilteredBestiaryEntries, BestiarySearchText,
+        RefreshFilter(SaveGroupOrder.Bestiary(BestiaryEntries), FilteredBestiaryEntries, BestiarySearchText,
             ShowIncompleteBestiaryOnly ? b => !b.IsComplete : null, b => b.DisplayName, b => b.Group);
 
     /// <summary>Fills every creature listed right now (search and filter applied) to its full points.</summary>
     [RelayCommand]
-    private void CompleteShownBestiary()
+    private void CompleteShownBestiary() => CompleteBestiary(FilteredBestiaryEntries);
+
+    /// <summary>A biome heading's "Complete all": fills that group's listed creatures (search and filter applied).</summary>
+    [RelayCommand]
+    private void CompleteBestiaryGroup(string? group) =>
+        CompleteBestiary(FilteredBestiaryEntries.Where(b => string.Equals(b.Group, group, StringComparison.Ordinal)));
+
+    private void CompleteBestiary(IEnumerable<SaveBestiaryEntryViewModel> entries)
     {
         using var batch = BatchedDirtyChanges();
-        foreach (var entry in FilteredBestiaryEntries.Where(b => b.CanSetMax && !b.IsComplete).ToList())
+        foreach (var entry in entries.Where(b => b.CanSetMax && !b.IsComplete).ToList())
         {
             entry.SetMaxCommand.Execute(null);
         }
@@ -62,7 +69,7 @@ public sealed partial class SavesViewModel
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (rowName, info) in _gameNames.BestiaryCreatures)
         {
-            BestiaryEntries.Add(new SaveBestiaryEntryViewModel(rowName, info.DisplayName, info.PointsRequired, info.IsBoss, points.GetValueOrDefault(rowName), info.ImagePath, NotifyDirtyChanged, info.Group));
+            BestiaryEntries.Add(new SaveBestiaryEntryViewModel(rowName, info.DisplayName, info.PointsRequired, info.IsBoss, points.GetValueOrDefault(rowName), info.ImagePath, NotifyDirtyChanged, info.Group, info.GroupOrder));
             seen.Add(rowName);
         }
 
