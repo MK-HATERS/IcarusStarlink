@@ -158,6 +158,9 @@ public sealed partial class HelpViewModel : ObservableObject
             - Installed downloads are hidden; tick **Show installed** to see them. **Reinstall** puts back a mod you removed; **Discard** deletes the downloaded file (the installed mod stays).
             - **Needs** shows what the mod's own README says it requires, and **Get 'X'** fetches a missing one.
             - When you have one file of a Nexus mod installed and Nexus lists a newer version of that same file (Nexus keeps each file's update chain), the mod shows an update, and downloading it starts on that newer file in the file list (pick another file to switch variants). The older copy is replaced, not piled up.
+            - A UE4SS mod in a subfolder of the zip (`Mods\MyMod\Scripts`) is put in the game under the mod's own folder name. A pak or EXMOD download that also carries a Lua folder becomes two linked rows.
+            - A ".pak" that isn't a real pak (a web page or a broken download) is refused, with the reason.
+            - If a download's file was deleted from Pending_Downloads, **Reinstall** says so: download it again, or **Discard** the row.
             - If a download can't be installed automatically, see "When an install goes wrong".
             """),
 
@@ -204,7 +207,7 @@ public sealed partial class HelpViewModel : ObservableObject
 
             Everywhere to find mods, in two tabs. **Library** holds the mods you have; this page is for getting more.
 
-            **IMM Database** is the community catalog: search, and **Download & extract**. The folding **Filters** section holds Author, Category, **Updates only**, **Downloaded only** / **Not downloaded only**, **Game week** and **Hide older weeks**; its header sums up what's set. The **Installed** and **Works with** columns show your copy's version and the game week the mod was made for. **Find in Database** (right-click a Library mod) opens this tab already searched.
+            **IMM Database** is the community catalog: search, and **Download & extract**. The folding **Filters** section holds Author, Category, **Updates only**, **Downloaded only** / **Not downloaded only**, **Game week** and **Hide older weeks**; its header sums up what's set. The **Installed** and **Works with** columns show your copy's version and the game week the mod was made for. **Find in Database** (right-click a Library mod) opens this tab already searched. **Readme** only opens web links.
 
             **New mods.** Each tab says how many mods are new since your last visit, like "IMM Database (5 new)". New mods have a **New** tag; mods with a newer version than you last saw have an **Updated** tag. Tick **New only** to see just those. The tags clear when you close Starlink after looking at that tab, or straight away with **Mark all seen**. The very first time, everything counts as seen.
 
