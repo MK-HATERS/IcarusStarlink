@@ -105,6 +105,18 @@ public sealed class SaveRepositoryTests : IDisposable
         Assert.Equal(1787399187, reloaded["TimeLastPlayed"]!.GetValue<long>());
     }
 
+    /// <summary>An entry that isn't a character was skipped on read, so the next Save of the characters wrote the file without it.</summary>
+    [Fact]
+    public void LoadCharacters_AnEntryThatIsntACharacter_FailsTheReadInsteadOfDroppingIt()
+    {
+        var path = Path.Combine(_playerData, SteamId, "Characters.json");
+        var wrapper = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        wrapper["Characters.json"]!.AsArray().Add(JsonValue.Create("null"));
+        File.WriteAllText(path, wrapper.ToJsonString());
+
+        Assert.Throws<FormatException>(() => _repository.LoadCharacters(SteamId));
+    }
+
     [Fact]
     public void SaveCharacters_KeepsTheJsonInJsonShapeTheGameExpects()
     {

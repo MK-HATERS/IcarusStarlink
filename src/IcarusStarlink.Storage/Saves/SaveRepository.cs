@@ -74,9 +74,16 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         {
             // Each element is an escaped JSON STRING, not an object — the format's own quirk,
             // unwrapped here so nothing above this layer ever deals with it.
-            if (element?.GetValue<string>() is { } raw && JsonNode.Parse(raw) is JsonObject character)
+            // One that isn't a character fails the read (the page then hides Characters and leaves
+            // the file alone): skipped, it was missing from the list the next Save wrote back.
+            if (element is JsonValue value && value.GetValueKind() == JsonValueKind.String
+                && JsonNode.Parse(value.GetValue<string>()) is JsonObject character)
             {
                 characters.Add(character);
+            }
+            else
+            {
+                throw new FormatException($"{CharactersFileName} holds an entry that isn't a character.");
             }
         }
 
