@@ -231,6 +231,9 @@ public partial class App : Application
                 var settingsService = _host.Services.GetRequiredService<ISettingsService>();
                 themeService.ApplyTheme(settingsService.Current.ThemeName);
 
+                // Settings › Appearance › Size of text and controls: every window from here on.
+                UiScale.Initialize(settingsService.Current.UiScale);
+
                 var mainWindow = _host.Services.GetRequiredService<MainWindow>();
                 mainWindow.Show();
                 splash.Close();

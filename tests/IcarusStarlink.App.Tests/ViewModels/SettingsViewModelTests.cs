@@ -106,6 +106,31 @@ public sealed class SettingsViewModelTests
         Assert.Contains("Set both", vm.DataFolderStatusMessage);
     }
 
+    /// <summary>Appearance › Size of text and controls: saved straight away; a hand-edited value shows as the nearest choice, a broken one as 100%.</summary>
+    [Fact]
+    public void SelectedUiScale_SavesTheChoice_AndShowsOddSavedValuesAsTheNearestChoice()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+        try
+        {
+            Assert.Equal(1.0, vm.SelectedUiScale);
+
+            vm.SelectedUiScale = 1.5;
+            Assert.Equal(1.5, harness.Settings.UiScale);
+            Assert.Equal(1.5, IcarusStarlink.App.Utilities.UiScale.Current);
+
+            harness.Settings.UiScale = 1.2;
+            Assert.Equal(1.15, vm.SelectedUiScale);
+            harness.Settings.UiScale = double.NaN;
+            Assert.Equal(1.0, vm.SelectedUiScale);
+        }
+        finally
+        {
+            IcarusStarlink.App.Utilities.UiScale.Set(1.0);
+        }
+    }
+
     /// <summary>Review 2026-10-23: the button rewrote the Data folder while a merge was reading it.</summary>
     [Fact]
     public async Task UpdateDataFolderCommand_WhileOtherWorkRuns_RefusesAndSaysWhat()
