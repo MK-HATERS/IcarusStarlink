@@ -41,7 +41,19 @@ public sealed class Ue4ssModStateService(IUe4ssModRepository stagingRepository) 
         foreach (var (name, desiredEnabled) in desiredEnabledByName)
         {
             var inGame = installed.Contains(name);
-            var started = inGame && Ue4ssModStart.Starts(gameModsFolderPath, name, list);
+            // A folder that isn't a mod (no main.lua / main.dll) is on by being there, as GetAll says:
+            // ticking it must not write an enabled.txt into it.
+            var started = inGame && (!Ue4ssModStart.IsMod(gameModsFolderPath, name) || Ue4ssModStart.Starts(gameModsFolderPath, name, list));
+
+            // UE4SS's own shared\ (its Lua library) is never taken out of the game: every Lua mod
+            // that uses it broke when the Library's untick moved it to staging (2026-10-28). The
+            // panel locks it; this is the last line of defence. One already in staging (moved by
+            // that bug) may still go back in.
+            if (Ue4ssModStart.IsFrameworkFolder(name) && !desiredEnabled && inGame)
+            {
+                failures.Add(new Ue4ssModApplyFailure(name, $"not moved: {Ue4ssModStart.FrameworkFolderReason}"));
+                continue;
+            }
 
             // Off means out of the game: a folder UE4SS doesn't start is still taken out when asked.
             if (desiredEnabled ? started : !inGame)
@@ -94,7 +106,8 @@ public sealed class Ue4ssModStateService(IUe4ssModRepository stagingRepository) 
 
                     // In the game it has to start too: a folder with no enabled.txt and no "1" line in
                     // mods.txt would sit there doing nothing.
-                    if (!Ue4ssModStart.Starts(gameModsFolderPath, name, list))
+                    // A folder that isn't a mod (shared\) gets none: UE4SS never starts it.
+                    if (Ue4ssModStart.IsMod(gameModsFolderPath, name) && !Ue4ssModStart.Starts(gameModsFolderPath, name, list))
                     {
                         Ue4ssModStart.SwitchOn(gameModsFolderPath, name);
                     }

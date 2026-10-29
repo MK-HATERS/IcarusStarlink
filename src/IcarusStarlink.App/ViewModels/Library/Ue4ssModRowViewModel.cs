@@ -233,8 +233,43 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
         ? $"Needs UE4SS v{MinUe4ssVersion} or newer, but you have v{_installedLoaderVersion}. It may not work right until you update UE4SS."
         : null;
 
-    [ObservableProperty]
     private bool _isEnabled;
+
+    /// <summary>The pending tick. A row that is always on (UE4SS's shared\) keeps its tick whatever sets it: the checkbox, Space, a multi-selection, Select all.</summary>
+    public bool IsEnabled
+    {
+        get => _isEnabled;
+        set
+        {
+            if (IsAlwaysOn && value != RealIsEnabled)
+            {
+                return;
+            }
+
+            if (SetProperty(ref _isEnabled, value))
+            {
+                OnIsEnabledChanged(value);
+            }
+        }
+    }
+
+    /// <summary>
+    /// UE4SS's own shared\ folder (its Lua library, not a mod: Ue4ssModStart.FrameworkFolderNames), in
+    /// the game: shown with a lock and "Part of UE4SS, always on" instead of a checkbox, and never
+    /// taken out (unticking it moved it to staging and broke every Lua mod that uses it). One already
+    /// in staging (moved by that bug) shows its checkbox, so it can be ticked to go back in.
+    /// </summary>
+    public bool IsAlwaysOn => Ue4ssModStart.IsFrameworkFolder(Name) && RealIsEnabled;
+
+    /// <summary>The "Default" pill: a built-in mod; an always-on row says "Part of UE4SS, always on" instead.</summary>
+    public bool ShowDefaultBadge => IsBuiltIn && !IsAlwaysOn;
+
+    /// <summary>The checkbox is shown (the lock is shown instead on an always-on row).</summary>
+    public bool CanToggle => !IsAlwaysOn;
+
+    public const string AlwaysOnText = "Part of UE4SS, always on";
+
+    public const string AlwaysOnTooltip = "Part of UE4SS, always on: this is UE4SS's own shared folder, the Lua library its mods use. It isn't a mod, so it can't be turned off or deleted.";
 
     /// <summary>Part of the Mods list's click selection (grey row): Ctrl/Shift-click and Select all include UE4SS rows, and ticking ON on a selected row ticks every selected row.</summary>
     [ObservableProperty]
@@ -242,7 +277,7 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     public bool IsDirty => IsEnabled != RealIsEnabled;
 
-    partial void OnIsEnabledChanged(bool value)
+    private void OnIsEnabledChanged(bool value)
     {
         OnPropertyChanged(nameof(IsDirty));
         OnPropertyChanged(nameof(InstallStatus));
