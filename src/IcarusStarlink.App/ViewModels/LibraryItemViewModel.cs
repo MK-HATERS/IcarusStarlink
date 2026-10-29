@@ -199,6 +199,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     [ObservableProperty]
     private string _name;
 
+    /// <summary>What a screen reader says for the Library row (the class name otherwise).</summary>
+    public override string ToString() => Name;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(AuthorDisplay))]
     private string _author;

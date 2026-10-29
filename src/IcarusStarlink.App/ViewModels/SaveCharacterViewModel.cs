@@ -30,6 +30,9 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
     [ObservableProperty]
     private string _name;
 
+    /// <summary>What a screen reader says for the character's card (the class name otherwise).</summary>
+    public override string ToString() => Name;
+
     [ObservableProperty]
     private string _xpText;
 

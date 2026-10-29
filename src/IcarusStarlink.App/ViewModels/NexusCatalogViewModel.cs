@@ -33,7 +33,11 @@ namespace IcarusStarlink.App.ViewModels;
 /// Mod.Name so a rename is actually visible: without this, the card would always show the live
 /// Nexus name regardless of any stored override.
 /// </summary>
-public sealed record NexusCatalogRow(NexusModInfo Mod, string? LocalBadge, bool HasUpdate, bool IsTracked, string DisplayName, string? NewTag = null);
+public sealed record NexusCatalogRow(NexusModInfo Mod, string? LocalBadge, bool HasUpdate, bool IsTracked, string DisplayName, string? NewTag = null)
+{
+    /// <summary>What a screen reader says for the card (the record's own text, the whole mod summary, otherwise).</summary>
+    public override string ToString() => DisplayName;
+}
 
 /// <summary>
 /// The whole Nexus page — a real mod list with images driven by the saved API key, so browsing

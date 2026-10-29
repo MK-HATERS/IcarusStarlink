@@ -74,7 +74,7 @@
                             </StackPanel>
                         </Button>
                         <Grid Margin="0,0,8,0">
-                            <TextBox Text="{Binding Downloads.CatalogSearchText, UpdateSourceTrigger=PropertyChanged}"
+                            <TextBox Text="{Binding Downloads.CatalogSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search the IMM Database"
                                      ToolTip="Search by name, author, or description"/>
                             <TextBlock Text="Search mods by name, author, or description…" Style="{StaticResource PlaceholderTextStyle}"
                                        Visibility="{Binding Downloads.CatalogSearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>

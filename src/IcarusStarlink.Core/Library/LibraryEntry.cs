@@ -60,6 +60,9 @@ public sealed class LibraryEntry
     /// <summary>The raw user-chosen rename, when one exists — Name above already reflects it, but a consumer replacing this entry (Get update's delete-then-reimport) needs the override itself to re-apply, since it can't reconstruct "was Name overridden or natural?" from Name alone.</summary>
     public string? DisplayNameOverride { get; set; }
 
+    /// <summary>The mod's name: what a screen reader says for a row in Merge &amp; Install's queue (the class name otherwise), and what a log line shows.</summary>
+    public override string ToString() => Name;
+
     /// <summary>Set once the EXMOD editor's own Save action runs against this mod — the ✎ glyph.</summary>
     public bool IsLocallyEdited { get; set; }
 

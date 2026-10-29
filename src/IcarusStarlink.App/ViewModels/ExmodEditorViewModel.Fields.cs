@@ -11,6 +11,9 @@ public sealed record AddableField(string FieldName, string Label, string GameTex
 {
     /// <summary>"Stack size  (MaxStack)"; just the name when the plain words are the name.</summary>
     public string Display => string.Equals(Label, FieldName, StringComparison.OrdinalIgnoreCase) ? FieldName : $"{Label}  ({FieldName})";
+
+    /// <summary>What a screen reader says for the field in the list (the record's own text otherwise).</summary>
+    public override string ToString() => Display;
 }
 
 /// <summary>

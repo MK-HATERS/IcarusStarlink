@@ -17,6 +17,9 @@ public sealed record ItemChoice(string Name, string? DisplayName)
 {
     public string Display => DisplayName is { Length: > 0 } d && d != Name ? $"{d}  ({Name})" : Name;
 
+    /// <summary>What a screen reader says for the item in a picker (the record's own text otherwise).</summary>
+    public override string ToString() => Display;
+
     /// <summary>The in-game name when there is one, else the row name (a list's first line).</summary>
     public string Title => DisplayName is { Length: > 0 } d ? d : Name;
 

@@ -47,6 +47,9 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     public string Name { get; }
 
+    /// <summary>What a screen reader says for the UE4SS row (the class name otherwise).</summary>
+    public override string ToString() => Name;
+
     public bool RealIsEnabled { get; }
 
     // ---- The single Mods list: UE4SS rows sit in the same list as pak/EXMOD rows. ----

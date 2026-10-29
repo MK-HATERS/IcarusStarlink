@@ -11,6 +11,9 @@ public sealed partial class SaveCurrencyViewModel : DirtyRow
 
     public string Label { get; }
 
+    /// <summary>What a screen reader says for the row (the class name otherwise).</summary>
+    public override string ToString() => Label;
+
     [ObservableProperty]
     private string _countText;
 

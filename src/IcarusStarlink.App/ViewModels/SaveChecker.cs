@@ -30,6 +30,9 @@ public sealed record SaveCheckFinding(SaveCheckSeverity Severity, string Area, s
         SaveCheckSeverity.Warning => "Warning",
         _ => "Note",
     };
+
+    /// <summary>What a screen reader says for the finding (the record's own text otherwise).</summary>
+    public override string ToString() => $"{SeverityLabel}: {Message}";
 }
 
 /// <summary>

@@ -26,6 +26,9 @@ public sealed record EditorSaveTarget(string? FolderName, string Display)
 public sealed record EditorQuickStart(ItemChoice Item, string Hint)
 {
     public string Label => Item.Title;
+
+    /// <summary>What a screen reader says for the quick-start button (the record's own text otherwise).</summary>
+    public override string ToString() => Label;
 }
 
 /// <summary>One line of the Editor's "Your changes"; the × undoes it through the field.</summary>

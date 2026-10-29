@@ -24,6 +24,9 @@ public sealed record GameDataItemRef(string CurrentFile, string RealPath, string
     public string? Label { get; init; }
 
     public string Display => Label ?? $"{RealPath} — {ItemName}";
+
+    /// <summary>What a screen reader says for the row in a picker (the record's own text otherwise).</summary>
+    public override string ToString() => Display;
 }
 
 /// <summary>One row plus its own serialized JSON — the searchable unit for the Search game data window's reference search. Kept separate from GameDataItemRef so the (much lighter) add-item picker never pays for the serialized text it doesn't use.</summary>

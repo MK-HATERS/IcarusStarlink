@@ -36,7 +36,7 @@
                        Foreground="{DynamicResource SecondaryForegroundBrush}"
                        Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibilityConverter}}"/>
             <Grid>
-                <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search Nexus mods"
                          ToolTip="Search every Icarus mod on Nexus — clear to go back to the lists"/>
                 <TextBlock Text="Search all Icarus mods…" Style="{StaticResource PlaceholderTextStyle}"
                            Visibility="{Binding SearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>

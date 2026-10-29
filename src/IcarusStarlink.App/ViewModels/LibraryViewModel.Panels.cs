@@ -16,6 +16,9 @@ public sealed partial class LibraryFilterChip(string key, string label, string k
 
     public string Label { get; } = label;
 
+    /// <summary>What a screen reader says for the chip (the class name otherwise).</summary>
+    public override string ToString() => Label;
+
     /// <summary>"accent" (Not in game yet), "danger" (Problems) or "" — how the chip is coloured while it has a count.</summary>
     public string Kind { get; } = kind;
 
