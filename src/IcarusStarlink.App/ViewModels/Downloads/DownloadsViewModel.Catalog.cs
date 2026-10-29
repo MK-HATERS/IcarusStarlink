@@ -601,9 +601,11 @@ public sealed partial class DownloadsViewModel
             return (false, $"'{catalogEntry.Name}' has no downloadable file listed.");
         }
 
+        var row = BeginDownload(catalogEntry.Name);
         try
         {
-            var justDownloaded = await DownloadCatalogFileAsync(catalogEntry);
+            var justDownloaded = await DownloadCatalogFileAsync(catalogEntry, row);
+            row.MarkInstalling();
             var result = await ActivateAsync(justDownloaded);
             if (!result.Succeeded)
             {
@@ -621,6 +623,10 @@ public sealed partial class DownloadsViewModel
         {
             return (false, $"'{catalogEntry.Name}' failed: {ex.Message}");
         }
+        finally
+        {
+            FinishDownloadRow(row);
+        }
     }
 
     /// <summary>
@@ -628,7 +634,10 @@ public sealed partial class DownloadsViewModel
     /// download (not installed yet) — so Reinstall original and the Downloads page know the file
     /// a Database mod came from, Library's Get update included. Throws when it can't.
     /// </summary>
-    public async Task<PendingDownloadItemViewModel> DownloadCatalogFileAsync(CatalogEntry catalogEntry)
+    public Task<PendingDownloadItemViewModel> DownloadCatalogFileAsync(CatalogEntry catalogEntry) => DownloadCatalogFileAsync(catalogEntry, callerRow: null);
+
+    /// <param name="callerRow">The Downloading row to report on, when the caller made one (it installs next); null makes this download's own.</param>
+    private async Task<PendingDownloadItemViewModel> DownloadCatalogFileAsync(CatalogEntry catalogEntry, ActiveDownloadViewModel? callerRow)
     {
         var downloadUrl = catalogEntry.ExmodzUrl ?? catalogEntry.PakUrl
             ?? throw new InvalidOperationException($"'{catalogEntry.Name}' has no downloadable file listed.");
@@ -656,14 +665,23 @@ public sealed partial class DownloadsViewModel
         // Streamed to disk through a .part file, same as the Nexus path (an audit finding):
         // GetByteArrayAsync buffered the whole pak in memory AND put the entire transfer under
         // HttpClient's 100 s timeout, so a large catalog pak on a slow connection failed every time.
-        var cancellationToken = BeginDownload();
+        // The Downloading row: the caller's when it installs straight after (it then says
+        // "Installing…" and the caller removes it), else this method's own, gone once the file is in.
+        var row = callerRow ?? BeginDownload(catalogEntry.Name);
         try
         {
-            await HttpFileDownloader.DownloadToFileAsync(_downloadHttpClient, [downloadUrl], localPath, HttpFileDownloader.DefaultIdleTimeout, cancellationToken);
+            await HttpFileDownloader.DownloadToFileAsync(_downloadHttpClient, [downloadUrl], localPath, HttpFileDownloader.DefaultIdleTimeout, row.Token, row.Progress);
         }
         finally
         {
-            EndDownload();
+            if (callerRow is null)
+            {
+                FinishDownloadRow(row);
+            }
+            else
+            {
+                EndDownload(row);
+            }
         }
 
         // catalogEntryId is the Database counterpart of the Nexus pipeline's nexusModId — the

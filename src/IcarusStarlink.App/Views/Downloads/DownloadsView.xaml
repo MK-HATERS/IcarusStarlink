@@ -15,6 +15,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -27,12 +28,55 @@
         <TextBlock Grid.Row="1" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,4,0,12"
                    Text="Everything you downloaded through Starlink, from Nexus or the IMM Database. A download goes into your Library as soon as it finishes. One download is one mod: its paks and any Lua part show in Library as linked rows. Reinstall puts a removed mod back; Discard deletes the downloaded file."/>
 
-        <DockPanel Grid.Row="2" Margin="0,0,0,8">
+        <!-- Downloading: each download in progress, with its bytes and its own Cancel, then
+             "Installing…" while it goes into the Library. Hidden when nothing is downloading. -->
+        <Border Grid.Row="2" Margin="0,0,0,12" Padding="14,10" CornerRadius="6"
+                Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                Visibility="{Binding HasActiveDownloads, Converter={StaticResource BoolToVisibilityConverter}}">
+            <StackPanel>
+                <TextBlock Text="{Binding ActiveDownloads.Count, StringFormat='Downloading · {0}'}" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <ItemsControl ItemsSource="{Binding ActiveDownloads}" Focusable="False" AutomationProperties.Name="Downloads in progress">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" MinWidth="160" MaxWidth="360"/>
+                                    <ColumnDefinition Width="2*" MinWidth="120"/>
+                                    <ColumnDefinition Width="Auto" MinWidth="150"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" Margin="0,0,12,0"/>
+                                <ProgressBar Grid.Column="1" Height="6" Minimum="0" Maximum="100" Focusable="False" VerticalAlignment="Center"
+                                             Value="{Binding Percent, Mode=OneWay}" IsIndeterminate="{Binding IsIndeterminate, Mode=OneWay}"
+                                             AutomationProperties.Name="{Binding Name, StringFormat='{}{0} progress'}"/>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0">
+                                    <TextBlock Text="{Binding SizeText}" FontSize="12"/>
+                                    <TextBlock Text="{Binding SpeedText, StringFormat='  ·  {0}'}" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                               Visibility="{Binding SpeedText, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                </StackPanel>
+                                <Button Grid.Column="3" Content="Cancel" Margin="4,0,0,0" Command="{Binding CancelCommand}"
+                                        Visibility="{Binding CanCancel, Converter={StaticResource BoolToVisibilityConverter}}"
+                                        ToolTip="Stop this download only (the others keep going)"
+                                        AutomationProperties.Name="{Binding Name, StringFormat='Cancel {0}'}"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <DockPanel Grid.Row="3" Margin="0,0,0,8">
             <!-- ContentStringFormat, not Binding.StringFormat: Content is an object, so a
                  StringFormat on its binding is ignored and the box read just "3". -->
             <CheckBox DockPanel.Dock="Right" IsChecked="{Binding ShowInstalledDownloads}" VerticalAlignment="Center"
                       Content="{Binding InstalledDownloadCount}" ContentStringFormat="Show installed ({0})"
                       ToolTip="Downloads that are fully installed are hidden by default — tick to see them (Reinstall lives there)"/>
+            <!-- Two or more rows selected (Ctrl/Shift-click): discard them in one go, one question for the installed ones. -->
+            <Button DockPanel.Dock="Right" Margin="0,0,12,0" Command="{Binding DiscardSelectedDownloadsCommand}"
+                    Content="{Binding SelectedPendingDownloadCount}" ContentStringFormat="Discard selected ({0})"
+                    Visibility="{Binding CanDiscardSelected, Converter={StaticResource BoolToVisibilityConverter}}"
+                    ToolTip="Delete the downloaded files of the selected rows (installed mods stay; you're asked first if any are installed)"/>
             <!-- Only while something is downloading: stops every download in progress (an install
                  already under way finishes — cutting it off could leave a mod half-copied). -->
             <Button DockPanel.Dock="Right" Margin="0,0,12,0" Content="Cancel downloads"
@@ -43,7 +87,8 @@
                        FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"/>
         </DockPanel>
 
-        <DataGrid Grid.Row="3" ItemsSource="{Binding VisiblePendingDownloads}" AutoGenerateColumns="False" IsReadOnly="True">
+        <DataGrid x:Name="DownloadsGrid" Grid.Row="4" ItemsSource="{Binding VisiblePendingDownloads}" AutoGenerateColumns="False" IsReadOnly="True"
+                  SelectionMode="Extended" SelectionChanged="DownloadsGrid_SelectionChanged">
             <!-- Every cell's text centred in the row, level with the buttons on the right. -->
             <DataGrid.Columns>
                 <DataGridTemplateColumn Header="Mod" Width="*" MinWidth="200">
@@ -129,7 +174,7 @@
         </DataGrid>
 
         <!-- Instead of a blank table: nothing downloaded yet, or every download installed and hidden. -->
-        <TextBlock Grid.Row="3" Text="{Binding DownloadsEmptyText}" Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
+        <TextBlock Grid.Row="4" Text="{Binding DownloadsEmptyText}" Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
                    Visibility="{Binding DownloadsEmptyText, Converter={StaticResource NullToVisibilityConverter}}"/>
     </Grid>
 </UserControl>

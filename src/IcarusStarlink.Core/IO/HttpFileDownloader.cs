@@ -2,6 +2,9 @@ using System.Net.Http;
 
 namespace IcarusStarlink.Core.IO;
 
+/// <summary>How far a download has got: bytes written so far, and the whole size when the server said (Content-Length).</summary>
+public readonly record struct DownloadProgress(long BytesReceived, long? TotalBytes);
+
 /// <summary>
 /// Streams an HTTP GET's response body straight to a file, rather than buffering the whole body in
 /// memory first. The one place downloads are written to disk: Nexus and IMM Database downloads,
@@ -14,6 +17,13 @@ public static class HttpFileDownloader
     public static readonly TimeSpan DefaultIdleTimeout = TimeSpan.FromSeconds(60);
 
     /// <summary>
+    /// Progress is reported at most this often (plus the first chunk and the end), not once per
+    /// 80 KB buffer — a fast connection fills hundreds of buffers a second, and each report is a
+    /// UI update on the Downloads page.
+    /// </summary>
+    public static readonly TimeSpan ProgressInterval = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>
     /// Downloads to <paramref name="destinationPath"/> from the first server that answers (see
     /// GetFromFirstAnsweringAsync), through a .part file renamed into place only once complete — so
     /// a failure never leaves a truncated file, or truncates an earlier good copy at that path.
@@ -23,15 +33,17 @@ public static class HttpFileDownloader
     /// TimeoutException. The clock restarts on every chunk, so a slow but moving download is fine.</param>
     public static Task<string> DownloadToFileAsync(
         HttpClient client, IReadOnlyList<string> requestUris, string destinationPath, TimeSpan idleTimeout,
-        CancellationToken cancellationToken = default) =>
-        DownloadToFileAsync(client, requestUris, _ => destinationPath, idleTimeout, cancellationToken);
+        CancellationToken cancellationToken = default, IProgress<DownloadProgress>? progress = null) =>
+        DownloadToFileAsync(client, requestUris, _ => destinationPath, idleTimeout, cancellationToken, progress);
 
     /// <param name="chooseDestination">Picks the final path once a server has answered — a Nexus
     /// download is named by the response's own Content-Disposition header.</param>
+    /// <param name="progress">Told the bytes written so far (and the size, when known), throttled
+    /// to ProgressInterval. Reported on whatever thread the copy runs on; a UI caller marshals.</param>
     /// <returns>The path the file was saved to.</returns>
     public static async Task<string> DownloadToFileAsync(
         HttpClient client, IReadOnlyList<string> requestUris, Func<HttpResponseMessage, string> chooseDestination, TimeSpan idleTimeout,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, IProgress<DownloadProgress>? progress = null)
     {
         using var response = await GetFromFirstAnsweringAsync(client, requestUris, cancellationToken);
         var destinationPath = chooseDestination(response);
@@ -46,7 +58,7 @@ public static class HttpFileDownloader
         {
             await using (var file = File.Create(partPath))
             {
-                await CopyWithIdleTimeoutAsync(response.Content, file, idleTimeout, cancellationToken);
+                await CopyWithIdleTimeoutAsync(response.Content, file, idleTimeout, progress, cancellationToken);
             }
 
             File.Move(partPath, destinationPath, overwrite: true);
@@ -70,10 +82,16 @@ public static class HttpFileDownloader
     }
 
     /// <summary>Copies the body chunk by chunk, throwing TimeoutException when no chunk arrives within idleTimeout.</summary>
-    private static async Task CopyWithIdleTimeoutAsync(HttpContent content, Stream destination, TimeSpan idleTimeout, CancellationToken cancellationToken)
+    private static async Task CopyWithIdleTimeoutAsync(
+        HttpContent content, Stream destination, TimeSpan idleTimeout, IProgress<DownloadProgress>? progress, CancellationToken cancellationToken)
     {
         using var idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         idle.CancelAfter(idleTimeout);
+        // The size is the server's word only: a missing or nonsense Content-Length shows as unknown.
+        var total = content.Headers.ContentLength is > 0 and var length ? length : (long?)null;
+        long received = 0;
+        long lastReport = 0;
+        var reportedOnce = false;
         try
         {
             await using var source = await content.ReadAsStreamAsync(idle.Token);
@@ -83,7 +101,16 @@ public static class HttpFileDownloader
             {
                 await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
                 idle.CancelAfter(idleTimeout);
+                received += read;
+                if (progress is not null && (!reportedOnce || System.Diagnostics.Stopwatch.GetElapsedTime(lastReport) >= ProgressInterval))
+                {
+                    reportedOnce = true;
+                    lastReport = System.Diagnostics.Stopwatch.GetTimestamp();
+                    progress.Report(new DownloadProgress(received, total));
+                }
             }
+
+            progress?.Report(new DownloadProgress(received, total));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

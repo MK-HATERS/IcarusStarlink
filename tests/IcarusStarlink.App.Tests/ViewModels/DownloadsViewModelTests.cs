@@ -90,11 +90,15 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         /// <summary>What any HTTP download returns — a catalog download test hands it the archive bytes.</summary>
         public byte[]? HttpResponseBytes { get; set; }
 
+        /// <summary>When set, answers every HTTP download instead (a progress test holds the body back).</summary>
+        public HttpMessageHandler? HttpHandler { get; set; }
+
         public DownloadsViewModel Build()
         {
             var settings = Settings ?? new FakeSettingsService();
             settings.Current.IcarusContentPath = IcarusContentPath;
-            var httpClient = HttpResponseBytes is null ? new HttpClient() : new HttpClient(new FixedBytesHandler(HttpResponseBytes));
+            var httpClient = HttpHandler is not null ? new HttpClient(HttpHandler)
+                : HttpResponseBytes is null ? new HttpClient() : new HttpClient(new FixedBytesHandler(HttpResponseBytes));
             return new DownloadsViewModel(
                 Catalog, Jimk72Catalog ?? Catalog, new FakeGitHubRepoDateClient(),
                 Library, Ue4ss, Ue4ssMeta, settings, NexusApi, new FakeCredentialStore(), PendingStore,

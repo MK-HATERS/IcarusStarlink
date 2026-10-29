@@ -162,8 +162,8 @@ public sealed partial class DownloadsViewModel
         }
 
         _activeDownloadsTracker.Start(trackerKey, trackerDisplayName);
-        var cancellationToken = BeginDownload();
-        var downloading = true;
+        var row = BeginDownload(trackerDisplayName);
+        var cancellationToken = row.Token;
         try
         {
             var links = await _nexusApiClient.GetDownloadLinksAsync(
@@ -183,13 +183,20 @@ public sealed partial class DownloadsViewModel
             var localPath = await HttpFileDownloader.DownloadToFileAsync(_downloadHttpClient, [.. links.Select(l => l.Uri)], response =>
             {
                 fileName = ChooseNexusFileName(response, nxmUrl, links[0].Uri);
+                if (displayName is null)
+                {
+                    // "Mod #123" until now: the file's own name says more on the Downloading row.
+                    row.Name = Path.GetFileNameWithoutExtension(fileName);
+                }
+
                 return Path.Combine(_pendingDownloadsDirectory, fileName);
-            }, HttpFileDownloader.DefaultIdleTimeout, cancellationToken);
+            }, HttpFileDownloader.DefaultIdleTimeout, cancellationToken, row.Progress);
 
             // The import below doesn't count as downloading: Cancel downloads must not cut an
-            // install off halfway. (The Library's in-progress row stays until it has landed.)
-            downloading = false;
-            EndDownload();
+            // install off halfway. (The Library's in-progress row stays until it has landed, and
+            // the Downloading row says "Installing…".)
+            EndDownload(row);
+            row.MarkInstalling();
 
             _pendingDownloadStore.Add(new PendingDownloadEntry
             {
@@ -241,11 +248,7 @@ public sealed partial class DownloadsViewModel
         }
         finally
         {
-            if (downloading)
-            {
-                EndDownload();
-            }
-
+            FinishDownloadRow(row);
             _activeDownloadsTracker.Finish(trackerKey);
         }
     }

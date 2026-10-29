@@ -151,6 +151,99 @@ public class HttpFileDownloaderTests
         }
     }
 
+    /// <summary>
+    /// The Downloads page's progress bar: the first chunk and the end are always reported, with the
+    /// server's size, and a fast body of a thousand chunks is NOT a thousand UI updates.
+    /// </summary>
+    [Fact]
+    public async Task DownloadToFileAsync_WithProgress_ReportsTheFirstChunkThrottledUpdatesAndTheEnd()
+    {
+        var folder = Directory.CreateTempSubdirectory("HttpFileDownloaderTests").FullName;
+        try
+        {
+            using var client = new HttpClient(new StaticResponseHandler(() =>
+            {
+                var content = new StreamContent(new ChunkedStream(chunks: 1000, chunkSize: 10));
+                content.Headers.ContentLength = 10_000;
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+            }));
+            var reports = new List<DownloadProgress>();
+
+            await HttpFileDownloader.DownloadToFileAsync(client, ["https://example.invalid/mod.zip"], Path.Combine(folder, "mod.zip"), TimeSpan.FromSeconds(5),
+                progress: new InlineProgress(reports.Add));
+
+            Assert.Equal(new DownloadProgress(10, 10_000), reports[0]);
+            Assert.Equal(new DownloadProgress(10_000, 10_000), reports[^1]);
+            Assert.True(reports.Count < 50, $"{reports.Count} reports for 1000 chunks");
+            Assert.Equal(10_000, new FileInfo(Path.Combine(folder, "mod.zip")).Length);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>No Content-Length: the size is unknown (null), not zero, so the page shows just the bytes so far.</summary>
+    [Fact]
+    public async Task DownloadToFileAsync_ServerGivesNoSize_ReportsTheSizeAsUnknown()
+    {
+        var folder = Directory.CreateTempSubdirectory("HttpFileDownloaderTests").FullName;
+        try
+        {
+            using var client = new HttpClient(new StaticResponseHandler(() =>
+                new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new ChunkedStream(chunks: 3, chunkSize: 5)) }));
+            var reports = new List<DownloadProgress>();
+
+            await HttpFileDownloader.DownloadToFileAsync(client, ["https://example.invalid/mod.zip"], Path.Combine(folder, "mod.zip"), TimeSpan.FromSeconds(5),
+                progress: new InlineProgress(reports.Add));
+
+            Assert.All(reports, r => Assert.Null(r.TotalBytes));
+            Assert.Equal(15, reports[^1].BytesReceived);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    private sealed class InlineProgress(Action<DownloadProgress> report) : IProgress<DownloadProgress>
+    {
+        public void Report(DownloadProgress value) => report(value);
+    }
+
+    /// <summary>A body of many small chunks that arrive at once (no seek, so no length of its own).</summary>
+    private sealed class ChunkedStream(int chunks, int chunkSize) : Stream
+    {
+        private int _sent;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_sent == chunks)
+            {
+                return ValueTask.FromResult(0);
+            }
+
+            _sent++;
+            buffer.Span[..chunkSize].Fill(7);
+            return ValueTask.FromResult(chunkSize);
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override int Read(byte[] buffer, int offset, int count) => ReadAsync(buffer.AsMemory(offset, count)).AsTask().Result;
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     /// <summary>A body that sends one byte, then nothing ever again — a connection gone quiet.</summary>
     private sealed class StallingStream : Stream
     {

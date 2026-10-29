@@ -89,6 +89,9 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
 
     public bool WasDeleted => ActivatedItems.Count > 0 && !ActivatedItems.All(StillPresent);
 
+    /// <summary>Something this download installed is still in the Library or the game — its file is what Reinstall original puts back, so Discard asks first.</summary>
+    public bool HasInstalledParts => ActivatedItems.Any(StillPresent);
+
     /// <summary>"Reinstall" for anything that has been installed before (still there, or removed since) — "Activate" only for a download never imported.</summary>
     public string ActionLabel => ActivatedItems.Count > 0 ? "Reinstall" : "Activate";
 

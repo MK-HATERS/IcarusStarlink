@@ -194,33 +194,106 @@ public sealed partial class DownloadsViewModel : ObservableObject
     [RelayCommand]
     private void DiscardPendingDownload(PendingDownloadItemViewModel? item)
     {
-        if (item is null)
+        if (item is not null)
+        {
+            Discard([item]);
+        }
+    }
+
+    /// <summary>The rows ticked in the Downloads list (DataGrid.SelectedItems isn't bindable: the view's code-behind hands them over).</summary>
+    private IReadOnlyList<PendingDownloadItemViewModel> _selectedPendingDownloads = [];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanDiscardSelected))]
+    [NotifyCanExecuteChangedFor(nameof(DiscardSelectedDownloadsCommand))]
+    private int _selectedPendingDownloadCount;
+
+    /// <summary>The toolbar's Discard selected shows for two or more rows; one row has its own Discard.</summary>
+    public bool CanDiscardSelected => SelectedPendingDownloadCount > 1;
+
+    public void SetSelectedPendingDownloads(IReadOnlyList<PendingDownloadItemViewModel> items)
+    {
+        _selectedPendingDownloads = items;
+        SelectedPendingDownloadCount = items.Count;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanDiscardSelected))]
+    private void DiscardSelectedDownloads() => Discard([.. _selectedPendingDownloads]);
+
+    /// <summary>
+    /// Deletes each download's file and drops it from the list. The file of a download that's
+    /// installed is what Library's Reinstall original and this page's Reinstall put back, so those
+    /// ask first (once, naming them); a download never installed, or since removed, goes in one
+    /// click. No deletes nothing. The installed mods themselves always stay.
+    /// </summary>
+    private void Discard(IReadOnlyList<PendingDownloadItemViewModel> items)
+    {
+        if (items.Count == 0)
         {
             return;
         }
 
-        try
+        if (_dialogService is not null)
         {
-            var localFilePath = ResolveLocalFilePath(item);
-            if (File.Exists(localFilePath))
+            // One read of the Library for the question, not a stale one from the last refresh.
+            var installed = InstalledModsSnapshot.Take(_libraryRepository, _ue4ssNames);
+            foreach (var item in items)
             {
-                File.Delete(localFilePath);
+                item.Refresh(installed);
+            }
+
+            var installedItems = items.Where(i => i.HasInstalledParts).ToList();
+            if (installedItems.Count > 0 && !_dialogService.Confirm(DiscardQuestion(items.Count, installedItems), "Discard download", ThemedConfirmSeverity.Warning))
+            {
+                PendingDownloadStatusMessage = "Nothing discarded.";
+                return;
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+        var notDeleted = new List<string>();
+        foreach (var item in items)
         {
-            // Best-effort cleanup — even if the file can't be deleted right now (locked by another
-            // process), still drop it from the tracked list; a stray file at worst just sits there
-            // unreferenced instead of blocking the user from moving on.
-            PendingDownloadStatusMessage = $"Removed from the list, but couldn't delete the file: {ex.Message}";
+            try
+            {
+                var localFilePath = ResolveLocalFilePath(item);
+                if (File.Exists(localFilePath))
+                {
+                    File.Delete(localFilePath);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Best-effort cleanup — even if the file can't be deleted right now (locked by another
+                // process), still drop it from the tracked list; a stray file at worst just sits there
+                // unreferenced instead of blocking the user from moving on.
+                notDeleted.Add($"{item.FileName}: {ex.Message}");
+            }
+
             _pendingDownloadStore.Remove(item.ModId, item.FileId);
-            ReloadPendingDownloads();
-            return;
         }
 
-        _pendingDownloadStore.Remove(item.ModId, item.FileId);
         ReloadPendingDownloads();
-        PendingDownloadStatusMessage = $"Discarded '{item.FileName}'.";
+        PendingDownloadStatusMessage = notDeleted.Count > 0
+            ? $"Removed from the list, but couldn't delete the file: {string.Join("; ", notDeleted)}"
+            : items.Count == 1 ? $"Discarded '{items[0].FileName}'." : $"Discarded {items.Count} downloads.";
+    }
+
+    /// <summary>What Discard asks when some of the downloads are installed: what is lost, and that the mods stay.</summary>
+    internal static string DiscardQuestion(int discarding, IReadOnlyList<PendingDownloadItemViewModel> installed)
+    {
+        if (discarding == 1)
+        {
+            return $"'{installed[0].DisplayName}' is installed. Discard deletes its downloaded file.\n\n"
+                + "The mod stays in your Library, but Reinstall original won't be able to put this mod back as its author made it, "
+                + "and Reinstall here won't work either — you'd have to download it again.\n\nDiscard it?";
+        }
+
+        var names = string.Join("\n", installed.Take(10).Select(i => $"• {i.DisplayName}"))
+            + (installed.Count > 10 ? $"\n• …and {installed.Count - 10} more" : "");
+        var these = installed.Count == 1 ? "This one is installed" : $"These {installed.Count} are installed";
+        return $"Discard deletes the downloaded files of {discarding} downloads. {these}:\n\n{names}\n\n"
+            + "Those mods stay in your Library, but Reinstall original won't be able to put them back as their authors made them, "
+            + $"and Reinstall here won't work either — you'd have to download them again.\n\nDiscard all {discarding}?";
     }
 
     /// <summary>
@@ -310,19 +383,47 @@ public sealed partial class DownloadsViewModel : ObservableObject
         PendingDownloadStatusMessage = "Cancelling downloads…";
     }
 
-    /// <summary>Counts a download as running (for Cancel downloads and the busy check) and hands out the token Cancel downloads cancels.</summary>
-    private CancellationToken BeginDownload()
+    /// <summary>The Downloads page's "Downloading" list: every download in progress, then installing. Empty (and hidden) when nothing is.</summary>
+    public ObservableCollection<ActiveDownloadViewModel> ActiveDownloads { get; } = [];
+
+    public bool HasActiveDownloads => ActiveDownloads.Count > 0;
+
+    /// <summary>
+    /// Counts a download as running (for Cancel downloads and the busy check) and shows its row in
+    /// the Downloading list. The row's Token is what the download runs with: its own Cancel and
+    /// Cancel downloads both stop it. Always pair with FinishDownloadRow in a finally.
+    /// </summary>
+    private ActiveDownloadViewModel BeginDownload(string name)
     {
         Interlocked.Increment(ref _downloadsRunning);
         IsDownloading = true;
-        return _downloadCancellation.Token;
+        var row = new ActiveDownloadViewModel(name, _downloadCancellation.Token) { CountedAsDownloading = true };
+        ActiveDownloads.Add(row);
+        OnPropertyChanged(nameof(HasActiveDownloads));
+        return row;
     }
 
-    private void EndDownload()
+    /// <summary>The bytes are in: no longer a download (Cancel downloads must not cut the install off). Safe to call twice.</summary>
+    private void EndDownload(ActiveDownloadViewModel row)
     {
+        if (!row.CountedAsDownloading)
+        {
+            return;
+        }
+
+        row.CountedAsDownloading = false;
         if (Interlocked.Decrement(ref _downloadsRunning) == 0)
         {
             IsDownloading = false;
         }
+    }
+
+    /// <summary>The download (and its install, if any) is over, however it went: the row goes.</summary>
+    private void FinishDownloadRow(ActiveDownloadViewModel row)
+    {
+        EndDownload(row);
+        ActiveDownloads.Remove(row);
+        OnPropertyChanged(nameof(HasActiveDownloads));
+        row.Dispose();
     }
 }
