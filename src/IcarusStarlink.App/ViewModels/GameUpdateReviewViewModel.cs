@@ -148,7 +148,7 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
 
     public string RollBackText => Snapshot is { } s
         ? $"Roll back puts your mod setup back as it was on {s.CreatedAtUtc.ToLocalTime():g}: the merged pak in the game, what's ticked and in what order, merge options, conflict picks and which UE4SS mods are on. The game itself can't be rolled back, only your mod setup."
-        : "Nothing to roll back to yet: a snapshot is made at the start of Update everything.";
+        : "Nothing to roll back to yet: Starlink saves your setup each time you start Update everything.";
 
     public bool HasFixedForYou => FixedForYou.Count > 0;
 

@@ -20,7 +20,7 @@
             <TextBlock DockPanel.Dock="Left" Text="History" VerticalAlignment="Center" Margin="0,0,8,0" Style="{StaticResource FieldLabelStyle}"/>
             <ComboBox DockPanel.Dock="Left" ItemsSource="{Binding ReportHistory}" SelectedItem="{Binding SelectedReport}"
                       MinWidth="260" VerticalAlignment="Center" AutomationProperties.Name="Which refresh to show"
-                      ToolTip="This app keeps roughly a month of past game data refreshes — pick one to see what changed in it">
+                      ToolTip="Starlink keeps about a month of past game data refreshes. Pick one to see what changed in it.">
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
                         <TextBlock Text="{Binding Display}"/>
@@ -28,7 +28,7 @@
                 </ComboBox.ItemTemplate>
             </ComboBox>
             <Button DockPanel.Dock="Left" Command="{Binding Settings.UpdateDataFolderCommand}" Margin="16,0,0,0" VerticalAlignment="Center"
-                    ToolTip="Re-extract the game's current data and compare it against last time — same as Settings' Refresh game data"
+                    ToolTip="Reads the game's data again and shows what changed since last time. Same as Refresh game data in Settings."
                     AutomationProperties.Name="Refresh game data">
                 <StackPanel Orientation="Horizontal">
                     <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
