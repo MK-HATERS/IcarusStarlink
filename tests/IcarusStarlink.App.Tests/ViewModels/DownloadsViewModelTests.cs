@@ -202,6 +202,30 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         Assert.Single(harness.Library.GetAll());
     }
 
+    /// <summary>
+    /// Review 2026-10-28: recording the Nexus link on a UE4SS mod's sidecar runs inside the install.
+    /// A sidecar that couldn't be written failed an install that had worked: the mod was taken back
+    /// out and the manual install opened. It's bookkeeping, so it's now only a warning.
+    /// </summary>
+    [Fact]
+    public async Task Activate_Ue4ssSidecarCantBeWritten_InstallStillSucceeds()
+    {
+        var harness = new Harness(_root);
+        // A file where the sidecar folder should be: every sidecar write fails.
+        File.WriteAllText(Path.Combine(_root, "Ue4ss_Meta"), "");
+        var vm = harness.Build();
+        var manualInstallOpened = false;
+        vm.ManualInstall = (_, _, _, _) => { manualInstallOpened = true; return null; };
+        var item = harness.AddDownload("WirelessPower 1.0.0 361 1 2026-10-12T13-49Z UAfrx4UUt.zip", WriteWirelessPowerLayout);
+
+        var result = await vm.ActivateAsync(item);
+
+        Assert.True(result.Succeeded, result.Message);
+        Assert.False(manualInstallOpened);
+        Assert.Contains("WirelessPower", harness.Ue4ss.GetAll());
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("came from Nexus mod #361"));
+    }
+
     /// <summary>A download Starlink can't sort out (loose .uasset files next to a Lua mod) — the import fails and only THEN the manual install opens, with the reason, pre-filled with Starlink's guesses.</summary>
     private static void WriteUnrecognisable(ZipArchive archive)
     {

@@ -422,7 +422,18 @@ public sealed partial class DownloadsViewModel
     {
         var meta = _ue4ssModMetaStore.Load(folderName);
         meta.NexusModId = modId;
-        _ue4ssModMetaStore.Save(folderName, meta);
+        try
+        {
+            _ue4ssModMetaStore.Save(folderName, meta);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Bookkeeping only, like RecordNexusFileAsync: this runs inside the install, and a
+            // locked sidecar used to fail an install that had worked — the mod was taken back out
+            // and the manual install opened.
+            _activityLog.Log($"Couldn't record that '{folderName}' came from Nexus mod #{modId}: {ex.Message}", ActivityEntryKind.Warning);
+            return;
+        }
 
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
         if (apiKey is null)
