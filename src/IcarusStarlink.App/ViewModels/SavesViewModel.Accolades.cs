@@ -82,13 +82,16 @@ public sealed partial class SavesViewModel
         var newArray = new JsonArray();
         if (_accoladesRoot["CompletedAccolades"] is JsonArray existing)
         {
-            foreach (var entry in existing.OfType<JsonObject>())
+            foreach (var node in existing)
             {
                 // Kept exactly as the game wrote it (TimeCompleted/ProspectID preserved) — only
-                // whether it stays in the list changes here, never its own fields.
-                if (SaveJson.String((entry["Accolade"] as JsonObject)?["RowName"]) is { } rowName && nowCompleted.Contains(rowName))
+                // whether it stays in the list changes here, never its own fields. An entry this
+                // page can't name isn't on the page, so nobody took it out: it stays (one edit used
+                // to drop every such entry, as Bestiary's once did).
+                if ((node as JsonObject)?["Accolade"] is not JsonObject accolade || SaveJson.String(accolade["RowName"]) is not { } rowName
+                    || nowCompleted.Contains(rowName))
                 {
-                    newArray.Add(entry.DeepClone());
+                    newArray.Add(node?.DeepClone());
                 }
             }
         }

@@ -1406,6 +1406,40 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
+    /// <summary>An accolade entry the page can't name isn't listed, so nobody took it out: one accolade edit used to drop it from the file.</summary>
+    [Fact]
+    public async Task SaveChangesCommand_AccoladeEdited_KeepsEntriesThePageCantName()
+    {
+        var odd = new JsonObject { ["Accolade"] = new JsonObject { ["DataTableName"] = "D_Accolades" }, ["TimeCompleted"] = "2026.01.01-00.00.00" };
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            Accolades = new JsonObject
+            {
+                ["CompletedAccolades"] = new JsonArray(
+                    new JsonObject { ["Accolade"] = new JsonObject { ["RowName"] = "EquipFullArmour", ["DataTableName"] = "D_Accolades" } },
+                    odd.DeepClone()),
+                ["PlayerTrackers"] = new JsonArray(),
+            },
+        };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+
+            vm.Accolades.Single(a => a.RowName == "EquipFullArmour").IsCompleted = false;
+            vm.SaveChangesCommand.Execute(null);
+
+            var written = repository.Accolades["CompletedAccolades"]!.AsArray();
+            Assert.Equal(odd.ToJsonString(), Assert.Single(written)!.ToJsonString());
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     /// <summary>Remove leftovers sets a rank straight to 0: a talent that was at its highest rank kept + greyed out.</summary>
     [Fact]
     public void TalentRow_RankSetFromOutside_RefreshesWhetherItCanRankUp()
