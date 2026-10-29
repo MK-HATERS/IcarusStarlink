@@ -91,4 +91,24 @@ public sealed class Ue4ssModConfigFilesTests : IDisposable
         Assert.True(Ue4ssModConfigFiles.IsDefaults("settings.defaults.ini"));
         Assert.False(Ue4ssModConfigFiles.IsDefaults("config.lua"));
     }
+
+    /// <summary>A shared patch names the files it writes: only settings paths count (review 2026-10-28).</summary>
+    [Theory]
+    [InlineData("config.lua", true)]
+    [InlineData("Mod.cfg", true)]
+    [InlineData("settings.json", true)]
+    [InlineData("config/Pets.ini", true)]
+    [InlineData("Scripts/config.lua", true)]
+    [InlineData("Scripts/main.lua", false)]
+    [InlineData("enabled.txt", false)]
+    [InlineData("dlls/main.dll", false)]
+    [InlineData("Scripts/sub/config.lua", false)]
+    [InlineData("../Other/config.lua", false)]
+    [InlineData("config/../Scripts/main.lua", false)]
+    [InlineData("C:/config.lua", false)]
+    [InlineData("config.lua:stream", false)]
+    [InlineData("config.lua.", false)]
+    [InlineData("", false)]
+    public void IsConfigPath_OnlySettingsPaths(string path, bool expected) =>
+        Assert.Equal(expected, Ue4ssModConfigFiles.IsConfigPath(path));
 }

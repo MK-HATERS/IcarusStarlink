@@ -107,6 +107,48 @@ public static partial class Ue4ssModConfigFiles
         _ => Ue4ssModConfigFormat.Text,
     };
 
+    /// <summary>
+    /// Whether a relative path (from a shared patch: untrusted) names a file Find would list as
+    /// one of the mod's settings, by where it is and what it's called: any .ini/.cfg or a settings-
+    /// named file in the mod folder, a settings file under config/configs/settings, a settings-
+    /// named .lua in Scripts. Never the mod's scripts, enabled.txt, a dll, a path out of the
+    /// folder, or a name with a stream or drive in it. Find's "it holds functions" test needs the
+    /// file, so the caller checks that a Lua file's text is only data.
+    /// </summary>
+    public static bool IsConfigPath(string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath) || relativePath.Contains(':')
+            || relativePath.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
+        {
+            return false;
+        }
+
+        var parts = relativePath.Split(['/', '\\'], StringSplitOptions.None);
+        if (parts.Any(p => p.Length == 0 || p is "." or ".." || p.Trim() != p || p.TrimEnd('.') != p))
+        {
+            return false;
+        }
+
+        var ext = Path.GetExtension(relativePath).ToLowerInvariant();
+        if (!SettingsExtensions.Contains(ext))
+        {
+            return false;
+        }
+
+        if (parts.Length == 1)
+        {
+            return ext is ".ini" or ".cfg" || NamedLikeSettings(relativePath);
+        }
+
+        if (parts[0].Equals("config", StringComparison.OrdinalIgnoreCase) || parts[0].Equals("configs", StringComparison.OrdinalIgnoreCase)
+            || parts[0].Equals("settings", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return parts.Length == 2 && parts[0].Equals("Scripts", StringComparison.OrdinalIgnoreCase) && ext == ".lua" && NamedLikeSettings(relativePath);
+    }
+
     /// <summary>"config.default.lua", "config.defaults.ini", "settings.default.lua": the values the mod ships with.</summary>
     public static bool IsDefaults(string relativePath)
     {

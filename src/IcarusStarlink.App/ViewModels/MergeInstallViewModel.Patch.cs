@@ -598,6 +598,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         }
 
         var settingsApplied = 0;
+        var refusedConfigs = new List<string>();
         var landed = 0;
         var configBackups = Path.Combine(_backupDirectory, "UE4SS-Mod-Configs");
         foreach (var mod in wanted)
@@ -632,14 +633,17 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
             if (configured.Add(name))
             {
+                refusedConfigs.AddRange(mod.RefusedConfigPaths.Select(p => $"{name}: {p}"));
                 foreach (var config in mod.Configs)
                 {
-                    var relative = config.Path.Replace('/', Path.DirectorySeparatorChar);
-                    if (relative.Contains("..", StringComparison.Ordinal) || Path.IsPathRooted(relative))
+                    // PatchService already took these out; checked again for any other reader.
+                    if (!PatchConfigSafety.IsSafe(config))
                     {
-                        continue; // a config path that leaves the mod folder isn't one
+                        refusedConfigs.Add($"{name}: {config.Path}");
+                        continue;
                     }
 
+                    var relative = config.Path.Replace('/', Path.DirectorySeparatorChar);
                     Ue4ssModConfigCarryOver.ApplyValues(folder, relative, config.Text, configBackups);
                     settingsApplied++;
                 }
@@ -659,6 +663,11 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         if (settingsApplied > 0)
         {
             lines.Add($"settings written for {wanted.Count - missing.Count} UE4SS mod(s) (your old files are in Backups\\UE4SS-Mod-Configs)");
+        }
+
+        if (refusedConfigs.Count > 0)
+        {
+            lines.Add($"left out {refusedConfigs.Count} file(s) the patch called settings that aren't plain settings ({string.Join(", ", refusedConfigs)})");
         }
 
         return new Ue4ssImportOutcome(lines, toTurnOn, missing);

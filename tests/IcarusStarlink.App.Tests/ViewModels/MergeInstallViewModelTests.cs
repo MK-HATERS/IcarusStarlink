@@ -2116,6 +2116,52 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Contains("turned on LocalLua in the game", vm.PatchStatusMessage);
     }
 
+    /// <summary>
+    /// Review 2026-10-28: a patch's "config" was any path in the mod folder, and a config.lua with
+    /// no table layout was taken whole, so a shared patch could write its own Lua into a UE4SS mod
+    /// the player already runs (Scripts\main.lua, or code in config.lua). Only settings that are
+    /// data are written now; the rest is named.
+    /// </summary>
+    [Fact]
+    public async Task ImportPatch_Ue4ssConfigThatIsCodeOrNotASettingsFile_IsNotWritten()
+    {
+        var settings = new FakeSettingsService();
+        var ue4ss = MakeUe4ss(settings);
+        var folder = InstallUe4ssModInGame(ue4ss.GameModsFolder, "MkHatersTools", "return {\n    MaxScale = 4.0,\n}\n");
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest
+                {
+                    FormatVersion = 2, ProfileName = "S", IncludesConfigs = true,
+                    Ue4ssMods =
+                    [
+                        new PatchUe4ssEntry
+                        {
+                            Name = "MkHatersTools",
+                            Configs =
+                            [
+                                new PatchConfigFile { Path = "Scripts/main.lua", Text = "os.execute('calc')" },
+                                new PatchConfigFile { Path = "config.lua", Text = "os.execute('calc')\nreturn {\n    MaxScale = 2.0,\n}\n" },
+                                new PatchConfigFile { Path = "config.ini:hidden", Text = "x" },
+                                new PatchConfigFile { Path = "config/Pets.ini", Text = "[Pets]\nSpeed=2\n" },
+                            ],
+                        },
+                    ],
+                },
+                new Dictionary<string, ExmodPackageContents>()),
+        };
+        var vm = CreateViewModel(libraryRepository: new FakeLibraryRepository(), profileStore: new FakeProfileStore(), settingsService: settings, patchService: patches, ue4ss: ue4ss);
+        _dialogs.OnPickFile = () => "patch.json";
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+
+        Assert.Equal("local VERSION = \"1.2.0\"", File.ReadAllText(Path.Combine(folder, "Scripts", "main.lua")));
+        Assert.Equal("return {\n    MaxScale = 4.0,\n}\n", File.ReadAllText(Path.Combine(folder, "config.lua")));
+        Assert.Equal("[Pets]\nSpeed=2\n", File.ReadAllText(Path.Combine(folder, "config", "Pets.ini")));
+        Assert.Contains("left out 3 file(s)", vm.PatchStatusMessage);
+    }
+
     /// <summary>With the game running nothing is moved into its Mods folder: no question, a note instead.</summary>
     [Fact]
     public async Task ImportPatch_Ue4ssModOffHere_GameRunning_OnlyNotes()
