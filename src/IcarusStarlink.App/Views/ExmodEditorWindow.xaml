@@ -111,18 +111,18 @@
                 <Button Content="Change a game item (Editor page) →" Command="{Binding GoToGameEditorCommand}" Margin="0,0,8,4"
                         ToolTip="The Editor page is the easy way to change the game's own items (weight, armour, buffs, recipes) and save them into this mod or a new one"/>
                 <Button Content="Search game data…" Command="{Binding SearchGameDataCommand}" Margin="0,0,8,4"
-                        ToolTip="Find any item by name, and everywhere its name is referenced inside other items' JSON — e.g. every recipe that consumes it"/>
+                        ToolTip="Find any item by name, and every place other items use it, e.g. every recipe that needs it"/>
                 <Button Content="Check references" Command="{Binding CheckReferencesCommand}" Margin="0,0,8,4"
-                        ToolTip="Finds links to rows that exist neither in the game nor in this mod (a typo, or a row a game update renamed), and item rows nothing uses. Also runs on Save."/>
+                        ToolTip="Finds links to rows that are in neither the game nor this mod (a typo, or a row a game update renamed), and items nothing uses. Also runs when you save."/>
                 <Button x:Name="MoreButton" Content="More ▾" Click="MoreButton_Click" Margin="0,0,8,4" ToolTip="Copy a game row, duplicate, open the original file, insert a file, merge another mod, open the folder">
                     <Button.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="Copy a game row into this mod…" Command="{Binding AddItemFromGameCommand}" ToolTip="The raw way to change a game item: copy any row of the game's data, with all its values, then edit the fields you want"/>
-                            <MenuItem Header="Duplicate (Ctrl+D)" Command="{Binding DuplicateItemCommand}" ToolTip="Clone the selected item's fields under a new name"/>
-                            <MenuItem Header="Open original file" Command="{Binding OpenOriginalFileCommand}" ToolTip="Open the real, unmodified base game data file for the selected item"/>
+                            <MenuItem Header="Duplicate (Ctrl+D)" Command="{Binding DuplicateItemCommand}" ToolTip="Copies the selected item under a new name"/>
+                            <MenuItem Header="Open original file" Command="{Binding OpenOriginalFileCommand}" ToolTip="Opens the game's own, unchanged data file for the selected item"/>
                             <MenuItem Header="Insert file at location…" Command="{Binding InsertFileAtLocationCommand}" ToolTip="Add one of the game's own real data files to this mod, with no rows yet"/>
                             <MenuItem Header="Merge existing mod into this one…" Command="{Binding MergeExistingModCommand}" ToolTip="Copy another Library mod's own items into this one — an item already here is left alone"/>
-                            <MenuItem Header="Open mods folder" Command="{Binding OpenModsFolderCommand}" ToolTip="Reveal this mod's own folder in Explorer"/>
+                            <MenuItem Header="Open mods folder" Command="{Binding OpenModsFolderCommand}" ToolTip="Opens this mod's folder in Explorer"/>
                         </ContextMenu>
                     </Button.ContextMenu>
                 </Button>
@@ -140,13 +140,13 @@
                 <StackPanel Margin="0,4,0,0">
                     <Grid>
                         <TextBox Text="{Binding NewItemCurrentFile, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="Real game data file path, e.g. Traits/D_Fuel.json"/>
+                                 ToolTip="Which game data file, e.g. Traits/D_Fuel.json"/>
                         <TextBlock Text="e.g. Traits/D_Fuel.json" Style="{StaticResource PlaceholderTextStyle}"
                                    Visibility="{Binding NewItemCurrentFile, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                     </Grid>
                     <Grid Margin="0,4,0,0">
                         <TextBox Text="{Binding NewItemName, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="Item/row name in that file, e.g. Item_Wood"/>
+                                 ToolTip="The row's name in that file, e.g. Item_Wood"/>
                         <TextBlock Text="e.g. Item_Wood" Style="{StaticResource PlaceholderTextStyle}"
                                    Visibility="{Binding NewItemName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                     </Grid>
@@ -180,7 +180,7 @@
                 </Button>
                 <Button Content="Scale rules" Style="{StaticResource ThemeButtonStyle}"
                         Command="{Binding SetViewModeCommand}" CommandParameter="ScaleRules"
-                        ToolTip="Change one field across a whole game table — e.g. every item's Weight ×0.5 — and rebuild it from current game data after an update">
+                        ToolTip="Change one value across a whole game table, e.g. every item's weight × 0.5. After a game update it can redo the change on the new game data.">
                     <Button.Tag>
                         <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
                             <Binding Path="ViewMode"/>
@@ -235,7 +235,7 @@
                     </TextBlock>
                     <TextBox Text="{Binding MassEditFieldName, UpdateSourceTrigger=PropertyChanged}" Width="150" Margin="8,0,0,4" ToolTip="Field name"/>
                     <TextBox Text="{Binding MassEditFieldValue, UpdateSourceTrigger=PropertyChanged}" Width="180" Margin="8,0,0,4"
-                             ToolTip="JSON value, e.g. 1313 or &quot;text&quot; — set (added if missing) on every selected item"/>
+                             ToolTip="The value, e.g. 1313, or &quot;text&quot; in quotes. It's set on every selected item (added where it's missing)."/>
                     <Button Content="Apply to selection" Command="{Binding ApplyMassEditCommand}" Margin="8,0,0,4"
                             ToolTip="Sets this field on every selected item (added if an item doesn't already have it)"/>
                     <TextBlock Text="{Binding MassEditStatusMessage}" Foreground="{DynamicResource AccentForegroundBrush}"
@@ -369,7 +369,7 @@
                                                 <StackPanel Margin="0,0,8,4">
                                                     <TextBlock Text="Field" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                                                     <ComboBox ItemsSource="{Binding FieldOptions}" Text="{Binding Field, UpdateSourceTrigger=LostFocus}" IsEditable="True" Width="250"
-                                                              ToolTip="A number field in that table. Name.* means every stat in it (ArmourStats.*); Name[].Field means that field in every list entry (Inputs[].Count)."/>
+                                                              ToolTip="A number in that table. Name.* means every stat inside it (ArmourStats.*). Name[].Field means that field in every entry of a list (Inputs[].Count)."/>
                                                 </StackPanel>
                                                 <StackPanel Margin="0,0,8,4">
                                                     <TextBlock Text="Change" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
@@ -388,7 +388,7 @@
                                                              ToolTip="Several words separated by commas match any of them, e.g. Storage, Crate, Cupboard"/>
                                                 </StackPanel>
                                                 <CheckBox Content="Also rows using the table's default value" IsChecked="{Binding IncludeInherited}" VerticalAlignment="Bottom" Margin="0,0,8,6"
-                                                          ToolTip="Off for stack sizes: items that inherit a stack of 1 are tools, weapons and armour, and scaling them would make them stack."/>
+                                                          ToolTip="Leave this off for stack sizes: items left at the default stack of 1 are tools, weapons and armour, and scaling them would make them stack."/>
                                                 <Button Content="Preview" Command="{Binding RefreshPreviewCommand}" VerticalAlignment="Bottom" Margin="0,0,0,4" Padding="8,1"/>
                                             </WrapPanel>
                                             <TextBlock Text="{Binding PreviewText}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
@@ -480,19 +480,19 @@
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Preview all" Command="{Binding PreviewScaleRulesCommand}" Margin="8,0,0,0"
                         ToolTip="Shows what each rule would change, without changing the mod"/>
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Apply rules" Command="{Binding ApplyScaleRulesCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"
-                        ToolTip="Writes every rule's rows into this mod from current game data (undoable). Also how the mod catches up after a game update."/>
+                        ToolTip="Writes every rule's changes into this mod, worked out from the current game data (you can undo it). Also how the mod catches up after a game update."/>
                 <TextBlock Text="{Binding ScaleStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"
                            Foreground="{DynamicResource SecondaryForegroundBrush}"/>
             </DockPanel>
 
             <DockPanel Grid.Row="4" LastChildFill="True" Margin="0,12,0,0" VerticalAlignment="Center">
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                        ToolTip="Writes every change so far to this mod's .EXMOD file — from any view (Fields, Scale rules, Not in this mod yet): they all edit the same mod"/>
+                        ToolTip="Saves every change so far into this mod's file, from every view (Fields, Scale rules, Not in this mod yet): they all edit the same mod"/>
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Turn on &amp; go to Merge &amp; Install" Command="{Binding TurnOnAndGoToMergeCommand}" Margin="8,0,0,0"
                         Visibility="{Binding HasSaved, Converter={StaticResource BoolToVisibilityConverter}}"
                         ToolTip="Ticks this mod ON (adds it to the merge queue) and opens Merge &amp; Install, where Install puts it in the game"/>
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Undo (Ctrl+Z)" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" Margin="8,0,0,0"
-                        ToolTip="Reverts the last Add/Remove field, Add item, Duplicate, mass edit, or raw-JSON Apply — not per-keystroke typing. Greyed out: nothing to undo yet."
+                        ToolTip="Takes back the last change: adding or removing a field, adding or duplicating an item, a mass edit, or applying raw JSON (not each key you type). Greyed out: nothing to undo yet."
                         ToolTipService.ShowOnDisabled="True"/>
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Redo (Ctrl+Y)" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" Margin="8,0,0,0"
                         ToolTip="Puts back what Undo just took away. Greyed out: nothing undone, or a new change since."

@@ -26,7 +26,7 @@
                      Content="Blank — no fields yet, build it up by hand"/>
         <RadioButton x:Name="QualityOfLifeRadio" GroupName="Template" Margin="0,6,0,0"
                      Content="Quality of life — stack sizes, weight, crafting and growth time…"
-                     ToolTip="Not an item: a set of rules like 'Stack sizes ×4' and 'Item weight halved', each with its own on/off and number, built from your own game data. Change them in the mod editor's Scale rules view."/>
+                     ToolTip="Not an item: a set of rules like 'Stack sizes ×4' and 'Item weight halved', each with its own on/off and number, worked out from your own game data. Change them in the mod editor's Scale rules view."/>
         <TextBlock Text="A new item, made from a game item" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,12,0,0"/>
         <RadioButton x:Name="EnvirosuitRadio" GroupName="Template" Margin="0,6,0,0"
                      Content="Envirosuit — bought in the workshop"
@@ -42,7 +42,7 @@
                      ToolTip="Opens the new-item wizard: pick any game item to start from; it's sold in a new orbital-workshop tab of this mod's own."/>
         <RadioButton x:Name="MapIconRadio" GroupName="Template" Margin="0,6,0,0"
                      Content="Map icon — for a blueprint or Lua mod"
-                     ToolTip="A map and compass marker. Nothing shows it by itself: your mod's blueprint or Lua script looks it up by its row name, the way the Teleporters mod does."/>
+                     ToolTip="A map and compass marker. It doesn't show up on its own: your mod's blueprint or Lua script has to look it up by its row name."/>
 
         <!-- The five classic IMM skeletons are rarer starting points: folded away so the common
              choices above stay short, one click to open. -->
@@ -57,19 +57,19 @@
             <StackPanel>
                 <RadioButton x:Name="CraftableRadio" GroupName="Template" Margin="0,6,0,0"
                              Content="Craftable / deployable item"
-                             ToolTip="A complete placeable/craftable item skeleton (recipe, mesh, icon, all reusing a real vanilla campfire's own assets as placeholders) — the same official template classic IMM itself ships."/>
+                             ToolTip="A ready-made item you craft and place: recipe, model and icon, borrowed from the game's campfire until you add your own."/>
                 <RadioButton x:Name="ConsumableRadio" GroupName="Template" Margin="0,6,0,0"
                              Content="Consumable / meta item"
-                             ToolTip="A complete craftable consumable item skeleton (recipe, icon, byproducts) reusing a real vanilla crate icon as a placeholder — the same official template classic IMM itself ships."/>
+                             ToolTip="A ready-made item you craft and use up: recipe, icon and what's left over after use. It borrows the game's crate icon until you add your own."/>
                 <RadioButton x:Name="BuildingPieceRadio" GroupName="Template" Margin="0,6,0,0"
                              Content="Building piece"
-                             ToolTip="A craftable wood wall skeleton (recipe, stability/type traits, building-piece entry) reusing the real vanilla wood-kit mesh — its own Blueprint/icon are left as placeholders for your own custom art, the same as classic IMM's own template."/>
+                             ToolTip="A ready-made wood wall you craft: recipe, stability and building-piece entries, using the game's wood kit model. Its blueprint and icon are left blank for your own art."/>
                 <RadioButton x:Name="ElectricGeneratorRadio" GroupName="Template" Margin="0,6,0,0"
                              Content="Electric generator"
-                             ToolTip="A craftable deployable that produces energy (recipe, resource/energy traits) — its own mesh/Blueprint are left as placeholders for your own custom art, the same as classic IMM's own template."/>
+                             ToolTip="A ready-made placeable you craft that makes power: recipe and power settings. Its model and blueprint are left blank for your own art."/>
                 <RadioButton x:Name="WaterPumpRadio" GroupName="Template" Margin="0,6,0,0"
                              Content="Water pump"
-                             ToolTip="A craftable deployable that produces water for a resource network (recipe, generator/resource traits) reusing the real vanilla machining-kit mesh — its own Blueprint is left as a placeholder for your own custom art, the same as classic IMM's own template."/>
+                             ToolTip="A ready-made machine you craft and place that makes water for your water network: recipe and water settings, using the game's machining kit model. Its blueprint is left blank for your own art."/>
             </StackPanel>
         </Expander>
 

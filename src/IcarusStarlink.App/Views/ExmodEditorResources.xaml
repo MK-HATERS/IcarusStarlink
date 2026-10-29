@@ -107,7 +107,7 @@
                                             </TextBlock.Style>
                                         </TextBlock>
                                         <StackPanel Grid.Column="3" Orientation="Horizontal">
-                                            <Button Content="✕" Padding="6,1" Command="{Binding RemoveCommand}" ToolTip="Remove this stat from the mod's list (a game stat left out is gone in game)"
+                                            <Button Content="✕" Padding="6,1" Command="{Binding RemoveCommand}" ToolTip="Takes this stat off the mod's list (a game stat left off the list is gone in game)"
                                                     AutomationProperties.Name="Remove stat" Visibility="{Binding IsKept, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                             <Button Content="Put back" Padding="6,1" Command="{Binding PutBackCommand}" ToolTip="Keep the game's stat in this mod's list"
                                                     Visibility="{Binding IsDropped, Converter={StaticResource BoolToVisibilityConverter}}"/>
@@ -127,7 +127,7 @@
                     <StackPanel Visibility="{Binding IsRawKind, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" FontFamily="Consolas"
                                  Style="{StaticResource ExmodChangedTextBoxStyle}"
-                                 ToolTip="This field as JSON (a list, link or nested value). An orange border means it differs from the game's."/>
+                                 ToolTip="This field as raw text (a list, a link, or values inside values). An orange border means it differs from the game's."/>
                         <TextBlock Text="{Binding BaseValueText, StringFormat='game: {0}'}" FontSize="11" TextWrapping="Wrap" FontFamily="Consolas"
                                    Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,2,0,0"/>
                     </StackPanel>
@@ -227,7 +227,7 @@
                                        Visibility="{Binding NewFieldName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                         </Grid>
                         <Grid Width="200" Margin="0,0,8,4">
-                            <TextBox Text="{Binding NewFieldValue, UpdateSourceTrigger=PropertyChanged}" ToolTip="JSON value, e.g. 1313 or &quot;text&quot;" AutomationProperties.Name="Field value"/>
+                            <TextBox Text="{Binding NewFieldValue, UpdateSourceTrigger=PropertyChanged}" ToolTip="The value, e.g. 1313, or &quot;text&quot; in quotes" AutomationProperties.Name="Field value"/>
                             <TextBlock Text="e.g. 1313 or &quot;text&quot;" Style="{StaticResource PlaceholderTextStyle}"
                                        Visibility="{Binding NewFieldValue, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                         </Grid>

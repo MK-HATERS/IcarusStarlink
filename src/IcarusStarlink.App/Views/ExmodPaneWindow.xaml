@@ -61,7 +61,7 @@
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">
             <Button Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                    ToolTip="Writes every change so far to this mod's .EXMOD file — from any view or window, they all edit the same mod"/>
+                    ToolTip="Saves every change so far into this mod's file, from every view and window: they all edit the same mod"/>
             <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                        Foreground="{DynamicResource SecondaryForegroundBrush}"/>
         </StackPanel>

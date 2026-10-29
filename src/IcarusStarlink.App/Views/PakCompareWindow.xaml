@@ -19,7 +19,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"
-                   Text="Unpacks two .pak files and compares their contents. DataTable JSON is compared row by row and field by field (formatting differences don't count), everything else byte for byte. Differences read as the SECOND pak relative to the first — 'New'/'new item' means only in the second pak, 'Removed' means only in the first."/>
+                   Text="Unpacks two .pak files and compares what's inside. Game tables are compared row by row and value by value (spacing and layout don't count), every other file exactly. Differences are shown from the first pak to the second: 'New' or 'new item' means only in the second pak, 'Removed' means only in the first."/>
 
         <Grid Grid.Row="1" Margin="0,0,0,8">
             <Grid.ColumnDefinitions>
@@ -29,7 +29,7 @@
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="First pak" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Width="90"/>
             <TextBox x:Name="FirstPakBox" Grid.Column="1" Text="{Binding FirstPakPath, UpdateSourceTrigger=PropertyChanged}"
-                     ToolTip="Usually this app's own staged build (prefilled when one exists)."/>
+                     ToolTip="Usually the pak Starlink last built (filled in when there is one)."/>
             <Button Grid.Column="2" Content="Browse…" Command="{Binding BrowseFirstPakCommand}" Margin="8,0,0,0"/>
         </Grid>
 
@@ -41,13 +41,13 @@
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="Second pak" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Width="90"/>
             <TextBox x:Name="SecondPakBox" Grid.Column="1" Text="{Binding SecondPakPath, UpdateSourceTrigger=PropertyChanged}"
-                     ToolTip="e.g. another mod manager's installed merged pak, to verify the two tools produce equivalent output."/>
+                     ToolTip="e.g. the merged pak another mod manager installed, to check both give the same result."/>
             <Button Grid.Column="2" Content="Browse…" Command="{Binding BrowseSecondPakCommand}" Margin="8,0,0,0"/>
         </Grid>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,12">
             <Button Content="Compare" Command="{Binding CompareCommand}"
-                    ToolTip="Extracts both paks to a temporary folder (deleted afterwards) and compares — nothing is modified, this is read-only."/>
+                    ToolTip="Unpacks both paks into a temporary folder (deleted afterwards) and compares them. Neither pak is changed."/>
             <TextBlock Text="{Binding SummaryMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap" MaxWidth="700"/>
         </StackPanel>

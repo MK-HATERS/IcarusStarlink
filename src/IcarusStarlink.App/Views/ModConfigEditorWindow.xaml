@@ -67,7 +67,7 @@
                 <DockPanel>
                     <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
                         <Button Content="Save" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                ToolTip="Writes your changes to this file (backs the old file up to Backups\UE4SS-Mod-Configs first)"/>
+                                ToolTip="Writes your changes to this file (the old file is backed up first, in Backups\UE4SS-Mod-Configs)"/>
                         <Button Content="Discard changes" Command="{Binding DiscardChangesCommand}" Margin="8,0,0,0"
                                 ToolTip="Puts this file back the way it is on disk"/>
                         <Button Content="Reset all to default" Command="{Binding ResetAllToDefaultCommand}" Margin="8,0,0,0"
@@ -174,7 +174,7 @@
                                                             <StackPanel Orientation="Horizontal">
                                                                 <TextBox Text="{Binding KeyName, UpdateSourceTrigger=PropertyChanged}" Width="110"
                                                                          AutomationProperties.Name="{Binding Key}"
-                                                                         ToolTip="The key's Unreal name: F1-F12, A-Z, One, NumPadOne, Equals, Hyphen…"/>
+                                                                         ToolTip="The key's name as the game knows it: F1-F12, A-Z, One, NumPadOne, Equals, Hyphen…"/>
                                                                 <StackPanel Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center"
                                                                             Visibility="{Binding KeyAllowsModifiers, Converter={StaticResource BoolToVisibilityConverter}}">
                                                                     <CheckBox Content="Ctrl" IsChecked="{Binding KeyCtrl}" Margin="0,0,8,0" ToolTip="Ctrl must be held with the key"/>

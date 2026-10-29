@@ -95,7 +95,7 @@
                                     </ItemsControl>
                                     <Button Content="Default for all" Padding="6,1" FontSize="11.5" HorizontalAlignment="Left"
                                             Command="{Binding WinAllCommand}" CommandParameter="{x:Null}"
-                                            ToolTip="Back to the merge's own rule for this group: the mod lower in the queue wins, or lists take everyone's additions"/>
+                                            ToolTip="Back to the normal rule for this group: the mod lower in the queue wins, and lists keep what every mod adds"/>
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
@@ -331,7 +331,7 @@
             <Button DockPanel.Dock="Left" Content="Copy report" Click="CopyReport_Click" Margin="0,0,8,0"
                     ToolTip="Copies every finding here as text, each with a short code (ISL-…), to paste into a bug report or a message to a mod's author"/>
             <Button DockPanel.Dock="Left" Content="All back to default" Command="{Binding ResetAllCommand}"
-                    ToolTip="Forget every pick here: the mod lower in the queue wins, or lists take everyone's additions"/>
+                    ToolTip="Forget every pick here: the mod lower in the queue wins, and lists keep what every mod adds"/>
             <Button DockPanel.Dock="Right" Content="Save picks" Click="Apply_Click" Style="{StaticResource PrimaryButtonStyle}" Margin="8,0,0,0"
                     ToolTip="Saves these winners with the profile; the next Merge &amp; Install uses them. Nothing is written into the game until then."/>
             <Button DockPanel.Dock="Right" Content="Cancel" IsCancel="True" Click="Cancel_Click"/>
