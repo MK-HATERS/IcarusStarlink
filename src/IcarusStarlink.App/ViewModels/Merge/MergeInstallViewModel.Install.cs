@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.InstallComparison;
+using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO;
 using IcarusStarlink.PakIO.ArcFission;
 using IcarusStarlink.PakIO.Install;
@@ -522,7 +523,9 @@ public sealed partial class MergeInstallViewModel
         }
         else if (!ConfirmWithGameClosed(
             $"This copies the staged pak into '{_settingsService.Current.IcarusContentPath}\\Paks\\mods', overwriting whatever's currently installed there.\n\n" +
-            $"The existing pak is backed up first (last {BackupCleanup.MergedPakBackupsKept} kept).{clearNote}\n\nContinue?",
+            (_finderBacksUp
+                ? $"The existing pak is backed up first (last {BackupLimits.MergedPakKept(_settingsService)} kept).{clearNote}\n\nContinue?"
+                : $"The pak there now is an earlier Find the broken mod round's, so it isn't backed up (your own install was backed up by the first round).{clearNote}\n\nContinue?"),
             "Install to Icarus", retry: "Install again", declinedMessage: "Not installed: you chose not to."))
         {
             return InstallOutcome.NotDone;
@@ -534,7 +537,8 @@ public sealed partial class MergeInstallViewModel
         {
             using var perfScope = _performanceTracker.Track("Install");
             var result = await _installService.InstallAsync(
-                _outputPakPath, _settingsService.Current.IcarusContentPath!, _backupDirectory, keepArcFissionDataPak: keepArcFission);
+                _outputPakPath, _settingsService.Current.IcarusContentPath!, _backupDirectory, keepArcFissionDataPak: keepArcFission,
+                backUpWhatsThere: _finderBacksUp);
 
             // The build already put this pak in the Library; it's only imported here when that
             // didn't happen (it failed then, or the pak was built before the app started). It used
@@ -688,7 +692,7 @@ public sealed partial class MergeInstallViewModel
         // click any more than overwriting it already isn't.
         if (!ConfirmWithGameClosed(
             $"This removes IcarusStarlink's installed pak from '{_settingsService.Current.IcarusContentPath}\\Paks\\mods'.\n\n" +
-            $"It's backed up first (last {BackupCleanup.MergedPakBackupsKept} kept), and your Library copy of this mod isn't touched — only the real game install.\n\nContinue?",
+            $"It's backed up first (last {BackupLimits.MergedPakKept(_settingsService)} kept), and your Library copy of this mod isn't touched — only the real game install.\n\nContinue?",
             "Remove from Icarus", retry: "Remove again"))
         {
             return;

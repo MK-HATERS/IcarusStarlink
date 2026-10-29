@@ -19,11 +19,11 @@ public sealed record PreviousInstall(string PakBackupPath, string? ManifestBacku
 /// </summary>
 public static class BackupCleanup
 {
-    /// <summary>Merged-pak (and its manifest's) backups kept on every install.</summary>
-    public const int MergedPakBackupsKept = 3;
+    /// <summary>Merged-pak (and its manifest's) backups kept on every install when no setting says otherwise (AppSettings.MergedPakBackupsKept, Settings › Maintenance › Backups to keep).</summary>
+    public const int MergedPakBackupsKept = IcarusStarlink.Core.Settings.BackupLimits.DefaultMergedPakBackupsKept;
 
-    /// <summary>Backups of each mod / merged pak / server kept by Clean up backups.</summary>
-    public const int KeptPerSetOnCleanUp = 2;
+    /// <summary>Backups of each mod / server kept by Clean up backups when no setting says otherwise (AppSettings.ModBackupsKept).</summary>
+    public const int KeptPerSetOnCleanUp = IcarusStarlink.Core.Settings.BackupLimits.DefaultModBackupsKept;
 
     /// <summary>Unrecognized folders (Mods, UE4SS, Server\&lt;profile&gt;, removed-paks…) are looked into this deep at most.</summary>
     private const int MaxDepth = 4;
@@ -80,12 +80,15 @@ public static class BackupCleanup
     }
 
     /// <summary>
-    /// Keeps only the newest keepPerSet backups of each mod, merged pak, manifest and server under
-    /// backupsRoot, and deletes the rest. Never fewer than 1, so the newest backup of anything stays.
+    /// Keeps only the newest keepPerSet backups of each mod and server under backupsRoot, and the
+    /// newest keepMergedPak of the merged pak and its mod list (keepPerSet when not given, so
+    /// Clean up never trims Restore previous install below its own setting), and deletes the
+    /// rest. Never fewer than 1, so the newest backup of anything stays.
     /// </summary>
-    public static BackupCleanupResult CleanUp(string backupsRoot, int keepPerSet = KeptPerSetOnCleanUp)
+    public static BackupCleanupResult CleanUp(string backupsRoot, int keepPerSet = KeptPerSetOnCleanUp, int? keepMergedPak = null)
     {
         keepPerSet = Math.Max(1, keepPerSet);
+        var mergedKeep = Math.Max(1, keepMergedPak ?? keepPerSet);
         var deleted = 0;
         var failed = 0;
         long freed = 0;
@@ -96,7 +99,7 @@ public static class BackupCleanup
 
         foreach (var directory in BackupDirectories(backupsRoot, 0))
         {
-            foreach (var stale in StaleEntries(ParseEntries(directory), keepPerSet))
+            foreach (var stale in StaleEntries(ParseEntries(directory), keepPerSet, mergedKeep))
             {
                 var size = stale.IsFolder ? MeasureBytes(stale.Path) : SafeLength(stale.Path);
                 if (TryDelete(stale))
@@ -293,11 +296,12 @@ public static class BackupCleanup
     /// Every entry beyond the newest keep of its set (entries all come from one folder). In a set
     /// of server zips the newest one of each reason is never stale, whatever keep is.
     /// </summary>
-    private static IEnumerable<BackupEntry> StaleEntries(IEnumerable<BackupEntry> entries, int keep) =>
+    private static IEnumerable<BackupEntry> StaleEntries(IEnumerable<BackupEntry> entries, int keep, int? mergedKeep = null) =>
         entries
             .GroupBy(e => e.SetKey)
             .SelectMany(set =>
             {
+                var setKeep = Math.Max(1, set.Key is MergedPakSetKey or MergedManifestSetKey ? mergedKeep ?? keep : keep);
                 var newestFirst = set
                     .OrderByDescending(e => e.SortStamp, StringComparer.Ordinal)
                     .ThenByDescending(e => e.Suffix)
@@ -308,7 +312,7 @@ public static class BackupCleanup
                     .GroupBy(e => e.Reason)
                     .Select(g => g.First())
                     .ToHashSet();
-                return newestFirst.Skip(keep).Where(e => !newestOfEachReason.Contains(e));
+                return newestFirst.Skip(setKeep).Where(e => !newestOfEachReason.Contains(e));
             })
             .ToList();
 

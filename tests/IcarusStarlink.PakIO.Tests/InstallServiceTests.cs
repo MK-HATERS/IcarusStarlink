@@ -428,6 +428,150 @@ public class InstallServiceTests : IDisposable
         Assert.Equal(["Mod B"], (await _service.GetInstalledStateAsync(_fakeContentPath)).ModNames);
     }
 
+    // ---- Settings › Maintenance › Backups to keep › Merged pak installs ----
+
+    private sealed class FakeSettings : IcarusStarlink.Core.Settings.ISettingsService
+    {
+        public IcarusStarlink.Core.Settings.AppSettings Current { get; } = new();
+
+        public bool Save() => true;
+    }
+
+    private static InstallService ServiceKeeping(int mergedPakBackupsKept)
+    {
+        var settings = new FakeSettings();
+        settings.Current.MergedPakBackupsKept = mergedPakBackupsKept;
+        return new InstallService(settings);
+    }
+
+    private List<string> PakBackupContents() =>
+        Directory.GetFiles(_backupDirectory, "zz_zz_ISL-Merged_9999_P_*.pak").Select(File.ReadAllText).Order().ToList();
+
+    /// <summary>More than FolderBackup's own 5 by one name: the per-name trim mustn't cut below the setting.</summary>
+    [Fact]
+    public async Task InstallAsync_MergedPakBackupsKeptSetting_KeepsThatMany()
+    {
+        var service = ServiceKeeping(7);
+        Directory.CreateDirectory(Path.GetDirectoryName(TargetPakPath)!);
+        await File.WriteAllTextAsync(TargetPakPath, "initial pak bytes");
+
+        for (var i = 1; i <= 10; i++)
+        {
+            await File.WriteAllTextAsync(_stagedPakPath, $"staged pak v{i:00} bytes");
+            await service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+        }
+
+        // Backed up: the initial pak, then v01..v09; the newest seven stay.
+        Assert.Equal([.. Enumerable.Range(3, 7).Select(i => $"staged pak v{i:00} bytes")], PakBackupContents());
+        Assert.Equal(7, Directory.GetFiles(_backupDirectory, "ISL-Merged_*.txt").Length);
+    }
+
+    /// <summary>0 or a negative count (a hand-edited settings.json) still keeps the newest backup.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-4)]
+    [InlineData(1)]
+    public async Task InstallAsync_ZeroOrNegativeSetting_KeepsTheNewestBackup(int setting)
+    {
+        var service = ServiceKeeping(setting);
+        Directory.CreateDirectory(Path.GetDirectoryName(TargetPakPath)!);
+        await File.WriteAllTextAsync(TargetPakPath, "initial pak bytes");
+
+        for (var i = 1; i <= 3; i++)
+        {
+            await File.WriteAllTextAsync(_stagedPakPath, $"staged pak v{i} bytes");
+            await service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+        }
+
+        Assert.Equal(["staged pak v2 bytes"], PakBackupContents());
+    }
+
+    /// <summary>With only 1 kept, Restore previous install still has the backup it restores: backing up what's installed first must not trim it away.</summary>
+    [Fact]
+    public async Task RestorePreviousInstallAsync_KeepingOne_StillRestoresThePreviousPak()
+    {
+        var service = ServiceKeeping(1);
+        await service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+        await File.WriteAllTextAsync(_stagedPakPath, "staged pak v2 bytes");
+        await service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+
+        var restored = await service.RestorePreviousInstallAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory);
+
+        Assert.NotNull(restored);
+        Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(TargetPakPath));
+        Assert.Equal(["staged pak v2 bytes"], PakBackupContents());
+    }
+
+    // ---- backUpWhatsThere (Find the broken mod: only the first round backs up) ----
+
+    [Fact]
+    public async Task InstallAsync_NotBackingUp_ReplacesThePakWithoutABackup_ButStillBacksUpOtherFiles()
+    {
+        var modsDirectory = Path.GetDirectoryName(TargetPakPath)!;
+        Directory.CreateDirectory(modsDirectory);
+        await File.WriteAllTextAsync(TargetPakPath, "a round's pak");
+        await File.WriteAllTextAsync(TargetManifestPath, "Includes the following mods:\nRound");
+        await File.WriteAllTextAsync(Path.Combine(modsDirectory, "SomeoneElses_P.pak"), "player's own pak");
+
+        var result = await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory, backUpWhatsThere: false);
+
+        Assert.Null(result.BackupPakPath);
+        Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(TargetPakPath));
+        Assert.Empty(PakBackupContents());
+        Assert.Empty(Directory.GetFiles(_backupDirectory, "ISL-Merged_*.txt"));
+        Assert.Equal("player's own pak", await File.ReadAllTextAsync(Directory.GetFiles(_backupDirectory, "SomeoneElses_P_*.pak").Single()));
+    }
+
+    [Fact]
+    public async Task RemoveInstalledPakAsync_NotBackingUp_RemovesTheRoundPakWithoutABackup_ButBacksUpAnEarlierName()
+    {
+        var modsDirectory = Path.GetDirectoryName(TargetPakPath)!;
+        Directory.CreateDirectory(modsDirectory);
+        await File.WriteAllTextAsync(TargetPakPath, "a round's pak");
+        await File.WriteAllTextAsync(TargetManifestPath, "Includes the following mods:\nRound");
+        await File.WriteAllTextAsync(Path.Combine(modsDirectory, "ISL-Merged_P.pak"), "old merged pak");
+
+        Assert.True(await _service.RemoveInstalledPakAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory, backUpWhatsThere: false));
+
+        Assert.False(File.Exists(TargetPakPath));
+        Assert.False(File.Exists(TargetManifestPath));
+        Assert.Empty(PakBackupContents());
+        Assert.Empty(Directory.GetFiles(_backupDirectory, "ISL-Merged_*.txt"));
+        Assert.Equal("old merged pak", await File.ReadAllTextAsync(Directory.GetFiles(_backupDirectory, "ISL-Merged_P_*.pak").Single()));
+    }
+
+    /// <summary>
+    /// The bug: every finder round backed up the pak in the game, so after 3 rounds the player's
+    /// real pre-search install was pruned out of Restore previous install. Now only the first
+    /// change backs up: after many rounds (and a no-mods round, and putting the mods back) the
+    /// real install is still the newest backup.
+    /// </summary>
+    [Fact]
+    public async Task FinderRounds_OnlyTheFirstBacksUp_ThePlayersRealInstallStaysRestorable()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(TargetPakPath)!);
+        await File.WriteAllTextAsync(TargetPakPath, "player's real pak");
+        await File.WriteAllTextAsync(TargetManifestPath, "Includes the following mods:\nReal");
+
+        await File.WriteAllTextAsync(_stagedPakPath, "round 1 pak");
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory, backUpWhatsThere: true);
+        for (var round = 2; round <= 6; round++)
+        {
+            await File.WriteAllTextAsync(_stagedPakPath, $"round {round} pak");
+            await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory, backUpWhatsThere: false);
+        }
+
+        await _service.RemoveInstalledPakAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory, backUpWhatsThere: false);
+        await File.WriteAllTextAsync(_stagedPakPath, "put back pak");
+        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory, backUpWhatsThere: false);
+
+        Assert.Equal(["player's real pak"], PakBackupContents());
+        var previous = await _service.FindPreviousInstallAsync(_backupDirectory);
+        Assert.NotNull(previous);
+        Assert.Equal("player's real pak", await File.ReadAllTextAsync(previous.PakBackupPath));
+        Assert.Equal("Includes the following mods:\nReal", await File.ReadAllTextAsync(previous.ManifestBackupPath!));
+    }
+
     [Fact]
     public async Task RestorePreviousInstallAsync_NoBackup_ReturnsNullAndTouchesNothing()
     {

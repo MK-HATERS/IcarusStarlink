@@ -337,7 +337,12 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        var profile = new DedicatedServerProfile { Name = "Icarus Server", InstallFolder = target, SteamServerName = "Icarus Server" };
+        var profile = new DedicatedServerProfile
+        {
+            Name = "Icarus Server", InstallFolder = target, SteamServerName = "Icarus Server",
+            // Settings › Maintenance › Backups to keep › Server backups: what a new server starts with.
+            BackupsToKeep = Core.Settings.BackupLimits.ServerKept(_settings),
+        };
         SaveToStore(profile);
         Profiles.Add(profile);
         SelectedProfile = profile;

@@ -95,6 +95,63 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.Null(settings.CatalogSeen.NexusSeenUpToUtc);
     }
 
+    /// <summary>Settings › Maintenance › Backups to keep survives a restart.</summary>
+    [Fact]
+    public void Save_BackupsToKeep_RoundTrip()
+    {
+        Directory.CreateDirectory(_dir);
+        var service = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance);
+        service.Current.MergedPakBackupsKept = 7;
+        service.Current.ModBackupsKept = 4;
+        service.Current.SaveBackupsKept = 25;
+        service.Current.ServerBackupsKept = 3;
+        Assert.True(service.Save());
+
+        var reloaded = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance).Current;
+
+        Assert.Equal(7, reloaded.MergedPakBackupsKept);
+        Assert.Equal(4, reloaded.ModBackupsKept);
+        Assert.Equal(25, reloaded.SaveBackupsKept);
+        Assert.Equal(3, reloaded.ServerBackupsKept);
+    }
+
+    /// <summary>A settings.json from before Backups to keep existed keeps what the app always kept: 3 merged pak installs, 2 of each mod, 10 saves, 10 server backups.</summary>
+    [Fact]
+    public void Load_OlderSettingsFile_DefaultsBackupsToKeepToTheOldCounts()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "settings.json"), """{"ThemeName":"Dark"}""");
+
+        var settings = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance).Current;
+
+        Assert.Equal(3, settings.MergedPakBackupsKept);
+        Assert.Equal(2, settings.ModBackupsKept);
+        Assert.Equal(10, settings.SaveBackupsKept);
+        Assert.Equal(10, settings.ServerBackupsKept);
+    }
+
+    /// <summary>A hand-edited 0, a negative or a huge count is held to 1..50 where it's read, so the newest backup can't be pruned away.</summary>
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(-5, 1)]
+    [InlineData(1, 1)]
+    [InlineData(12, 12)]
+    [InlineData(10_000, 50)]
+    public void Load_BackupsToKeepOutOfRange_IsHeldToOneToFifty(int written, int read)
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "settings.json"),
+            $$"""{"MergedPakBackupsKept":{{written}},"ModBackupsKept":{{written}},"SaveBackupsKept":{{written}},"ServerBackupsKept":{{written}}}""");
+
+        var service = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance);
+
+        Assert.Equal(written, service.Current.MergedPakBackupsKept);
+        Assert.Equal(read, IcarusStarlink.Core.Settings.BackupLimits.MergedPakKept(service));
+        Assert.Equal(read, IcarusStarlink.Core.Settings.BackupLimits.ModKept(service));
+        Assert.Equal(read, IcarusStarlink.Core.Settings.BackupLimits.SaveKept(service));
+        Assert.Equal(read, IcarusStarlink.Core.Settings.BackupLimits.ServerKept(service));
+    }
+
     [Fact]
     public void Save_NormalStartup_NeverWritesAPreservedCopy()
     {

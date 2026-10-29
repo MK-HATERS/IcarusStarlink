@@ -251,6 +251,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
             Name = new DirectoryInfo(root).Name,
             InstallFolder = root,
             SteamServerName = ini.SessionName ?? "Icarus Server",
+            // Settings › Maintenance › Backups to keep › Server backups: what a new server starts with.
+            BackupsToKeep = Core.Settings.BackupLimits.ServerKept(_settings),
         };
         SaveToStore(profile);
         Profiles.Add(profile);

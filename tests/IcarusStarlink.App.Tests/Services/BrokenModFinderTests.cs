@@ -404,16 +404,21 @@ public sealed class BrokenModFinderTests : IDisposable
 
         public IReadOnlyList<string> QueuedFolderNames() => Queue;
 
-        public Task<string?> InstallOnlyAsync(IReadOnlyCollection<string> folderNames)
+        /// <summary>Each install's backUpWhatsThere, in order (rounds and put-backs together).</summary>
+        public List<bool> BackUps { get; } = [];
+
+        public Task<string?> InstallOnlyAsync(IReadOnlyCollection<string> folderNames, bool backUpWhatsThere)
         {
             OnInstall?.Invoke();
+            BackUps.Add(backUpWhatsThere);
             Rounds.Add(folderNames);
             return Task.FromResult(TakeFailure());
         }
 
-        public Task<string?> InstallWholeQueueAsync(IReadOnlyCollection<string> putBack)
+        public Task<string?> InstallWholeQueueAsync(IReadOnlyCollection<string> putBack, bool backUpWhatsThere)
         {
             OnInstall?.Invoke();
+            BackUps.Add(backUpWhatsThere);
             if (TakeFailure() is { } failed)
             {
                 return Task.FromResult<string?>(failed);
@@ -457,6 +462,69 @@ public sealed class BrokenModFinderTests : IDisposable
         Assert.NotNull(onDisk);
         Assert.NotNull(onDisk!.Installed);
         Assert.Equal(host.Rounds[0].Order(), onDisk.Installed!.Order());
+    }
+
+    /// <summary>
+    /// Only the first round backs up the merged pak in the game (the player's real install); later
+    /// rounds and putting the mods back replace round paks and don't, or after 3 rounds the real
+    /// install was pruned out of Restore previous install.
+    /// </summary>
+    [Fact]
+    public async Task Session_OnlyTheFirstRoundBacksUp_LaterRoundsAndPutBackDont()
+    {
+        var (host, _, session) = NewSession();
+        await session.InstallRoundAsync();
+        session.Answer(BrokenModAnswer.WorksNow);
+        await session.InstallRoundAsync();
+        session.Answer(BrokenModAnswer.StillBroken);
+        await session.InstallRoundAsync();
+
+        Assert.Null(await session.PutModsBackAsync());
+
+        Assert.Equal([true, false, false, false], host.BackUps);
+    }
+
+    /// <summary>A round whose install failed may not have backed anything up: the next try backs up again.</summary>
+    [Fact]
+    public async Task Session_FirstRoundFailed_TheRetryStillBacksUp()
+    {
+        var (host, _, session) = NewSession();
+        host.FailNextInstallWith = "UnrealPak is missing.";
+        Assert.NotNull(await session.InstallRoundAsync());
+
+        Assert.Null(await session.InstallRoundAsync());
+        await session.InstallRoundAsync();
+
+        Assert.Equal([true, true, false], host.BackUps);
+    }
+
+    /// <summary>The rule is saved: a restart mid-search doesn't back up a round pak over the real install.</summary>
+    [Fact]
+    public async Task Session_RestartedMidSearch_StillDoesntBackUpAgain()
+    {
+        var (host, store, session) = NewSession();
+        await session.InstallRoundAsync();
+        session.Answer(BrokenModAnswer.WorksNow);
+        Assert.True(store.Load()!.PlayerInstallBackedUp);
+
+        var next = new BrokenModFinderSession(host, store, store.Load()!);
+        await next.InstallRoundAsync();
+        Assert.Null(await next.PutModsBackAsync());
+
+        Assert.Equal([true, false, false], host.BackUps);
+    }
+
+    /// <summary>No round ever reached the game (all failed), but one may have half-run: putting the mods back backs up first.</summary>
+    [Fact]
+    public async Task Session_NoRoundEverInstalled_PutBackBacksUp()
+    {
+        var (host, _, session) = NewSession();
+        host.FailNextInstallWith = "The merge didn't build.";
+        await session.InstallRoundAsync();
+
+        Assert.Null(await session.PutModsBackAsync());
+
+        Assert.Equal([true, true], host.BackUps);
     }
 
     [Fact]

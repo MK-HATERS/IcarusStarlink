@@ -84,6 +84,35 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Equal("17777", vm.PortText);
     }
 
+    /// <summary>Settings › Maintenance › Backups to keep › Server backups: a server added now starts with that count (its own Backups tab shows it), and old servers keep theirs.</summary>
+    [Fact]
+    public void AddExistingServer_StartsWithTheServerBackupsSetting()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(IniPath)!);
+        File.WriteAllText(IniPath, "[/Script/Icarus.DedicatedServerSettings]\r\nSessionName=My World\r\n");
+        Settings.Current.ServerBackupsKept = 4;
+        var (vm, store, _, _) = Build(pick: _install);
+
+        vm.AddExistingServerCommand.Execute(null);
+
+        Assert.Equal(4, Assert.Single(store.Profiles).BackupsToKeep);
+        Assert.Equal("4", vm.BackupsToKeepText);
+    }
+
+    /// <summary>A 0 in settings.json can't give a new server "keep every backup" or "keep none": it's held to 1..50.</summary>
+    [Fact]
+    public void AddExistingServer_ServerBackupsSettingOfZero_StartsAtOne()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(IniPath)!);
+        File.WriteAllText(IniPath, "[/Script/Icarus.DedicatedServerSettings]\r\nSessionName=My World\r\n");
+        Settings.Current.ServerBackupsKept = 0;
+        var (vm, store, _, _) = Build(pick: _install);
+
+        vm.AddExistingServerCommand.Execute(null);
+
+        Assert.Equal(1, Assert.Single(store.Profiles).BackupsToKeep);
+    }
+
     [Fact]
     public void AddExistingServer_NoServerThere_SaysSoAndAddsNothing()
     {
@@ -855,6 +884,23 @@ public sealed partial class LocalServerViewModelTests : IDisposable
 
         Assert.Equal(2, vm.Backups.Count(b => b.Name.Contains("manual")));
         Assert.True(File.Exists(before), "other kinds keep their own count");
+    }
+
+    /// <summary>A server added with Settings › Backups to keep › Server backups at 2 prunes to 2 without anyone touching its own box.</summary>
+    [Fact]
+    public async Task BackUpNow_NewServer_KeepsTheServerBackupsSettingsCount()
+    {
+        WriteProspect("World A");
+        Settings.Current.ServerBackupsKept = 2;
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+
+        for (var i = 0; i < 4; i++)
+        {
+            await vm.BackUpNowCommand.ExecuteAsync(null);
+        }
+
+        Assert.Equal(2, vm.Backups.Count(b => b.Name.Contains("manual")));
     }
 
     /// <summary>Typing "15" over "10" passes through "1": that used to delete all but one backup of each kind on the keystroke. Now nothing goes until the box is left.</summary>

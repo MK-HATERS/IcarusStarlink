@@ -58,6 +58,18 @@ public sealed class AppSettings
     /// <summary>Settings › Maintenance › "Check for updates when Starlink starts" (on this channel). Off: only the Check for updates button looks.</summary>
     public bool AutoCheckAppUpdates { get; set; } = true;
 
+    /// <summary>Settings › Maintenance › Backups to keep › Merged pak installs: backups of the merged pak (and its mod list) kept on every install, for Restore previous install. Read through BackupLimits.</summary>
+    public int MergedPakBackupsKept { get; set; } = BackupLimits.DefaultMergedPakBackupsKept;
+
+    /// <summary>Settings › Maintenance › Backups to keep › Mod backups: what Clean up backups keeps of each mod (and of each server's zips and removed paks). Read through BackupLimits.</summary>
+    public int ModBackupsKept { get; set; } = BackupLimits.DefaultModBackupsKept;
+
+    /// <summary>Settings › Maintenance › Backups to keep › Save backups: automatic save backups kept for each slot (the first one ever made is kept on top). Read through BackupLimits.</summary>
+    public int SaveBackupsKept { get; set; } = BackupLimits.DefaultSaveBackupsKept;
+
+    /// <summary>Settings › Maintenance › Backups to keep › Server backups: the keep count a newly added server starts with (each server's own Backups tab changes its own count). Read through BackupLimits.</summary>
+    public int ServerBackupsKept { get; set; } = BackupLimits.DefaultServerBackupsKept;
+
     // Main window bounds — all four null until the first real close, so a fresh install still gets
     // MainWindow.xaml's own WindowStartupLocation="CenterScreen" default rather than snapping to 0,0.
     public double? WindowLeft { get; set; }

@@ -111,6 +111,40 @@ public class BackupCleanupTests : IDisposable
         Assert.Equal(["ISL-Merged_20261016-230833.txt"], RootFileNames());
     }
 
+    /// <summary>Settings › Backups to keep: Clean up keeps Mod backups of each mod and Merged pak installs of the merged pak, each its own count.</summary>
+    [Fact]
+    public void CleanUp_ModsAndMergedPakEachKeepTheirOwnCount()
+    {
+        WriteFile("zz_zz_ISL-Merged_9999_P_20261016-100000.pak");
+        WriteFile("zz_zz_ISL-Merged_9999_P_20261016-110000.pak");
+        WriteFile("zz_zz_ISL-Merged_9999_P_20261016-120000.pak");
+        WriteFile("zz_zz_ISL-Merged_9999_P_20261016-130000.pak");
+        WriteFile("zz_zz_ISL-Merged_9999_P_20261016-140000.pak");
+        WriteFolder(Path.Combine("Mods", "Homestead_20261016-100000"));
+        WriteFolder(Path.Combine("Mods", "Homestead_20261016-110000"));
+        WriteFolder(Path.Combine("Mods", "Homestead_20261016-120000"));
+        WriteFolder(Path.Combine("Mods", "Homestead_20261016-130000"));
+
+        BackupCleanup.CleanUp(_backups, keepPerSet: 3, keepMergedPak: 4);
+
+        Assert.Equal(4, Directory.GetFiles(_backups, "zz_zz_ISL-Merged_9999_P_*.pak").Length);
+        Assert.False(File.Exists(Path.Combine(_backups, "zz_zz_ISL-Merged_9999_P_20261016-100000.pak")));
+        Assert.Equal(
+            ["Homestead_20261016-110000", "Homestead_20261016-120000", "Homestead_20261016-130000"],
+            Directory.GetDirectories(Path.Combine(_backups, "Mods")).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void CleanUp_MergedPakCountOfZero_StillKeepsTheNewest()
+    {
+        WriteFile("zz_zz_ISL-Merged_9999_P_20261016-100000.pak");
+        WriteFile("zz_zz_ISL-Merged_9999_P_20261016-110000.pak");
+
+        BackupCleanup.CleanUp(_backups, keepPerSet: 2, keepMergedPak: 0);
+
+        Assert.Equal(["zz_zz_ISL-Merged_9999_P_20261016-110000.pak"], RootFileNames());
+    }
+
     [Fact]
     public void CleanUp_LeavesFilesItDidNotNameAlone_AndNeverLooksInsideABackup()
     {

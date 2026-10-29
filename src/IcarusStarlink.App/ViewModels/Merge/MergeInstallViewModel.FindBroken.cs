@@ -23,6 +23,14 @@ public sealed partial class MergeInstallViewModel
     private bool _finderRestoring;
 
     /// <summary>
+    /// Whether this finder install backs up the merged pak in the game first (InstallService's
+    /// backUpWhatsThere). True for every normal install; false only while a finder round after the
+    /// first (or putting the mods back) replaces a round's own pak, so the player's real install
+    /// (backed up by the first round) stays the newest backup for Restore previous install.
+    /// </summary>
+    private bool _finderBacksUp = true;
+
+    /// <summary>
     /// A finder round (or putting the mods back) doesn't ask "Install to Icarus?" again: the
     /// player asked for it in the finder's window, which says what goes in. It still asks when the
     /// install would also remove other files from the mods folder, as a normal install does.
@@ -73,9 +81,10 @@ public sealed partial class MergeInstallViewModel
     /// <summary>
     /// A finder round: builds and installs only these queued mods (in queue order, with the merge
     /// options as they are). With none of them, the merged pak is taken out of the game instead.
-    /// Null when installed; otherwise why not (said in the finder's window).
+    /// Null when installed; otherwise why not (said in the finder's window). backUpWhatsThere:
+    /// false for every round after the first (BrokenModSearchRecord.PlayerInstallBackedUp).
     /// </summary>
-    internal async Task<string?> InstallForFinderAsync(IReadOnlyCollection<string> folderNames)
+    internal async Task<string?> InstallForFinderAsync(IReadOnlyCollection<string> folderNames, bool backUpWhatsThere = true)
     {
         if (FinderBlockedReason() is { } blocked)
         {
@@ -83,6 +92,7 @@ public sealed partial class MergeInstallViewModel
         }
 
         _finderOnly = folderNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _finderBacksUp = backUpWhatsThere;
         try
         {
             if (!FinderQueue().Any(e => _finderOnly.Contains(e.FolderName)) && !BuildGameplayOptionsFromUi().IsAnyActive)
@@ -95,15 +105,17 @@ public sealed partial class MergeInstallViewModel
         finally
         {
             _finderOnly = null;
+            _finderBacksUp = true;
         }
     }
 
     /// <summary>
     /// The end of a search: every mod in <paramref name="putBack"/> that's still in the Library but
     /// not queued goes back in the queue, then the whole queue is built and installed, as the
-    /// Install button does. Null when installed; otherwise why not.
+    /// Install button does. Null when installed; otherwise why not. backUpWhatsThere false once a
+    /// round has backed up the player's real install (the game then holds a round's pak).
     /// </summary>
-    internal async Task<string?> InstallWholeQueueForFinderAsync(IReadOnlyCollection<string> putBack)
+    internal async Task<string?> InstallWholeQueueForFinderAsync(IReadOnlyCollection<string> putBack, bool backUpWhatsThere = true)
     {
         if (FinderBlockedReason() is { } blocked)
         {
@@ -118,6 +130,7 @@ public sealed partial class MergeInstallViewModel
         }
 
         _finderRestoring = true;
+        _finderBacksUp = backUpWhatsThere;
         try
         {
             if (!Queue.Any(IsBuildable) && !BuildGameplayOptionsFromUi().IsAnyActive)
@@ -131,6 +144,7 @@ public sealed partial class MergeInstallViewModel
         finally
         {
             _finderRestoring = false;
+            _finderBacksUp = true;
         }
     }
 
@@ -146,7 +160,7 @@ public sealed partial class MergeInstallViewModel
             : InstallStatusMessage ?? "The merge wasn't installed.";
     }
 
-    /// <summary>A round with no data mods at all: Starlink's merged pak out of the game (backed up first).</summary>
+    /// <summary>A round with no data mods at all: Starlink's merged pak out of the game (backed up first when it's the search's first change).</summary>
     private async Task<string?> RemoveMergeForFinderAsync()
     {
         if (_settingsService.Current.IcarusContentPath is not { Length: > 0 } content)
@@ -157,7 +171,7 @@ public sealed partial class MergeInstallViewModel
         IsInstalling = true;
         try
         {
-            await _installService.RemoveInstalledPakAsync(Path.GetFileName(_outputPakPath), content, _backupDirectory);
+            await _installService.RemoveInstalledPakAsync(Path.GetFileName(_outputPakPath), content, _backupDirectory, backUpWhatsThere: _finderBacksUp);
             SetHasExistingInstall(false);
             await RefreshInstalledModNamesAsync();
             return null;

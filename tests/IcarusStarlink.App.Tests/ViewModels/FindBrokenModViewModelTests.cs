@@ -45,13 +45,13 @@ public sealed class FindBrokenModViewModelTests : IDisposable
         /// <summary>A round install fails with this (null: it works).</summary>
         public string? RoundFailure { get; set; }
 
-        public Task<string?> InstallOnlyAsync(IReadOnlyCollection<string> folderNames)
+        public Task<string?> InstallOnlyAsync(IReadOnlyCollection<string> folderNames, bool backUpWhatsThere)
         {
             Rounds.Add(folderNames);
             return Task.FromResult(RoundFailure);
         }
 
-        public Task<string?> InstallWholeQueueAsync(IReadOnlyCollection<string> putBack)
+        public Task<string?> InstallWholeQueueAsync(IReadOnlyCollection<string> putBack, bool backUpWhatsThere)
         {
             PutBacks.Add(putBack);
             return Task.FromResult<string?>(null);

@@ -38,6 +38,16 @@ public sealed class BrokenModSearchRecord
     /// </summary>
     public bool RoundInstalled { get; set; }
 
+    /// <summary>
+    /// A round's install (or its removal of the merge) has finished once, and that one backed up
+    /// what was in the game: the player's real install, now the newest merged pak backup. Later
+    /// rounds and putting the mods back only replace temporary round paks, so they don't back up
+    /// (a backup each round used to push the real install out of Restore previous install after
+    /// a few rounds). Saved, so a restart mid-search keeps the rule. False in a search saved
+    /// before this existed: its next install backs up once more (the safe way round).
+    /// </summary>
+    public bool PlayerInstallBackedUp { get; set; }
+
     /// <summary>The save backup zips taken before the first round.</summary>
     public List<string> SaveBackups { get; set; } = [];
 
@@ -92,11 +102,15 @@ public interface IBrokenModFinderHost
     /// <summary>The queued data mods that can build (folder names, queue order).</summary>
     IReadOnlyList<string> QueuedFolderNames();
 
-    /// <summary>Builds and installs only these queued mods (the queue itself isn't changed). Null when done; otherwise why not.</summary>
-    Task<string?> InstallOnlyAsync(IReadOnlyCollection<string> folderNames);
+    /// <summary>
+    /// Builds and installs only these queued mods (the queue itself isn't changed). Null when done;
+    /// otherwise why not. backUpWhatsThere: back up the merged pak in the game first (only the
+    /// search's first change does: later ones replace a round's own pak).
+    /// </summary>
+    Task<string?> InstallOnlyAsync(IReadOnlyCollection<string> folderNames, bool backUpWhatsThere);
 
-    /// <summary>Puts <paramref name="putBack"/> back in the queue where missing, then builds and installs the whole queue. Null when done; otherwise why not.</summary>
-    Task<string?> InstallWholeQueueAsync(IReadOnlyCollection<string> putBack);
+    /// <summary>Puts <paramref name="putBack"/> back in the queue where missing, then builds and installs the whole queue. Null when done; otherwise why not. backUpWhatsThere as InstallOnlyAsync's.</summary>
+    Task<string?> InstallWholeQueueAsync(IReadOnlyCollection<string> putBack, bool backUpWhatsThere);
 
     /// <summary>Takes the mod out of the merge queue (its Library ON tick goes off).</summary>
     void RemoveFromQueue(string folderName);
@@ -161,10 +175,13 @@ public sealed class BrokenModFinderSession(IBrokenModFinderHost host, BrokenModS
         record.Installed = [.. test.Install];
         record.RoundInstalled = false;
         store.Save(record);
-        var failed = await host.InstallOnlyAsync(test.Install);
+        // Only until a round's install has worked once: that one backed up the player's real
+        // install. A failed one may not have got that far, so the next try backs up again.
+        var failed = await host.InstallOnlyAsync(test.Install, backUpWhatsThere: !record.PlayerInstallBackedUp);
         if (failed is null)
         {
             record.RoundInstalled = true;
+            record.PlayerInstallBackedUp = true;
             store.Save(record);
         }
 
@@ -211,7 +228,9 @@ public sealed class BrokenModFinderSession(IBrokenModFinderHost host, BrokenModS
         // Nothing was ever installed by a round: the game still has the player's own install.
         if (record.Installed is not null)
         {
-            if (await host.InstallWholeQueueAsync(putBack) is { } failed)
+            // What's in the game is a round's pak: not backed up, so the player's real install stays
+            // the newest backup (unless no round's install ever worked: then it's backed up now).
+            if (await host.InstallWholeQueueAsync(putBack, backUpWhatsThere: !record.PlayerInstallBackedUp) is { } failed)
             {
                 return failed;
             }

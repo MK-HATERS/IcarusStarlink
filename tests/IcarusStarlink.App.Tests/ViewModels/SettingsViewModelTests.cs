@@ -1065,6 +1065,76 @@ public sealed class SettingsViewModelTests
         Assert.Null(harness.Settings.FirstLaunchSetupCompletedAtUtc);
     }
 
+    // ---- Settings › Maintenance › Backups to keep ----
+
+    [Fact]
+    public void BackupsToKeep_ShowTheOldCountsByDefault()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+
+        Assert.Equal(3, vm.MergedPakBackupsKept);
+        Assert.Equal(2, vm.ModBackupsKept);
+        Assert.Equal(10, vm.SaveBackupsKept);
+        Assert.Equal(10, vm.ServerBackupsKept);
+        Assert.Contains("newest 2 of each mod and server", vm.CleanUpBackupsText);
+        Assert.Contains("newest 3 merged pak installs", vm.CleanUpBackupsText);
+    }
+
+    /// <summary>Each box saves the moment it changes, held to 1..50: 0 can't mean "delete every backup".</summary>
+    [Theory]
+    [InlineData(7, 7)]
+    [InlineData(0, 1)]
+    [InlineData(-2, 1)]
+    [InlineData(99, 50)]
+    public void BackupsToKeep_SavedAndHeldToOneToFifty(int typed, int kept)
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        vm.MergedPakBackupsKept = typed;
+        vm.ModBackupsKept = typed;
+        vm.SaveBackupsKept = typed;
+        vm.ServerBackupsKept = typed;
+
+        Assert.Equal(kept, harness.Settings.MergedPakBackupsKept);
+        Assert.Equal(kept, harness.Settings.ModBackupsKept);
+        Assert.Equal(kept, harness.Settings.SaveBackupsKept);
+        Assert.Equal(kept, harness.Settings.ServerBackupsKept);
+        Assert.Equal(kept, vm.ModBackupsKept);
+        Assert.True(harness.SettingsService.SaveCallCount > 0);
+        // The box shows what was kept, even when that's the value it already had.
+        Assert.Contains(nameof(SettingsViewModel.MergedPakBackupsKept), changed);
+        Assert.Contains(nameof(SettingsViewModel.CleanUpBackupsText), changed);
+    }
+
+    /// <summary>Clean up backups keeps Mod backups of each mod and Merged pak installs of the merged pak, not a fixed 2.</summary>
+    [Fact]
+    public async Task CleanUpBackups_KeepsTheCountsSetUnderBackupsToKeep()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        harness.Settings.ModBackupsKept = 3;
+        harness.Settings.MergedPakBackupsKept = 4;
+        var backups = Path.Combine(harness.TempDir, "Backups");
+        var mods = Path.Combine(backups, "Mods");
+        for (var i = 0; i < 6; i++)
+        {
+            Directory.CreateDirectory(Path.Combine(mods, $"Homestead_20261016-1{i}0000", "Scripts"));
+            File.WriteAllText(Path.Combine(backups, $"zz_zz_ISL-Merged_9999_P_20261016-1{i}0000.pak"), "pak");
+        }
+
+        var vm = harness.BuildViewModel();
+        await vm.CleanUpBackupsCommand.ExecuteAsync(null);
+
+        Assert.Contains("newest 3 backups of each mod", harness.DialogService.LastConfirmMessage);
+        Assert.Contains("newest 4 merged pak installs", harness.DialogService.LastConfirmMessage);
+        Assert.Equal(3, Directory.GetDirectories(mods).Length);
+        Assert.Equal(4, Directory.GetFiles(backups, "zz_zz_ISL-Merged_9999_P_*.pak").Length);
+        Assert.True(File.Exists(Path.Combine(backups, "zz_zz_ISL-Merged_9999_P_20261016-150000.pak")));
+    }
+
     private sealed class Harness : IDisposable
     {
         public readonly string TempDir;
