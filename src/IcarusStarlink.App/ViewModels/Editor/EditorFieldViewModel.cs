@@ -252,6 +252,9 @@ public sealed partial class EditorFieldViewModel : ObservableObject
                 return;
             }
 
+            // Picking the value the field already holds writes nothing (ValueText doesn't change),
+            // so the error from an earlier bad entry has to go here or it stays under a good value.
+            ParseError = null;
             if (Kind == EditorFieldKind.Link)
             {
                 // Keep the link's other parts (its DataTableName); only the row changes.

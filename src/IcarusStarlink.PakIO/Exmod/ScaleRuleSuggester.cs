@@ -37,8 +37,12 @@ public static class ScaleRuleSuggester
 
     private sealed record Sample(string Name, double Game, double Mod, bool Inherits);
 
-    /// <summary>Rules the mod's rows follow, most rows first. Fields an existing rule already owns are skipped.</summary>
-    public static IReadOnlyList<ScaleRuleSuggestion> Suggest(ExmodPackage package, GameTableIndex game)
+    /// <summary>
+    /// Rules the mod's rows follow, most rows first. Fields an existing rule already owns are skipped.
+    /// With onlyFile and onlyField, just that table's field (a big mod's whole check takes most of a
+    /// second; the "Not in this mod yet" view asks about one field on each search).
+    /// </summary>
+    public static IReadOnlyList<ScaleRuleSuggestion> Suggest(ExmodPackage package, GameTableIndex game, string? onlyFile = null, string? onlyField = null)
     {
         var owned = package.ScaleRules
             .Select(r => (File: r.CurrentFile.ToUpperInvariant(), Field: r.TopField))
@@ -46,12 +50,12 @@ public static class ScaleRuleSuggester
         var results = new List<ScaleRuleSuggestion>();
         foreach (var row in package.Rows)
         {
-            if (game.Rows(row.CurrentFile) is not { } table)
+            if ((onlyFile is not null && !string.Equals(row.CurrentFile, onlyFile, StringComparison.OrdinalIgnoreCase)) || game.Rows(row.CurrentFile) is not { } table)
             {
                 continue;
             }
 
-            var fields = row.FileItems.SelectMany(i => i.Fields.Keys).Where(k => k != "Name").Distinct(StringComparer.Ordinal).ToList();
+            var fields = row.FileItems.SelectMany(i => i.Fields.Keys).Where(k => k != "Name" && (onlyField is null || k == onlyField)).Distinct(StringComparer.Ordinal).ToList();
             foreach (var field in fields)
             {
                 if (!owned.Contains((row.CurrentFile.ToUpperInvariant(), field)))

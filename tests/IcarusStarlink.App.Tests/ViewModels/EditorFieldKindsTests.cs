@@ -111,6 +111,23 @@ public sealed class EditorFieldKindsTests : IDisposable
         Assert.Equal("Item_Waterskin", link.SelectedOption);
     }
 
+    /// <summary>A bad row typed, then the row it already had picked again: the error goes (the value didn't change, so nothing else clears it), and Save goes through.</summary>
+    [Fact]
+    public void ALinkField_PickingItsOwnRowAgainAfterABadOne_ClearsTheError()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Canteen");
+        var link = Field(editor, "Itemable");
+
+        link.SelectedOption = "Item_Flask";
+        Assert.True(link.HasUnwrittenText);
+
+        link.SelectedOption = "Item_Canteen";
+
+        Assert.False(link.HasUnwrittenText);
+        Assert.Null(link.ParseError);
+    }
+
     private ExmodEditorViewModel OpenArmourMod()
     {
         Write("Traits/D_Armour.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"IO_Undersuit","ArmourStats":{"(Value=\"BaseOxygenSlots_+\")":1}}]}""");

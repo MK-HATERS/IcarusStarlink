@@ -107,11 +107,13 @@ public sealed partial class ExmodEditorViewModel
         }
     }
 
+    // The search only narrows the list: the mod's own change for the field stays what it was (the
+    // suggester takes most of a second on a big mod's recipes, too slow for each search).
     partial void OnNotInModSearchChanged(string value)
     {
         if (!_notInModLoading)
         {
-            RefreshNotInMod();
+            RefreshNotInMod(findChange: false);
         }
     }
 
@@ -172,10 +174,14 @@ public sealed partial class ExmodEditorViewModel
     }
 
     /// <summary>Rebuilds the list: game rows of the table the mod has no row for, that set the field (when one is picked) and match the search.</summary>
-    private void RefreshNotInMod()
+    private void RefreshNotInMod(bool findChange = true)
     {
         NotInModRows.Clear();
-        _notInModChange = null;
+        if (findChange)
+        {
+            _notInModChange = null;
+        }
+
         NotInModStatus = null;
         if (NotInModTable is not { } table || GameTables.Rows(table) is not { } rows)
         {
@@ -214,9 +220,9 @@ public sealed partial class ExmodEditorViewModel
             NotInModRows.Add(new NotInModRowViewModel(rowName, title, own is null ? "" : $"game: {EditorValueText.Plain(own)}"));
         }
 
-        if (field is not null)
+        if (field is not null && findChange)
         {
-            _notInModChange = ScaleRuleSuggester.Suggest(PackageWithoutRules(), GameTables)
+            _notInModChange = ScaleRuleSuggester.Suggest(PackageWithoutRules(), GameTables, table, field)
                 .Where(s => Same(s.Rule.CurrentFile, table) && s.Rule.Field == field)
                 .MaxBy(s => s.RowsCovered);
         }
