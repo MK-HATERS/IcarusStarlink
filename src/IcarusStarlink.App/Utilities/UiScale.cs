@@ -1,17 +1,22 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 
 namespace IcarusStarlink.App.Utilities;
 
 /// <summary>One choice in Settings › Appearance › Size of text and controls.</summary>
-public sealed record UiScaleChoice(double Value, string Label);
+public sealed record UiScaleChoice(double Value, string Label)
+{
+    /// <summary>What a screen reader says for the item (a record would read out "UiScaleChoice { Value = … }").</summary>
+    public override string ToString() => Label;
+}
 
 /// <summary>
 /// Settings › Appearance › Size of text and controls (classic IMM's 4K option): every Starlink
 /// window is drawn bigger or smaller. A LayoutTransform on each window's content, not a
 /// RenderTransform, so layout reflows at the new size and text is laid out again at that size
-/// (sharp, not a stretched bitmap); drop-downs, menus and tooltips are popups placed from their
-/// owner, and WPF carries the owner's transform over to them.
+/// (sharp, not a stretched bitmap). Drop-downs inherit it from their ComboBox; context menus and
+/// tooltips have no visual parent, so they get the same transform as they open.
 ///
 /// Applied to every window as it loads (a class handler, so windows built anywhere get it), and
 /// to every open window straight away when the setting changes. Pop-up windows (not the main one)
@@ -50,8 +55,27 @@ public static class UiScale
         {
             s_registered = true;
             EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent, new RoutedEventHandler(OnWindowLoaded));
+
+            // Context menus (right-click, More ▾, Check ▾) and tooltips open in a popup of their own
+            // with no visual parent, so the window's transform never reaches them (seen at 150%: the
+            // page grew, the Check ▾ menu didn't). Drop-downs are fine: their popup sits inside the
+            // ComboBox's template, so it inherits the transform. Sub-menus sit inside the menu.
+            EventManager.RegisterClassHandler(typeof(ContextMenu), ContextMenu.OpenedEvent, new RoutedEventHandler(OnPopupOpened));
+            EventManager.RegisterClassHandler(typeof(ToolTip), ToolTip.OpenedEvent, new RoutedEventHandler(OnPopupOpened));
         }
     }
+
+    private static void OnPopupOpened(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement popupRoot && ReferenceEquals(e.OriginalSource, popupRoot))
+        {
+            ApplyScale(popupRoot);
+        }
+    }
+
+    /// <summary>The scale as a LayoutTransform on one root element (a window's content, a context menu, a tooltip).</summary>
+    internal static void ApplyScale(FrameworkElement root) =>
+        root.LayoutTransform = Current == Normal ? Transform.Identity : new ScaleTransform(Current, Current);
 
     /// <summary>The setting changed: every open window takes the new size now.</summary>
     public static void Set(double scale)
@@ -102,7 +126,7 @@ public static class UiScale
     {
         if (window.Content is FrameworkElement root)
         {
-            root.LayoutTransform = Current == Normal ? Transform.Identity : new ScaleTransform(Current, Current);
+            ApplyScale(root);
         }
     }
 
