@@ -80,7 +80,7 @@ public sealed partial class LocalServerViewModel
         {
             if (InstalledBuildId is null)
             {
-                return "Installed build unknown (no SteamCMD manifest in this folder)";
+                return "Installed build unknown (SteamCMD left no record of it in this folder)";
             }
 
             var text = $"Build {InstalledBuildId} · {InstalledBranch ?? "public"}";

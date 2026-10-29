@@ -42,7 +42,7 @@
                                 </StackPanel>
                             </Button>
                             <Button Command="{Binding AutoDetectIcarusContentFolderCommand}" DockPanel.Dock="Right" Margin="8,0,0,0"
-                                    ToolTip="Looks for Icarus through your own Steam install (registry + library folders) and fills this in if found"
+                                    ToolTip="Looks for Icarus in your Steam libraries and fills this in if it finds it"
                                     AutomationProperties.Name="Auto-detect">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -67,10 +67,10 @@
                         <WrapPanel Margin="0,0,0,12">
                             <Button Command="{Binding InstallBundledUnrealPakCommand}" IsEnabled="{Binding CanInstallBundledUnrealPak}"
                                     Content="{Binding InstallUnrealPakButtonLabel}"
-                                    ToolTip="Installs UnrealPak 4.27 (the UE4 version Icarus itself uses) into Tools\UnrealPak next to the exe — from a copy shipped with this app if there is one, else downloaded fresh. Reinstalling repairs a broken copy. A newer UnrealPak is deliberately NOT offered: UE5 builds write pak formats Icarus's engine can't load."
+                                    ToolTip="Installs UnrealPak 4.27, the tool that builds mod paks, into Tools\UnrealPak beside Starlink. It uses the copy that comes with Starlink if there is one, or downloads it. Reinstalling repairs a broken copy. Newer versions aren't offered on purpose: Icarus can't load the paks they make."
                                     ToolTipService.ShowOnDisabled="True"/>
                             <Button Content="Check" Command="{Binding VerifyUnrealPakCommand}" Margin="8,0,0,0"
-                                    ToolTip="Actually runs the configured UnrealPak.exe to confirm it works, and reports its engine version"/>
+                                    ToolTip="Runs UnrealPak once to check it works, and shows its version"/>
                             <TextBlock Text="{Binding UnrealPakStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="420"
                                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"
                                        Visibility="{Binding UnrealPakStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
@@ -102,7 +102,7 @@
                                 </DockPanel>
                             </Expander.Header>
                             <StackPanel>
-                                <TextBlock Text="Extracts the game's current DataTable JSON (Content\Data\data.pak) so merge/edit works against up-to-date data. Re-run this after a game update."
+                                <TextBlock Text="Reads the game's current data tables out of its files, so merges and edits use up-to-date data. Run it again after a game update."
                                            Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10"/>
                                 <WrapPanel>
                                     <Button Command="{Binding UpdateDataFolderCommand}" AutomationProperties.Name="Refresh game data">
@@ -166,7 +166,7 @@
                                  two different actions was a real, reported point of confusion. -->
                             <Button Command="{Binding ImportImmModListCommand}" IsEnabled="{Binding CanMigrateFromImm}"
                                     AutomationProperties.Name="Migrate mods and mod list"
-                                    ToolTip="Copies each mod out of classic IMM's own folder into your Library, then rebuilds your merge list in Merge &amp; Install — a one-time full migration, not just a queue re-sync. Pick LastMergedMods.txt from your classic IMM folder (or the IMM_Merged_Mod.txt next to the pak it installed into your game)">
+                                    ToolTip="Copies each mod out of classic IMM's folder into your Library, then rebuilds your merge list in Merge &amp; Install. It's a one-time move of everything, not just the list. Pick LastMergedMods.txt from your classic IMM folder (or the IMM_Merged_Mod.txt next to the pak it put in your game).">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -222,7 +222,7 @@
                             </DockPanel>
                             <Button Content="Authorize" Command="{Binding AuthorizeNexusCommand}" HorizontalAlignment="Left"
                                     IsEnabled="{Binding CanAuthorizeNexus}"
-                                    ToolTip="Validates the key with Nexus itself and, if it's accepted, saves it to Windows Credential Manager"/>
+                                    ToolTip="Checks the key with Nexus and, if it works, saves it in Windows Credential Manager"/>
                         </StackPanel>
 
                         <StackPanel Orientation="Horizontal"
@@ -256,7 +256,7 @@
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8"
                                     Visibility="{Binding IsNxmProtocolNotRegistered, Converter={StaticResource BoolToVisibilityConverter}}">
                             <Button Command="{Binding RegisterNxmProtocolCommand}"
-                                    ToolTip="Writes a per-user registry entry (no admin rights needed) so nxm:// links launch IcarusStarlink — asks for confirmation first"
+                                    ToolTip="Makes Nexus download links (nxm://) open Starlink, for your Windows user only (no admin rights needed). Asks first."
                                     AutomationProperties.Name="Register">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconGlobeMeridian}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.4"
@@ -326,7 +326,7 @@
             <TabItem Header="UE4SS">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
                     <StackPanel MaxWidth="760" HorizontalAlignment="Left">
-                        <TextBlock Text="UE4SS is Icarus's separate Lua/scripting mod framework (Binaries\Win64) — installing/updating it is unrelated to the EXMOD/pak system. Your existing mods and settings are never overwritten."
+                        <TextBlock Text="UE4SS is a separate mod loader for script (Lua) mods. It has nothing to do with the mods built on Merge &amp; Install. Installing or updating it never overwrites your mods or their settings."
                                    Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,12"/>
                         <Expander Style="{StaticResource SectionCardExpanderStyle}" AutomationProperties.Name="UE4SS loader">
                             <Expander.Header>
@@ -350,7 +350,7 @@
                             <Button Command="{Binding UninstallUe4ssCommand}" Margin="8,0,0,0"
                                     IsEnabled="{Binding CanUninstallUe4ss}"
                                     Visibility="{Binding IsUe4ssInstalled, Converter={StaticResource BoolToVisibilityConverter}}"
-                                    ToolTip="Removes the UE4SS loader completely (dwmapi.dll + the ue4ss folder). Your own mods are moved back to this app's staging first, everything removed is backed up, and Icarus's own files are never touched. Asks for confirmation."
+                                    ToolTip="Removes UE4SS completely (dwmapi.dll and the ue4ss folder). Your UE4SS mods are moved back into Starlink first, everything removed is backed up, and Icarus's own files are never touched. Asks first."
                                     AutomationProperties.Name="Uninstall UE4SS">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
@@ -547,9 +547,9 @@
                             </Button>
                             <Button Content="Open release page" Command="{Binding OpenLatestReleasePageCommand}" Margin="8,0,0,0"
                                     Visibility="{Binding IsAppUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
-                                    ToolTip="The manual fallback — opens the release's GitHub page in your browser instead"/>
+                                    ToolTip="Opens the release's GitHub page in your browser, to download it yourself instead"/>
                             <Button Content="View all releases" Command="{Binding OpenReleasesPageCommand}" Margin="8,0,0,0"
-                                    ToolTip="Opens the repo's own Releases page on GitHub — every version, with its notes, always available regardless of whether a check has run"/>
+                                    ToolTip="Opens Starlink's Releases page on GitHub: every version with its notes, whether or not you've checked for updates"/>
                         </WrapPanel>
                         <TextBlock Text="{Binding AppUpdateStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                    TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left" Margin="0,8,0,0"
@@ -568,9 +568,9 @@
                         <TextBlock Text="Starlink always keeps a basic log of what you did and what happened (at most 5 MB a file, the newest 14 files). If you run into a bug, export a diagnostics zip (logs + sanitized settings, never API keys or tokens) to attach to your report."
                                    Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10" TextWrapping="Wrap"/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Advanced log" IsChecked="{Binding AdvancedLogging}" Margin="0,0,0,10"
-                                  ToolTip="Off (Basic): the log records what you did and what happened: imports, merges, installs, fixes, warnings and errors. On (Advanced): also every detail, such as each fix made to a mod, the merge order and conflict picks, and every web request. Turn it on to chase a bug: it switches itself back to Basic after 24 hours. Takes effect at once. Either way each file stops at 5 MB and only the newest 14 are kept, so the logs never bloat."/>
+                                  ToolTip="Off (Basic): the log records what you did and what happened: imports, merges, installs, fixes, warnings and errors. On (Advanced): every detail too, like each fix made to a mod, the merge order, conflict picks and web requests. Turn it on to chase a bug: it goes back to Basic by itself after 24 hours. Works at once. Either way each file stops at 5 MB and only the newest 14 are kept."/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Performance tracking" IsChecked="{Binding PerformanceTrackingEnabled}" Margin="0,0,0,10"
-                                  ToolTip="Off by default. When on, logs how long Rebuild/Install/catalog-refresh take to a separate app.perf log file — useful if something feels slow and you want to show real numbers in a bug report."/>
+                                  ToolTip="Off by default. When on, writes how long merges, installs and catalog refreshes take to a separate log file (app.perf). Useful when something feels slow and you want real numbers for a bug report."/>
                         <WrapPanel>
                             <Button Command="{Binding ExportDiagnosticsCommand}" AutomationProperties.Name="Export diagnostics zip">
                                 <StackPanel Orientation="Horizontal">

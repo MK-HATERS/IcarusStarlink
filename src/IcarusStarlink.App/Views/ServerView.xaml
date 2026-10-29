@@ -122,7 +122,7 @@
 
                     <TextBlock Text="Remote path" FontSize="12" Margin="0,8,0,2"/>
                     <TextBox Text="{Binding RemotePathInput, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="Directory to land in on connect — e.g. the server's own mods folder. Blank = wherever the server logs you in."/>
+                             ToolTip="The folder to open when you connect, e.g. the server's mods folder. Blank = wherever the server puts you."/>
 
                     <!-- Optional per-site overrides for the Icarus server sync buttons below —
                          those assume a fixed SurvivalServers-shaped layout by default (relative to
@@ -138,11 +138,11 @@
                     <StackPanel>
                     <TextBlock Text="Mods path" FontSize="12" Margin="0,0,0,2"/>
                     <TextBox Text="{Binding ModsPathInput, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="Where 'Install merged pak' uploads on THIS site, relative to the FTP login root. Blank = the default Icarus/Content/Paks/mods. Only needed if this host lays out the dedicated server differently."/>
+                             ToolTip="Where 'Install merged pak' uploads on this site, starting from the folder you land in when you log in. Blank = Icarus/Content/Paks/mods. Only needed if this host sets up the server's folders differently."/>
 
                     <TextBlock Text="Win64 path" FontSize="12" Margin="0,8,0,2"/>
                     <TextBox Text="{Binding Win64PathInput, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="Where the UE4SS loader/mods sync buttons upload on THIS site, relative to the FTP login root. Blank = the default Icarus/Binaries/Win64. Only needed if this host lays out the dedicated server differently."/>
+                             ToolTip="Where the UE4SS buttons upload on this site, starting from the folder you land in when you log in. Blank = Icarus/Binaries/Win64. Only needed if this host sets up the server's folders differently."/>
                     </StackPanel>
                     </Expander>
 
@@ -191,11 +191,11 @@
                                Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0,20,0,6"/>
                     <WrapPanel IsEnabled="{Binding IsNotBusy}" Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Button Content="Install merged pak" Command="{Binding InstallPakToServerCommand}"
-                                ToolTip="Uploads the merged pak your last Merge &amp; Install built to the server's mods folder (Content/Paks/mods by default, or this site's own Mods path override), replacing whatever's already there."/>
+                                ToolTip="Uploads the merged pak your last Merge &amp; Install built to the server's mods folder (Content/Paks/mods, or this site's Mods path), replacing what's there."/>
                         <Button Content="Sync UE4SS loader" Command="{Binding SyncUe4ssLoaderToServerCommand}" Margin="8,0,0,0"
-                                ToolTip="Checks the server's own UE4SS version and uploads the loader if it's missing or out of date, to Binaries/Win64 by default or this site's own Win64 path override. Never touches the server's own Mods folder or an existing UE4SS-settings.ini."/>
+                                ToolTip="Checks the server's UE4SS version and uploads UE4SS if it's missing or out of date (to Binaries/Win64, or this site's Win64 path). Never touches the server's Mods folder or its UE4SS-settings.ini."/>
                         <Button Content="Sync UE4SS mods" Command="{Binding SyncUe4ssModsToServerCommand}" Margin="8,0,0,0"
-                                ToolTip="Uploads any locally-enabled UE4SS mod the server doesn't already have. Never removes or overwrites a mod already on the server."/>
+                                ToolTip="Uploads every UE4SS mod that's on in your game and missing on the server, and turns them on there. Never removes or overwrites a mod already there."/>
                     </WrapPanel>
                 </StackPanel>
                 </ScrollViewer>
@@ -244,7 +244,7 @@
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0" IsEnabled="{Binding IsNotBusy}">
                     <Button Command="{Binding UploadCommand}"
-                            ToolTip="Uploads a local file into the current remote folder" AutomationProperties.Name="Upload">
+                            ToolTip="Uploads a file from your PC into the server folder you have open" AutomationProperties.Name="Upload">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0" RenderTransformOrigin="0.5,0.5">
@@ -256,7 +256,7 @@
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding DownloadCommand}" Margin="8,0,0,0"
-                            ToolTip="Downloads the selected remote file to a location you choose" AutomationProperties.Name="Download">
+                            ToolTip="Downloads the selected server file to your PC, wherever you choose" AutomationProperties.Name="Download">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -264,7 +264,7 @@
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding DeleteRemoteCommand}" Margin="8,0,0,0"
-                            ToolTip="Deletes the selected remote file from the server — asks for confirmation first" AutomationProperties.Name="Delete remote file">
+                            ToolTip="Deletes the selected file from the server. Asks first." AutomationProperties.Name="Delete remote file">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource DangerBrush}" StrokeThickness="1.6"
                                   StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0"/>
