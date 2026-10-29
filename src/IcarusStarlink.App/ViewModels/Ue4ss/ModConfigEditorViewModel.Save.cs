@@ -87,8 +87,8 @@ public sealed partial class ModConfigEditorViewModel
                 // The file may have changed since it was opened (the mod's own in-game settings
                 // menu writes it, so does another editor): writing the text read back then would
                 // silently put every other setting back to what it was.
-                var (nowText, nowBom) = ReadConfigText(Path.Combine(location.ModFolder, file.RelativePath));
-                var bom = _diskHasBom;
+                var (nowText, nowEncoding) = ReadConfigText(Path.Combine(location.ModFolder, file.RelativePath));
+                var encoding = _diskEncoding;
                 if (nowText != _diskText)
                 {
                     if (IsTextMode || file.Format == Ue4ssModConfigFormat.Text)
@@ -110,13 +110,13 @@ public sealed partial class ModConfigEditorViewModel
                     }
 
                     text = current.ToText();
-                    bom = nowBom;
+                    encoding = nowEncoding;
                     changedOnDisk = true;
                 }
 
                 if (text != nowText)
                 {
-                    Write(location, file, text, bom);
+                    Write(location, file, text, encoding);
                 }
 
                 saved.Add(location.Name);
@@ -132,7 +132,7 @@ public sealed partial class ModConfigEditorViewModel
         {
             try
             {
-                var (targetText, bom) = ReadConfigText(Path.Combine(target.ModFolder, file.RelativePath));
+                var (targetText, targetEncoding) = ReadConfigText(Path.Combine(target.ModFolder, file.RelativePath));
                 string newText;
                 if (file.Format == Ue4ssModConfigFormat.Text)
                 {
@@ -155,7 +155,7 @@ public sealed partial class ModConfigEditorViewModel
 
                 if (newText != targetText)
                 {
-                    Write(target, file, newText, bom);
+                    Write(target, file, newText, targetEncoding);
                 }
 
                 saved.Add(target.Name);
@@ -175,18 +175,8 @@ public sealed partial class ModConfigEditorViewModel
         return true;
     }
 
-    /// <summary>A config file's text (UTF-8, a leading BOM noted, not kept in the text); refuses one over MaxConfigBytes.</summary>
-    private static (string Text, bool Bom) ReadConfigText(string path)
-    {
-        if (new FileInfo(path).Length > MaxConfigBytes)
-        {
-            throw new IOException($"it's over {MaxConfigBytes / 1024 / 1024} MB, too big for a config");
-        }
-
-        var bytes = File.ReadAllBytes(path);
-        var bom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
-        return (Encoding.UTF8.GetString(bytes, bom ? 3 : 0, bytes.Length - (bom ? 3 : 0)), bom);
-    }
+    /// <summary>A config file's text in its own encoding (any BOM not kept in the text, but noted); refuses one over MaxConfigBytes.</summary>
+    private static ConfigText ReadConfigText(string path) => ConfigTextFile.Read(path, MaxConfigBytes);
 
     /// <summary>Throws away the shown file's unsaved edits (other files keep theirs).</summary>
     [RelayCommand]
@@ -209,11 +199,12 @@ public sealed partial class ModConfigEditorViewModel
         }
     }
 
-    private void Write(ModConfigLocation location, Ue4ssModConfigFile file, string text, bool bom)
+    /// <param name="encoding">The file's own encoding and BOM on disk, kept.</param>
+    private void Write(ModConfigLocation location, Ue4ssModConfigFile file, string text, ConfigTextEncoding encoding)
     {
         var path = Path.Combine(location.ModFolder, file.RelativePath);
         FolderBackup.BackupFile(path, Path.Combine(_backupDirectory, "UE4SS-Mod-Configs", SafeName(ModName), SafeName(location.Name)));
-        IcarusStarlink.Core.IO.AtomicFile.WriteAllText(path, text, new UTF8Encoding(bom));
+        ConfigTextFile.Write(path, text, encoding);
     }
 
     private static string SafeName(string name) =>

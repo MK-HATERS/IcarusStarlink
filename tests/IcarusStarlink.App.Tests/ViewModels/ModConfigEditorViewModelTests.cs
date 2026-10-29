@@ -425,6 +425,53 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
         Assert.Equal("", vm.RawText);
     }
 
+    private const string AccentLua = "-- Réglages: rayon de défense\r\nreturn {\r\n    DefendRadius = 5000,  -- très loin\r\n    Debug = false,\r\n}\r\n";
+
+    public static TheoryData<IcarusStarlink.Core.Ue4ss.ConfigTextEncoding> Encodings => new()
+    {
+        IcarusStarlink.Core.Ue4ss.ConfigTextEncoding.Utf8, IcarusStarlink.Core.Ue4ss.ConfigTextEncoding.Utf8Bom,
+        IcarusStarlink.Core.Ue4ss.ConfigTextEncoding.Utf16LeBom, IcarusStarlink.Core.Ue4ss.ConfigTextEncoding.Windows1252,
+    };
+
+    internal static byte[] Bytes(string text, IcarusStarlink.Core.Ue4ss.ConfigTextEncoding encoding) => encoding switch
+    {
+        IcarusStarlink.Core.Ue4ss.ConfigTextEncoding.Utf8 => System.Text.Encoding.UTF8.GetBytes(text),
+        IcarusStarlink.Core.Ue4ss.ConfigTextEncoding.Utf8Bom => [0xEF, 0xBB, 0xBF, .. System.Text.Encoding.UTF8.GetBytes(text)],
+        IcarusStarlink.Core.Ue4ss.ConfigTextEncoding.Utf16LeBom => [0xFF, 0xFE, .. System.Text.Encoding.Unicode.GetBytes(text)],
+        _ => System.Text.CodePagesEncodingProvider.Instance.GetEncoding(1252)!.GetBytes(text),
+    };
+
+    /// <summary>
+    /// Report 2026-10-28: a config.lua saved as ANSI with "é" in a comment showed and saved as "�".
+    /// Each file is shown in its own encoding and saved back in it, BOM and all, here and in the
+    /// ticked other copy (which keeps its own).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Encodings))]
+    public void Save_KeepsTheFilesEncodingAndBom_ByteForByte(IcarusStarlink.Core.Ue4ss.ConfigTextEncoding encoding)
+    {
+        var game = Mod("game", "config.lua", "");
+        File.WriteAllBytes(Path.Combine(game, "config.lua"), Bytes(AccentLua, encoding));
+        var server = Mod("server", "config.lua", "");
+        File.WriteAllBytes(Path.Combine(server, "config.lua"), Bytes(AccentLua, IcarusStarlink.Core.Ue4ss.ConfigTextEncoding.Windows1252));
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife",
+            [new ModConfigLocation("Your game", game, false), new ModConfigLocation("Server: Test", server, true)], Path.Combine(_root, "Backups"));
+
+        Assert.Contains("Réglages", vm.RawText);
+        Field(vm, "Debug").IsOn = true;
+        vm.AlsoSaveTo.Single().IsChecked = true;
+        vm.SaveCommand.Execute(null);
+
+        var expected = AccentLua.Replace("Debug = false", "Debug = true");
+        Assert.Equal(Bytes(expected, encoding), File.ReadAllBytes(Path.Combine(game, "config.lua")));
+        Assert.Equal(Bytes(expected, IcarusStarlink.Core.Ue4ss.ConfigTextEncoding.Windows1252), File.ReadAllBytes(Path.Combine(server, "config.lua")));
+
+        // Put back and saved again: the file is the bytes it started as.
+        Field(vm, "Debug").IsOn = false;
+        vm.SaveCommand.Execute(null);
+        Assert.Equal(Bytes(AccentLua, encoding), File.ReadAllBytes(Path.Combine(game, "config.lua")));
+    }
+
     /// <summary>Search finds a setting by its plain name or its heading too, and says so when nothing matches.</summary>
     [Fact]
     public void Search_MatchesLabelAndHeading()

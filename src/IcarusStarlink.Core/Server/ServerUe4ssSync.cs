@@ -111,8 +111,9 @@ public static class ServerUe4ssSync
         return differing;
     }
 
+    // Each in its own encoding: the same settings saved as ANSI on one side and UTF-8 on the other are the same.
     private static string NormalizedText(string path) =>
-        File.ReadAllText(path).Replace("\r\n", "\n").TrimEnd('\n', ' ', '\t');
+        ConfigTextFile.Read(path).Text.Replace("\r\n", "\n").TrimEnd('\n', ' ', '\t');
 
     /// <summary>
     /// Makes <paramref name="targetModFolder"/>'s settings the same as <paramref name="sourceModFolder"/>'s:

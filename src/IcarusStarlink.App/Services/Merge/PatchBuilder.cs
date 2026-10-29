@@ -95,7 +95,7 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
                 {
                     try
                     {
-                        entry.Configs.Add(new PatchConfigFile { Path = config.RelativePath.Replace('\\', '/'), Text = File.ReadAllText(Path.Combine(folder, config.RelativePath)) });
+                        entry.Configs.Add(new PatchConfigFile { Path = config.RelativePath.Replace('\\', '/'), Text = ConfigTextFile.Read(Path.Combine(folder, config.RelativePath)).Text });
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
