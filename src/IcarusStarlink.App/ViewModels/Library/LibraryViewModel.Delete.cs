@@ -104,15 +104,27 @@ public sealed partial class LibraryViewModel
         // Asked anyway, the Library parts went after the Yes and the Lua half stayed in the game:
         // half a mod left behind. Refused before the question (the UE4SS panel's own Delete of a
         // linked half lands here too). Needed again since in-game halves are linked (2026-10-28).
-        if (ue4ssParts.Count > 0 && Ue4ssPartsInGame(ue4ssParts) is { Count: > 0 } inGameParts && IsGameRunningCheck())
+        // Checked again after the Yes, before anything goes: the question gives the game time to
+        // start (as Merge & Install's ConfirmWithGameClosed does).
+        bool RefusedWhileGameRuns()
         {
-            StatusMessage = $"Icarus is running, and {string.Join(", ", inGameParts)} from the same download is on in the game. Close the game, then delete.";
-            Ue4ssStatusMessage = StatusMessage;
+            if (ue4ssParts.Count > 0 && Ue4ssPartsInGame(ue4ssParts) is { Count: > 0 } inGameParts && IsGameRunningCheck())
+            {
+                StatusMessage = $"Icarus is running, and {string.Join(", ", inGameParts)} from the same download is on in the game. Close the game, then delete. Nothing was deleted.";
+                Ue4ssStatusMessage = StatusMessage;
+                return true;
+            }
+
+            return false;
+        }
+
+        if (RefusedWhileGameRuns())
+        {
             return;
         }
 
         var confirm = _dialogService.Confirm(message, "Delete mod(s)", ThemedConfirmSeverity.Warning);
-        if (!(confirm))
+        if (!(confirm) || RefusedWhileGameRuns())
         {
             return;
         }
