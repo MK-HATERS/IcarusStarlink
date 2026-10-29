@@ -138,4 +138,19 @@ public sealed class Ue4ssModConfigCarryOverTests : IDisposable
         Assert.Empty(result.Reviews);
         Assert.Equal("return {\n    A = 1, -- newer comment\n}\n", File.ReadAllText(Path.Combine(updated, "config.lua")));
     }
+
+    /// <summary>A "local Config = {} … Config.Speed = … return Config" file is merged like any other: it used to be kept whole, so an update's new settings never reached it.</summary>
+    [Fact]
+    public void KeepInstalledConfigs_AConfigDotKeyFile_GetsTheNewSettings()
+    {
+        var previous = Mod("previous", ("config.lua", "local Config = {}\nConfig.Speed = 5\nreturn Config\n"));
+        var updated = Mod("new", ("config.lua", "local Config = {}\nConfig.Speed = 2 -- times faster\nConfig.Range = 10\nreturn Config\n"));
+
+        var result = Ue4ssModConfigCarryOver.KeepInstalledConfigs(previous, updated);
+
+        Assert.Equal("local Config = {}\nConfig.Speed = 5 -- times faster\nConfig.Range = 10\nreturn Config\n", File.ReadAllText(Path.Combine(updated, "config.lua")));
+        var review = Assert.Single(result.Reviews);
+        Assert.True(review.MergedIntoNewLayout);
+        Assert.Equal(["Config.Range"], review.Added);
+    }
 }
