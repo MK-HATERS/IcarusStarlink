@@ -187,7 +187,7 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
 
         try
         {
-            _gameRows ??= await _context.GameRows();
+            _gameRows ??= await LoadGameRowsAsync();
         }
         catch (Exception)
         {
@@ -200,10 +200,40 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
         }
 
         MatchingRows.Clear();
-        foreach (var row in _gameRows.Where(r => r.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase)).Take(100))
+        foreach (var row in _gameRows.Where(r => r.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase)
+                     || (r.Label?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)).Take(100))
         {
             MatchingRows.Add(row);
         }
+    }
+
+    /// <summary>
+    /// The row list in plain words: the item's in-game name and the part of the game the row is
+    /// ("Canteen — Eating or using"), the row's own name in brackets when it differs. Was
+    /// "Accolades/D_Accolades.json — GlassBuildingsCrafted20" (seen in the app, 2026-10-28).
+    /// </summary>
+    private async Task<IReadOnlyList<GameDataItemRef>> LoadGameRowsAsync()
+    {
+        var rows = await _context.GameRows();
+        var index = _context.GameIndex();
+        return await Task.Run(() => WithPlainLabels(rows, index));
+    }
+
+    internal static IReadOnlyList<GameDataItemRef> WithPlainLabels(IReadOnlyList<GameDataItemRef> rows, GameTableIndex? index)
+    {
+        var names = index is not null && index.CurrentFileFor("D_ItemsStatic") is not null ? new GameItemNames(index) : null;
+        return [.. rows.Select(row =>
+        {
+            var part = ExmodEditorViewModel.PartOfGame(GameTableIndex.TableNameOf(row.CurrentFile));
+            var gameItem = names?.ItemFor(row.CurrentFile, row.ItemName);
+            var title = gameItem is null ? null : names!.DisplayName(gameItem);
+            return row with
+            {
+                Label = title is null || string.Equals(title, row.ItemName, StringComparison.OrdinalIgnoreCase)
+                    ? $"{row.ItemName} — {part}"
+                    : $"{title} — {part}  ({row.ItemName})",
+            };
+        })];
     }
 
     [RelayCommand]
@@ -242,7 +272,7 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
             var picked = PickedRows.Select(r => new BrokenModTarget(r.CurrentFile, r.ItemName)).ToList();
             if (picked.Count == 0 && words.Trim().Length >= 3)
             {
-                _gameRows ??= await _context.GameRows();
+                _gameRows ??= await LoadGameRowsAsync();
             }
 
             var gameRows = _gameRows ?? [];

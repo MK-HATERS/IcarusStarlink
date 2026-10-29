@@ -37,6 +37,10 @@ public sealed partial class ExmodEditorViewModel
         ["D_Talents"] = "Talents and workshop tabs",
     };
 
+    /// <summary>The part of the game a table holds, in plain words ("D_Armour" → "Armour"); also Find the broken mod's row list.</summary>
+    internal static string PartOfGame(string table) =>
+        GroupNames.TryGetValue(table, out var g) ? g : (table.StartsWith("D_", StringComparison.Ordinal) ? Spaced(table[2..]) : table);
+
     /// <summary>A list row with its group, in-game name and change count.</summary>
     private EditorItemViewModel MakeItem(string currentFile, string rowName, ExmodFileItem? item = null)
     {
@@ -48,7 +52,7 @@ public sealed partial class ExmodEditorViewModel
         var isNew = HasGameTable(currentFile) && !GameTables.HasRow(currentFile, rowName);
         return new EditorItemViewModel(currentFile, rowName)
         {
-            Group = GroupNames.TryGetValue(table, out var g) ? g : (table.StartsWith("D_", StringComparison.Ordinal) ? Spaced(table[2..]) : table),
+            Group = PartOfGame(table),
             Title = title,
             GameItem = gameItem,
             IsNewRow = isNew,

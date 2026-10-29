@@ -20,7 +20,10 @@ namespace IcarusStarlink.App.ViewModels;
 /// <summary>One real DataTable row in the extracted game data — the pickable unit for "Add item from game data". CurrentFile is EXMOD's own dash-flattened form; RealPath keeps the slashes for display and for reading the file back.</summary>
 public sealed record GameDataItemRef(string CurrentFile, string RealPath, string ItemName)
 {
-    public string Display => $"{RealPath} — {ItemName}";
+    /// <summary>A plain label set by a list that knows better ("Canteen — Items"); otherwise the file and row.</summary>
+    public string? Label { get; init; }
+
+    public string Display => Label ?? $"{RealPath} — {ItemName}";
 }
 
 /// <summary>One row plus its own serialized JSON — the searchable unit for the Search game data window's reference search. Kept separate from GameDataItemRef so the (much lighter) add-item picker never pays for the serialized text it doesn't use.</summary>

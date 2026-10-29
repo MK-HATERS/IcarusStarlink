@@ -130,6 +130,36 @@ public sealed class FindBrokenModViewModelTests : IDisposable
         }
     }
 
+    /// <summary>The row list showed "Accolades/D_Accolades.json — GlassBuildingsCrafted20" (seen in the app, 2026-10-28): it reads in plain words now.</summary>
+    [Fact]
+    public void GameRows_ReadInPlainWords_WithTheItemsInGameName()
+    {
+        var data = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FinderRows_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(data, "Items"));
+            Directory.CreateDirectory(Path.Combine(data, "Traits"));
+            File.WriteAllText(Path.Combine(data, "Items", "D_ItemsStatic.json"),
+                """{"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"}},"Rows":[{"Name":"Canteen","Itemable":{"RowName":"Item_Canteen"}}]}""");
+            File.WriteAllText(Path.Combine(data, "Traits", "D_Itemable.json"),
+                """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Canteen","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Canteen-DisplayName\", \"Steel Canteen\")"}]}""");
+
+            var rows = FindBrokenModViewModel.WithPlainLabels(
+                [
+                    new GameDataItemRef("Traits-D_Itemable.json", "Traits/D_Itemable.json", "Item_Canteen"),
+                    new GameDataItemRef("Accolades-D_Accolades.json", "Accolades/D_Accolades.json", "GlassBuildingsCrafted20"),
+                ],
+                new GameTableIndex(data));
+
+            Assert.Equal("Steel Canteen — Names, weights, stacks  (Item_Canteen)", rows[0].Display);
+            Assert.Equal("GlassBuildingsCrafted20 — Accolades", rows[1].Display);
+        }
+        finally
+        {
+            Directory.Delete(data, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Search_FromStartToPutBack_NamesTheMod_AndPutsEveryOtherModBack()
     {
