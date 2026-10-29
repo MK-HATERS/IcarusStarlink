@@ -1,5 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.PakIO.Assets;
@@ -87,6 +89,10 @@ public sealed partial class LibraryViewModel
     /// <summary>Check ▾ › What the last game update changed…: the review of the last Update everything, as things are now.</summary>
     [RelayCommand]
     private void ShowLastGameUpdate() => GameUpdateCoordinator?.Invoke().ShowLastReview();
+
+    /// <summary>Check ▾ (and a mod's right-click) › Find the broken mod…: opens the finder (FindBrokenModLauncher listens), the same one as on Merge &amp; Install.</summary>
+    [RelayCommand]
+    private void FindBrokenMod() => WeakReferenceMessenger.Default.Send(new OpenFindBrokenModMessage());
 
     /// <summary>The run moved the mods on to this build: the bar goes.</summary>
     internal void MarkGameUpdateHandled(string build)

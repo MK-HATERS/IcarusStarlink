@@ -417,6 +417,9 @@
                                   CommandParameter="{Binding}" IsEnabled="{Binding CanEdit}"
                                   ToolTip="Compares this mod with the current game: old copies of game data (from a mod made for an older version), rows both the mod and the game changed, and renamed rows. Shows each with a fix to choose. Greyed out: a prebuilt pak (make it editable first)."
                                   ToolTipService.ShowOnDisabled="True"/>
+                        <MenuItem Header="Find the broken mod…"
+                                  Command="{Binding PlacementTarget.Tag.FindBrokenModCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  ToolTip="Something broken in game and you don't know which mod does it? Tests your mods in rounds until it finds the one. Your saves are backed up first and your mods go back at the end."/>
                         <MenuItem Header="Convert to EXMOD…"
                                   Command="{Binding PlacementTarget.Tag.ConvertToExmodCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding IsOpaquePak}"
@@ -771,6 +774,8 @@
                                               ToolTip="Tries again to turn every prebuilt .pak mod into an editable mod — useful right after setting up UnrealPak.exe (it also runs by itself after every Refresh game data). Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="What the last game update changed…" Command="{Binding ShowLastGameUpdateCommand}"
                                               ToolTip="What the last Update everything fixed, what still needs a look, and which mods replace game files the update changed. Roll back is there too."/>
+                                    <MenuItem Header="Find the broken mod…" Command="{Binding FindBrokenModCommand}"
+                                              ToolTip="Something broken in game and you don't know which mod does it? Tests your mods in rounds until it finds the one. Your saves are backed up first and your mods go back at the end."/>
                                     <Separator/>
                                     <MenuItem Header="Check endorsements" Command="{Binding CheckEndorsementsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
                                               ToolTip="Fetches your Nexus endorsement history and shows which of your Nexus-linked mods you haven't endorsed yet. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
