@@ -117,7 +117,12 @@ public sealed partial class LocalServerViewModel
     /// in the Library since used to be missing from "your game's UE4SS mods" until another server
     /// was picked) and the merged pak.
     /// </summary>
-    public void OnPageShown() => RefreshMods();
+    public void OnPageShown()
+    {
+        RefreshMods();
+        // A settings form with no unsaved edits takes a ServerSettings.ini changed outside Starlink meanwhile.
+        ReloadIniIfChangedAndClean();
+    }
 
     private void RefreshMods()
     {
@@ -224,7 +229,7 @@ public sealed partial class LocalServerViewModel
         return true;
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanInstallMergedPak))]
     private async Task InstallMergedPakAsync()
     {
         if (SelectedProfile is not { } p || !EnsureInstallStoppedFor(p, "change its mods"))
@@ -307,7 +312,7 @@ public sealed partial class LocalServerViewModel
         RefreshBackups();
     }
 
-    private bool CanRemoveSelectedPak() => SelectedServerPak is not null;
+    private bool CanRemoveSelectedPak() => SelectedServerPak is not null && CanChangeInstallFiles;
 
     [RelayCommand(CanExecute = nameof(CanRemoveSelectedPak))]
     private void RemoveSelectedPak()
@@ -335,7 +340,7 @@ public sealed partial class LocalServerViewModel
         RefreshMods();
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanInstallUe4ssOnServer))]
     private void InstallUe4ssOnServer()
     {
         if (SelectedProfile is not { } p || !EnsureInstallStoppedFor(p, "install UE4SS on it"))
@@ -364,7 +369,7 @@ public sealed partial class LocalServerViewModel
     }
 
     /// <summary>A row's Copy to server / Update on server: the game's copy goes on, keeping the server's own config and on/off (ServerUe4ssSync.CopyToServer).</summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanChangeInstallFilesFor))]
     private async Task CopyUe4ssModToServerAsync(ServerUe4ssRow? row)
     {
         if (row is null)
@@ -380,7 +385,7 @@ public sealed partial class LocalServerViewModel
     /// that's on in the game but missing from the server. Nothing is removed, the server's settings
     /// stay, and its worlds are backed up first. Asks first, naming them.
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanMatchServerToGame))]
     private async Task MatchServerToGameAsync()
     {
         var rows = Ue4ssModRows.Where(r => r.NeedsUpdate || (r.State == ServerModState.NotOnServer && r.Comparison.OnInGame)).ToList();
@@ -546,7 +551,7 @@ public sealed partial class LocalServerViewModel
         StatusMessage = message;
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanChangeInstallFilesFor))]
     private void RemoveServerUe4ssMod(ServerUe4ssRow? mod)
     {
         if (SelectedProfile is not { } p || mod is null || !mod.IsOnServer || !EnsureInstallStoppedFor(p, "change its mods"))

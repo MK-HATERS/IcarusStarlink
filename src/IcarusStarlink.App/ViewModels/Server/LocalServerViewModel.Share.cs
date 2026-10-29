@@ -151,7 +151,7 @@ public sealed partial class LocalServerViewModel
     /// have it), with the patch's settings written into the server's copy. The merged pak is
     /// built on Merge &amp; Install and installed from here, as before. The server must be stopped.
     /// </summary>
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true, CanExecute = nameof(CanApplyPatchToServer))]
     private async Task ApplyPatchToServerAsync()
     {
         if (SelectedProfile is not { } p || !EnsureInstallStoppedFor(p, "apply a patch"))

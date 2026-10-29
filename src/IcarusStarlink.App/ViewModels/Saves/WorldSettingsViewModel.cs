@@ -296,7 +296,26 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(HasChanges));
     }
 
-    [RelayCommand]
+    /// <summary>
+    /// Save greys out while the blocked reason holds (the Server page, which calls
+    /// RefreshSaveBlocked whenever its server starts, stops or gets busy). Off for the Saves
+    /// page: nothing tells it when Icarus closes, so its Save keeps refusing after the click.
+    /// </summary>
+    public bool GreyOutWhenBlocked { get; init; }
+
+    /// <summary>Why Save is greyed out right now (its tooltip), or null.</summary>
+    public string? SaveBlockedReason => GreyOutWhenBlocked ? _blockedReason() : null;
+
+    /// <summary>The owner's state changed: Save and its tooltip look at the blocked reason again.</summary>
+    public void RefreshSaveBlocked()
+    {
+        OnPropertyChanged(nameof(SaveBlockedReason));
+        SaveCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanSave() => SaveBlockedReason is null;
+
+    [RelayCommand(CanExecute = nameof(CanSave))]
     private void Save()
     {
         if (SelectedWorld is not { } world || !HasChanges)

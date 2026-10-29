@@ -1327,8 +1327,12 @@ public sealed partial class LocalServerViewModelTests : IDisposable
             return FindRunningHook is { } hook ? hook() : RunningFor is { } perProfile ? perProfile(profile) : Running;
         }
 
+        /// <summary>Runs as a server is launched (for "what the page shows while automation restarts it").</summary>
+        public Action? DuringStart { get; set; }
+
         public void Start(DedicatedServerProfile profile)
         {
+            DuringStart?.Invoke();
             Started.Add(profile);
             if (RunAfterStart)
             {

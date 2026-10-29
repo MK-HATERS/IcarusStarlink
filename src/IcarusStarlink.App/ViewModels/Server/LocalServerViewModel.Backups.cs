@@ -200,7 +200,7 @@ public sealed partial class LocalServerViewModel
         RefreshBackups();
     }
 
-    private bool CanRestore() => SelectedBackup is not null && !IsBackupBusy;
+    private bool CanRestore() => SelectedBackup is not null && !IsBackupBusy && CanChangeServerFiles;
 
     [RelayCommand(CanExecute = nameof(CanRestore))]
     private async Task RestoreSelectedBackupAsync()
@@ -321,7 +321,7 @@ public sealed partial class LocalServerViewModel
     }
 
     /// <summary>Writes both lists. The server reads them on start, and its own BanPlayer/UnbanPlayer commands rewrite the ban list while running — so edit while stopped.</summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanSaveAccessLists))]
     private void SaveAccessLists()
     {
         if (SelectedProfile is not { } p || !EnsureStoppedFor("edit the admin and ban lists (the running server rewrites the ban list itself)"))

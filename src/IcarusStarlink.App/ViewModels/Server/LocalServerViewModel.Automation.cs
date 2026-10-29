@@ -276,6 +276,8 @@ public sealed partial class LocalServerViewModel
         {
             _automationRunning = false;
             RefreshOverview();
+            // Another profile on this install may have started or stopped: its Mods buttons follow.
+            RaiseServerFilesChanged();
         }
     }
 
@@ -378,6 +380,7 @@ public sealed partial class LocalServerViewModel
         StopCommand.NotifyCanExecuteChanged();
         RestartCommand.NotifyCanExecuteChanged();
         UpdateServerCommand.NotifyCanExecuteChanged();
+        RaiseServerFilesChanged();
     }
 
     /// <summary>
