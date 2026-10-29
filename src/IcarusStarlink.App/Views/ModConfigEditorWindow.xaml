@@ -149,6 +149,7 @@
                                                         <StackPanel Orientation="Horizontal">
                                                             <TextBlock Text="{Binding DefaultText}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"/>
                                                             <Button Content="Reset to default" Command="{Binding ResetToDefaultCommand}" Style="{StaticResource PillButtonStyle}" Margin="8,0,0,0" FontSize="11"
+                                                                    Background="{DynamicResource AccentSoftBrush}" Foreground="{DynamicResource ForegroundBrush}"
                                                                     Visibility="{Binding CanResetToDefault, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                         </StackPanel>
                                                     </StackPanel>

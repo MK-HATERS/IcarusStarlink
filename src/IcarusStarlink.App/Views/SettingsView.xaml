@@ -447,28 +447,33 @@
                                                             <ColumnDefinition Width="230"/>
                                                         </Grid.ColumnDefinitions>
                                                         <StackPanel Margin="0,0,12,0">
-                                                            <StackPanel Orientation="Horizontal">
-                                                                <TextBlock Text="{Binding Key}" FontWeight="SemiBold"/>
+                                                            <WrapPanel>
+                                                                <!-- The key in plain words, the real key small beside it (it's what the file and UE4SS's docs call it), as in Edit config. -->
+                                                                <TextBlock Text="{Binding Label}" FontWeight="SemiBold" ToolTip="{Binding Key}"/>
+                                                                <TextBlock Text="{Binding Key}" FontSize="11" FontFamily="Consolas" Margin="8,0,0,0" VerticalAlignment="Center"
+                                                                           Foreground="{DynamicResource FaintForegroundBrush}" ToolTip="The setting's name in the file"
+                                                                           Visibility="{Binding ShowKeyName, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                                 <TextBlock Text="  changed" Foreground="{DynamicResource AccentBrush}" FontSize="11" VerticalAlignment="Center"
                                                                            Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                                            </StackPanel>
+                                                            </WrapPanel>
                                                             <TextBlock Text="{Binding Description}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                                                        Visibility="{Binding HasDescription, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                             <StackPanel Orientation="Horizontal">
                                                                 <TextBlock Text="{Binding DefaultText}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"/>
                                                                 <Button Content="Reset to default" Command="{Binding ResetToDefaultCommand}" Style="{StaticResource PillButtonStyle}" Margin="8,0,0,0" FontSize="11"
+                                                                        Background="{DynamicResource AccentSoftBrush}" Foreground="{DynamicResource ForegroundBrush}"
                                                                         Visibility="{Binding CanResetToDefault, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                             </StackPanel>
                                                         </StackPanel>
                                                         <Grid Grid.Column="1" VerticalAlignment="Top">
                                                             <CheckBox IsChecked="{Binding IsOn}" Style="{StaticResource ToggleSwitchStyle}" HorizontalAlignment="Left"
-                                                                      AutomationProperties.Name="{Binding Key}"
+                                                                      AutomationProperties.Name="{Binding Label}"
                                                                       Visibility="{Binding IsToggle, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                             <ComboBox ItemsSource="{Binding Choices}" Text="{Binding Value}" IsEditable="True"
-                                                                      AutomationProperties.Name="{Binding Key}"
+                                                                      AutomationProperties.Name="{Binding Label}"
                                                                       Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                             <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
-                                                                     AutomationProperties.Name="{Binding Key}"
+                                                                     AutomationProperties.Name="{Binding Label}"
                                                                      Visibility="{Binding IsText, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                         </Grid>
                                                     </Grid>
