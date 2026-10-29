@@ -165,6 +165,28 @@ public class Ue4ssConfigViewModelTests : IDisposable
     /// A slider in small steps wrote "2E-05" (C#'s short form) into the mod's config, which a mod
     /// reading plain numbers can't use; and a slider with a step of 0 wrote "NaN".
     /// </summary>
+    /// <summary>
+    /// UE4SS-settings.ini (real, seen in the app 2026-10-28): "Default: &lt;dll_directory&gt;/Mods"
+    /// describes what blank does. A blank value showed Reset to default, and Reset wrote the
+    /// description itself into the file.
+    /// </summary>
+    [Fact]
+    public void ADefaultThatDescribesBlank_CountsBlankAsDefault_AndResetBlanksIt()
+    {
+        const string text =
+            "[Overrides]\n; Path to the 'Mods' folder\n; Default: <dll_directory>/Mods\nModsFolderPath = \n\n"
+            + "; Default: Empty (parse mods.txt from all mod directories)\nControllingModsTxt = ../x/mods.txt\n";
+        var fields = Ue4ssSettingsDocument.Parse(text).Settings.Select(s => new Ue4ssConfigField(s)).ToDictionary(f => f.Key);
+
+        Assert.False(fields["ModsFolderPath"].CanResetToDefault);
+
+        var controlling = fields["ControllingModsTxt"];
+        Assert.True(controlling.CanResetToDefault);
+        controlling.ResetToDefaultCommand.Execute(null);
+        Assert.Equal("", controlling.Value);
+        Assert.True(controlling.IsDefault);
+    }
+
     [Fact]
     public void NumberValue_WritesPlainDecimals()
     {

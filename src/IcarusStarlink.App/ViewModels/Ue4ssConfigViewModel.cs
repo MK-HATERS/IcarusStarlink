@@ -258,12 +258,22 @@ public sealed partial class Ue4ssConfigField : ObservableObject
     public bool IsChanged => Value.Trim() != OriginalValue.Trim();
 
     public bool IsDefault => Default is null || string.Equals(Value.Trim(), Default, StringComparison.OrdinalIgnoreCase)
+        || (DefaultMeansBlank && Value.Trim().Length == 0)
         || (IsToggle && Ue4ssSettingsDocument.IsOn(Value) == Ue4ssSettingsDocument.IsOn(Default))
         || (IsNumber && Ue4ssSettingsDocument.Number(Value) is { } n && n == Ue4ssSettingsDocument.Number(Default))
         || (IsKey && Ue4ssKeyBind.TryParse(Value, out var key) && Ue4ssKeyBind.TryParse(Default, out var shipped) && key == shipped);
 
     /// <summary>A default the file names ("Default: 1") that isn't the current value.</summary>
     public bool CanResetToDefault => Default is { Length: > 0 } && !IsDefault;
+
+    /// <summary>
+    /// A default that describes what an empty value does rather than a value to type:
+    /// UE4SS-settings.ini's "Default: &lt;dll_directory&gt;/Mods" and "Default: Empty (parse
+    /// mods.txt from all mod directories)". Blank is the default there, and Reset blanks the value
+    /// (it used to write the description itself into the file).
+    /// </summary>
+    private bool DefaultMeansBlank => Default is { } d
+        && (d.StartsWith("Empty", StringComparison.OrdinalIgnoreCase) || (d.Contains('<') && d.Contains('>')));
 
     /// <summary>The tick box, written back in the file's own style ("1"/"0" or "true"/"false").</summary>
     public bool IsOn
@@ -278,7 +288,8 @@ public sealed partial class Ue4ssConfigField : ObservableObject
         if (Default is not null)
         {
             _typedKeyName = null;
-            Value = IsToggle ? Ue4ssSettingsDocument.ToggleText(Ue4ssSettingsDocument.IsOn(Default), OriginalValue) : Default;
+            Value = DefaultMeansBlank ? ""
+                : IsToggle ? Ue4ssSettingsDocument.ToggleText(Ue4ssSettingsDocument.IsOn(Default), OriginalValue) : Default;
         }
     }
 
