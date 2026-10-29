@@ -362,6 +362,13 @@ public sealed partial class HelpViewModel : ObservableObject
         new("Keyboard shortcuts", """
             # Keyboard shortcuts
 
+            Anywhere in the main window:
+
+            - **Ctrl+1** … **Ctrl+9** — go to the menu's pages in order (Database, Downloads, Library, Editor, Merge & Install, Saves, Server, Weekly Changes, Settings); **Ctrl+0** — Help
+            - **Ctrl+F** — jump to the page's search or filter box
+
+            The **Theme** button at the bottom of the menu changes the colours: each click goes to the next theme (Icarus, Dark, Light, Custom). **Play**, **Mods**, **UE4SS**, **Game** and **Server** at the top right start the game or open those folders.
+
             Inside the mod editor window:
 
             - **Ctrl+S** — save
