@@ -80,10 +80,12 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="GroupItem">
-                    <Expander IsExpanded="True" views:SaveGroupExpansion.Remember="True" AutomationProperties.Name="{Binding Name}">
+                    <Expander IsExpanded="True" views:SaveGroupExpansion.Remember="True" AutomationProperties.Name="{Binding Name}"
+                              views:GroupColor.Index="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource TemplatedParent}}">
                         <Expander.Header>
                             <DockPanel LastChildFill="True">
-                                <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                <Border DockPanel.Dock="Left" Style="{StaticResource GroupStripeStyle}"/>
+                                <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" Style="{StaticResource GroupTitleStyle}"/>
                                 <TextBlock Style="{StaticResource ExpanderHeaderStateStyle}">
                                     <TextBlock.Text>
                                         <MultiBinding Converter="{StaticResource SaveGroupCountConverter}">
@@ -108,10 +110,12 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="GroupItem">
-                    <Expander IsExpanded="True" views:SaveGroupExpansion.Remember="True" AutomationProperties.Name="{Binding Name}">
+                    <Expander IsExpanded="True" views:SaveGroupExpansion.Remember="True" AutomationProperties.Name="{Binding Name}"
+                              views:GroupColor.Index="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource TemplatedParent}}">
                         <Expander.Header>
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="{Binding Name}" Style="{StaticResource ExpanderHeaderTitleStyle}" VerticalAlignment="Center"/>
+                                <Border Style="{StaticResource GroupStripeStyle}"/>
+                                <TextBlock Text="{Binding Name}" Style="{StaticResource GroupTitleStyle}"/>
                                 <TextBlock Style="{StaticResource ExpanderHeaderStateStyle}">
                                     <TextBlock.Text>
                                         <MultiBinding Converter="{StaticResource SaveGroupCountConverter}">

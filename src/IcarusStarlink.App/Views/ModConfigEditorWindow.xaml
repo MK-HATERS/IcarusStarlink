@@ -1,6 +1,7 @@
 <Window x:Class="IcarusStarlink.App.Views.ModConfigEditorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:IcarusStarlink.App.Views"
         Title="{Binding Title}" Height="760" Width="900" MinHeight="420" MinWidth="620"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource ContentBackgroundBrush}"
@@ -98,14 +99,16 @@
                 <StackPanel>
                 <TextBlock Text="No setting matches the search." Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,4,0,0"
                            Visibility="{Binding ShowNoMatches, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                <ItemsControl ItemsSource="{Binding Sections}">
+                <ItemsControl ItemsSource="{Binding Sections}" AlternationCount="6">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <!-- One folding group per ini [Section] or Lua comment heading ("==== GUESTS ===="), open by default. -->
-                            <Expander IsExpanded="True" Margin="0,0,8,10" AutomationProperties.Name="{Binding Name}">
+                            <Expander IsExpanded="True" Margin="0,0,8,10" AutomationProperties.Name="{Binding Name}"
+                                      views:GroupColor.Index="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource TemplatedParent}}">
                                 <Expander.Header>
                                     <DockPanel LastChildFill="True">
-                                        <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                        <Border DockPanel.Dock="Left" Style="{StaticResource GroupStripeStyle}"/>
+                                        <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" Style="{StaticResource GroupTitleStyle}"/>
                                         <TextBlock Text="{Binding Summary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                                     </DockPanel>
                                 </Expander.Header>

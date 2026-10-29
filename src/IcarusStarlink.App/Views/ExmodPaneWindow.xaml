@@ -48,7 +48,7 @@
                                     Visibility="{Binding FieldsSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
                     <ItemsControl ItemsSource="{Binding Fields}" ItemTemplate="{StaticResource EditorFieldTemplate}">
                         <ItemsControl.GroupStyle>
-                            <GroupStyle ContainerStyle="{StaticResource ExmodFieldGroupItemStyle}"/>
+                            <GroupStyle ContainerStyle="{StaticResource ExmodFieldGroupItemStyle}" AlternationCount="6"/>
                         </ItemsControl.GroupStyle>
                     </ItemsControl>
                     <TextBlock Text="{Binding FieldsEmptyText}" TextWrapping="Wrap" Margin="0,12,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"

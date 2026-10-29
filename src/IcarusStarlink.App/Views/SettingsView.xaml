@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:views="clr-namespace:IcarusStarlink.App.Views"
              mc:Ignorable="d">
 
     <Grid Margin="32,32,32,20">
@@ -426,15 +427,17 @@
                     </Border>
 
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <ItemsControl ItemsSource="{Binding Sections}">
+                        <ItemsControl ItemsSource="{Binding Sections}" AlternationCount="6">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <!-- One folding section per [Section] of the ini, open by default; fold
                                          the ones you don't need to get to the rest faster. -->
-                                    <Expander IsExpanded="True" Margin="0,0,8,10" AutomationProperties.Name="{Binding Name}">
+                                    <Expander IsExpanded="True" Margin="0,0,8,10" AutomationProperties.Name="{Binding Name}"
+                                              views:GroupColor.Index="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource TemplatedParent}}">
                                         <Expander.Header>
                                             <DockPanel LastChildFill="True">
-                                                <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                                <Border DockPanel.Dock="Left" Style="{StaticResource GroupStripeStyle}"/>
+                                                <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" Style="{StaticResource GroupTitleStyle}"/>
                                                 <TextBlock Text="{Binding Summary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                                             </DockPanel>
                                         </Expander.Header>

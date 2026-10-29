@@ -978,6 +978,90 @@
         <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
     </Style>
 
+    <!-- A group or section heading in its list's colour (views:GroupColor.Index, set on the group's
+         root from the list's AlternationIndex): a short stripe before the title, and the title in
+         the same colour. -->
+    <Style x:Key="GroupStripeStyle" TargetType="Border">
+        <Setter Property="Width" Value="4"/>
+        <Setter Property="Height" Value="16"/>
+        <Setter Property="CornerRadius" Value="2"/>
+        <Setter Property="Margin" Value="0,0,10,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Background" Value="{DynamicResource GroupColor0Brush}"/>
+        <Style.Triggers>
+            <Trigger Property="views:GroupColor.Index" Value="1"><Setter Property="Background" Value="{DynamicResource GroupColor1Brush}"/></Trigger>
+            <Trigger Property="views:GroupColor.Index" Value="2"><Setter Property="Background" Value="{DynamicResource GroupColor2Brush}"/></Trigger>
+            <Trigger Property="views:GroupColor.Index" Value="3"><Setter Property="Background" Value="{DynamicResource GroupColor3Brush}"/></Trigger>
+            <Trigger Property="views:GroupColor.Index" Value="4"><Setter Property="Background" Value="{DynamicResource GroupColor4Brush}"/></Trigger>
+            <Trigger Property="views:GroupColor.Index" Value="5"><Setter Property="Background" Value="{DynamicResource GroupColor5Brush}"/></Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="GroupTitleStyle" TargetType="TextBlock" BasedOn="{StaticResource ExpanderHeaderTitleStyle}">
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{DynamicResource GroupColor0Brush}"/>
+        <Style.Triggers>
+            <Trigger Property="views:GroupColor.Index" Value="1"><Setter Property="Foreground" Value="{DynamicResource GroupColor1Brush}"/></Trigger>
+            <Trigger Property="views:GroupColor.Index" Value="2"><Setter Property="Foreground" Value="{DynamicResource GroupColor2Brush}"/></Trigger>
+            <Trigger Property="views:GroupColor.Index" Value="3"><Setter Property="Foreground" Value="{DynamicResource GroupColor3Brush}"/></Trigger>
+            <Trigger Property="views:GroupColor.Index" Value="4"><Setter Property="Foreground" Value="{DynamicResource GroupColor4Brush}"/></Trigger>
+            <Trigger Property="views:GroupColor.Index" Value="5"><Setter Property="Foreground" Value="{DynamicResource GroupColor5Brush}"/></Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- A mod's type tag (EXMOD / Pak / Pak + UE4SS / UE4SS, from its TypeLabel): outline and text
+         in that type's colour, so the kinds of mod tell apart at a glance. -->
+    <Style x:Key="TypeTagStyle" TargetType="Border">
+        <Setter Property="CornerRadius" Value="8"/>
+        <Setter Property="Padding" Value="7,2"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Background" Value="{DynamicResource CardRaisedBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource TagExmodBrush}"/>
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource TagExmodBrush}"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding TypeLabel}" Value="Pak">
+                <Setter Property="BorderBrush" Value="{DynamicResource TagPakBrush}"/>
+                <Setter Property="TextElement.Foreground" Value="{DynamicResource TagPakBrush}"/>
+            </DataTrigger>
+            <DataTrigger Binding="{Binding TypeLabel}" Value="Pak + UE4SS">
+                <Setter Property="BorderBrush" Value="{DynamicResource TagPakUe4ssBrush}"/>
+                <Setter Property="TextElement.Foreground" Value="{DynamicResource TagPakUe4ssBrush}"/>
+            </DataTrigger>
+            <DataTrigger Binding="{Binding TypeLabel}" Value="UE4SS">
+                <Setter Property="BorderBrush" Value="{DynamicResource TagUe4ssBrush}"/>
+                <Setter Property="TextElement.Foreground" Value="{DynamicResource TagUe4ssBrush}"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- A Library row's status (LibraryItemViewModel / Ue4ssModRowViewModel: InstallStatus, IsInGame,
+         NeedsAction), the same colours everywhere: green = in the game, amber = waiting for you
+         (Needs Merge & Install / Apply, Changed, Off in UE4SS), red = a problem (Will be removed,
+         Needs UE4SS), grey = not enabled. The dot before it carries the same colour. -->
+    <Style x:Key="ModStatusTextStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsInGame}" Value="True"><Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/></DataTrigger>
+            <DataTrigger Binding="{Binding NeedsAction}" Value="True"><Setter Property="Foreground" Value="{DynamicResource WarningBrush}"/></DataTrigger>
+            <DataTrigger Binding="{Binding InstallStatus}" Value="Will be removed"><Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/></DataTrigger>
+            <DataTrigger Binding="{Binding InstallStatus}" Value="Needs UE4SS"><Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/></DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="ModStatusDotStyle" TargetType="Ellipse">
+        <Setter Property="Width" Value="7"/>
+        <Setter Property="Height" Value="7"/>
+        <Setter Property="Margin" Value="0,0,6,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Fill" Value="{DynamicResource FaintForegroundBrush}"/>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsInGame}" Value="True"><Setter Property="Fill" Value="{DynamicResource SuccessBrush}"/></DataTrigger>
+            <DataTrigger Binding="{Binding NeedsAction}" Value="True"><Setter Property="Fill" Value="{DynamicResource WarningBrush}"/></DataTrigger>
+            <DataTrigger Binding="{Binding InstallStatus}" Value="Will be removed"><Setter Property="Fill" Value="{DynamicResource DangerBrush}"/></DataTrigger>
+            <DataTrigger Binding="{Binding InstallStatus}" Value="Needs UE4SS"><Setter Property="Fill" Value="{DynamicResource DangerBrush}"/></DataTrigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- Phase 10 redesign: a small (i) glyph carrying a real ToolTip — Merge & Install's leveled
          options (Speed Boost, Craft Cost, ...) use this next to their label instead of relying on
          hovering the pill selector itself, which has no one obvious hover target.

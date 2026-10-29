@@ -4,6 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
+        xmlns:views="clr-namespace:IcarusStarlink.App.Views"
         mc:Ignorable="d"
         Title="{Binding WindowTitle}" Height="760" Width="1200" MinHeight="460" MinWidth="820"
         WindowStartupLocation="CenterOwner"
@@ -69,12 +70,14 @@
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          ToolTip="Ctrl/Shift-click to select several items for mass edit">
                     <ListBox.GroupStyle>
-                        <GroupStyle>
+                        <GroupStyle AlternationCount="6">
                             <GroupStyle.HeaderTemplate>
                                 <DataTemplate>
-                                    <DockPanel Margin="4,8,4,2">
+                                    <DockPanel Margin="4,8,4,2"
+                                               views:GroupColor.Index="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=GroupItem}}">
                                         <TextBlock DockPanel.Dock="Right" Text="{Binding ItemCount}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                                        <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                        <Border DockPanel.Dock="Left" Style="{StaticResource GroupStripeStyle}" Height="12" Margin="0,0,8,0"/>
+                                        <TextBlock Text="{Binding Name}" FontSize="11" Style="{StaticResource GroupTitleStyle}"/>
                                     </DockPanel>
                                 </DataTemplate>
                             </GroupStyle.HeaderTemplate>
@@ -267,7 +270,7 @@
                                         Visibility="{Binding FieldsSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
                         <ItemsControl x:Name="FieldsList" ItemsSource="{Binding Fields}" ItemTemplate="{StaticResource EditorFieldTemplate}">
                             <ItemsControl.GroupStyle>
-                                <GroupStyle ContainerStyle="{StaticResource ExmodFieldGroupItemStyle}"/>
+                                <GroupStyle ContainerStyle="{StaticResource ExmodFieldGroupItemStyle}" AlternationCount="6"/>
                             </ItemsControl.GroupStyle>
                         </ItemsControl>
                         <TextBlock Text="{Binding FieldsEmptyText}" TextWrapping="Wrap" Margin="0,12,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"

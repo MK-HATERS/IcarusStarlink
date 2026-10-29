@@ -282,7 +282,7 @@
                              views:SaveGroupExpansion.Scope="Talents" BorderThickness="0" Background="Transparent"
                              VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling" ItemTemplate="{StaticResource SaveTalentRowTemplate}">
                         <ListBox.GroupStyle>
-                            <GroupStyle ContainerStyle="{StaticResource SaveCollapsibleGroupItemStyle}"/>
+                            <GroupStyle ContainerStyle="{StaticResource SaveCollapsibleGroupItemStyle}" AlternationCount="6"/>
                         </ListBox.GroupStyle>
                     </ListBox>
                 </DockPanel>
@@ -309,7 +309,7 @@
                              views:SaveGroupExpansion.Scope="Workshop" BorderThickness="0" Background="Transparent"
                              VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling" ItemTemplate="{StaticResource SaveTalentRowTemplate}">
                         <ListBox.GroupStyle>
-                            <GroupStyle ContainerStyle="{StaticResource SaveCollapsibleGroupItemStyle}"/>
+                            <GroupStyle ContainerStyle="{StaticResource SaveCollapsibleGroupItemStyle}" AlternationCount="6"/>
                         </ListBox.GroupStyle>
                     </ListBox>
                 </DockPanel>
@@ -337,7 +337,7 @@
                              views:SaveGroupExpansion.Scope="Missions" BorderThickness="0" Background="Transparent"
                              VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>
-                            <GroupStyle ContainerStyle="{StaticResource SaveCollapsibleGroupItemStyle}"/>
+                            <GroupStyle ContainerStyle="{StaticResource SaveCollapsibleGroupItemStyle}" AlternationCount="6"/>
                         </ListBox.GroupStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -413,7 +413,7 @@
                              views:SaveGroupExpansion.Scope="Bestiary" BorderThickness="0" Background="Transparent"
                              VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>
-                            <GroupStyle ContainerStyle="{StaticResource SaveBestiaryGroupItemStyle}"/>
+                            <GroupStyle ContainerStyle="{StaticResource SaveBestiaryGroupItemStyle}" AlternationCount="6"/>
                         </ListBox.GroupStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -484,7 +484,7 @@
                         <ItemsControl ItemsSource="{Binding Source={StaticResource AccoladeGroups}}" Tag="{Binding AccoladesSummary}" views:SaveGroupExpansion.Scope="Accolades"
                                       Margin="0,0,8,0">
                             <ItemsControl.GroupStyle>
-                                <GroupStyle ContainerStyle="{StaticResource SaveCollapsibleGroupItemStyle}"/>
+                                <GroupStyle ContainerStyle="{StaticResource SaveCollapsibleGroupItemStyle}" AlternationCount="6"/>
                             </ItemsControl.GroupStyle>
                             <!-- One cell width for every accolade, so the names line up in columns. -->
                             <ItemsControl.ItemsPanel>
