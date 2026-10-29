@@ -234,6 +234,20 @@ public sealed class SaveRepositoryTests : IDisposable
             dir => Path.GetFileName(dir).Contains("_restore_scratch_"));
     }
 
+    /// <summary>The backup picker named each backup by its zip (a Steam ID and a timestamp): it now says what each one is.</summary>
+    [Fact]
+    public void ListBackups_EachSaysWhatItIs_NotItsZipName()
+    {
+        var beforeSave = _repository.BackupSlot(SteamId);
+        _repository.BackupSlotManually(SteamId);
+        _repository.RestoreSlot(SteamId, beforeSave);
+
+        var kinds = _repository.ListBackups(SteamId).Select(b => b.Kind).Order().ToList();
+
+        Assert.Equal(["before a restore", "before a save", "made with Backup now"], kinds);
+        Assert.All(_repository.ListBackups(SteamId), b => Assert.DoesNotContain(SteamId, b.Display));
+    }
+
     /// <summary>
     /// A zip with no Profile.json at its top (the slot folder zipped by hand, with the folder inside)
     /// replaced every player file with nothing; the slot then wasn't listed, so its Restore was gone too.
