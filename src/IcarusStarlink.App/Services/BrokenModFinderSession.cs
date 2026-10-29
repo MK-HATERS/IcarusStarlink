@@ -31,6 +31,13 @@ public sealed class BrokenModSearchRecord
     /// <summary>The mods a round put in the game; null while the game still has the player's own install.</summary>
     public List<string>? Installed { get; set; }
 
+    /// <summary>
+    /// The round being tested reached the game (its install finished). Installed is set before
+    /// the install starts (so a crash still puts the mods back), so it can't say this: a round
+    /// whose install failed must not reopen next start as waiting for an answer.
+    /// </summary>
+    public bool RoundInstalled { get; set; }
+
     /// <summary>The save backup zips taken before the first round.</summary>
     public List<string> SaveBackups { get; set; } = [];
 
@@ -152,12 +159,21 @@ public sealed class BrokenModFinderSession(IBrokenModFinderHost host, BrokenModS
         }
 
         record.Installed = [.. test.Install];
+        record.RoundInstalled = false;
         store.Save(record);
-        return await host.InstallOnlyAsync(test.Install);
+        var failed = await host.InstallOnlyAsync(test.Install);
+        if (failed is null)
+        {
+            record.RoundInstalled = true;
+            store.Save(record);
+        }
+
+        return failed;
     }
 
     public void Answer(BrokenModAnswer answer)
     {
+        record.RoundInstalled = false;
         BrokenModSearch.Answer(record.Search, answer);
         store.Save(record);
     }

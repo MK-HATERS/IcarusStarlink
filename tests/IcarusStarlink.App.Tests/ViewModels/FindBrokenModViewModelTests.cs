@@ -42,10 +42,13 @@ public sealed class FindBrokenModViewModelTests : IDisposable
 
         public IReadOnlyList<string> QueuedFolderNames() => Queue;
 
+        /// <summary>A round install fails with this (null: it works).</summary>
+        public string? RoundFailure { get; set; }
+
         public Task<string?> InstallOnlyAsync(IReadOnlyCollection<string> folderNames)
         {
             Rounds.Add(folderNames);
-            return Task.FromResult<string?>(null);
+            return Task.FromResult(RoundFailure);
         }
 
         public Task<string?> InstallWholeQueueAsync(IReadOnlyCollection<string> putBack)
@@ -255,6 +258,38 @@ public sealed class FindBrokenModViewModelTests : IDisposable
         Assert.True(resumed.IsRoundStep);
         Assert.True(resumed.IsRoundInstalled);
         Assert.Equal("Round 2", resumed.RoundTitle);
+    }
+
+    /// <summary>
+    /// Round 2's install failed (the merge didn't build), the player closed with Later: next start
+    /// used to reopen round 2 as installed, so they could answer a round that never reached the game.
+    /// </summary>
+    [Fact]
+    public async Task ClosingMidSearch_AfterARoundFailedToInstall_ReopensAskingToInstallIt()
+    {
+        var (vm, host, dialogs, store) = Create();
+        await vm.StartCommand.ExecuteAsync(null);
+        host.RoundFailure = "The merge didn't build.";
+        await vm.WorksNowCommand.ExecuteAsync(null);
+        Assert.False(vm.IsRoundInstalled);
+        dialogs.CloseAnswer = false;
+        Assert.True(await vm.CanCloseAsync());
+
+        var resumed = new FindBrokenModViewModel(new FindBrokenModContext
+        {
+            Host = host,
+            Store = store,
+            Dialogs = dialogs,
+            ReadCandidates = () => Task.FromResult<IReadOnlyList<BrokenModCandidate>>([]),
+        }, store.Load());
+        Assert.True(resumed.IsRoundStep);
+        Assert.Equal("Round 2", resumed.RoundTitle);
+        Assert.False(resumed.IsRoundInstalled);
+
+        host.RoundFailure = null;
+        await resumed.InstallRoundCommand.ExecuteAsync(null);
+        Assert.True(resumed.IsRoundInstalled);
+        Assert.True(store.Load()!.RoundInstalled);
     }
 
     [Fact]
