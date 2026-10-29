@@ -231,6 +231,8 @@ internal static class AppServices
             BaseGameContent = sp.GetRequiredService<IBaseGameContentProvider>(),
             // After a game update: the bar, the game's files per build (proof a mod is out of date), Update everything.
             GameUpdates = sp.GetRequiredService<GameUpdateDetector>(),
+            // UE4SS Apply waits for the game to be closed, like Install.
+            GameProcess = sp.GetRequiredService<IGameProcessChecker>(),
             GameFileFingerprints = sp.GetRequiredService<GameFileFingerprintStore>(),
             GameUpdateCoordinator = sp.GetRequiredService<GameUpdateCoordinator>,
         });

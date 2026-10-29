@@ -591,6 +591,27 @@ public sealed class LibraryViewModelTests
         Assert.Equal("Pak", item.TypeLabel);
     }
 
+    /// <summary>
+    /// UE4SS Apply while Icarus runs (review 2026-10-28): it never checked, unlike Install, so a C++
+    /// mod's held dll could leave a half-moved mod. It now refuses and moves nothing.
+    /// </summary>
+    [Fact]
+    public void ApplyUe4ssChanges_WhileTheGameRuns_MovesNothingAndSaysWhy()
+    {
+        var harness = new TestHarness { GameProcess = new RunningGame(true) };
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("NearbyCrafting", IsEnabled: false));
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        var row = vm.RootItems.OfType<Ue4ssModRowViewModel>().Single();
+        row.IsEnabled = true;
+
+        vm.ApplyUe4ssChangesCommand.Execute(null);
+
+        Assert.StartsWith("Close Icarus first", vm.Ue4ssStatusMessage);
+        Assert.True(row.IsDirty);
+    }
+
     /// <summary>A ticked UE4SS mod with no UE4SS in the game: the bar under the list says so and offers the install, and the row's status says why.</summary>
     [Fact]
     public void Ue4ssLoaderMissing_WarnsOnlyWhileAUe4ssModIsTicked()
@@ -2007,8 +2028,17 @@ public sealed class LibraryViewModelTests
                 ThumbnailCacheDirectory, PakPreviewCacheDirectory, DialogService)
             {
                 SharedFixService = FixService,
+                GameProcess = GameProcess,
             };
         }
+
+        /// <summary>Whether Icarus counts as running (null: no check, as the app's tests that don't care).</summary>
+        public IGameProcessChecker? GameProcess { get; set; }
+    }
+
+    private sealed class RunningGame(bool running) : IGameProcessChecker
+    {
+        public bool IsRunning() => running;
     }
 
     /// <summary>A catalog download Get update can install: Downloads' Activate unpacks it and finds an .EXMOD (the fake repository's Import does the rest).</summary>

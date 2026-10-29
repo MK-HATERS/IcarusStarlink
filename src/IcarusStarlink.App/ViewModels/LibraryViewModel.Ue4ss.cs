@@ -374,6 +374,9 @@ public sealed partial class LibraryViewModel
         }
     }
 
+    /// <summary>Whether Icarus is running; set by the app (null: never refuses, as in tests that don't care).</summary>
+    public IcarusStarlink.App.Services.IGameProcessChecker? GameProcess { get; init; }
+
     /// <summary>
     /// Moves every dirty row to match its toggled state — enabling copies staging→game, disabling
     /// backs up then moves game→staging (IUe4ssModStateService.Apply) — then reloads so every row's
@@ -385,6 +388,14 @@ public sealed partial class LibraryViewModel
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
             Ue4ssStatusMessage = "Set the Icarus Content folder in Settings first.";
+            return;
+        }
+
+        // Like Install: UE4SS reads its mods when the game starts, and a running game can hold a
+        // mod's files (a C++ mod's dll), so a change now would be half done or not take effect.
+        if (GameProcess?.IsRunning() == true)
+        {
+            Ue4ssStatusMessage = "Close Icarus first: UE4SS mods change when the game starts. Nothing was moved.";
             return;
         }
 
