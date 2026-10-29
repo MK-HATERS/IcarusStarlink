@@ -253,6 +253,50 @@ public class Ue4ssModStateServiceTests : IDisposable
         Assert.True(Directory.Exists(Path.Combine(_stagedDirectory, "AlsoUntouched")));
     }
 
+    /// <summary>
+    /// Unticking a C++ mod while the game runs: its dlls\main.dll is held by the game. Delete used
+    /// to stop on it after the copy into staging, leaving half the mod in the game and a second
+    /// copy in staging (the next try then made "NoStability_2"). Now nothing moves.
+    /// </summary>
+    [Fact]
+    public void Apply_DisableAModWithAFileTheGameHolds_MovesNothing()
+    {
+        CreateGameMod("NoStability");
+        var dll = Path.Combine(_gameModsFolder, "NoStability", "dlls", "main.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(dll)!);
+        File.WriteAllText(dll, "MZ");
+
+        IReadOnlyList<IcarusStarlink.Core.Ue4ss.Ue4ssModApplyFailure> failures;
+        using (new FileStream(dll, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            failures = _service.Apply(_gameModsFolder, new Dictionary<string, bool> { ["NoStability"] = false }, _backupDirectory);
+        }
+
+        Assert.Contains("close the game", Assert.Single(failures).Reason);
+        Assert.Empty(_stagingRepository.GetAll());
+        Assert.True(File.Exists(dll));
+        Assert.True(HasEnabledFile("NoStability"));
+        Assert.True(File.Exists(Path.Combine(_gameModsFolder, "NoStability", "Scripts", "main.lua")));
+    }
+
+    /// <summary>A staged leftover of the same name (an earlier copy that stopped partway): the game's copy replaces it, not "Name_2" beside it.</summary>
+    [Fact]
+    public void Apply_DisableWithAStagedLeftoverOfTheSameName_KeepsOneCopy_TheGames()
+    {
+        CreateGameMod("MkHatersBags", "-- the game's copy");
+        CreateStagedMod("MkHatersBags", "-- old leftover");
+
+        var failures = _service.Apply(_gameModsFolder, new Dictionary<string, bool> { ["MkHatersBags"] = false }, _backupDirectory);
+
+        Assert.Empty(failures);
+        Assert.Equal(["MkHatersBags"], _stagingRepository.GetAll());
+        Assert.Equal("-- the game's copy", File.ReadAllText(Path.Combine(_stagedDirectory, "MkHatersBags", "Scripts", "main.lua")));
+        Assert.False(Directory.Exists(Path.Combine(_gameModsFolder, "MkHatersBags")));
+        // The leftover is backed up, not just dropped.
+        var leftover = Directory.GetDirectories(Path.Combine(_backupDirectory, "UE4SS", "Staged"), "MkHatersBags_*").Single();
+        Assert.Equal("-- old leftover", File.ReadAllText(Path.Combine(leftover, "Scripts", "main.lua")));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))

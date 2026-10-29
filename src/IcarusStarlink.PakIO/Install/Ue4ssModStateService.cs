@@ -107,13 +107,42 @@ public sealed class Ue4ssModStateService(IUe4ssModRepository stagingRepository) 
                     // is a real, hard-to-reverse removal from the user's actual install, same
                     // discipline every other write into the game folder already gets.
                     var sourceFolder = Path.Combine(gameModsFolderPath, name);
+
+                    // Every file must be free to delete BEFORE anything is copied or removed: the
+                    // running game holds a C++ mod's dlls\main.dll (and a mod's open log), and
+                    // Directory.Delete stopping on it left half the mod in the game, a full copy in
+                    // staging, and the next try adopting it as "Name_2" (a later Delete then left
+                    // that "_2" behind as a new row).
+                    if (FirstFileInUse(sourceFolder) is { } inUse)
+                    {
+                        throw new IOException(
+                            $"{Path.GetRelativePath(sourceFolder, inUse)} is in use (close the game first). Nothing was moved.");
+                    }
+
                     FolderBackup.BackupFolder(sourceFolder, ue4ssBackupDirectory);
-                    // No namesAlreadyInUse needed here (unlike Import/ImportFromFolder): the
-                    // adopted name is DERIVED from the game folder's own listing, which the real
-                    // filesystem already guarantees has no duplicates — so it can never coincide
-                    // with another still-installed game mod's name the way an externally-sourced
-                    // new import's own derived name genuinely can.
-                    stagingRepository.AdoptFromGame(gameModsFolderPath, name);
+
+                    // A staged folder of the same name is a leftover (an earlier copy that failed
+                    // partway, or the old reinstall bug): the game's copy is the one the player runs
+                    // and edits, so it replaces the leftover (backed up too) rather than landing
+                    // beside it as "Name_2".
+                    if (stagingRepository.GetAll().Contains(name, StringComparer.OrdinalIgnoreCase))
+                    {
+                        FolderBackup.BackupFolder(stagingRepository.GetFolderPath(name), Path.Combine(ue4ssBackupDirectory, "Staged"));
+                        stagingRepository.Delete(name);
+                    }
+
+                    try
+                    {
+                        stagingRepository.AdoptFromGame(gameModsFolderPath, name);
+                    }
+                    catch
+                    {
+                        // A copy that stopped partway must not stay in staging as a broken
+                        // "disabled" copy of a mod that is still in the game.
+                        TryDeleteStaged(name);
+                        throw;
+                    }
+
                     Directory.Delete(sourceFolder, recursive: true);
                 }
             }
@@ -127,6 +156,40 @@ public sealed class Ue4ssModStateService(IUe4ssModRepository stagingRepository) 
         }
 
         return failures;
+    }
+
+    /// <summary>The first file in the folder that can't be opened for writing with no one else sharing it (held by the running game, or read-only): what would stop Directory.Delete halfway. Null when every file is free.</summary>
+    private static string? FirstFileInUse(string folder)
+    {
+        foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                // Opened and closed, never written: the file and its dates stay as they are.
+                using var _ = new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return file;
+            }
+        }
+
+        return null;
+    }
+
+    private void TryDeleteStaged(string name)
+    {
+        try
+        {
+            if (stagingRepository.GetAll().Contains(name, StringComparer.OrdinalIgnoreCase))
+            {
+                stagingRepository.Delete(name);
+            }
+        }
+        catch (Exception)
+        {
+            // Best effort: the failure being reported is the copy's own.
+        }
     }
 
     private static bool HasAnyFile(string folder) =>
