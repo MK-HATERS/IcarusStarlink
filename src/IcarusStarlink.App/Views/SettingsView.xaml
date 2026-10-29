@@ -608,6 +608,24 @@
             <TabItem Header="Appearance">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
                     <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                        <!-- Classic IMM's 4K option: the whole app drawn bigger or smaller (UiScale). -->
+                        <Expander Style="{StaticResource SectionCardExpanderStyle}" AutomationProperties.Name="Size">
+                            <Expander.Header>
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock DockPanel.Dock="Left" Text="Size" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                    <TextBlock Text="Text and controls" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                </DockPanel>
+                            </Expander.Header>
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Size of text and controls:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <ComboBox ItemsSource="{Binding UiScaleChoices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                              SelectedValue="{Binding SelectedUiScale}" Width="220" AutomationProperties.Name="Size of text and controls"/>
+                                </StackPanel>
+                                <TextBlock Text="Bigger makes every word, button and list in Starlink easier to read on a big or 4K screen. Smaller fits more on a small screen. Changes every window straight away."
+                                           Style="{StaticResource PageBodyTextStyle}" Margin="0,8,0,0"/>
+                            </StackPanel>
+                        </Expander>
                         <Expander Style="{StaticResource SectionCardExpanderStyle}" AutomationProperties.Name="Messages">
                             <Expander.Header>
                                 <DockPanel LastChildFill="True">

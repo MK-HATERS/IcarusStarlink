@@ -438,12 +438,20 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         return [.. (dto?.Data?.LegacyModsByDomain?.Nodes ?? []).Select(ToModInfo)];
     }
 
-    public async Task<NexusModPage> ListAllModsAsync(
-        string? apiKey, string gameDomain, int offset, int count, CancellationToken cancellationToken = default)
-    {
+    public Task<NexusModPage> ListAllModsAsync(
+        string? apiKey, string gameDomain, int offset, int count, CancellationToken cancellationToken = default) =>
         // Same v2 GraphQL endpoint as SearchModsAsync, without the name filter: offset/count
         // paging and the endorsements-DESC sort were both confirmed by live probes against the
         // real endpoint (icarus answered 229 total, page slices genuinely advanced) — not guessed.
+        ListModsSortedAsync(apiKey, gameDomain, offset, count, "endorsements", cancellationToken);
+
+    /// <summary>The createdAt-DESC sort answered newest-first on a live probe (2026-10-28: mod 383 published that day came first).</summary>
+    public Task<NexusModPage> ListNewestModsAsync(string? apiKey, string gameDomain, int count, CancellationToken cancellationToken = default) =>
+        ListModsSortedAsync(apiKey, gameDomain, offset: 0, count, "createdAt", cancellationToken);
+
+    private async Task<NexusModPage> ListModsSortedAsync(
+        string? apiKey, string gameDomain, int offset, int count, string sortField, CancellationToken cancellationToken)
+    {
         var payload = new Dictionary<string, object?>
         {
             ["query"] = "query All($filter: ModsFilter, $count: Int, $offset: Int, $sort: [ModsSort!]) { mods(filter: $filter, count: $count, offset: $offset, sort: $sort) { nodes { modId name version summary pictureUrl author createdAt updatedAt } totalCount } }",
@@ -455,7 +463,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
                 },
                 ["count"] = count,
                 ["offset"] = offset,
-                ["sort"] = new[] { new Dictionary<string, object?> { ["endorsements"] = new Dictionary<string, string> { ["direction"] = "DESC" } } },
+                ["sort"] = new[] { new Dictionary<string, object?> { [sortField] = new Dictionary<string, string> { ["direction"] = "DESC" } } },
             },
         };
 

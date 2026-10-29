@@ -409,6 +409,33 @@ public class NexusApiClientTests
         Assert.Null(page.Mods[1].DatesDisplay);
     }
 
+    /// <summary>The Database page's "new since your last visit" asks for newest-published first; the browse list stays most-endorsed first.</summary>
+    [Fact]
+    public async Task ListNewestModsAsync_SortsByCreatedAtNewestFirst_AndListAllKeepsEndorsements()
+    {
+        var handler = new CapturingHandler("""{"data":{"mods":{"nodes":[{"modId":383,"name":"N","version":"1","author":"a","createdAt":"2026-10-28T14:22:12Z"}],"totalCount":270}}}""");
+        var client = new NexusApiClient(new HttpClient(handler));
+
+        var newest = await client.ListNewestModsAsync(null, "icarus", count: 30);
+        await client.ListAllModsAsync(null, "icarus", offset: 0, count: 30);
+
+        Assert.Equal(383, Assert.Single(newest.Mods).ModId);
+        Assert.Contains("\"sort\":[{\"createdAt\":{\"direction\":\"DESC\"}}]", handler.Bodies[0]);
+        Assert.Contains("\"count\":30", handler.Bodies[0]);
+        Assert.Contains("\"sort\":[{\"endorsements\":{\"direction\":\"DESC\"}}]", handler.Bodies[1]);
+    }
+
+    private sealed class CapturingHandler(string responseJson) : HttpMessageHandler
+    {
+        public List<string> Bodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Bodies.Add(request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken));
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(responseJson) };
+        }
+    }
+
     [Fact]
     public async Task GetModListAsync_RejectedKey_ThrowsInvalidOperation()
     {

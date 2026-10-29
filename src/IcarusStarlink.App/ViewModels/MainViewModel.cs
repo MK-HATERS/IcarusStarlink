@@ -272,6 +272,40 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>The Database page once it has been shown this session (its New tags are recorded as seen on close); null if never opened.</summary>
+    private DatabaseViewModel? _databaseShownThisSession;
+
+    partial void OnCurrentPageChanged(object? oldValue, object? newValue)
+    {
+        if (oldValue is DatabaseViewModel leftDatabase && !ReferenceEquals(oldValue, newValue))
+        {
+            leftDatabase.OnPageLeft();
+        }
+
+        if (newValue is DatabaseViewModel database)
+        {
+            _databaseShownThisSession = database;
+            database.OnPageShown();
+        }
+    }
+
+    /// <summary>
+    /// Starlink is closing (MainWindow.Closing, after any "close anyway?" question): the Database
+    /// tabs opened this session record their mods as seen, so next time only newer ones say New.
+    /// Never builds the Database page just for this. Never throws.
+    /// </summary>
+    public void OnAppClosing()
+    {
+        try
+        {
+            _databaseShownThisSession?.RecordSeen();
+        }
+        catch (Exception)
+        {
+            // Best-effort: the New tags just show again next time.
+        }
+    }
+
     [RelayCommand]
     private void SelectTheme(string themeName)
     {

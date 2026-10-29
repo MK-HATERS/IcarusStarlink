@@ -30,7 +30,10 @@ public static class WindowSizeMemory
             var bounds = window.WindowState != WindowState.Normal ? window.RestoreBounds : new Rect(0, 0, window.ActualWidth, window.ActualHeight);
             if (bounds.Width > 0 && bounds.Height > 0)
             {
-                settings.Current.WindowSizes[key] = new Core.Settings.SavedWindowSize { Width = bounds.Width, Height = bounds.Height, Maximized = window.WindowState == WindowState.Maximized };
+                // Stored at 100% size: UiScale grows the window again by the current scale when it
+                // next loads, so a remembered size never compounds with the scale.
+                var scale = UiScale.Current;
+                settings.Current.WindowSizes[key] = new Core.Settings.SavedWindowSize { Width = bounds.Width / scale, Height = bounds.Height / scale, Maximized = window.WindowState == WindowState.Maximized };
                 settings.Save();
             }
         };

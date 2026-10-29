@@ -37,6 +37,7 @@ public partial class MainWindow : Window
             }
 
             FlushMergeWorkingState();
+            viewModel.OnAppClosing();
             SaveBounds();
         };
 

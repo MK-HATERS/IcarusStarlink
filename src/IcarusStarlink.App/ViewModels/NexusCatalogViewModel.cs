@@ -12,6 +12,7 @@ using IcarusStarlink.Core.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
+using IcarusStarlink.Core.Settings;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -32,7 +33,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// Mod.Name so a rename is actually visible: without this, the card would always show the live
 /// Nexus name regardless of any stored override.
 /// </summary>
-public sealed record NexusCatalogRow(NexusModInfo Mod, string? LocalBadge, bool HasUpdate, bool IsTracked, string DisplayName);
+public sealed record NexusCatalogRow(NexusModInfo Mod, string? LocalBadge, bool HasUpdate, bool IsTracked, string DisplayName, string? NewTag = null);
 
 /// <summary>
 /// The whole Nexus page — a real mod list with images driven by the saved API key, so browsing
@@ -97,7 +98,11 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     private bool _canGoToNextPage;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsPagingShown))]
     private string? _pageDisplay;
+
+    /// <summary>The Prev/Next bar: the All list only, and not while New only shows the newest mods instead.</summary>
+    public bool IsPagingShown => PageDisplay is not null && !NewOnly;
 
     /// <summary>Hides mods this install already has (In Library or sitting in Pending Downloads) — a "what am I missing" view.</summary>
     [ObservableProperty]
@@ -116,6 +121,82 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     partial void OnUpdatesOnlyChanged(bool value) => ApplyDisplayFilters();
 
     partial void OnTrackedOnlyChanged(bool value) => ApplyDisplayFilters();
+
+    // --- New since your last visit (classic IMM's Show New) ---
+
+    /// <summary>How many of the newest mods asked for at once; a count that reaches it reads "30+ new".</summary>
+    internal const int NewestCount = 30;
+
+    private readonly ISettingsService? _settingsService;
+
+    /// <summary>The newest-published mods (ListNewestModsAsync), fetched with each load of the page, and when that fetch finished.</summary>
+    private IReadOnlyList<NexusModInfo> _newestMods = [];
+    private DateTimeOffset? _newestFetchedAtUtc;
+
+    private DateTimeOffset? SeenUpToUtc => _settingsService?.Current.CatalogSeen?.NexusSeenUpToUtc;
+
+    /// <summary>Filter: only mods published since your last visit (in place of the list above), newest first.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsPagingShown))]
+    private bool _newOnly;
+
+    partial void OnNewOnlyChanged(bool value) => ApplyDisplayFilters();
+
+    /// <summary>Mods published on Nexus since your last visit — the tab says "Nexus (3 new)".</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNew), nameof(NewCountDisplay))]
+    private int _newCount;
+
+    public bool HasNew => NewCount > 0;
+
+    /// <summary>"3 new", or "30+ new" when every one of the newest fetched is new (there may be more).</summary>
+    public string NewCountDisplay => NewCount >= NewestCount ? $"{NewestCount}+ new" : $"{NewCount} new";
+
+    /// <summary>
+    /// Records "seen up to" the moment the newest mods were last fetched (mods published after that
+    /// were never on screen): the New tags go and the count drops to zero. Run by Mark all seen, and
+    /// when Starlink closes after the tab was opened. Nothing fetched yet: nothing to record.
+    /// </summary>
+    [RelayCommand]
+    public void MarkSeen()
+    {
+        if (_settingsService is null || _newestFetchedAtUtc is not { } fetchedAt)
+        {
+            return;
+        }
+
+        var seen = _settingsService.Current.CatalogSeen ??= new CatalogSeenState();
+        if (seen.NexusSeenUpToUtc is null || fetchedAt > seen.NexusSeenUpToUtc)
+        {
+            seen.NexusSeenUpToUtc = fetchedAt;
+            _settingsService.Save();
+        }
+
+        NewOnly = false;
+        UpdateNewCount();
+        ApplyDisplayFilters();
+    }
+
+    private void UpdateNewCount()
+    {
+        var seenUpTo = SeenUpToUtc;
+        NewCount = _newestMods.Count(m => CatalogSeenTracker.ClassifyNexus(seenUpTo, m) == CatalogNewKind.New);
+    }
+
+    private async Task LoadNewestAsync(string? apiKey)
+    {
+        try
+        {
+            var page = await _nexusApiClient.ListNewestModsAsync(apiKey, NxmHandlerCommand.IcarusDomain, NewestCount);
+            _newestMods = [.. page.Mods.Where(m => m.Name is not null)];
+            _newestFetchedAtUtc = DateTimeOffset.UtcNow;
+            UpdateNewCount();
+        }
+        catch (Exception)
+        {
+            // Best-effort, like the Premium check: the New tags just stay as they were.
+        }
+    }
 
     private void ApplyDisplayFilters()
     {
@@ -163,8 +244,16 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     public NexusCatalogViewModel(
         INexusApiClient nexusApiClient, ICredentialStore credentialStore, INexusWatchlistStore watchlistStore,
         ILibraryRepository libraryRepository, IPendingDownloadStore pendingDownloadStore, DownloadsViewModel downloads,
-        IActivityLog activityLog, IDialogService dialogService)
+        IActivityLog activityLog, IDialogService dialogService, ISettingsService? settingsService = null)
     {
+        _settingsService = settingsService;
+        // The first time ever: everything published until now counts as seen (no wall of "new").
+        if (settingsService is not null && (settingsService.Current.CatalogSeen ??= new CatalogSeenState()).NexusSeenUpToUtc is null)
+        {
+            settingsService.Current.CatalogSeen.NexusSeenUpToUtc = DateTimeOffset.UtcNow;
+            settingsService.Save();
+        }
+
         _nexusApiClient = nexusApiClient;
         _credentialStore = credentialStore;
         _watchlistStore = watchlistStore;
@@ -197,7 +286,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
 
         // Same fire-and-forget-with-own-try/catch shape DownloadsViewModel's constructor already
         // uses for its catalog fetch — LoadAsync can't leak an unobserved exception.
-        _ = LoadAsync();
+        _ = LoadAsync(alsoNewest: true);
         _ = RefreshPremiumStatusAsync();
     }
 
@@ -233,16 +322,32 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     partial void OnSearchTextChanged(string value) => _searchDebounceTimer.Restart();
 
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
-    private Task Refresh() => LoadAsync();
+    private Task Refresh() => LoadAsync(alsoNewest: true);
 
-    /// <summary>A fresh load — kind/search change or an explicit Refresh — always starts back at page 1 of All, since the offset from a previous browse/search context wouldn't mean anything here.</summary>
-    private Task LoadAsync()
+    /// <summary>
+    /// A fresh load — kind/search change or an explicit Refresh — always starts back at page 1 of All, since the offset from a previous browse/search context wouldn't mean anything here.
+    /// alsoNewest (first load, Refresh) also fetches the newest mods for the New tags; a search keystroke or list switch doesn't.
+    /// </summary>
+    private Task LoadAsync(bool alsoNewest = false)
     {
         _allPageOffset = 0;
-        return LoadPageAsync();
+        return LoadPageAsync(alsoNewest);
     }
 
-    private async Task LoadPageAsync()
+    private async Task LoadNewestThenRebuildAsync(string? apiKey)
+    {
+        await LoadNewestAsync(apiKey);
+        if (NewOnly)
+        {
+            ApplyDisplayFilters();
+        }
+        else
+        {
+            RebuildRows();
+        }
+    }
+
+    private async Task LoadPageAsync(bool alsoNewest = false)
     {
         var version = ++_loadVersion;
         var searchText = SearchText.Trim();
@@ -253,6 +358,14 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         PageDisplay = null;
 
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
+
+        // The newest mods (for the New tags and count) come along with a fresh load or Refresh,
+        // not with every page turn. Separate request; it never holds up the list itself.
+        if (alsoNewest)
+        {
+            _ = LoadNewestThenRebuildAsync(apiKey);
+        }
+
         // Search and the All list work even with no key (the v2 GraphQL endpoint answers
         // unauthenticated — confirmed live); only the curated v1 lists genuinely require one.
         if (apiKey is null && !isSearch && !isAll)
@@ -355,6 +468,14 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
 
     private void UpdateStatusAfterLoad(bool isSearch, bool isAll, string searchText)
     {
+        if (NewOnly)
+        {
+            StatusMessage = Mods.Count == 0
+                ? "No new mods since your last visit."
+                : $"{Mods.Count} new since your last visit, newest first.";
+            return;
+        }
+
         var filtered = HideOwned || UpdatesOnly || TrackedOnly;
         StatusMessage = Mods.Count == 0
             ? (_lastFetched.Count > 0 && filtered ? "Nothing matches the filters."
@@ -375,8 +496,15 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         var trackedEntriesByModId = _watchlistStore.Entries.ToDictionary(e => e.NexusId);
         var trackedModIds = trackedEntriesByModId.Keys.ToHashSet();
 
+        var seenUpTo = SeenUpToUtc;
+        // New only shows the newest-published mods that arrived since your last visit, in place of
+        // the list picked above (the All list is most-endorsed first, so new mods sit on its last pages).
+        var source = NewOnly
+            ? _newestMods.Where(m => CatalogSeenTracker.ClassifyNexus(seenUpTo, m) == CatalogNewKind.New)
+            : _lastFetched;
+
         var rows = new List<NexusCatalogRow>();
-        foreach (var mod in _lastFetched)
+        foreach (var mod in source)
         {
             var libraryEntry = libraryByNexusId.GetValueOrDefault(mod.ModId);
             var badge = libraryEntry is not null ? "In Library"
@@ -425,7 +553,8 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             var displayName = isTracked && trackedEntriesByModId.TryGetValue(mod.ModId, out var trackedEntry)
                 ? trackedEntry.Name
                 : mod.Name ?? $"Nexus mod #{mod.ModId}";
-            rows.Add(new NexusCatalogRow(mod, badge, hasUpdate, isTracked, displayName));
+            rows.Add(new NexusCatalogRow(mod, badge, hasUpdate, isTracked, displayName,
+                CatalogSeenTracker.TagText(CatalogSeenTracker.ClassifyNexus(seenUpTo, mod))));
         }
 
         // Rows are records, so an unchanged card is equal and keeps its place (and its image)

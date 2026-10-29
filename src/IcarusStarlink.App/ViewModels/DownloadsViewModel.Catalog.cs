@@ -35,7 +35,7 @@ public sealed partial class DownloadsViewModel
     // force the DataGrid to fully reset/regenerate every row container just because a brand-new
     // CatalogEntryViewModel object was constructed for a row that didn't actually change — cleared
     // whenever _allCatalogEntries itself is replaced by a real catalog refresh.
-    private readonly Dictionary<CatalogEntry, (string? InstalledVersion, DateTimeOffset? LastUpdated, CatalogEntryViewModel ViewModel)> _catalogRowCache = [];
+    private readonly Dictionary<CatalogEntry, (string? InstalledVersion, DateTimeOffset? LastUpdated, CatalogNewKind NewKind, CatalogEntryViewModel ViewModel)> _catalogRowCache = [];
 
     // Keyed by (owner, repo), not by mod — see GitHubRepoDateClient's own doc comment for why
     // that's a deliberate repo-level, not per-file, granularity. Only ever replaced on a
@@ -76,6 +76,19 @@ public sealed partial class DownloadsViewModel
 
     [ObservableProperty]
     private bool _hideOlderWeeks;
+
+    /// <summary>Filters › New only: just the mods added or updated since your last visit (classic IMM's Show New).</summary>
+    [ObservableProperty]
+    private bool _showNewOnly;
+
+    /// <summary>How many mods in the whole database are New or Updated since your last visit — the tab says "IMM Database (5 new)".</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCatalogNew))]
+    private int _catalogNewCount;
+
+    public bool HasCatalogNew => CatalogNewCount > 0;
+
+    private CatalogSeenState CatalogSeen => _settingsService.Current.CatalogSeen ??= new CatalogSeenState();
 
     /// <summary>The IMM Database tab's Filters section header: the filters now narrowing the list
     /// (search not included — it's always visible), or "None". Set by ApplyCatalogFilters, which
@@ -152,6 +165,25 @@ public sealed partial class DownloadsViewModel
     partial void OnNotDownloadedOnlyChanged(bool value) => ApplyCatalogFilters();
     partial void OnGameWeekChanged(int value) => ApplyCatalogFilters();
     partial void OnHideOlderWeeksChanged(bool value) => ApplyCatalogFilters();
+    partial void OnShowNewOnlyChanged(bool value) => ApplyCatalogFilters();
+
+    /// <summary>
+    /// Records every mod now in the database as seen: the New tags go and the tab's count drops to
+    /// zero. Run by the tab's Mark all seen button, and when Starlink closes after the tab was opened.
+    /// </summary>
+    [RelayCommand]
+    public void MarkCatalogSeen()
+    {
+        if (_allCatalogEntries.Count == 0)
+        {
+            return;
+        }
+
+        CatalogSeenTracker.MarkImmSeen(CatalogSeen, _allCatalogEntries);
+        _settingsService.Save();
+        ShowNewOnly = false;
+        ApplyCatalogFilters();
+    }
 
 // Immediate-save, not debounced: these are discrete checkbox clicks, not rapid-repeat
     // keystrokes like Notes/Name — same "save right away" precedent MainViewModel's own theme
@@ -252,6 +284,12 @@ public sealed partial class DownloadsViewModel
     {
         _allCatalogEntries = [.. entries];
         _catalogRowCache.Clear();
+
+        // A source's first load counts as seen (no wall of "new" on a first run).
+        if (CatalogSeenTracker.EnsureImmBaseline(CatalogSeen, _allCatalogEntries))
+        {
+            _settingsService.Save();
+        }
 
         var previousAuthor = SelectedAuthor;
         var previousCategory = SelectedCategory;
@@ -382,6 +420,7 @@ public sealed partial class DownloadsViewModel
         ExtractedOnly = false;
         NotDownloadedOnly = false;
         HideOlderWeeks = false;
+        ShowNewOnly = false;
         // ApplyCatalogFilters already runs once per property reset above (each has its own
         // OnXChanged hook); the explicit call here only matters if every value above happened to
         // already equal its default (no OnXChanged would fire), so filters still get re-applied.
@@ -433,23 +472,29 @@ public sealed partial class DownloadsViewModel
             query = query.Where(e => e.CompatibleWeek is null || e.CompatibleWeek >= GameWeek);
         }
 
+        var seen = CatalogSeen;
+
         CatalogEntryViewModel GetOrCreateRow(CatalogEntry e)
         {
             var installedVersion = libraryByCatalogId.GetValueOrDefault(e.Id) ?? libraryByKey.GetValueOrDefault(CatalogKey.Normalize(e.Name, e.Author));
             DateTimeOffset? lastUpdated = GitHubRepoKey.Extract(e.PakUrl ?? e.ExmodzUrl) is { } repoKey ? _repoPushedDates.GetValueOrDefault(repoKey) : null;
+            var newKind = CatalogSeenTracker.Classify(seen, e);
 
-            if (_catalogRowCache.TryGetValue(e, out var cached) && cached.InstalledVersion == installedVersion && cached.LastUpdated == lastUpdated)
+            if (_catalogRowCache.TryGetValue(e, out var cached) && cached.InstalledVersion == installedVersion && cached.LastUpdated == lastUpdated && cached.NewKind == newKind)
             {
                 return cached.ViewModel;
             }
 
-            var viewModel = new CatalogEntryViewModel(e, installedVersion, lastUpdated);
-            _catalogRowCache[e] = (installedVersion, lastUpdated, viewModel);
+            var viewModel = new CatalogEntryViewModel(e, installedVersion, lastUpdated, newKind);
+            _catalogRowCache[e] = (installedVersion, lastUpdated, newKind, viewModel);
             return viewModel;
         }
 
+        CatalogNewCount = _allCatalogEntries.Count(e => CatalogSeenTracker.Classify(seen, e) != CatalogNewKind.None);
+
         var rows = query
             .Select(GetOrCreateRow)
+            .Where(row => !ShowNewOnly || row.HasNewTag)
             .Where(row => !ShowUpdatesOnly || row.IsOutdated)
             .Where(row => !ExtractedOnly || row.IsDownloaded)
             .Where(row => !NotDownloadedOnly || !row.IsDownloaded)
@@ -486,6 +531,11 @@ public sealed partial class DownloadsViewModel
         if (SelectedCategory != AllCategories)
         {
             parts.Add($"Category: {SelectedCategory}");
+        }
+
+        if (ShowNewOnly)
+        {
+            parts.Add("New only");
         }
 
         if (ShowUpdatesOnly)

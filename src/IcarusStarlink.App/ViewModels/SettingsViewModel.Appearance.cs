@@ -159,4 +159,29 @@ public sealed partial class SettingsViewModel
 
     partial void OnShowPopUpMessagesChanged(bool value) =>
         _settingsService.SetAndSave(s => s.ShowPopUpMessages, (s, v) => s.ShowPopUpMessages = v, value);
+
+    /// <summary>Settings › Appearance › Size of text and controls: 90% to 150%.</summary>
+    public IReadOnlyList<UiScaleChoice> UiScaleChoices => UiScale.Choices;
+
+    /// <summary>
+    /// The chosen size, as one of UiScaleChoices' values (a hand-edited value in between shows as
+    /// the nearest). Saved straight away and applied to every open window without a restart.
+    /// </summary>
+    public double SelectedUiScale
+    {
+        get
+        {
+            var saved = UiScale.Normalize(_settingsService.Current.UiScale);
+            return UiScale.Choices.MinBy(c => Math.Abs(c.Value - saved))!.Value;
+        }
+        set
+        {
+            var scale = UiScale.Normalize(value);
+            if (_settingsService.SetAndSave(s => s.UiScale, (s, v) => s.UiScale = v, scale))
+            {
+                UiScale.Set(scale);
+                OnPropertyChanged();
+            }
+        }
+    }
 }

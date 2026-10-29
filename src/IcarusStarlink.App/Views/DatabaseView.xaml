@@ -7,10 +7,11 @@
              mc:Ignorable="d">
     <!-- Everywhere mods can be found: Nexus and the IMM Database. Library holds what you have. -->
     <TabControl SelectedIndex="{Binding SelectedTab}" Margin="20,16,20,8">
-        <TabItem Header="Nexus">
+        <!-- Each header says how many mods are new since your last visit: "IMM Database (5 new)". -->
+        <TabItem Header="{Binding NexusTabHeader}">
             <views:NexusCatalogView DataContext="{Binding Nexus}" Margin="-12,0,-12,0"/>
         </TabItem>
-        <TabItem Header="IMM Database">
+        <TabItem Header="{Binding ImmDatabaseTabHeader}">
             <views:ImmDatabaseView DataContext="{Binding Library}" Margin="12,0,12,0"/>
         </TabItem>
     </TabControl>

@@ -1,3 +1,4 @@
+using IcarusStarlink.App.Services;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Core.Library;
 
@@ -15,9 +16,14 @@ namespace IcarusStarlink.App.ViewModels;
 /// comes from a separate GitHub repo-info lookup (IGitHubRepoDateClient) keyed off the entry's own
 /// download URL, resolved by DownloadsViewModel and passed in the same way installedVersion is.
 /// </summary>
-public sealed class CatalogEntryViewModel(CatalogEntry entry, string? installedVersion, DateTimeOffset? lastUpdated)
+public sealed class CatalogEntryViewModel(CatalogEntry entry, string? installedVersion, DateTimeOffset? lastUpdated, CatalogNewKind newKind = CatalogNewKind.None)
 {
     public CatalogEntry Entry { get; } = entry;
+
+    /// <summary>Added (or updated) since the player's last visit to this tab — see CatalogSeenTracker.</summary>
+    public CatalogNewKind NewKind { get; } = newKind;
+    public string? NewTag => CatalogSeenTracker.TagText(NewKind);
+    public bool HasNewTag => NewKind != CatalogNewKind.None;
     public string Name => Entry.Name;
     public string Author => Entry.Author;
     public string Version => Entry.Version;

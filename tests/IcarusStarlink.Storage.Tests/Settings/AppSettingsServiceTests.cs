@@ -60,6 +60,41 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.Equal(original, File.ReadAllText(preserved));
     }
 
+    /// <summary>The UI size and the Database page's "seen" record survive a restart.</summary>
+    [Fact]
+    public void Save_UiScaleAndCatalogSeen_RoundTrip()
+    {
+        Directory.CreateDirectory(_dir);
+        var seenUpTo = new DateTimeOffset(2026, 10, 28, 14, 22, 12, TimeSpan.Zero);
+        var service = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance);
+        service.Current.UiScale = 1.3;
+        service.Current.CatalogSeen.ImmDatabaseVersions["daedalus:a"] = "1.2";
+        service.Current.CatalogSeen.ImmDatabaseSources.Add("Daedalus");
+        service.Current.CatalogSeen.NexusSeenUpToUtc = seenUpTo;
+        Assert.True(service.Save());
+
+        var reloaded = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance).Current;
+
+        Assert.Equal(1.3, reloaded.UiScale);
+        Assert.Equal("1.2", reloaded.CatalogSeen.ImmDatabaseVersions["daedalus:a"]);
+        Assert.Equal(["Daedalus"], reloaded.CatalogSeen.ImmDatabaseSources);
+        Assert.Equal(seenUpTo, reloaded.CatalogSeen.NexusSeenUpToUtc);
+    }
+
+    /// <summary>A settings.json from before these existed loads with the defaults (100%, nothing seen yet).</summary>
+    [Fact]
+    public void Load_OlderSettingsFile_DefaultsUiScaleAndCatalogSeen()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "settings.json"), """{"ThemeName":"Dark"}""");
+
+        var settings = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance).Current;
+
+        Assert.Equal(1.0, settings.UiScale);
+        Assert.Empty(settings.CatalogSeen.ImmDatabaseVersions);
+        Assert.Null(settings.CatalogSeen.NexusSeenUpToUtc);
+    }
+
     [Fact]
     public void Save_NormalStartup_NeverWritesAPreservedCopy()
     {
