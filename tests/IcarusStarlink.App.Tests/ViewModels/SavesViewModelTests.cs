@@ -303,6 +303,46 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Seen on the user's save (2026-10-29): Olympus' Glacier Extraction mission gives every character
+    /// Voxel_Meta_Resources_Visible, and missions live in the profile's Talents, so the check said "no
+    /// learned talent gives it" and offered to turn a real mission reward off. A done mission counts;
+    /// an undone one still gets the note.
+    /// </summary>
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(0, true)]
+    public async Task SaveCheck_CharacterFlagFromADoneMission_IsNotAnOrphan(int missionRank, bool expectNote)
+    {
+        var data = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_GameData", Guid.NewGuid().ToString("N"));
+        _tempFoldersToCleanUp.Add(data);
+        Directory.CreateDirectory(Path.Combine(data, "Flags"));
+        Directory.CreateDirectory(Path.Combine(data, "Talents"));
+        File.WriteAllText(Path.Combine(data, "Flags", "D_CharacterFlags.json"), """
+            { "Rows": [ { "Name": "Voxel_Meta_Resources_Visible" } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "Talents", "D_Talents.json"), """
+            { "Rows": [ { "Name": "Prospect_OLY_Glacier_Extraction", "TalentTree": { "RowName": "Prospect_Olympus" },
+                          "Rewards": [ { "GrantedFlags": [ { "RowName": "Voxel_Meta_Resources_Visible", "DataTableName": "D_CharacterFlags" } ] } ] } ] }
+            """);
+        var character = MakeCharacter("Alpha", 0);
+        character["UnlockedFlags"] = new JsonArray(0);
+        var profile = MakeProfile(nextChrSlot: 1);
+        profile["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "Prospect_OLY_Glacier_Extraction", ["Rank"] = missionRank });
+        var repository = new FakeSaveRepository { Characters = [character], Profile = profile };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(data));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            Assert.True(Assert.Single(vm.Characters).Flags.Single(f => f.RowName == "Voxel_Meta_Resources_Visible").IsUnlocked);
+            Assert.Equal(expectNote, vm.CheckFindings.Any(f => f.Message.Contains("no learned talent gives it")));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     /// <summary>Where mod rows come from doesn't depend on the slot: read again only once the Library (or the game's content) may have changed.</summary>
     [Fact]
     public async Task Reload_ReusesTheModSourcesRead_UntilTheLibraryChanges()

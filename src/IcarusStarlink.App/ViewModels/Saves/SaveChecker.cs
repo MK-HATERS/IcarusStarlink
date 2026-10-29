@@ -56,6 +56,22 @@ public static class SaveChecker
         var rules = names.TalentRules;
         var accountFlags = ByRow(page.AccountFlags);
 
+        // Character flags given by the account's done missions and research: Olympus' Glacier
+        // Extraction mission gives every character Voxel_Meta_Resources_Visible, and it lives in the
+        // profile's Talents, not the character's (a false "no learned talent gives it" seen on the
+        // user's save 2026-10-29).
+        var grantedByAccount = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var talent in page.WorkshopTalents.Where(t => t.Rank > 0))
+        {
+            if (rules.GetValueOrDefault(talent.RowName) is { } rule)
+            {
+                for (var rank = 0; rank < Math.Min(talent.Rank, rule.GrantedFlagsByRank.Count); rank++)
+                {
+                    grantedByAccount.UnionWith(rule.GrantedFlagsByRank[rank]);
+                }
+            }
+        }
+
         // --- Characters ---
         foreach (var character in page.Characters)
         {
@@ -127,7 +143,7 @@ public static class SaveChecker
                 }
             }
 
-            foreach (var flag in character.Flags.Where(f => f.IsUnlocked && f.Kind == FlagKind.FromTalent && !grantedByLearned.ContainsKey(f.RowName)))
+            foreach (var flag in character.Flags.Where(f => f.IsUnlocked && f.Kind == FlagKind.FromTalent && !grantedByLearned.ContainsKey(f.RowName) && !grantedByAccount.Contains(f.RowName)))
             {
                 findings.Add(new(SaveCheckSeverity.Note, area,
                     $"The flag {flag.Name} is on, but no learned talent gives it (its talent was unlearned or removed).",
