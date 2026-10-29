@@ -136,6 +136,38 @@ public class LuaConfigDocumentTests
         Assert.Equal(text, doc.ToText());
     }
 
+    /// <summary>
+    /// MkHaters Cheats AllowGodMode (real, seen in the app 2026-10-28): a sentence wrapped over two
+    /// comment lines showed broken mid-sentence ("the server's" / "setting decides"). It reads as
+    /// one line now; a finished sentence or a list item still starts a new line.
+    /// </summary>
+    [Fact]
+    public void ACommentSentenceWrappedOverLines_ReadsAsOneLine()
+    {
+        const string text =
+            "return {\r\n" +
+            "    -- Whether players may switch god mode on. Read where the world runs: on a dedicated server, the server's\r\n" +
+            "    -- setting decides for everyone who joins it.\r\n" +
+            "    AllowGodMode = true,\r\n" +
+            "    -- How hard it is.\r\n" +
+            "    -- - Easy: fewer\r\n" +
+            "    -- - Hard: more\r\n" +
+            "    Level = 1,\r\n" +
+            "}\r\n";
+        var settings = LuaConfigDocument.Parse(text).Settings.ToDictionary(s => s.Key);
+
+        Assert.Equal(
+            "Whether players may switch god mode on. Read where the world runs: on a dedicated server, the server's setting decides for everyone who joins it.",
+            settings["AllowGodMode"].Description);
+        Assert.Equal("How hard it is.\n- Easy: fewer\n- Hard: more", settings["Level"].Description);
+
+        // The config window reads the comment lines through DescribeLuaSetting (the first fix
+        // only changed Description, and the window still showed the break).
+        var godMode = settings["AllowGodMode"];
+        var shown = Ue4ssSettingsDocument.DescribeLuaSetting(godMode.Key, godMode.Value, godMode.Kind, godMode.Comments, godMode.Note);
+        Assert.Contains("the server's setting decides", shown.Description);
+    }
+
     /// <summary>Untrusted input: long comment lines of dashes and = (a heading-looking line that never closes) stay quick to read.</summary>
     [Fact]
     public void LongRuleLikeComments_ParseQuickly()

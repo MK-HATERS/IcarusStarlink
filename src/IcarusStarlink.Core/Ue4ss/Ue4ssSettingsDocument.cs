@@ -334,7 +334,8 @@ public sealed partial class Ue4ssSettingsDocument
     /// </summary>
     public static Ue4ssSetting DescribeLuaSetting(string key, string value, LuaConfigValueKind kind, IReadOnlyList<string> comments, string? note)
     {
-        var described = Describe("", key, value, [.. comments], "\n", note ?? "");
+        // A sentence the author wrapped over two comment lines reads as one (LuaConfigDocument.JoinWrapped).
+        var described = Describe("", key, value, [.. LuaConfigDocument.JoinWrapped(comments)], "\n", note ?? "");
         // A key: "R" tagged [key], or a one-line { key = "F4", shift = true } (a key without the tag, as MkHaters Mod Settings reads it).
         var isKey = note is not null && KeyMarker().IsMatch(note);
         var settingKind = kind switch

@@ -36,6 +36,16 @@ public sealed class GameItemEditorTests : IDisposable
 
     private static EditableField Field(EditableSection section, string label) => section.Fields.Single(f => f.Label == label);
 
+    /// <summary>Seen in the mod editor's Add a field (2026-10-28): "bIsClientSideOnly" read as "B is client side only".</summary>
+    [Theory]
+    [InlineData("bIsClientSideOnly", "Is client side only")]
+    [InlineData("Some_Odd_Field", "Some odd field")]
+    [InlineData("bonus", "Bonus")]
+    public void FieldNames_ReadAsPlainWords_WithoutUnrealsOnOffMark(string field, string label)
+    {
+        Assert.Equal(label, GameItemEditor.FieldText(field, isNumber: false).Label);
+    }
+
     [Fact]
     public void Describe_ShowsEachRowTheItemUses_WithItsSharing()
     {

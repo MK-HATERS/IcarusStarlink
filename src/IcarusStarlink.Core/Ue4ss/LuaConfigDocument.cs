@@ -50,7 +50,40 @@ public sealed partial class LuaConfigDocument
 
     private sealed record Entry(int Line, string Key, int ValueStart, int ValueLength, LuaConfigValueKind Kind, char Quote, IReadOnlyList<string> Comments, string? Note, string Group)
     {
-        public string Description => string.Join("\n", Note is { Length: > 0 } ? Comments.Append(Note) : Comments);
+        public string Description => string.Join("\n", Note is { Length: > 0 } ? JoinWrapped(Comments).Append(Note) : JoinWrapped(Comments));
+    }
+
+    /// <summary>
+    /// Comment lines a sentence runs over ("on a dedicated server, the server's" / "setting decides
+    /// for everyone") read as one line. Only a line starting in lower case after one that doesn't
+    /// end a sentence carries on; anything else (a list item, "Default: 5", "Valid range: …", a
+    /// blank line) stays its own line, as the author laid it out and as Describe reads it.
+    /// </summary>
+    public static IReadOnlyList<string> JoinWrapped(IReadOnlyList<string> comments) => [.. JoinWrappedLines(comments)];
+
+    private static IEnumerable<string> JoinWrappedLines(IReadOnlyList<string> comments)
+    {
+        var current = new System.Text.StringBuilder();
+        foreach (var raw in comments)
+        {
+            var line = raw.Trim();
+            var carriesOn = line.Length > 0 && char.IsLower(line[0]) && current.Length > 0 && current[^1] is not ('.' or '!' or '?' or ':' or ';');
+            if (current.Length > 0 && !carriesOn)
+            {
+                yield return current.ToString();
+                current.Clear();
+            }
+
+            if (line.Length > 0)
+            {
+                current.Append(current.Length > 0 ? " " : "").Append(line);
+            }
+        }
+
+        if (current.Length > 0)
+        {
+            yield return current.ToString();
+        }
     }
 
     private LuaConfigDocument(List<string> lines, List<string> endings)

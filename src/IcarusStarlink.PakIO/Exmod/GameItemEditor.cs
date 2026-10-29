@@ -585,9 +585,14 @@ public static partial class GameItemEditor
     private static string Show(JsonNode? value) =>
         value is JsonValue v && v.TryGetValue<string>(out var s) ? (NsLocText.TextOf(s) ?? s) : value?.ToJsonString() ?? "(none)";
 
-    /// <summary>"Max_Durability" → "Max durability"; "OxygenSlots" → "Oxygen slots".</summary>
+    /// <summary>"Max_Durability" → "Max durability"; "OxygenSlots" → "Oxygen slots"; "bIsClientSideOnly" → "Is client side only" (Unreal's "b" marks an on/off field).</summary>
     internal static string Humanize(string name)
     {
+        if (name.Length > 1 && name[0] == 'b' && char.IsUpper(name[1]))
+        {
+            name = name[1..];
+        }
+
         var words = CamelBoundary().Replace(name.Replace('_', ' '), " ").Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var text = string.Join(' ', words.Select((w, i) => i == 0 ? w : (w.Length > 1 && w.All(char.IsUpper) ? w : w.ToLowerInvariant())));
         return text.Length == 0 ? name : char.ToUpperInvariant(text[0]) + text[1..];
