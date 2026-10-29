@@ -240,7 +240,7 @@
                            ToolTip="From the mod's own Scripts\main.lua when it states one, else the version it was downloaded at"
                            Visibility="{Binding DataContext.ShowVersionColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                 <Border Grid.Column="5" Visibility="{Binding DataContext.ShowSourceColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" HorizontalAlignment="Left" Background="{DynamicResource InfoBrush}"
+                    <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" HorizontalAlignment="Left" Background="{DynamicResource SourceNexusBrush}"
                             ToolTip="Linked to a Nexus mod page for update-checking"
                             Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="Nexus" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
@@ -248,21 +248,8 @@
                 </Border>
 
                 <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0" Visibility="{Binding DataContext.ShowStatusColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <TextBlock Text="{Binding InstallStatus}" FontSize="12" VerticalAlignment="Center" ToolTip="{Binding InstallStatusDetail}">
-                    <TextBlock.Style>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsInGame}" Value="True">
-                                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding NeedsAction}" Value="True">
-                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </TextBlock.Style>
-                    </TextBlock>
+                    <Ellipse Style="{StaticResource ModStatusDotStyle}"/>
+                    <TextBlock Text="{Binding InstallStatus}" FontSize="12" VerticalAlignment="Center" ToolTip="{Binding InstallStatusDetail}" Style="{StaticResource ModStatusTextStyle}"/>
                     <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" Background="{DynamicResource AccentBrush}"
                             Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}">
@@ -551,12 +538,11 @@
                         </Border>
                 </Grid>
 
-                <Border Grid.Column="4" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" Margin="8,0,0,0" HorizontalAlignment="Left"
-                        Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                <Border Grid.Column="4" Style="{StaticResource TypeTagStyle}" VerticalAlignment="Center" Margin="8,0,0,0" HorizontalAlignment="Left">
                     <Border.ToolTip>
                         <TextBlock Text="EXMOD: an editable data mod merged by Merge &amp; Install. Pak: a prebuilt pak folded in as-is. Pak + UE4SS: this download also ships Lua scripts, which enable together with it."/>
                     </Border.ToolTip>
-                    <TextBlock Text="{Binding TypeLabel}" FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    <TextBlock Text="{Binding TypeLabel}" FontSize="10.5" FontFamily="Consolas"/>
                 </Border>
 
                 <TextBlock Grid.Column="5" Text="{Binding AuthorDisplay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
@@ -568,16 +554,18 @@
                 <!-- Clickable: Nexus jumps to the mod's card on the Nexus page (by its mod ID),
                      Database to its row on the IMM Database tab. -->
                 <Border Grid.Column="7" Visibility="{Binding DataContext.ShowSourceColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <Button Background="{DynamicResource InfoBrush}" Margin="8,0,0,0"
+                    <Button Margin="8,0,0,0"
                             CommandParameter="{Binding}"
                             Visibility="{Binding HasSource, Converter={StaticResource BoolToVisibilityConverter}}"
                             AutomationProperties.Name="{Binding Source, StringFormat='Source: {0}'}">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource PillButtonStyle}">
+                                <Setter Property="Background" Value="{DynamicResource SourceNexusBrush}"/>
                                 <Setter Property="Command" Value="{Binding DataContext.SearchNexusForCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
                                 <Setter Property="ToolTip" Value="Find this mod's card on the Nexus page"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding Source}" Value="Database">
+                                        <Setter Property="Background" Value="{DynamicResource SourceDatabaseBrush}"/>
                                         <Setter Property="Command" Value="{Binding DataContext.FindInDatabaseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
                                         <Setter Property="ToolTip" Value="Find this mod in the IMM Database tab"/>
                                     </DataTrigger>
@@ -590,21 +578,8 @@
 
                 <!-- Status, and the Update pill (a Database mod updates in place; a Nexus mod opens its card). -->
                 <StackPanel Grid.Column="8" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0" Visibility="{Binding DataContext.ShowStatusColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <TextBlock Text="{Binding InstallStatus}" FontSize="12" VerticalAlignment="Center" ToolTip="{Binding InstallStatusDetail}">
-                    <TextBlock.Style>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsInGame}" Value="True">
-                                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding NeedsAction}" Value="True">
-                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </TextBlock.Style>
-                    </TextBlock>
+                    <Ellipse Style="{StaticResource ModStatusDotStyle}"/>
+                    <TextBlock Text="{Binding InstallStatus}" FontSize="12" VerticalAlignment="Center" ToolTip="{Binding InstallStatusDetail}" Style="{StaticResource ModStatusTextStyle}"/>
                     <Button Style="{StaticResource PillButtonStyle}" Background="{DynamicResource AccentBrush}" Margin="8,0,0,0"
                             Command="{Binding DataContext.GetUpdateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"

@@ -935,22 +935,26 @@
                                                                   Visibility="{Binding IsOnServer, Converter={StaticResource BoolToHiddenConverter}}"
                                                                   AutomationProperties.Name="{Binding Name, StringFormat='On on the server: {0}'}"
                                                                   ToolTip="On or off on the server (takes effect when it starts). An unticked mod stays on the server, switched off; Remove takes it off. Your game isn't changed."/>
-                                                        <TextBlock Grid.Column="4" Text="{Binding StateText}" VerticalAlignment="Center" FontSize="12" ToolTip="{Binding ConfigDiffersText}">
-                                                            <TextBlock.Style>
-                                                                <Style TargetType="TextBlock">
-                                                                    <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
-                                                                    <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding IsSame}" Value="True">
-                                                                            <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
-                                                                        </DataTrigger>
-                                                                        <DataTrigger Binding="{Binding NeedsAttention}" Value="True">
-                                                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                                                            <Setter Property="FontWeight" Value="SemiBold"/>
-                                                                        </DataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </TextBlock.Style>
-                                                        </TextBlock>
+                                                        <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                                                            <!-- Same status colours as the Library: green = same as your game, amber = needs a look. -->
+                                                            <Ellipse Width="7" Height="7" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{Binding Foreground, ElementName=ServerModStateText}"/>
+                                                            <TextBlock x:Name="ServerModStateText" Text="{Binding StateText}" VerticalAlignment="Center" FontSize="12" ToolTip="{Binding ConfigDiffersText}">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsSame}" Value="True">
+                                                                                <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding NeedsAttention}" Value="True">
+                                                                                <Setter Property="Foreground" Value="{DynamicResource WarningBrush}"/>
+                                                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+                                                        </StackPanel>
                                                         <StackPanel Grid.Column="5" Orientation="Horizontal" HorizontalAlignment="Right">
                                                             <Button Content="{Binding CopyActionLabel}" Padding="8,1" FontSize="11.5" Margin="0,0,6,0"
                                                                     Command="{Binding DataContext.CopyUe4ssModToServerCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
