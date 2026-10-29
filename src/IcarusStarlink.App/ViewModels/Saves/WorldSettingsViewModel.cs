@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
+using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.Worlds;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -30,6 +31,23 @@ public sealed class WorldItemViewModel(WorldSave save)
 
     /// <summary>"Outpost006_Forest · Extreme · Hardcore".</summary>
     public string Detail => string.Join(" · ", new[] { Save.ProspectType, Save.Difficulty, Save.Hardcore ? "Hardcore" : null, Save.State is "Active" or "" ? null : Save.State }.Where(s => !string.IsNullOrEmpty(s)));
+}
+
+/// <summary>A backup of the selected world in the Backups list: when, and what made it.</summary>
+public sealed class WorldBackupItemViewModel(WorldBackup backup)
+{
+    public WorldBackup Backup { get; } = backup;
+
+    /// <summary>"28 Oct 2026, 14:03:12".</summary>
+    public string When => Backup.TakenAt.ToString("d MMM yyyy, HH:mm:ss", System.Globalization.CultureInfo.CurrentCulture);
+
+    /// <summary>"before world settings save" / "before a restore" / "before Find the broken mod".</summary>
+    public string What => Backup.KindText;
+
+    /// <summary>Faint note for a zip of every world: only this one is put back.</summary>
+    public string? Note => Backup.IsZip ? "Zip of every world in the slot: only this world is put back." : null;
+
+    public string FileName => Path.GetFileName(Backup.Path);
 }
 
 /// <summary>One custom setting of the selected world, editable when the game allows it after creation.</summary>
@@ -114,6 +132,8 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
     private readonly string _backupFolder;
     private readonly IActivityLog _activityLog;
     private readonly IDialogService? _dialogService;
+    private readonly Func<string?>? _backupOwner;
+    private readonly Func<int>? _backupsKept;
     private IReadOnlyList<WorldSettingDefinition>? _definitions;
 
     /// <summary>Set while the list itself changes the selection (a reload, or putting a refused switch back): no question then.</summary>
@@ -123,9 +143,16 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
     /// <param name="blockedReason">Why saving can't happen right now ("Close Icarus first…"), or null.</param>
     /// <param name="activityLog">Save, refusal and failure go to the app-wide activity feed too (and so pop up), not only this editor's status line.</param>
     /// <param name="dialogService">Asks before picking another world drops unsaved settings; null switches without asking.</param>
+    /// <param name="backupOwner">
+    /// Whose worlds these are, for the backup names (the slot's Steam id, or WorldBackups.ServerOwner):
+    /// two slots with a world of the same name never mix backups. Null: no Backups list (Restore isn't offered).
+    /// </param>
+    /// <param name="backupsKept">Settings › Backups to keep › Save backups (each slot): each world's backups are pruned to it.</param>
     public WorldSettingsViewModel(Func<string?> prospectsFolder, Func<string?> dataFolder, Func<string?> blockedReason, string backupFolder, IActivityLog activityLog,
-        IDialogService? dialogService = null)
+        IDialogService? dialogService = null, Func<string?>? backupOwner = null, Func<int>? backupsKept = null)
     {
+        _backupOwner = backupOwner;
+        _backupsKept = backupsKept;
         _activityLog = activityLog;
         _dialogService = dialogService;
         _prospectsFolder = prospectsFolder;
@@ -149,6 +176,22 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
     public bool HasNoWorlds => Worlds.Count == 0;
 
     public bool HasChanges => Rows.Any(r => r.IsChanged);
+
+    /// <summary>The selected world's backups, newest first.</summary>
+    public ObservableCollection<WorldBackupItemViewModel> Backups { get; } = [];
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RestoreBackupCommand))]
+    private WorldBackupItemViewModel? _selectedBackup;
+
+    /// <summary>The Backups list is shown (the page said whose worlds these are).</summary>
+    public bool ShowsBackups => _backupOwner is not null;
+
+    public bool HasBackups => Backups.Count > 0;
+
+    public bool HasNoBackups => Backups.Count == 0;
+
+    private int BackupsKept => BackupLimits.Clamp(_backupsKept?.Invoke() ?? BackupLimits.DefaultSaveBackupsKept);
 
     public string EmptyText => _prospectsFolder() is null
         ? "Pick a save slot (or a server) to see its worlds."
@@ -269,6 +312,7 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
     {
         Rows.Clear();
         StatusMessage = null;
+        LoadBackups();
         if (SelectedWorld is not { } world)
         {
             return;
@@ -314,7 +358,7 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
         try
         {
             var changes = Rows.Where(r => r.IsChanged).ToDictionary(r => r.Definition.Name, r => r.Value, StringComparer.OrdinalIgnoreCase);
-            var backup = world.Save.Save(changes, _backupFolder);
+            var backup = world.Save.Save(changes, _backupFolder, _backupOwner?.Invoke() ?? "world", BackupsKept);
             LoadRows();
             StatusMessage = $"Saved {changes.Count} setting(s) for '{world.Title}'. The world was backed up first ({Path.GetFileName(backup)}).";
             _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
@@ -329,4 +373,89 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
     /// <summary>Back to what the save holds.</summary>
     [RelayCommand]
     private void Revert() => LoadRows();
+
+    /// <summary>Reads the selected world's backups again (its own copies, and Find the broken mod zips holding it).</summary>
+    private void LoadBackups()
+    {
+        var keep = SelectedBackup?.Backup.Path;
+        Backups.Clear();
+        if (SelectedWorld is { } world && _backupOwner?.Invoke() is { } owner)
+        {
+            try
+            {
+                foreach (var backup in WorldBackups.List(_backupFolder, owner, Path.GetFileName(world.Save.Path)))
+                {
+                    Backups.Add(new WorldBackupItemViewModel(backup));
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A backup folder that can't be read only means no list; the settings still work.
+            }
+        }
+
+        SelectedBackup = Backups.FirstOrDefault(b => string.Equals(b.Backup.Path, keep, StringComparison.OrdinalIgnoreCase));
+        OnPropertyChanged(nameof(HasBackups));
+        OnPropertyChanged(nameof(HasNoBackups));
+    }
+
+    private bool CanRestoreBackup() => SelectedBackup is not null && SelectedWorld is not null;
+
+    /// <summary>
+    /// Puts the selected world back to the chosen backup: refused while the game (or server)
+    /// runs, asked first, the world as it is now backed up, then only this world's file written
+    /// (through a temp file). From a zip of every world, only this one comes back.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRestoreBackup))]
+    private void RestoreBackup()
+    {
+        if (SelectedWorld is not { } world || SelectedBackup is not { } item || _backupOwner?.Invoke() is not { } owner)
+        {
+            return;
+        }
+
+        if (RefusedToRestore(world))
+        {
+            return;
+        }
+
+        var question = $"Put '{world.Title}' back to how it was {item.When} ({item.What})? The world as it is now is backed up first, so this can be undone from this list."
+            + (HasChanges ? " Your unsaved settings for it will be lost." : "");
+        if (_dialogService is { } dialogs && !dialogs.Confirm(question, "Restore world", ThemedConfirmSeverity.Warning))
+        {
+            return;
+        }
+
+        // The game (or server) may have started while the question was open.
+        if (RefusedToRestore(world))
+        {
+            return;
+        }
+
+        try
+        {
+            WorldBackups.Restore(item.Backup, world.Save.Path, _backupFolder, owner, BackupsKept);
+            Reload();
+            StatusMessage = $"Restored '{world.Title}' to how it was {item.When}. The world as it was just now is in the backups list.";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
+        }
+        catch (Exception ex)
+        {
+            LoadBackups();
+            StatusMessage = $"Couldn't restore the world: {ex.Message}";
+            _activityLog.Log($"Couldn't restore the world '{world.Title}': {ex.Message}", ActivityEntryKind.Warning);
+        }
+    }
+
+    private bool RefusedToRestore(WorldItemViewModel world)
+    {
+        if (_blockedReason() is not { } reason)
+        {
+            return false;
+        }
+
+        StatusMessage = reason;
+        _activityLog.Log($"World '{world.Title}' not restored: {reason}", ActivityEntryKind.Warning);
+        return true;
+    }
 }

@@ -75,7 +75,11 @@ public sealed partial class LocalServerViewModel : ObservableObject
                 : IsBusy || IsAutomationBusy ? "Wait until the server has finished starting, stopping or updating." : null,
             Path.Combine(_backupsRoot, "WorldSettings"),
             activityLog,
-            dialogService);
+            dialogService,
+            // Every server's world backups share this folder: the profile id keeps them apart.
+            // Restore is refused by the same rule as Save (server running, starting, stopping, updating).
+            backupOwner: () => SelectedProfile is { } p ? IcarusStarlink.PakIO.Worlds.WorldBackups.ServerOwner(p.Id) : null,
+            backupsKept: () => Core.Settings.BackupLimits.SaveKept(settings));
 
         foreach (var profile in store.GetAll())
         {

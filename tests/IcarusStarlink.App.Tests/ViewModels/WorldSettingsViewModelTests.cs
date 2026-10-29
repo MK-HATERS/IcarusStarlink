@@ -33,7 +33,7 @@ public sealed class WorldSettingsViewModelTests : IDisposable
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
-    private WorldSettingsViewModel Create(string? prospects = "use", IDialogService? dialogs = null)
+    private WorldSettingsViewModel Create(string? prospects = "use", IDialogService? dialogs = null, string? owner = null, int keep = 10)
     {
         var vm = new WorldSettingsViewModel(
             () => prospects is null ? null : Path.Combine(_root, "Prospects"),
@@ -41,9 +41,114 @@ public sealed class WorldSettingsViewModelTests : IDisposable
             () => _blocked,
             Path.Combine(_root, "Backups"),
             _log,
-            dialogs);
+            dialogs,
+            owner is null ? null : () => owner,
+            () => keep);
         vm.Reload();
         return vm;
+    }
+
+    private const string Slot = "76561198000000001";
+
+    private string WorldPath => Path.Combine(_root, "Prospects", "World.json");
+
+    private void SaveArachnophobia(WorldSettingsViewModel vm, bool on)
+    {
+        vm.Rows.Single(r => r.Definition.Name == "Arachnophobia").BoolValue = on;
+        vm.SaveCommand.Execute(null);
+    }
+
+    [Fact]
+    public void Backups_TheSelectedWorldsBackupsAreListed_AndRestorePutsTheChosenOneBack()
+    {
+        var vm = Create(owner: Slot);
+        Assert.True(vm.ShowsBackups);
+        Assert.True(vm.HasNoBackups);
+
+        SaveArachnophobia(vm, true);
+        var backup = Assert.Single(vm.Backups);
+        Assert.Equal("before world settings save", backup.What);
+        Assert.StartsWith(Slot + "_", backup.FileName);
+        Assert.False(vm.RestoreBackupCommand.CanExecute(null));
+
+        vm.SelectedBackup = backup;
+        Assert.True(vm.RestoreBackupCommand.CanExecute(null));
+        var started = DateTime.Now.AddSeconds(-2);
+        vm.RestoreBackupCommand.Execute(null);
+
+        Assert.Equal(0, WorldSave.Load(WorldPath)!.Settings["Arachnophobia"]);
+        Assert.False(vm.Rows.Single(r => r.Definition.Name == "Arachnophobia").BoolValue);
+        Assert.True(File.GetLastWriteTime(WorldPath) >= started);
+        // The world as it was just before is backed up first, and listed.
+        Assert.Equal(2, vm.Backups.Count);
+        Assert.Contains(vm.Backups, b => b.What == "before a restore");
+        Assert.StartsWith("Restored 'World'", vm.StatusMessage);
+        Assert.Contains(_log.Entries, e => e.Kind == ActivityEntryKind.Success && e.Message.StartsWith("Restored 'World'"));
+    }
+
+    [Fact]
+    public void Restore_WhileTheGameRuns_IsRefused_AndNothingIsWritten()
+    {
+        var vm = Create(owner: Slot);
+        SaveArachnophobia(vm, true);
+        vm.SelectedBackup = vm.Backups.Single();
+        var worldBefore = File.ReadAllText(WorldPath);
+        _blocked = "Close Icarus first.";
+
+        vm.RestoreBackupCommand.Execute(null);
+
+        Assert.Equal("Close Icarus first.", vm.StatusMessage);
+        Assert.Equal(worldBefore, File.ReadAllText(WorldPath));
+        Assert.Single(Directory.GetFiles(Path.Combine(_root, "Backups")));
+        Assert.Contains(_log.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("not restored"));
+    }
+
+    [Fact]
+    public void Restore_AsksFirst_AndNoChangesNothing()
+    {
+        var dialogs = new FakeDialogs(false);
+        var vm = Create(dialogs: dialogs, owner: Slot);
+        SaveArachnophobia(vm, true);
+        vm.SelectedBackup = vm.Backups.Single();
+
+        vm.RestoreBackupCommand.Execute(null);
+
+        Assert.Equal(1, dialogs.Asked);
+        Assert.Equal(1, WorldSave.Load(WorldPath)!.Settings["Arachnophobia"]);
+        Assert.Single(vm.Backups);
+    }
+
+    [Fact]
+    public void Save_PrunesTheWorldsBackups_ToTheSetting()
+    {
+        var vm = Create(owner: Slot, keep: 3);
+        for (var i = 0; i < 6; i++)
+        {
+            SaveArachnophobia(vm, i % 2 == 0);
+        }
+
+        Assert.Equal(3, vm.Backups.Count);
+        Assert.Equal(3, Directory.GetFiles(Path.Combine(_root, "Backups")).Length);
+    }
+
+    /// <summary>Another slot's (or server's) backups of a world with the same name never show.</summary>
+    [Fact]
+    public void Backups_OfAnotherOwner_AreNotListed()
+    {
+        SaveArachnophobia(Create(owner: "76561198000000002"), true);
+
+        var vm = Create(owner: Slot);
+
+        Assert.Empty(vm.Backups);
+    }
+
+    [Fact]
+    public void NoOwner_NoBackupsList()
+    {
+        var vm = Create();
+
+        Assert.False(vm.ShowsBackups);
+        Assert.Empty(vm.Backups);
     }
 
     [Fact]

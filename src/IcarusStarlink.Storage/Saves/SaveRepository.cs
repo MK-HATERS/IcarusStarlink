@@ -253,6 +253,8 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
     /// </summary>
     private int MaxBackupsPerSlot => BackupLimits.SaveKept(settings);
 
+    public int AutomaticBackupsKept => MaxBackupsPerSlot;
+
     private void PruneBackups(string steamId)
     {
         // Manual "Backup now" zips are exempt from the cap — see ISaveRepository.BackupSlotManually.
@@ -468,6 +470,30 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         }
 
         TryDeleteFolder(asideFolder);
+        TouchRestoredFiles(swappedIn);
+    }
+
+    /// <summary>
+    /// A restored file comes back with the zip's old time; Steam Cloud can then take its own copy
+    /// for the newer one and put it back over the restore. Each restored file's time is set to now,
+    /// so the restore is the newest copy. Best effort: a file whose time can't be set is still restored.
+    /// </summary>
+    internal static void TouchRestoredFiles(IEnumerable<string> paths)
+    {
+        var now = DateTime.Now;
+        foreach (var path in paths)
+        {
+            try
+            {
+                File.SetLastWriteTime(path, now);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
     }
 
     private static void TryDeleteFile(string path)

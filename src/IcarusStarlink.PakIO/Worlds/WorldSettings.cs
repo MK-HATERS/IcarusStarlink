@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using IcarusStarlink.Core.IO;
+using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.PakIO.Worlds;
@@ -146,11 +148,13 @@ public sealed class WorldSave
     /// Writes these setting values into the save (settings not given keep theirs; ones the save
     /// doesn't list yet are added). Settings not given keep the value the file holds NOW, read
     /// fresh here, not the one from when this was loaded: the game (or a server) may have rewritten
-    /// the world since. Copies the file into <paramref name="backupFolder"/> first and
-    /// writes through a temp file, so a failed write never leaves half a world.
-    /// Returns the backup's path.
+    /// the world since. Copies the file into <paramref name="backupFolder"/> first (named for
+    /// <paramref name="backupOwner"/>, see WorldBackups) and writes through a temp file, so a
+    /// failed write never leaves half a world; then prunes this world's backups to
+    /// <paramref name="backupsKept"/>. Returns the backup's path.
     /// </summary>
-    public string Save(IReadOnlyDictionary<string, int> values, string backupFolder)
+    /// <param name="backupOwner">Whose world it is: the slot's Steam id, or WorldBackups.ServerOwner.</param>
+    public string Save(IReadOnlyDictionary<string, int> values, string backupFolder, string backupOwner = "world", int backupsKept = BackupLimits.DefaultSaveBackupsKept)
     {
         var text = File.ReadAllText(Path);
         var current = JsonNode.Parse(text) is JsonObject root && root["ProspectInfo"] is JsonObject info
@@ -171,12 +175,9 @@ public sealed class WorldSave
         merged.AddRange(values.Where(kv => !seen.Contains(kv.Key)));
         var updated = ReplaceCustomSettings(text, merged);
 
-        Directory.CreateDirectory(backupFolder);
-        var backup = System.IO.Path.Combine(backupFolder, $"{DateTime.Now.ToString("yyyy-MM-dd_HHmmss_fff", System.Globalization.CultureInfo.InvariantCulture)}_{System.IO.Path.GetFileName(Path)}");
-        File.Copy(Path, backup, overwrite: true);
-        var temp = Path + ".isl-tmp";
-        File.WriteAllText(temp, updated, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        File.Move(temp, Path, overwrite: true);
+        var backup = WorldBackups.BackUp(Path, backupFolder, backupOwner, WorldBackupKind.BeforeSettingsSave);
+        AtomicFile.WriteAllText(Path, updated, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        WorldBackups.Prune(backupFolder, backupOwner, System.IO.Path.GetFileName(Path), backupsKept);
 
         Settings.Clear();
         foreach (var (name, value) in merged)
