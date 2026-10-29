@@ -812,6 +812,93 @@ public class GameplayOptionsApplierTests
     }
 
     [Fact]
+    public void RequiredCurrentFiles_FreeItemRepairAndNoWeather_IncludeDurableAndForecastFiles()
+    {
+        var files = GameplayOptionsApplier.RequiredCurrentFiles(new GameplayOptions { FreeItemRepair = true, NoWeather = true });
+
+        Assert.Contains("Traits-D_Durable.json", files);
+        Assert.Contains("Weather-D_ProspectForecast.json", files);
+    }
+
+    /// <summary>Classic IMM 2.4.8 had to fix its Free Repair for dropping "Destroyed_At_Zero": true, which left enemy turrets never destroyed. Only ItemsForRepair may change.</summary>
+    [Fact]
+    public void Apply_FreeItemRepair_EmptiesTheRepairCost_AndKeepsEverythingElse()
+    {
+        var tables = Table("Traits-D_Durable.json", new JsonObject
+        {
+            ["Stone_Axe"] = Row("""{"Max_Durability": 20000, "ItemsForRepair": [{"Item": {"RowName": "Stone", "DataTableName": "D_ItemsStatic"}, "Amount": 1}]}"""),
+            ["Meta_Axe"] = Row("""
+                {"Max_Durability": 500000, "ItemsForRepair": [{"Item": {"RowName": "Meta_Repair_Item"}, "Amount": 1}],
+                 "NoRecipe_RequiredRecipeSet": [{"RowName": "Repair_Bench", "DataTableName": "D_RecipeSets"}]}
+                """),
+            ["Drone_Companion"] = Row("""{"Max_Durability": 3000, "Destroyed_At_Zero": true, "ItemsForRepair": [{"Item": {"RowName": "Titanium_Ingot"}, "Amount": 1}]}"""),
+            ["Deployable_10000"] = Row("""{"Max_Durability": 10000, "Destroyed_At_Zero": true}"""),
+        });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { FreeItemRepair = true }, tables, new MergeReport());
+
+        var durable = tables["Traits-D_Durable.json"];
+        Assert.Empty(durable["Stone_Axe"]!["ItemsForRepair"]!.AsArray());
+        Assert.Equal(20000, (int)durable["Stone_Axe"]!["Max_Durability"]!);
+        Assert.Empty(durable["Meta_Axe"]!["ItemsForRepair"]!.AsArray());
+        Assert.Equal("Repair_Bench", (string)durable["Meta_Axe"]!["NoRecipe_RequiredRecipeSet"]![0]!["RowName"]!);
+        Assert.Empty(durable["Drone_Companion"]!["ItemsForRepair"]!.AsArray());
+        Assert.True((bool)durable["Drone_Companion"]!["Destroyed_At_Zero"]!);
+        Assert.True(JsonNode.DeepEquals(Row("""{"Max_Durability": 10000, "Destroyed_At_Zero": true}"""), durable["Deployable_10000"]));
+    }
+
+    [Fact]
+    public void Apply_FreeItemRepair_NoRowHasARepairCost_WarnsInsteadOfSilentlyDoingNothing()
+    {
+        var tables = Table("Traits-D_Durable.json", new JsonObject { ["Deployable"] = Row("""{"Max_Durability": 1000}""") });
+        var report = new MergeReport();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { FreeItemRepair = true }, tables, report);
+
+        Assert.Contains(report.Warnings, w => w.Contains("Free Item Repair") && w.Contains("ItemsForRepair"));
+    }
+
+    private static Dictionary<string, JsonObject> ForecastTable() => Table("Weather-D_ProspectForecast.json", new JsonObject
+    {
+        ["ClearSky60"] = Row("""{"WeatherPool": {"RowName": "NoWeather"}, "Pattern": [{"Tier": 0, "DurationMinutes": 66}, {"Tier": 0, "DurationMinutes": 66}, {"Tier": 0, "DurationMinutes": 66}]}"""),
+        ["MidPeak"] = Row("""{"WeatherPool": {"RowName": "All_Weather"}, "Pattern": [{"Tier": 1, "DurationMinutes": 50}, {"Tier": 4, "DurationMinutes": 60}]}"""),
+        ["Initial"] = Row("""{"WeatherPool": {"RowName": "All_Weather_MoreLight"}, "Pattern": [{"Tier": 1, "DurationMinutes": 30}]}"""),
+        ["IceStorm"] = Row("""{"WeatherPool": {"RowName": "All_Weather_HarshArctic"}, "Pattern": [{"Tier": 3, "DurationMinutes": 35}]}"""),
+        ["Arena_IceMammoth_Blizzard"] = Row("""{"WeatherPool": {"RowName": "Ice_Arena_Blizzard"}, "Pattern": [{"Tier": 4, "DurationMinutes": 167}]}"""),
+    });
+
+    [Fact]
+    public void Apply_NoWeather_MakesEveryNormalForecastTheGamesClearSky_AndKeepsMissionStorms()
+    {
+        var tables = ForecastTable();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { NoWeather = true }, tables, new MergeReport());
+
+        var forecasts = tables["Weather-D_ProspectForecast.json"];
+        var clear = forecasts["ClearSky60"]!;
+        foreach (var name in new[] { "MidPeak", "Initial" })
+        {
+            Assert.True(JsonNode.DeepEquals(clear["WeatherPool"], forecasts[name]!["WeatherPool"]), name);
+            Assert.True(JsonNode.DeepEquals(clear["Pattern"], forecasts[name]!["Pattern"]), name);
+        }
+        Assert.Equal("All_Weather_HarshArctic", (string)forecasts["IceStorm"]!["WeatherPool"]!["RowName"]!);
+        Assert.Equal("Ice_Arena_Blizzard", (string)forecasts["Arena_IceMammoth_Blizzard"]!["WeatherPool"]!["RowName"]!);
+    }
+
+    [Fact]
+    public void Apply_NoWeather_GameHasNoClearSkyForecast_WarnsAndChangesNothing()
+    {
+        var tables = ForecastTable();
+        tables["Weather-D_ProspectForecast.json"].Remove("ClearSky60");
+        var report = new MergeReport();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { NoWeather = true }, tables, report);
+
+        Assert.Contains(report.Warnings, w => w.Contains("No Weather") && w.Contains("ClearSky60"));
+        Assert.Equal("All_Weather", (string)tables["Weather-D_ProspectForecast.json"]["MidPeak"]!["WeatherPool"]!["RowName"]!);
+    }
+
+    [Fact]
     public void Apply_NoTablesPresentForAnEnabledOption_DoesNotThrow()
     {
         var exception = Record.Exception(() =>

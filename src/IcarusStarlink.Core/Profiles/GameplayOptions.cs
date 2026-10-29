@@ -32,7 +32,7 @@ public enum CraftCostReduction
 /// SpeedBoost/PlayerBoost/XpBoost/DisableTemperatures/RemoveLevelCap each write a single fixed row,
 /// so they're real MergeEngine participants — a queued mod touching the same field shows as a real,
 /// resolvable conflict instead of being silently overwritten (GameplayOptionsFieldChangeGenerator).
-/// Everything else (Stacks/Slots/CraftCost/SpeedCrafting/RemoveWeight/UnlimitedAmmo/TamingSpeed)
+/// Everything else (Stacks/Slots/CraftCost/SpeedCrafting/RemoveWeight/UnlimitedAmmo/TamingSpeed/FreeItemRepair/NoWeather)
 /// broadcasts a scale/set transform across every row of a whole table, deliberately still applied as
 /// a genuine final pass AFTER the merge queue resolves — matching classic IMM's own documented
 /// behavior ("these new options are added after the mods are all merged. By doing this it effects
@@ -93,6 +93,12 @@ public sealed class GameplayOptions
     /// </summary>
     public bool RemoveLevelCap { get; set; }
 
+    /// <summary>Repairing items costs nothing: empties Traits-D_Durable.json's ItemsForRepair (classic IMM's FreeItemRepair). Never touches Destroyed_At_Zero. Off in profiles and patches saved before it existed.</summary>
+    public bool FreeItemRepair { get; set; }
+
+    /// <summary>No random storms: every prospect forecast but the mission ones becomes the game's own ClearSky60 (classic IMM's NoWeather). Off in profiles and patches saved before it existed.</summary>
+    public bool NoWeather { get; set; }
+
     /// <summary>
     /// True if any Category-1 ("single fixed row," a real MergeEngine participant via
     /// GameplayOptionsFieldChangeGenerator) option is on. Mirrors that class's own per-row gating —
@@ -108,7 +114,8 @@ public sealed class GameplayOptions
     /// <summary>Same idea for Category-2 ("broadcast to every row," GameplayOptionsApplier's own compounding final pass) — matches GameplayOptionsApplier.RequiredCurrentFiles' own condition list exactly.</summary>
     public bool HasCategory2Active =>
         StacksMultiplier is > 0 || SlotsMultiplier is > 0 || RemoveWeight || WeightReductionPercent is > 0 || CraftCost != CraftCostReduction.Off
-        || SpeedCraftingReductionPercent is > 0 || UnlimitedAmmo || TamingSpeedReductionPercent is > 0;
+        || SpeedCraftingReductionPercent is > 0 || UnlimitedAmmo || TamingSpeedReductionPercent is > 0
+        || FreeItemRepair || NoWeather;
 
     /// <summary>
     /// Whether Rebuild has ANY gameplay-option work to do at all. The single source of truth for
@@ -147,6 +154,8 @@ public sealed class GameplayOptions
         if (UnlimitedAmmo) parts.Add("Unlimited Ammo");
         if (DisableTemperatures) parts.Add("Disable Temperatures");
         if (RemoveLevelCap) parts.Add("Remove Level Cap");
+        if (FreeItemRepair) parts.Add("Free Item Repair");
+        if (NoWeather) parts.Add("No Weather");
         return parts;
     }
 

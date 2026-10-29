@@ -32,6 +32,20 @@ public static class GameplayOptionsApplier
     private const string TamesFile = "AI-D_Tames.json";
     private const string AlterationsFile = "Alterations-D_Alterations.json";
     private const string TalentsFile = "Talents-D_Talents.json";
+    private const string DurableFile = "Traits-D_Durable.json";
+    private const string ProspectForecastFile = "Weather-D_ProspectForecast.json";
+
+    /// <summary>The game's own clear-sky forecast (WeatherPool NoWeather, three 66-minute Tier 0 steps), the one its own "clear weather" cheat switches a world to.</summary>
+    private const string ClearForecastRowName = "ClearSky60";
+
+    /// <summary>
+    /// Forecasts No Weather leaves alone because a mission is built around the storm (real game data,
+    /// 2026-10-28): IceStorm is the forecast of Tier2_Glacier_Expedition_0 ("EXPEDITION: Disrupt
+    /// perma-storm") and the initial one of Great Hunt GH_IM_A2 ("... Disable to Stop the Weather
+    /// Disruption"); Arena_IceMammoth_Blizzard is the Ice Mammoth arena's blizzard (pool
+    /// Ice_Arena_Blizzard). Every other forecast draws from the general All_Weather pools.
+    /// </summary>
+    private static readonly string[] MissionForecastRowNames = ["IceStorm", "Arena_IceMammoth_Blizzard"];
 
     /// <summary>
     /// The real stat keys Alteration deployable/backpack upgrades grant as a flat "+N slots" bonus
@@ -111,6 +125,14 @@ public static class GameplayOptionsApplier
         {
             files.Add(TamesFile);
         }
+        if (options.FreeItemRepair)
+        {
+            files.Add(DurableFile);
+        }
+        if (options.NoWeather)
+        {
+            files.Add(ProspectForecastFile);
+        }
 
         return files;
     }
@@ -168,6 +190,14 @@ public static class GameplayOptionsApplier
             // creature rows (e.g. Moa: 900). No documented reduction from classic IMM, so the exact
             // percentage is user-supplied, same as Speed Crafting's own precedent.
             ScaleExistingNumericField(keyedTablesByFile, TamesFile, "TameDurationInSeconds", 1 - tamingPercent / 100.0, minimum: 1, report, "Faster Taming");
+        }
+        if (options.FreeItemRepair)
+        {
+            ApplyFreeItemRepair(keyedTablesByFile, report);
+        }
+        if (options.NoWeather)
+        {
+            ApplyNoWeather(keyedTablesByFile, report);
         }
 
         // Speed Boost/Player Boost/XP Boost/Disable Temperatures (all writing into the same
@@ -721,6 +751,87 @@ public static class GameplayOptionsApplier
         {
             report.AddWarning("Couldn't apply Speed Crafting — no eligible recipes with (or defaulting to) a 'RequiredMillijoules' value were found. The game data may have changed since this option's field name was last confirmed.");
         }
+    }
+
+    /// <summary>
+    /// Free Item Repair: empties ItemsForRepair on every Traits-D_Durable.json row that has one. That
+    /// list (DurableData.ItemsForRepair, RepairData { Item, Amount }) is what a repair costs: 187 of
+    /// the table's 236 rows have one (Stone_Axe: 1 Stone, Meta_Axe: 1 Meta_Repair_Item), the rest
+    /// inherit the empty list from Defaults. Classic IMM's Free Item Repair ("Removes the
+    /// requirements for repairing items") edits the same file and field. Only this one field is
+    /// written: classic IMM 2.4.8 had to fix its own version for dropping "Destroyed_At_Zero": true
+    /// (enemy turrets were never destroyed), and Max_Durability, Destroyed_At_Zero and
+    /// NoRecipe_RequiredRecipeSet (which bench a repair needs) stay as they are.
+    /// </summary>
+    private static void ApplyFreeItemRepair(IDictionary<string, JsonObject> tables, MergeReport report)
+    {
+        if (!tables.TryGetValue(DurableFile, out var table))
+        {
+            return;
+        }
+
+        var changes = new List<FieldChange>();
+        foreach (var (itemName, rowValue) in table)
+        {
+            if (rowValue is JsonObject row && row["ItemsForRepair"] is JsonArray { Count: > 0 } cost)
+            {
+                changes.Add(new FieldChange(DurableFile, itemName, "ItemsForRepair", cost, new JsonArray(), ValueSemantic.GenericCompound));
+            }
+        }
+
+        if (changes.Count == 0)
+        {
+            report.AddWarning($"Couldn't apply Free Item Repair — no rows in {DurableFile} have an 'ItemsForRepair' list. The game data may have changed since this option's field name was last confirmed.");
+            return;
+        }
+
+        tables[DurableFile] = TableApplier.Apply(table, changes, report);
+    }
+
+    /// <summary>
+    /// No Weather: points every prospect forecast at the game's own clear-sky one (ClearSky60:
+    /// WeatherPool NoWeather, whose only event is the empty NoWeather event in the NoBiome group,
+    /// and three Tier 0 steps of 66 minutes). Prospects pick their weather from these forecast rows
+    /// (D_ProspectList Forecast/InitialForecast: MidPeak, MostlyMild, Pulse, ...). Classic IMM's No
+    /// Weather edited this file too (every Pattern step to Tier 0), and also emptied every
+    /// D_WeatherEvents row; that table is left alone here, so a storm a quest starts itself still
+    /// comes (the tutorial's Tutorial_Rain_1, which BP_QuestWeatherModifier adds directly), and the
+    /// mission forecasts in MissionForecastRowNames keep their storms. The values are copied from
+    /// the table's own ClearSky60 row, so a game update that changes it is followed.
+    /// </summary>
+    private static void ApplyNoWeather(IDictionary<string, JsonObject> tables, MergeReport report)
+    {
+        if (!tables.TryGetValue(ProspectForecastFile, out var table))
+        {
+            return;
+        }
+
+        if (table[ClearForecastRowName] is not JsonObject clear || clear["WeatherPool"] is not JsonNode clearPool || clear["Pattern"] is not JsonArray clearPattern)
+        {
+            report.AddWarning($"Couldn't apply No Weather — {ProspectForecastFile} has no '{ClearForecastRowName}' row with a WeatherPool and Pattern to copy. The game data may have changed since this option was last confirmed.");
+            return;
+        }
+
+        var changes = new List<FieldChange>();
+        foreach (var (forecastName, rowValue) in table)
+        {
+            if (rowValue is not JsonObject row
+                || string.Equals(forecastName, ClearForecastRowName, StringComparison.OrdinalIgnoreCase)
+                || MissionForecastRowNames.Contains(forecastName, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            changes.Add(new FieldChange(ProspectForecastFile, forecastName, "WeatherPool", row["WeatherPool"], clearPool.DeepClone(), ValueSemantic.GenericCompound));
+            changes.Add(new FieldChange(ProspectForecastFile, forecastName, "Pattern", row["Pattern"], clearPattern.DeepClone(), ValueSemantic.GenericCompound));
+        }
+
+        if (changes.Count == 0)
+        {
+            return;
+        }
+
+        tables[ProspectForecastFile] = TableApplier.Apply(table, changes, report);
     }
 
     /// <summary>Returns a modified clone (null input in, null out) rather than mutating in place — same reasoning as ZeroCountsInArray.</summary>

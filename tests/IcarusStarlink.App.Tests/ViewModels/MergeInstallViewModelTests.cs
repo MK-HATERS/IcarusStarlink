@@ -405,6 +405,28 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Equal(["ModA", "ModB"], next.Queue.Select(e => e.FolderName));
     }
 
+    [Fact]
+    public void FreeItemRepairAndNoWeather_SaveWithTheProfile_ComeBack_AndShowInTheSummary()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA")] };
+        var store = new FakeProfileStore();
+        var settings = new FakeSettingsService();
+        var vm = CreateViewModel(libraryRepository: library, profileStore: store, settingsService: settings);
+
+        vm.FreeItemRepair = true;
+        vm.NoWeather = true;
+        vm.SaveWorkingState();
+
+        Assert.Contains("Free Item Repair", vm.ActiveOptionsSummary);
+        Assert.Contains("No Weather", vm.ActiveOptionsSummary);
+        Assert.True(store.Load("Default").Options.FreeItemRepair);
+        Assert.True(store.Load("Default").Options.NoWeather);
+
+        var next = CreateViewModel(libraryRepository: library, profileStore: store, settingsService: settings);
+        Assert.True(next.FreeItemRepair);
+        Assert.True(next.NoWeather);
+    }
+
     /// <summary>The profile last in use is the one selected on the next start.</summary>
     [Fact]
     public void TheLastProfileUsed_IsSelectedOnTheNextStart()

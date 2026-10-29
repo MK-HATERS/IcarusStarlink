@@ -56,6 +56,12 @@ public sealed partial class MergeInstallViewModel
     [ObservableProperty]
     private bool _removeLevelCap;
 
+    [ObservableProperty]
+    private bool _freeItemRepair;
+
+    [ObservableProperty]
+    private bool _noWeather;
+
     private static readonly GameplayLevelToShortLabelConverter LevelLabelConverter = new();
 
     /// <summary>
@@ -118,6 +124,8 @@ public sealed partial class MergeInstallViewModel
         }
     }
     partial void OnUnlimitedAmmoChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnFreeItemRepairChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
+    partial void OnNoWeatherChanged(bool value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
 
     /// <summary>The options as the page has them: what a build uses and what the profile saves (a kept custom value as it is).</summary>
     private GameplayOptions BuildGameplayOptionsFromUi() => new()
@@ -135,6 +143,8 @@ public sealed partial class MergeInstallViewModel
         UnlimitedAmmo = UnlimitedAmmo,
         DisableTemperatures = DisableTemperatures,
         RemoveLevelCap = RemoveLevelCap,
+        FreeItemRepair = FreeItemRepair,
+        NoWeather = NoWeather,
     };
 
     private void LoadGameplayOptionsIntoUi(GameplayOptions options)
@@ -155,6 +165,8 @@ public sealed partial class MergeInstallViewModel
             UnlimitedAmmo = options.UnlimitedAmmo;
             DisableTemperatures = options.DisableTemperatures;
             RemoveLevelCap = options.RemoveLevelCap;
+            FreeItemRepair = options.FreeItemRepair;
+            NoWeather = options.NoWeather;
 
             // What the controls couldn't show exactly is kept as it is (see _keptStacksMultiplier).
             _keptStacksMultiplier = KeptIfNot(options.StacksMultiplier, v => StacksMultiplierLevel.ToMultiplier() == v);

@@ -61,6 +61,25 @@ public class GameplayOptionsTests
         Assert.Equal(["Lighter Items 50%"], new GameplayOptions { WeightReductionPercent = 50 }.DescribeActiveOptions());
     }
 
+    [Fact]
+    public void FreeItemRepairAndNoWeather_CountAsActive_AndAreDescribed()
+    {
+        Assert.True(new GameplayOptions { FreeItemRepair = true }.IsAnyActive);
+        Assert.True(new GameplayOptions { NoWeather = true }.IsAnyActive);
+        Assert.Equal(["Free Item Repair", "No Weather"], new GameplayOptions { FreeItemRepair = true, NoWeather = true }.DescribeActiveOptions());
+    }
+
+    /// <summary>Profiles and patches saved before these two options existed have no such keys: they load with both off.</summary>
+    [Fact]
+    public void AnOldSavedOptionsBlockWithoutTheNewKeys_LoadsWithBothOff()
+    {
+        var options = System.Text.Json.JsonSerializer.Deserialize<GameplayOptions>("""{"CraftCost": 3, "UnlimitedAmmo": true, "RemoveLevelCap": true}""")!;
+
+        Assert.True(options.UnlimitedAmmo);
+        Assert.False(options.FreeItemRepair);
+        Assert.False(options.NoWeather);
+    }
+
     /// <summary>These lines go into ISL-Merged.txt: "Stacks x1,5" on a German PC used to be written there.</summary>
     [Fact]
     public void DescribeActiveOptions_WritesNumbersTheSameOnEveryPc()

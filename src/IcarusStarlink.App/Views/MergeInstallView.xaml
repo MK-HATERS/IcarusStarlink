@@ -605,6 +605,12 @@
                     <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding RemoveLevelCap}" Margin="0,12,0,0"
                               Content="Remove Level Cap"
                               ToolTip="Raises the displayed/tracked level cap from 60 to 50000 (and the underlying XP cap from 1000 to match), matching the real community mod laanp-RealLevels — display/tracking only, does not itself grant extra talent, blueprint, or solo points beyond what the base progression curves award past level 60"/>
+                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding FreeItemRepair}" Margin="0,12,0,0"
+                              Content="Free Item Repair"
+                              ToolTip="Repairing tools, weapons and armour costs no items. You still repair them the normal way, at the same bench. Enemy turrets and deployables still break as normal."/>
+                    <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding NoWeather}" Margin="0,12,0,0"
+                              Content="No Weather"
+                              ToolTip="No random storms, rain, snow or wind on prospects and outposts: the sky stays clear. Missions built around a storm (the Glacier perma-storm, the Ice Mammoth hunt) and the tutorial rain still have theirs."/>
                 </StackPanel>
                 </ScrollViewer>
             </Expander>
