@@ -1346,6 +1346,114 @@ public sealed class SavesViewModelTests : IDisposable
     }
 
     /// <summary>
+    /// A bad number box is marked while typing (red border, a line under it): exactly the boxes
+    /// Save refuses, by the same rules, and the mark goes when the box is fixed.
+    /// </summary>
+    [Fact]
+    public async Task NumberBoxes_MarkedWhileTyping_ExactlyTheOnesSaveRefuses()
+    {
+        var profile = MakeProfile(nextChrSlot: 1);
+        profile["MetaResources"] = new JsonArray(
+            new JsonObject { ["MetaRow"] = "Credits", ["Count"] = 100 },
+            new JsonObject { ["MetaRow"] = "Exotic", ["Count"] = 5 });
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = profile,
+            Mounts = MakeMountsRoot(MakeMount("Rex", 3, "Wolf")),
+        };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var character = vm.Characters.Single();
+            var head = character.Cosmetics.Single();
+            var credits = vm.Currencies[0];
+            var exotic = vm.Currencies[1];
+            var rex = vm.Mounts.Single();
+            var told = new List<string>();
+            character.PropertyChanged += (_, e) => told.Add("character." + e.PropertyName);
+            credits.PropertyChanged += (_, e) => told.Add("credits." + e.PropertyName);
+
+            character.XpText = "1,000";
+            head.ValueText = "-12";          // an appearance value may be negative: fine
+            credits.CountText = "-5";
+            exotic.CountText = "9999999999";
+            rex.LevelText = "ten";
+
+            Assert.True(character.HasXpError);
+            Assert.Equal("Whole number, digits only", character.XpError);
+            Assert.False(head.HasNumberError);
+            Assert.Equal("0 to 2,147,483,647", credits.NumberError);
+            Assert.Equal("0 to 2,147,483,647", exotic.NumberError);
+            Assert.Equal("Whole number, digits only", rex.NumberError);
+            Assert.Contains("character.HasXpError", told);
+            Assert.Contains("credits.HasNumberError", told);
+            Assert.Equal(["Alpha: XP", credits.Label, exotic.Label, "Rex: level"], vm.BadNumberBoxes());
+
+            head.ValueText = "12x";
+            Assert.Equal("Whole number, digits only", head.NumberError);
+            Assert.Contains($"Alpha: {head.Key}", vm.BadNumberBoxes());
+
+            // Fixed boxes lose the mark, and Save stops naming them.
+            character.XpText = "1000";
+            head.ValueText = "-12";
+            credits.CountText = "0";
+            exotic.CountText = "5";
+            rex.LevelText = "10";
+            Assert.False(character.HasXpError);
+            Assert.All(new DirtyRow[] { head, credits, exotic, rex }, r => Assert.Null(r.NumberError));
+            Assert.Empty(vm.BadNumberBoxes());
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>A box Save would refuse, typed back to the loaded text, is no edit any more: no mark, just like Save.</summary>
+    [Fact]
+    public void NumberBox_UneditedIsNeverMarked_EditedBadIs()
+    {
+        var bestiary = new SaveBestiaryEntryViewModel("Wolf", "Wolf", 1000, false, 40, null, () => { });
+        Assert.Null(bestiary.NumberError);
+
+        bestiary.PointsText = "";
+        Assert.Equal("Whole number, digits only", bestiary.NumberError);
+        Assert.True(bestiary.HasNumberError);
+
+        bestiary.PointsText = "40";
+        Assert.False(bestiary.HasNumberError);
+    }
+
+    [Theory]
+    [InlineData("0", null)]
+    [InlineData("2147483647", null)]
+    [InlineData(" 12 ", null)]
+    [InlineData("", "Whole number, digits only")]
+    [InlineData("1,000", "Whole number, digits only")]
+    [InlineData("1 000", "Whole number, digits only")]
+    [InlineData("12.5", "Whole number, digits only")]
+    [InlineData("-1", "0 to 2,147,483,647")]
+    [InlineData("2147483648", "0 to 2,147,483,647")]
+    public void SaveNumberRules_Count_SaysWhatsWrong_AndAgreesWithTheParse(string text, string? problem)
+    {
+        Assert.Equal(problem, SaveNumberRules.CountProblem(text));
+        Assert.Equal(problem is null, SaveNumberRules.TryParseCount(text, out _));
+    }
+
+    [Theory]
+    [InlineData("-2147483648", null)]
+    [InlineData("-12", null)]
+    [InlineData("abc", "Whole number, digits only")]
+    [InlineData("-2147483649", "-2,147,483,648 to 2,147,483,647")]
+    public void SaveNumberRules_Whole_SaysWhatsWrong_AndAgreesWithTheParse(string text, string? problem)
+    {
+        Assert.Equal(problem, SaveNumberRules.WholeProblem(text));
+        Assert.Equal(problem is null, SaveNumberRules.TryParseWhole(text, out _));
+    }
+
+    /// <summary>
     /// A backup that failed (the game held a file) left the edits applied in the loaded save: an
     /// edit the user then set back was written anyway by the next Save of another character.
     /// </summary>

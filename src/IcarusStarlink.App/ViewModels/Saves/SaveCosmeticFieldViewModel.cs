@@ -30,6 +30,8 @@ public sealed partial class SaveCosmeticFieldViewModel : DirtyRow
         _originalValueText = valueText;
     }
 
+    protected override string? NumberProblem => SaveNumberRules.WholeProblem(ValueText);
+
     partial void OnValueTextChanged(string value) => Changed();
 
     /// <summary>
@@ -41,7 +43,7 @@ public sealed partial class SaveCosmeticFieldViewModel : DirtyRow
     /// </summary>
     protected override void Snapshot()
     {
-        if (int.TryParse(ValueText, out _))
+        if (SaveNumberRules.TryParseWhole(ValueText, out _))
         {
             _originalValueText = ValueText;
         }

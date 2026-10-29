@@ -42,26 +42,27 @@ public sealed partial class SavesViewModel
     }
 
     /// <summary>
-    /// The edited number boxes Save couldn't write ("Alpha: XP", "Ren"), by the same rules each
-    /// row's ApplyToNode uses: a whole number, 0 or more (an appearance value may be negative).
+    /// The edited number boxes Save couldn't write ("Alpha: XP", "Ren"): exactly the boxes showing
+    /// a red border and a line under them (each row's XpError / NumberError, by SaveNumberRules,
+    /// the same rules each row's ApplyToNode uses: a whole number, 0 or more; an appearance value
+    /// may be negative).
     /// </summary>
     internal List<string> BadNumberBoxes()
     {
-        static bool Count(string text) => int.TryParse(text, out var n) && n >= 0;
         var bad = new List<string>();
-        foreach (var character in Characters.Where(c => c.IsDirty))
+        foreach (var character in Characters)
         {
-            if (!Count(character.XpText))
+            if (character.HasXpError)
             {
                 bad.Add($"{character.Name}: XP");
             }
 
-            bad.AddRange(character.Cosmetics.Where(f => f.IsDirty && !int.TryParse(f.ValueText, out _)).Select(f => $"{character.Name}: {f.Key}"));
+            bad.AddRange(character.Cosmetics.Where(f => f.HasNumberError).Select(f => $"{character.Name}: {f.Key}"));
         }
 
-        bad.AddRange(Currencies.Where(c => c.IsDirty && !Count(c.CountText)).Select(c => c.Label));
-        bad.AddRange(BestiaryEntries.Where(b => b.IsDirty && !Count(b.PointsText)).Select(b => $"{b.DisplayName} (Bestiary)"));
-        bad.AddRange(Mounts.Where(m => m.IsDirty && !Count(m.LevelText)).Select(m => $"{m.Name}: level"));
+        bad.AddRange(Currencies.Where(c => c.HasNumberError).Select(c => c.Label));
+        bad.AddRange(BestiaryEntries.Where(b => b.HasNumberError).Select(b => $"{b.DisplayName} (Bestiary)"));
+        bad.AddRange(Mounts.Where(m => m.HasNumberError).Select(m => $"{m.Name}: level"));
         return bad;
     }
 

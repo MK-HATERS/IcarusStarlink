@@ -218,6 +218,54 @@
         </Grid>
     </DataTemplate>
 
+    <!-- A number box Save checks (XP, currencies, appearance values, bestiary points, mount level):
+         Tag carries the row's HasNumberError / HasXpError, and while it's true the border is the
+         app's error colour, even while the box has focus (the stock template's focus colour would
+         hide it as you type). The line under the box is SaveNumberErrorTextStyle. -->
+    <Style x:Key="SaveNumberBoxStyle" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" SnapsToDevicePixels="True">
+                        <ScrollViewer x:Name="PART_ContentHost" Focusable="False" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Frame" Property="Opacity" Value="0.6"/>
+                        </Trigger>
+                        <!-- Last, so it wins over hover and focus. -->
+                        <Trigger Property="Tag">
+                            <Trigger.Value>
+                                <sys:Boolean>True</sys:Boolean>
+                            </Trigger.Value>
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource DangerBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- The short line under a number box Save would refuse ("Whole number, digits only"). Bind Text to the row's error; hidden while it's null. -->
+    <Style x:Key="SaveNumberErrorTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Margin" Value="0,2,0,0"/>
+        <Style.Triggers>
+            <Trigger Property="Text" Value="">
+                <Setter Property="Visibility" Value="Collapsed"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- A search box with its hint inside (Tag) while it's empty. Based on the app's own TextBox
          look; only the template adds the hint, so the app-wide theme stays as it is. -->
     <Style x:Key="SaveSearchBoxStyle" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">

@@ -28,12 +28,14 @@ public sealed partial class SaveCurrencyViewModel : DirtyRow
         _countText = _originalCount.ToString();
     }
 
+    protected override string? NumberProblem => SaveNumberRules.CountProblem(CountText);
+
     partial void OnCountTextChanged(string value) => Changed();
 
     public void ApplyToNode()
     {
         // int, not long (an audit finding): the game stores Count as a 32-bit int.
-        if (int.TryParse(CountText, out var count) && count >= 0)
+        if (SaveNumberRules.TryParseCount(CountText, out var count))
         {
             _node["Count"] = (long)count;
         }
@@ -47,7 +49,7 @@ public sealed partial class SaveCurrencyViewModel : DirtyRow
     /// </summary>
     protected override void Snapshot()
     {
-        if (int.TryParse(CountText, out var count) && count >= 0)
+        if (SaveNumberRules.TryParseCount(CountText, out var count))
         {
             _originalCount = count;
         }

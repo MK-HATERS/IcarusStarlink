@@ -228,7 +228,9 @@ public sealed partial class SaveMountViewModel : DirtyRow
         OnPropertyChanged(nameof(OverBudget));
     }
 
-    private int? Level => int.TryParse(LevelText, out var level) && level >= 0 ? level : null;
+    private int? Level => SaveNumberRules.TryParseCount(LevelText, out var level) ? level : null;
+
+    protected override string? NumberProblem => SaveNumberRules.CountProblem(LevelText);
 
     private int TalentsUsed => TalentRows.Where(t => !t.IsDefaultUnlocked).Sum(t => t.Rank);
 
@@ -334,7 +336,7 @@ public sealed partial class SaveMountViewModel : DirtyRow
     public void ApplyToNode()
     {
         Node["MountName"] = Name;
-        if (int.TryParse(LevelText, out var level) && level >= 0)
+        if (SaveNumberRules.TryParseCount(LevelText, out var level))
         {
             Node["MountLevel"] = level;
         }
@@ -361,7 +363,7 @@ public sealed partial class SaveMountViewModel : DirtyRow
     {
         _originalName = Name;
         _syncNamePending = false;
-        if (int.TryParse(LevelText, out var level) && level >= 0)
+        if (SaveNumberRules.TryParseCount(LevelText, out var level))
         {
             _originalLevel = level;
         }

@@ -69,6 +69,19 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         || Cosmetics.Any(c => c.IsDirty)
         || IsMale != _originalIsMale;
 
+    /// <summary>The line under the XP box while typing: set exactly when Save would refuse it (see SavesViewModel.BadNumberBoxes), else null.</summary>
+    public string? XpError => IsDirty ? SaveNumberRules.CountProblem(XpText) : null;
+
+    /// <summary>The red border on the XP box.</summary>
+    public bool HasXpError => XpError is not null;
+
+    private void NotifyDirtyState()
+    {
+        OnPropertyChanged(nameof(IsDirty));
+        OnPropertyChanged(nameof(XpError));
+        OnPropertyChanged(nameof(HasXpError));
+    }
+
     public SaveCharacterViewModel(JsonObject node, SaveGameNames names, Action onDirtyChanged)
     {
         _node = node;
@@ -76,7 +89,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         // Characters list its " *" unsaved marker may have changed; nothing raised IsDirty before.
         _onDirtyChanged = () =>
         {
-            OnPropertyChanged(nameof(IsDirty));
+            NotifyDirtyState();
             onDirtyChanged();
         };
         _originalName = SaveJson.String(node["CharacterName"]) ?? "";
@@ -179,7 +192,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         target["CharacterName"] = Name;
         // int, not long (an audit finding): the game stores XP as a 32-bit int, so a value past
         // 2,147,483,647 "saved" fine here and then wrapped or was discarded in-game.
-        if (int.TryParse(XpText, out var xp) && xp >= 0)
+        if (SaveNumberRules.TryParseCount(XpText, out var xp))
         {
             target["XP"] = (long)xp;
         }
@@ -199,7 +212,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         {
             foreach (var field in Cosmetics)
             {
-                if (int.TryParse(field.ValueText, out var hash))
+                if (SaveNumberRules.TryParseWhole(field.ValueText, out var hash))
                 {
                     cosmetic[field.Key] = (long)hash;
                 }
@@ -218,7 +231,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
     public void MarkClean()
     {
         _originalName = Name;
-        if (int.TryParse(XpText, out var xp) && xp >= 0)
+        if (SaveNumberRules.TryParseCount(XpText, out var xp))
         {
             _originalXp = xp;
         }
@@ -239,6 +252,6 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
         }
 
         _originalIsMale = IsMale;
-        OnPropertyChanged(nameof(IsDirty));
+        NotifyDirtyState();
     }
 }

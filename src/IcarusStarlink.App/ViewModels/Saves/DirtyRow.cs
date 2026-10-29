@@ -13,19 +13,38 @@ public abstract class DirtyRow(Action onDirtyChanged) : ObservableObject, IDirty
 {
     public abstract bool IsDirty { get; }
 
+    /// <summary>What's wrong with the row's number box by SaveNumberRules ("Whole number, digits only"), or null; rows without one keep null.</summary>
+    protected virtual string? NumberProblem => null;
+
+    /// <summary>
+    /// The line under the row's number box, shown while typing: set exactly when Save would refuse
+    /// the box (an edited box Save can't write, see SavesViewModel.BadNumberBoxes), else null.
+    /// </summary>
+    public string? NumberError => IsDirty ? NumberProblem : null;
+
+    /// <summary>The red border on the box (NumberError is set).</summary>
+    public bool HasNumberError => NumberError is not null;
+
     /// <summary>The current values become the clean ones (after a Save wrote them).</summary>
     protected abstract void Snapshot();
 
     public void MarkClean()
     {
         Snapshot();
-        OnPropertyChanged(nameof(IsDirty));
+        OnDirtyStateChanged();
     }
 
     /// <summary>An edit happened: the row's IsDirty and the page's dirty state may both have changed.</summary>
     protected void Changed()
     {
-        OnPropertyChanged(nameof(IsDirty));
+        OnDirtyStateChanged();
         onDirtyChanged();
+    }
+
+    private void OnDirtyStateChanged()
+    {
+        OnPropertyChanged(nameof(IsDirty));
+        OnPropertyChanged(nameof(NumberError));
+        OnPropertyChanged(nameof(HasNumberError));
     }
 }
