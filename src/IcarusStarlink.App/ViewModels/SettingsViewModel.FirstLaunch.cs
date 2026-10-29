@@ -10,18 +10,42 @@ public sealed partial class SettingsViewModel
 
     /// <summary>
     /// Set synchronously, at the start of the launch flow, whenever any prerequisite turned out
-    /// to be missing. App.xaml.cs reads it right after constructing this VM to land that launch
-    /// on the Settings page, so what the steps below did (found the game via Steam, installed
-    /// UnrealPak, is extracting game data — all reported through this page's own status lines)
-    /// is actually visible instead of happening behind the Library page. Deliberately not
-    /// navigated from in here: this runs inside the constructor's own fire-and-forget call, and
-    /// a NavigateToPageMessage handled mid-construction would resolve this same singleton
-    /// re-entrantly.
+    /// to be missing. App.xaml.cs reads it right after StartFirstLaunchSetup returns to land that
+    /// launch on the Settings page, so what the steps below did (found the game via Steam,
+    /// installed UnrealPak, is extracting game data — all reported through this page's own status
+    /// lines) is actually visible instead of happening behind the Library page.
     /// </summary>
     public bool FirstLaunchSetupNeededAttention { get; private set; }
 
-    /// <summary>The constructor's launch flow, exposed so tests can await it instead of racing its fire-and-forget start.</summary>
-    internal Task FirstLaunchSetupTask { get; }
+    private bool _firstLaunchSetupStarted;
+    private Task? _firstLaunchSetupTask;
+
+    /// <summary>The launch flow StartFirstLaunchSetup started (an already-finished task before then).</summary>
+    internal Task FirstLaunchSetupTask => _firstLaunchSetupTask ?? Task.CompletedTask;
+
+    /// <summary>
+    /// Runs the first-launch questions, then the launch "Update available" check (after setup,
+    /// not alongside it, an audit finding: both show modal dialogs, and an update accepted
+    /// mid-setup shut the app down over a running data extraction). Called once by App.xaml.cs
+    /// after this singleton is built, never from the constructor: a question open during
+    /// construction let anything that resolved Settings (opening the page, an nxm:// link,
+    /// GameDataFreshness) build a second instance that asked them all again. Later calls return
+    /// the same task.
+    /// </summary>
+    public Task StartFirstLaunchSetup()
+    {
+        if (_firstLaunchSetupStarted)
+        {
+            return FirstLaunchSetupTask;
+        }
+
+        // Set before the flow starts: its questions pump messages, so a second call can arrive
+        // while the first is still in its synchronous part.
+        _firstLaunchSetupStarted = true;
+        _firstLaunchSetupTask = RunFirstLaunchSetupAsync();
+        _ = CheckForAppUpdatesAfterSetupAsync();
+        return _firstLaunchSetupTask;
+    }
 
     /// <summary>
     /// Every prerequisite in one place, in dependency order, so a fresh install is usable without

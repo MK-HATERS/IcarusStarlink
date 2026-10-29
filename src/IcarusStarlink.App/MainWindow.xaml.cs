@@ -21,6 +21,12 @@ public partial class MainWindow : Window
         RestoreWindowBounds();
         Closing += (_, e) =>
         {
+            // Written before the question, not after: when Windows shuts down or the updater's
+            // Shutdown() closes the window, a "No" can't keep Starlink open, and the queue change
+            // waiting on its auto-save delay and the window size used to be lost with it.
+            FlushMergeWorkingState();
+            SaveBounds();
+
             // Unsaved edits and running work (a merge, a download) used to vanish with the window,
             // with no question asked; every page answers AppBusyCheck for its own.
             var unsaved = IcarusStarlink.App.Services.AppBusyCheck.DescribeUnsaved();
@@ -36,9 +42,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            FlushMergeWorkingState();
             viewModel.OnAppClosing();
-            SaveBounds();
         };
 
         // Back from the game: ArcFission Library may have written a new data pak while it ran, so the
@@ -181,13 +185,23 @@ public partial class MainWindow : Window
     private void SaveBounds()
     {
         var settings = _settingsService.Current;
-        settings.WindowMaximized = WindowState == WindowState.Maximized;
+        // Closed from the taskbar while minimised: Left/Top are Windows' off-screen -32000 then, and
+        // whether it was maximised before is unknown, so the last saved choice stays.
+        if (WindowState != WindowState.Minimized)
+        {
+            settings.WindowMaximized = WindowState == WindowState.Maximized;
+        }
 
         // Window.RestoreBounds (a real inherited property, not this class's own RestoreWindowBounds
         // method) holds the pre-maximize size/position even while WindowState is Maximized; saving that
         // instead of the maximized Left/Top/Width/Height means un-maximizing next launch restores
         // somewhere sane instead of the whole screen's own coordinates.
-        var bounds = WindowState == WindowState.Maximized ? RestoreBounds : new Rect(Left, Top, Width, Height);
+        var bounds = WindowState == WindowState.Normal ? new Rect(Left, Top, Width, Height) : RestoreBounds;
+        if (bounds.IsEmpty || bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            _settingsService.Save();
+            return;
+        }
         settings.WindowLeft = bounds.Left;
         settings.WindowTop = bounds.Top;
         settings.WindowWidth = bounds.Width;

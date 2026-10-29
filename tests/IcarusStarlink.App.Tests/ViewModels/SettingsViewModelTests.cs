@@ -819,7 +819,7 @@ public sealed class SettingsViewModelTests
         harness.SteamInstallLocator.ContentPathToReturn = detected;
 
         var vm = harness.BuildViewModel();
-        await vm.FirstLaunchSetupTask;
+        await vm.StartFirstLaunchSetup();
 
         Assert.Equal(detected, vm.IcarusContentPath);
         Assert.Equal(detected, harness.Settings.IcarusContentPath);
@@ -835,13 +835,55 @@ public sealed class SettingsViewModelTests
         harness.Settings.IcarusContentPath = null;
 
         var vm = harness.BuildViewModel();
-        await vm.FirstLaunchSetupTask;
+        await vm.StartFirstLaunchSetup();
 
         Assert.Equal(1, harness.DialogService.ConfirmCallCount);
         Assert.Contains("Icarus folder", harness.DialogService.LastConfirmTitle);
         Assert.Null(vm.IcarusContentPath);
         Assert.Contains("Auto-detect or Browse", vm.SavedMessage);
         Assert.True(vm.FirstLaunchSetupNeededAttention);
+    }
+
+    /// <summary>
+    /// Seen live 2026-10-28: the first-launch questions ran inside the constructor, so opening
+    /// Settings (or an nxm:// link) while one was open resolved the singleton again, built a second
+    /// Settings mid-construction, and every question was asked twice. Built through a real DI
+    /// container here, with a dialog that resolves Settings while it is open, as the app does.
+    /// </summary>
+    [Fact]
+    public async Task FirstLaunch_SettingsResolvedWhileAQuestionIsOpen_BuildsOneSettingsAndAsksOnce()
+    {
+        using var harness = new Harness(dialogConfirmResult: false);
+        harness.Settings.IcarusContentPath = null;
+        var built = 0;
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(services, _ =>
+        {
+            built++;
+            return harness.BuildViewModel();
+        });
+        using var provider = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services);
+        SettingsViewModel? resolvedDuringQuestion = null;
+        var resolving = false;
+        harness.DialogService.WhileConfirmOpen = () =>
+        {
+            // Once only: the bug's second Settings asks again, and resolving from there would recurse forever.
+            if (resolving)
+            {
+                return;
+            }
+
+            resolving = true;
+            resolvedDuringQuestion = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<SettingsViewModel>(provider);
+        };
+
+        var vm = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<SettingsViewModel>(provider);
+        await vm.StartFirstLaunchSetup();
+        await vm.StartFirstLaunchSetup();
+
+        Assert.Equal(1, built);
+        Assert.Same(vm, resolvedDuringQuestion);
+        Assert.Equal(1, harness.DialogService.ConfirmCallCount);
     }
 
     [Fact]
@@ -853,7 +895,7 @@ public sealed class SettingsViewModelTests
         harness.DialogService.FolderToPick = picked;
 
         var vm = harness.BuildViewModel();
-        await vm.FirstLaunchSetupTask;
+        await vm.StartFirstLaunchSetup();
 
         Assert.Equal(picked, vm.IcarusContentPath);
         Assert.Equal(picked, harness.Settings.IcarusContentPath);
@@ -867,7 +909,7 @@ public sealed class SettingsViewModelTests
         var configured = harness.Settings.IcarusContentPath;
 
         var vm = harness.BuildViewModel();
-        await vm.FirstLaunchSetupTask;
+        await vm.StartFirstLaunchSetup();
 
         Assert.Equal(configured, vm.IcarusContentPath);
         Assert.Equal(0, harness.DialogService.ConfirmCallCount);
@@ -884,7 +926,7 @@ public sealed class SettingsViewModelTests
         harness.UnrealPakService.ExtractResultFactory = () => new UnrealPakExtractResult(10, null);
 
         var vm = harness.BuildViewModel();
-        await vm.FirstLaunchSetupTask;
+        await vm.StartFirstLaunchSetup();
 
         Assert.Equal(1, harness.DialogService.ConfirmCallCount);
         Assert.Contains("Extract game data", harness.DialogService.LastConfirmTitle);
@@ -902,7 +944,7 @@ public sealed class SettingsViewModelTests
         harness.Settings.LastDataFolderUpdatedAt = null;
 
         var vm = harness.BuildViewModel();
-        await vm.FirstLaunchSetupTask;
+        await vm.StartFirstLaunchSetup();
 
         Assert.Equal(1, harness.DialogService.ConfirmCallCount);
         Assert.Equal(0, harness.UnrealPakService.ExtractCallCount);
@@ -920,7 +962,7 @@ public sealed class SettingsViewModelTests
         harness.WeeklyChangeReportStore.Save(MakeReport(changedFileCount: 0));
 
         var vm = harness.BuildViewModel();
-        await vm.FirstLaunchSetupTask;
+        await vm.StartFirstLaunchSetup();
 
         Assert.StartsWith("Last refreshed", vm.DataFolderStatusMessage);
         Assert.DoesNotContain("Not extracted", vm.DataFolderStatusMessage);
@@ -938,7 +980,7 @@ public sealed class SettingsViewModelTests
         harness.Settings.AutoCheckAppUpdates = autoCheck;
 
         var vm = harness.BuildViewModel();
-        await vm.FirstLaunchSetupTask;
+        await vm.StartFirstLaunchSetup();
         for (var i = 0; i < 50 && harness.AppUpdateClient.LatestReleaseCalls < expectedCalls; i++)
         {
             await Task.Delay(10);
@@ -993,7 +1035,7 @@ public sealed class SettingsViewModelTests
         harness.NxmProtocolRegistrar.Registered = false;
 
         var vm = harness.BuildViewModel();
-        await vm.FirstLaunchSetupTask;
+        await vm.StartFirstLaunchSetup();
 
         Assert.Equal(1, harness.DialogService.ConfirmCallCount);
         Assert.Contains("Nexus download links", harness.DialogService.LastConfirmTitle);
@@ -1009,7 +1051,7 @@ public sealed class SettingsViewModelTests
         harness.Settings.LastDataFolderUpdatedAt = DateTimeOffset.UtcNow.AddDays(-3);
 
         var vm = harness.BuildViewModel();
-        await vm.FirstLaunchSetupTask;
+        await vm.StartFirstLaunchSetup();
 
         Assert.Equal(0, harness.DialogService.ConfirmCallCount);
         Assert.Equal(0, harness.UnrealPakService.ExtractCallCount);
@@ -1026,7 +1068,7 @@ public sealed class SettingsViewModelTests
         harness.Settings.FirstLaunchSetupCompletedAtUtc = null;
 
         var vm = harness.BuildViewModel();
-        await vm.FirstLaunchSetupTask;
+        await vm.StartFirstLaunchSetup();
 
         Assert.Equal(1, harness.DialogService.ConfirmCallCount);
         Assert.Equal(0, harness.UnrealPakService.ExtractCallCount);
@@ -1490,11 +1532,15 @@ public sealed class SettingsViewModelTests
 
         public string? PickFolder(string title, string? initialDirectory = null) => FolderToPick;
 
+        /// <summary>Runs while a question is "open", as a real modal pumps messages (e.g. the user opens Settings).</summary>
+        public Action? WhileConfirmOpen { get; set; }
+
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {
             ConfirmCallCount++;
             LastConfirmMessage = message;
             LastConfirmTitle = title;
+            WhileConfirmOpen?.Invoke();
             return confirmResult;
         }
 

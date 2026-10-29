@@ -257,13 +257,14 @@ public partial class App : Application
                 // Deferred one more dispatcher cycle so the window paints first. A first launch
                 // that had prerequisites to set up lands on the Settings page, so what the setup
                 // flow did (found the game via Steam, installed UnrealPak, is extracting game
-                // data) is visible rather than happening behind the Library page — navigated
-                // from HERE, after construction returns, because the flow runs inside the
-                // constructor and a navigation handled mid-construction would re-resolve this
-                // same singleton re-entrantly.
+                // data) is visible rather than happening behind the Library page. The questions
+                // start only once the singleton exists (StartFirstLaunchSetup): asked from its
+                // constructor, anything that resolved Settings while one was open built a second
+                // instance that asked everything again.
                 WhileRunning(System.Windows.Threading.DispatcherPriority.Normal, () =>
                 {
                     var settingsViewModel = _host.Services.GetRequiredService<SettingsViewModel>();
+                    _ = settingsViewModel.StartFirstLaunchSetup();
                     if (settingsViewModel.FirstLaunchSetupNeededAttention)
                     {
                         WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("settings"));

@@ -654,7 +654,7 @@
                                 </DockPanel>
                             </Expander.Header>
                         <StackPanel>
-                        <TextBlock Text="Make the app look however you want: edit any color below (hex, #RRGGBB or #AARRGGBB with transparency), then Save skin. Pick the Custom theme in the top-right corner to use it. The skin lives in a plain JSON file you can also edit by hand or share."
+                        <TextBlock Text="Make the app look however you want: edit any color below (hex, #RRGGBB or #AARRGGBB with transparency), then Save skin. To use it, click the Theme button at the bottom of the menu until it says Custom. The skin lives in a plain JSON file you can also edit by hand or share."
                                    Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,14" MaxWidth="640"/>
 
                         <ItemsControl ItemsSource="{Binding SkinTokens}">
