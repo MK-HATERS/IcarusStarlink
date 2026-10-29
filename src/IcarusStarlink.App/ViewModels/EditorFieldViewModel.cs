@@ -144,6 +144,15 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     [ObservableProperty]
     private string? _parseError;
 
+    private bool _textNotWritten;
+
+    /// <summary>
+    /// What the box (or a stat row, or the dropdown) shows isn't in the mod: it didn't parse, so the
+    /// last good value stays. Save refuses while any shown field is like this, or it said "Saved."
+    /// over a value it never wrote. (A link already pointing nowhere is only a warning, not this.)
+    /// </summary>
+    public bool HasUnwrittenText => _textNotWritten || Stats.Any(s => !s.IsDropped && s.Error is not null);
+
     public EditorFieldViewModel(string fieldName, Dictionary<string, JsonNode?> fields, JsonNode? baseValue, JsonNode? originalValue, IReadOnlyList<StatChoice>? statChoices = null,
         FieldChoices? choices = null)
     {
@@ -234,6 +243,7 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         set
         {
             var match = Options.FirstOrDefault(o => string.Equals(o, value?.Trim(), StringComparison.OrdinalIgnoreCase));
+            _textNotWritten = match is null;
             if (match is null)
             {
                 ParseError = Kind == EditorFieldKind.Link
@@ -293,9 +303,11 @@ public sealed partial class EditorFieldViewModel : ObservableObject
 
             _fields[FieldName] = parsed;
             ParseError = null;
+            _textNotWritten = false;
         }
         catch (Exception ex)
         {
+            _textNotWritten = true;
             // Deliberately doesn't write back — _fields keeps whatever the last successfully-
             // parsed value was until this becomes valid JSON again, so a mid-typing invalid state
             // never corrupts the in-memory package.

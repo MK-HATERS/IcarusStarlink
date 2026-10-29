@@ -200,7 +200,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _folderName = folderName;
         _dataFolder = dataFolder;
         _gameDataIndexCache = gameDataIndexCache;
-        _package = ExmodFolder.Read(repository.GetFolderPath(folderName)).Package;
+        // Only the .EXMOD: Read loaded every model and texture file of the mod into memory too (on
+        // the UI thread), and the editor never uses them.
+        _package = ExmodFolder.ReadPackageOnly(repository.GetFolderPath(folderName));
         _savedJson = ExmodJson.Serialize(_package);
         _replacedGameFiles = ExmodChangesFormatter.ReplacedGameFiles(repository.ListAssetPaths(folderName));
         _savedStamp = ExmodStamp();
@@ -873,6 +875,15 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         if (!ModFolderExists())
         {
             StatusMessage = "Not saved: this mod's folder is gone (deleted or moved in Library?). There's nowhere to save it, so nothing was written.";
+            return;
+        }
+
+        // A box that shows a value the mod doesn't hold (it didn't parse) would be saved as its old
+        // value under "Saved.", and the box reset to it: the typed change gone without a word.
+        if (_allFields.FirstOrDefault(f => f.HasUnwrittenText) is { } unwritten)
+        {
+            StatusMessage = $"Not saved: {unwritten.Label} shows a value that isn't valid, so it isn't in the mod yet"
+                + (unwritten.ParseError is { Length: > 0 } why ? $" ({why})" : "") + ". Fix it, or ↺ for the game's value, then Save.";
             return;
         }
 

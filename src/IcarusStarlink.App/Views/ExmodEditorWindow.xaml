@@ -69,6 +69,9 @@
                          Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          ToolTip="Ctrl/Shift-click to select several items for mass edit">
+                    <ListBox.InputBindings>
+                        <KeyBinding Key="Delete" Command="{Binding RemoveSelectedItemsCommand}"/>
+                    </ListBox.InputBindings>
                     <ListBox.GroupStyle>
                         <GroupStyle AlternationCount="6">
                             <GroupStyle.HeaderTemplate>
@@ -119,6 +122,7 @@
                         <ContextMenu>
                             <MenuItem Header="Copy a game row into this mod…" Command="{Binding AddItemFromGameCommand}" ToolTip="The raw way to change a game item: copy any row of the game's data, with all its values, then edit the fields you want"/>
                             <MenuItem Header="Duplicate (Ctrl+D)" Command="{Binding DuplicateItemCommand}" ToolTip="Copies the selected item under a new name"/>
+                            <MenuItem Header="Take out of this mod (Delete)" Command="{Binding RemoveSelectedItemsCommand}" ToolTip="Removes the selected row(s) from this mod: a game row goes back to the game's values, a row this mod added is gone. Undo puts them back."/>
                             <MenuItem Header="Open original file" Command="{Binding OpenOriginalFileCommand}" ToolTip="Opens the game's own, unchanged data file for the selected item"/>
                             <MenuItem Header="Insert file at location…" Command="{Binding InsertFileAtLocationCommand}" ToolTip="Add one of the game's own real data files to this mod, with no rows yet"/>
                             <MenuItem Header="Merge existing mod into this one…" Command="{Binding MergeExistingModCommand}" ToolTip="Copy another Library mod's own items into this one — an item already here is left alone"/>

@@ -72,6 +72,49 @@ public sealed partial class ExmodEditorViewModel
         MassEditStatusMessage = $"Set '{MassEditFieldName}' on {count} item(s).";
     }
 
+    /// <summary>
+    /// Takes the selected row (or every selected row, with several picked) out of the mod: a game
+    /// row goes back to the game's own values, a row the mod added is gone. The only way to drop a
+    /// row since the raw JSON views went (a row copied in by mistake, an old row nothing uses).
+    /// A file left with no rows goes too; the EndOfMod marker stays. Undoable.
+    /// </summary>
+    [RelayCommand]
+    private void RemoveSelectedItems()
+    {
+        IReadOnlyList<EditorItemViewModel> picked = _selectedItemsForMassEdit.Count > 1 ? _selectedItemsForMassEdit
+            : SelectedItem is { } one ? [one] : [];
+        var targets = picked.Where(t => !Same(t.CurrentFile, "EndOfMod") &&FindItem(t.CurrentFile, t.ItemName) is not null).ToList();
+        if (targets.Count == 0)
+        {
+            StatusMessage = "Select an item first.";
+            return;
+        }
+
+        var firstIndex = targets.Select(t => Items.IndexOf(t)).Where(i => i >= 0).DefaultIfEmpty(0).Min();
+        PushUndoSnapshot();
+        var removed = 0;
+        foreach (var target in targets)
+        {
+            if (_package.Rows.FirstOrDefault(r => Same(r.CurrentFile, target.CurrentFile)) is not { } row)
+            {
+                continue;
+            }
+
+            removed += row.FileItems.RemoveAll(i => Same(i.Name, target.ItemName));
+            if (row.FileItems.Count == 0)
+            {
+                _package.Rows.Remove(row);
+            }
+        }
+
+        RefreshBaseDiff();
+        ReloadItems();
+        SelectedItem = Items.Count == 0 ? null : Items[Math.Min(firstIndex, Items.Count - 1)];
+        StatusMessage = targets.Count == 1
+            ? $"Took '{targets[0].ItemName}' out of this mod. Undo (Ctrl+Z) puts it back; Save to keep it."
+            : $"Took {removed} row(s) out of this mod. Undo (Ctrl+Z) puts them back; Save to keep it.";
+    }
+
     /// <summary>Ctrl+D — clones the selected item's own fields into a new item under the same file, named "&lt;Name&gt;_Copy" (or "_Copy2"/"_Copy3"/... if that's already taken).</summary>
     [RelayCommand]
     private void DuplicateItem()
