@@ -583,9 +583,13 @@
                     <Button Style="{StaticResource PillButtonStyle}" Background="{DynamicResource AccentBrush}" Margin="8,0,0,0"
                             Command="{Binding DataContext.GetUpdateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
-                            ToolTip="{Binding LatestVersion, StringFormat='Update available: v{0} — click to update'}"
                             Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
                             AutomationProperties.Name="Get update">
+                        <!-- A TextBlock inside: WPF ignores a binding's StringFormat when it's set straight on
+                             ToolTip (an object), so the tip showed only the bare version. -->
+                        <Button.ToolTip>
+                            <TextBlock Text="{Binding LatestVersion, StringFormat='Update available: v{0} — click to update'}"/>
+                        </Button.ToolTip>
                         <TextBlock Text="Update" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
                     </Button>
                 </StackPanel>

@@ -14,7 +14,6 @@ public sealed class XamlStringFormatTests
     /// <summary>Known ones in pages outside the shell, left for their own reviews; take a file off once it's fixed.</summary>
     private static readonly HashSet<string> KnownElsewhere = new(StringComparer.OrdinalIgnoreCase)
     {
-        "LibraryView.xaml",
         "SavesOverviewTab.xaml",
     };
 
