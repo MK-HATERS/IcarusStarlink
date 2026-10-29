@@ -76,7 +76,7 @@ public sealed class ViewSmokeTests
                 // Templates only load when something uses them: the Saves page's shared ones are built here.
                 try
                 {
-                    var saves = new ResourceDictionary { Source = new Uri("/IcarusStarlink;component/Views/SavesResources.xaml", UriKind.Relative) };
+                    var saves = new ResourceDictionary { Source = new Uri("/IcarusStarlink;component/Views/Saves/SavesResources.xaml", UriKind.Relative) };
                     foreach (var template in saves.Values.OfType<DataTemplate>())
                     {
                         template.LoadContent();
@@ -95,7 +95,7 @@ public sealed class ViewSmokeTests
                 // The mod editor's windows take a view model, so they aren't built above: build their shared templates.
                 try
                 {
-                    var editor = new ResourceDictionary { Source = new Uri("/IcarusStarlink;component/Views/ExmodEditorResources.xaml", UriKind.Relative) };
+                    var editor = new ResourceDictionary { Source = new Uri("/IcarusStarlink;component/Views/Editor/ExmodEditorResources.xaml", UriKind.Relative) };
                     foreach (var template in editor.Values.OfType<DataTemplate>())
                     {
                         template.LoadContent();
