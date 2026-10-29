@@ -248,4 +248,225 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
         Assert.Null(vm.ReviewText);
         Assert.False(Field(vm, "Debug").IsNewInVersion);
     }
+
+    /// <summary>Done reviewing rebuilt the fields from the file and threw away the edits made so far.</summary>
+    [Fact]
+    public void DoneReviewing_KeepsTheEditsMadeSoFar()
+    {
+        var game = Mod("game", "config.lua", Lua);
+        var reviews = new List<IcarusStarlink.Core.Ue4ss.Ue4ssConfigReview> { new() { File = "config.lua", Added = ["Debug"], MergedIntoNewLayout = true } };
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"), reviews, () => { });
+
+        Field(vm, "DefendRadius").Value = "7000";
+        vm.DoneReviewingCommand.Execute(null);
+
+        Assert.Equal("7000", Field(vm, "DefendRadius").Value);
+        Assert.True(vm.HasUnsavedChanges);
+    }
+
+    /// <summary>
+    /// The known open issue (user, 2026-10-28): picking another file in the File drop-down (or
+    /// another copy in "Edit the copy in") dropped the unsaved edits without a word. They're kept
+    /// now, listed as not saved, and back when the file is picked again.
+    /// </summary>
+    [Fact]
+    public void SwitchingFiles_KeepsTheUnsavedEdits()
+    {
+        var game = Mod("game", "config.lua", Lua);
+        Directory.CreateDirectory(Path.Combine(game, "config"));
+        const string ini = "[General]\r\nRadius = 10 ; how far\r\n";
+        File.WriteAllText(Path.Combine(game, "config", "Extra.ini"), ini);
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+        var lua = vm.Files.Single(f => f.RelativePath == "config.lua");
+        var extra = vm.Files.Single(f => f.RelativePath != "config.lua");
+
+        Assert.False(vm.HasUnsavedChanges);
+        Field(vm, "DefendRadius").Value = "7500";
+        Assert.Equal("Not saved yet.", vm.UnsavedText);
+
+        vm.SelectedFile = extra;
+        Assert.Equal("10", Field(vm, "Radius").Value);
+        Assert.True(vm.HasUnsavedChanges);
+        Assert.False(vm.HasChangesHere);
+        Assert.Contains("config.lua", vm.UnsavedText);
+
+        vm.SelectedFile = lua;
+        Assert.Equal("7500", Field(vm, "DefendRadius").Value);
+        Assert.True(Field(vm, "DefendRadius").IsChanged);
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(Lua.Replace("DefendRadius = 5000", "DefendRadius = 7500"), File.ReadAllText(Path.Combine(game, "config.lua")));
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    /// <summary>The same for the text view: text typed there survives a switch to another copy and back.</summary>
+    [Fact]
+    public void SwitchingCopies_KeepsTextViewEdits()
+    {
+        var game = Mod("game", "config.lua", Lua);
+        var server = Mod("server", "config.lua", Lua);
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife",
+            [new ModConfigLocation("Your game", game, false), new ModConfigLocation("Server: Test", server, true)], Path.Combine(_root, "Backups"));
+
+        vm.IsTextMode = true;
+        vm.RawText = vm.RawText.Replace("\"BearCub\"", "\"Wolf\"");
+        vm.SelectedLocation = vm.Locations[1];
+        Assert.Contains("\"BearCub\"", vm.RawText);
+        Assert.Contains("config.lua (Your game)", vm.UnsavedText);
+
+        vm.SelectedLocation = vm.Locations[0];
+        Assert.True(vm.IsTextMode);
+        Assert.Contains("\"Wolf\"", vm.RawText);
+
+        // Discard throws away only this copy's edits.
+        vm.DiscardChangesCommand.Execute(null);
+        Assert.False(vm.HasUnsavedChanges);
+        Assert.Equal(Lua, File.ReadAllText(Path.Combine(game, "config.lua")));
+    }
+
+    /// <summary>Closing with unsaved edits asks; Save writes every file with edits, Cancel keeps the window, Don't save writes nothing.</summary>
+    [Fact]
+    public void ConfirmClose_AsksAndSavesEveryEditedFile()
+    {
+        var game = Mod("game", "config.lua", Lua);
+        var server = Mod("server", "config.lua", Lua);
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife",
+            [new ModConfigLocation("Your game", game, false), new ModConfigLocation("Server: Test", server, true)], Path.Combine(_root, "Backups"));
+        Assert.True(vm.ConfirmClose()); // nothing to ask about
+
+        Field(vm, "Debug").IsOn = true;
+        vm.SelectedLocation = vm.Locations[1];
+        Field(vm, "DefendRadius").Value = "9000";
+
+        string? asked = null;
+        vm.AskSaveOnClose = message => { asked = message; return null; };
+        Assert.False(vm.ConfirmClose());
+        Assert.Contains("aren't saved", asked);
+        Assert.Equal(Lua, File.ReadAllText(Path.Combine(game, "config.lua")));
+
+        vm.AskSaveOnClose = _ => true;
+        Assert.True(vm.ConfirmClose());
+        Assert.Equal(Lua.Replace("Debug = false", "Debug = true"), File.ReadAllText(Path.Combine(game, "config.lua")));
+        Assert.Equal(Lua.Replace("DefendRadius = 5000", "DefendRadius = 9000"), File.ReadAllText(Path.Combine(server, "config.lua")));
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public void ConfirmClose_DontSave_WritesNothing()
+    {
+        var game = Mod("game", "config.lua", Lua);
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+        Field(vm, "Debug").IsOn = true;
+
+        vm.AskSaveOnClose = _ => false;
+        Assert.True(vm.ConfirmClose());
+        Assert.Equal(Lua, File.ReadAllText(Path.Combine(game, "config.lua")));
+    }
+
+    /// <summary>
+    /// MkHaters Cheats' real config.lua (2026-10-28): the "-- ==== GENERAL ====" headings group
+    /// the settings, names read as words with the key beside them, OpenKey = { key = "F2" } is a
+    /// key with Ctrl/Shift/Alt (it was a Lua text box), and [server] is a mark, not text.
+    /// </summary>
+    [Fact]
+    public void MkHatersCheats_GroupsByHeading_KeyIsAKey_ServerIsAMark()
+    {
+        const string cheats =
+            "-- MkHaters Cheats settings. [MkHatersSettings] Cheats\r\n" +
+            "return {\r\n" +
+            "    -- ==== GENERAL ====\r\n" +
+            "    -- Turns the whole mod on or off.\r\n" +
+            "    Enabled = true,               -- [restart]\r\n" +
+            "    -- Opens and closes the MKHATERS CHEATS window.\r\n" +
+            "    OpenKey = { key = \"F2\" },\r\n" +
+            "\r\n" +
+            "    -- ==== GOD MODE ====\r\n" +
+            "    -- Whether players may switch god mode on.\r\n" +
+            "    AllowGodMode = true,          -- [server]\r\n" +
+            "}\r\n";
+        var game = Mod("game", "config.lua", cheats);
+        var vm = new ModConfigEditorViewModel("MkHatersCheats", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+
+        Assert.Equal(["General", "God mode"], vm.Sections.Select(s => s.Name));
+        Assert.Equal("Turns the whole mod on or off.", Field(vm, "Enabled").Description);
+        var god = Field(vm, "AllowGodMode");
+        Assert.Equal(("Allow god mode", true, true, "Whether players may switch god mode on."), (god.Label, god.ShowKeyName, god.ServerDecides, god.Description));
+        Assert.False(Field(vm, "Enabled").ServerDecides);
+
+        var key = Field(vm, "OpenKey");
+        Assert.True(key.IsKey);
+        Assert.True(key.KeyAllowsModifiers);
+        Assert.Equal(("F2", "F2", false), (key.KeyName, key.KeyText, key.KeyCtrl));
+        key.KeyName = "F 3"; // not a key name: refused, the value stays the last good one
+        Assert.True(key.HasValueProblem);
+        Assert.Equal("{ key = \"F2\" }", key.Value);
+        vm.SaveCommand.Execute(null);
+        Assert.StartsWith("Not saved: OpenKey", vm.StatusMessage);
+
+        key.KeyName = "F3";
+        key.KeyCtrl = true;
+        Assert.Equal("Ctrl+F3", key.KeyText);
+        Assert.False(key.HasValueProblem);
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(cheats.Replace("OpenKey = { key = \"F2\" },", "OpenKey = { key = \"F3\", ctrl = true },"), File.ReadAllText(Path.Combine(game, "config.lua")));
+    }
+
+    /// <summary>A downloaded mod's "config.lua" of many MB isn't read into the editor (no limit before 2026-10-28).</summary>
+    [Fact]
+    public void AHugeConfigFile_IsNotOpened()
+    {
+        var game = Mod("game", "config.lua", "return {\n" + new string('-', (int)ModConfigEditorViewModel.MaxConfigBytes) + "\n}\n");
+        var vm = new ModConfigEditorViewModel("Huge", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+
+        Assert.Contains("too big for a config", vm.StatusMessage);
+        Assert.False(vm.ShowFields);
+        Assert.False(vm.IsTextMode);
+        Assert.Equal("", vm.RawText);
+    }
+
+    /// <summary>Search finds a setting by its plain name or its heading too, and says so when nothing matches.</summary>
+    [Fact]
+    public void Search_MatchesLabelAndHeading()
+    {
+        var game = Mod("game", "config.lua", "return {\r\n    -- ==== GUESTS ====\r\n    GuestWeightPercent = 10,\r\n    Debug = false,\r\n}\r\n");
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+
+        vm.Filter = "guest weight";
+        Assert.Equal(["GuestWeightPercent"], vm.Sections.SelectMany(s => s.Fields).Select(f => f.Key));
+        vm.Filter = "guests";
+        Assert.Equal(2, vm.Sections.SelectMany(s => s.Fields).Count());
+        vm.Filter = "nothing like this";
+        Assert.True(vm.ShowNoMatches);
+    }
+
+    /// <summary>MkHaters Stability's "; [MkHatersSettings] Stability [server]" marks every setting the server's, but those tagged [local].</summary>
+    [Fact]
+    public void FileWideServerTag_MarksEverySettingButTheLocalOnes()
+    {
+        const string ini = "; [MkHatersSettings] Stability [server]\r\n\r\n[Mode]\r\nMode = Off ; Fair or Off\r\n[Hotkey]\r\nHotkey = 1 ; 1 = the hotkey works [local]\r\n";
+        var game = Mod("game", "config.ini", ini);
+        var vm = new ModConfigEditorViewModel("MkHatersStability", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+
+        Assert.True(Field(vm, "Mode").ServerDecides);
+        Assert.False(Field(vm, "Hotkey").ServerDecides);
+    }
+
+    [Fact]
+    public void ResetAllToDefault_PutsEveryShownSettingBack_HiddenOnesStay()
+    {
+        const string config = "return {\r\n    Speed = 2,\r\n    Debug = true,\r\n    Probe = true, -- [hidden]\r\n}\r\n";
+        const string defaults = "return {\r\n    Speed = 1,\r\n    Debug = false,\r\n    Probe = false,\r\n}\r\n";
+        var game = Mod("game", "config.lua", config);
+        File.WriteAllText(Path.Combine(game, "config.default.lua"), defaults);
+        var vm = new ModConfigEditorViewModel("MkHatersTools", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+
+        Assert.True(vm.CanResetAllToDefault);
+        vm.ResetAllToDefaultCommand.Execute(null);
+        Assert.False(vm.CanResetAllToDefault);
+        Assert.Contains("2 settings", vm.StatusMessage);
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal("return {\r\n    Speed = 1,\r\n    Debug = false,\r\n    Probe = true, -- [hidden]\r\n}\r\n", File.ReadAllText(Path.Combine(game, "config.lua")));
+    }
 }

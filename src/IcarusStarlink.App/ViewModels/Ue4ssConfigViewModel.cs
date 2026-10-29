@@ -42,12 +42,34 @@ public sealed partial class Ue4ssConfigField : ObservableObject
         Maximum = setting.Maximum;
         Step = setting.Step;
         NeedsRestart = setting.NeedsRestart;
+        ServerDecides = setting.ServerDecides && !setting.LocalOnly;
         OriginalValue = originalValue ?? setting.Value;
         _value = setting.Value;
+        Label = Ue4ssSettingLabel.FromKey(setting.Key);
+        Group = setting.Section;
+        // A key as a table ({ key = "F4", ctrl = true }) can take Ctrl/Shift/Alt; "R" can't.
+        KeyAllowsModifiers = IsKey && Ue4ssKeyBind.TryParse(setting.Value, out _);
     }
 
     public string Section { get; }
     public string Key { get; }
+
+    /// <summary>The key in plain words ("ScanRadiusMeters" → "Scan radius meters"); the real key shows small beside it.</summary>
+    public string Label { get; }
+
+    /// <summary>The real key, shown small next to the label when the label reads differently.</summary>
+    public bool ShowKeyName => !string.Equals(Label.Replace(" ", ""), Key.Replace("_", "").Replace(".", ""), StringComparison.Ordinal);
+
+    /// <summary>The heading it's listed under: the ini [Section], or the Lua comment heading ("==== GUESTS ====").</summary>
+    public string Group { get; set; }
+
+    /// <summary>In multiplayer only the host's or the server's copy is read ([server]).</summary>
+    public bool ServerDecides { get; set; }
+
+    /// <summary>A short note under a text box: how to write a Lua list.</summary>
+    public string? Hint { get; set; }
+
+    public bool HasHint => Hint is { Length: > 0 };
     public string Description { get; }
     public string? Default { get; }
     public Ue4ssSettingKind Kind { get; }
@@ -73,6 +95,79 @@ public sealed partial class Ue4ssConfigField : ObservableObject
     public bool IsChoice => Kind == Ue4ssSettingKind.Choice;
     public bool IsText => Kind == Ue4ssSettingKind.Text;
     public bool IsNumber => Kind == Ue4ssSettingKind.Number;
+    public bool IsKey => Kind == Ue4ssSettingKind.Key;
+
+    /// <summary>The key takes Ctrl / Shift / Alt (written as { key = "F4", ctrl = true }).</summary>
+    public bool KeyAllowsModifiers { get; }
+
+    private Ue4ssKeyBind CurrentKey =>
+        KeyAllowsModifiers && Ue4ssKeyBind.TryParse(Value, out var bind) ? bind : new Ue4ssKeyBind(KeyAllowsModifiers ? "" : Value.Trim(), false, false, false);
+
+    /// <summary>The key's name ("F4", "R"); typing here writes the setting in its own shape.</summary>
+    public string KeyName
+    {
+        get => KeyAllowsModifiers
+            ? _typedKeyName ?? (Ue4ssKeyBind.TryParse(Value, out var bind) ? bind.Key : "")
+            : Value;
+        set
+        {
+            if (!KeyAllowsModifiers)
+            {
+                Value = value;
+                return;
+            }
+
+            // A name the table can't hold (a quote, a space) isn't written into it: kept as typed and
+            // reported under the box, and the value stays the last good one.
+            var name = value.Trim();
+            if (!Ue4ssKeyBind.IsKeyName(name))
+            {
+                _typedKeyName = value;
+                OnPropertyChanged(nameof(ValueProblem));
+                OnPropertyChanged(nameof(HasValueProblem));
+                return;
+            }
+
+            _typedKeyName = null;
+            SetKey(CurrentKey with { Key = name });
+            OnPropertyChanged(nameof(ValueProblem));
+            OnPropertyChanged(nameof(HasValueProblem));
+        }
+    }
+
+    private string? _typedKeyName;
+
+    public bool KeyCtrl
+    {
+        get => CurrentKey.Ctrl;
+        set => SetKey(CurrentKey with { Ctrl = value });
+    }
+
+    public bool KeyShift
+    {
+        get => CurrentKey.Shift;
+        set => SetKey(CurrentKey with { Shift = value });
+    }
+
+    public bool KeyAlt
+    {
+        get => CurrentKey.Alt;
+        set => SetKey(CurrentKey with { Alt = value });
+    }
+
+    private void SetKey(Ue4ssKeyBind bind)
+    {
+        // An unchanged bind keeps the file's own spelling ("{ key = "F2" }" stays exactly as written).
+        if (Ue4ssKeyBind.TryParse(Value, out var current) && current == bind)
+        {
+            return;
+        }
+
+        Value = bind.ToLua();
+    }
+
+    /// <summary>"Ctrl+F4": what the key is, in words.</summary>
+    public string KeyText => IsKey ? (KeyAllowsModifiers ? CurrentKey.ToString() : Value.Trim()) : "";
 
     /// <summary>A slider and a box beside it, for a number the mod gives a slider range.</summary>
     public bool HasSlider => IsNumber && Step is not null && Minimum is not null && Maximum is not null && Maximum > Minimum;
@@ -117,10 +212,17 @@ public sealed partial class Ue4ssConfigField : ObservableObject
     public bool HasRangeText => IsNumber && RangeText.Length > 0;
 
     /// <summary>Why the number in the box won't do: not a number, or outside its range. Empty when it's fine.</summary>
-    public string ValueProblem => !IsNumber ? ""
+    public string ValueProblem => IsKey ? KeyProblem
+        : !IsNumber ? ""
         : Ue4ssSettingsDocument.Number(Value) is not { } n ? "Not a number"
         : n < Minimum || n > Maximum ? $"Outside {RangeText}"
         : "";
+
+    /// <summary>Why the key typed won't do (a space, a quote, a "+"): key names are one word.</summary>
+    public string KeyProblem =>
+        IsKey && !Ue4ssKeyBind.IsKeyName((_typedKeyName ?? (KeyAllowsModifiers ? "" : Value)).Trim())
+            ? "One key name, letters and digits only (like F4, K or NumPadOne)"
+            : "";
 
     public bool HasValueProblem => ValueProblem.Length > 0;
 
@@ -143,17 +245,22 @@ public sealed partial class Ue4ssConfigField : ObservableObject
     }
 
     public bool HasDescription => Description.Length > 0;
-    public string DefaultText => Default is { Length: > 0 } d ? $"Default: {d}" : "";
+    public string DefaultText => Default is not { Length: > 0 } d ? ""
+        : IsKey && Ue4ssKeyBind.TryParse(d, out var key) ? $"Default: {key}"
+        : $"Default: {d}";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsChanged), nameof(IsOn), nameof(IsDefault), nameof(CanResetToDefault),
-        nameof(NumberValue), nameof(ValueProblem), nameof(HasValueProblem), nameof(ChoiceValue))]
+        nameof(NumberValue), nameof(ValueProblem), nameof(HasValueProblem), nameof(ChoiceValue),
+        nameof(KeyName), nameof(KeyCtrl), nameof(KeyShift), nameof(KeyAlt), nameof(KeyText), nameof(KeyProblem))]
     private string _value;
 
     public bool IsChanged => Value.Trim() != OriginalValue.Trim();
 
     public bool IsDefault => Default is null || string.Equals(Value.Trim(), Default, StringComparison.OrdinalIgnoreCase)
-        || (IsToggle && Ue4ssSettingsDocument.IsOn(Value) == Ue4ssSettingsDocument.IsOn(Default));
+        || (IsToggle && Ue4ssSettingsDocument.IsOn(Value) == Ue4ssSettingsDocument.IsOn(Default))
+        || (IsNumber && Ue4ssSettingsDocument.Number(Value) is { } n && n == Ue4ssSettingsDocument.Number(Default))
+        || (IsKey && Ue4ssKeyBind.TryParse(Value, out var key) && Ue4ssKeyBind.TryParse(Default, out var shipped) && key == shipped);
 
     /// <summary>A default the file names ("Default: 1") that isn't the current value.</summary>
     public bool CanResetToDefault => Default is { Length: > 0 } && !IsDefault;
@@ -170,6 +277,7 @@ public sealed partial class Ue4ssConfigField : ObservableObject
     {
         if (Default is not null)
         {
+            _typedKeyName = null;
             Value = IsToggle ? Ue4ssSettingsDocument.ToggleText(Ue4ssSettingsDocument.IsOn(Default), OriginalValue) : Default;
         }
     }
@@ -217,8 +325,35 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
         WeakReferenceMessenger.Default.Register<SettingsSavedMessage>(this, (recipient, _) => ((Ue4ssConfigViewModel)recipient).RefreshTargetsUnlessEdited());
     }
 
-    /// <summary>True while a setting on the tab has been changed and not saved.</summary>
-    public bool HasUnsavedChanges => _fields.Any(f => f.IsChanged);
+    /// <summary>True while a setting on the tab (or of another target picked before) has been changed and not saved.</summary>
+    public bool HasUnsavedChanges => _fields.Any(f => f.IsChanged) || _drafts.Count > 0;
+
+    /// <summary>
+    /// The unsaved edits of the targets picked before, by ini path: switching Edit to a server and
+    /// back used to throw the game's edits away. They come back when that target is picked again.
+    /// </summary>
+    private readonly Dictionary<string, Dictionary<(string Section, string Key), string>> _drafts = new(StringComparer.OrdinalIgnoreCase);
+
+    private Ue4ssConfigTarget? _loadedTarget;
+
+    /// <summary>Keeps the shown target's unsaved edits aside before another target is shown.</summary>
+    private void KeepDraft()
+    {
+        if (_loadedTarget is not { } loaded)
+        {
+            return;
+        }
+
+        var changed = _fields.Where(f => f.IsChanged).ToDictionary(f => (f.Section, f.Key), f => f.Value);
+        if (changed.Count > 0)
+        {
+            _drafts[loaded.IniPath] = changed;
+        }
+        else
+        {
+            _drafts.Remove(loaded.IniPath);
+        }
+    }
 
     private void RefreshTargetsUnlessEdited()
     {
@@ -251,7 +386,11 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
 
     public string NoTargetsText => "No UE4SS-settings.ini found. Install UE4SS on the UE4SS tab first (or on a server from the Server page).";
 
-    partial void OnSelectedTargetChanged(Ue4ssConfigTarget? value) => Load();
+    partial void OnSelectedTargetChanged(Ue4ssConfigTarget? value)
+    {
+        KeepDraft();
+        Load();
+    }
 
     partial void OnFilterChanged(string value) => BuildSections();
 
@@ -296,6 +435,7 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
         SelectedTarget = Targets.FirstOrDefault(t => t.IniPath == previous) ?? Targets.FirstOrDefault();
         if (SelectedTarget is null)
         {
+            KeepDraft();
             Load();
         }
     }
@@ -305,6 +445,7 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
         _document = null;
         _fields = [];
         AlsoSaveTo.Clear();
+        _loadedTarget = SelectedTarget;
         if (SelectedTarget is { } target)
         {
             try
@@ -312,6 +453,17 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
                 _document = Ue4ssSettingsDocument.Load(target.IniPath);
                 _fields = [.. _document.Settings.Select(s => new Ue4ssConfigField(s))];
                 StatusMessage = null;
+                // Edits made before switching away: back in their fields, still unsaved.
+                if (_drafts.Remove(target.IniPath, out var draft))
+                {
+                    foreach (var field in _fields)
+                    {
+                        if (draft.TryGetValue((field.Section, field.Key), out var value))
+                        {
+                            field.Value = value;
+                        }
+                    }
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -396,8 +548,17 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
         StatusMessage = string.Join(" ", new[] { savedText, problemText }.Where(t => t is not null));
     }
 
+    /// <summary>Throws away the shown target's unsaved edits (other targets keep theirs).</summary>
     [RelayCommand]
-    private void DiscardChanges() => Load();
+    private void DiscardChanges()
+    {
+        if (SelectedTarget is { } target)
+        {
+            _drafts.Remove(target.IniPath);
+        }
+
+        Load();
+    }
 
     private static string SafeName(string name) =>
         string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) || c == ' ' ? '_' : c));

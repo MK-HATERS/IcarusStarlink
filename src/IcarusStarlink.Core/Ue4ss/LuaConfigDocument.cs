@@ -29,6 +29,9 @@ public sealed record LuaConfigSetting(string Key, string Value, LuaConfigValueKi
         : this(key, value, kind, description, description.Length == 0 ? [] : description.Split('\n'), null)
     {
     }
+
+    /// <summary>The comment heading the setting sits under ("-- ==== SPAWN AMOUNTS ====" → "SPAWN AMOUNTS"), as written; empty before the first one.</summary>
+    public string Group { get; init; } = "";
 }
 
 /// <summary>
@@ -45,7 +48,7 @@ public sealed partial class LuaConfigDocument
     private readonly List<string> _endings;
     private readonly List<Entry> _entries;
 
-    private sealed record Entry(int Line, string Key, int ValueStart, int ValueLength, LuaConfigValueKind Kind, char Quote, IReadOnlyList<string> Comments, string? Note)
+    private sealed record Entry(int Line, string Key, int ValueStart, int ValueLength, LuaConfigValueKind Kind, char Quote, IReadOnlyList<string> Comments, string? Note, string Group)
     {
         public string Description => string.Join("\n", Note is { Length: > 0 } ? Comments.Append(Note) : Comments);
     }
@@ -74,7 +77,7 @@ public sealed partial class LuaConfigDocument
     public string ToText() => TextLines.Join(_lines, _endings);
 
     public IReadOnlyList<LuaConfigSetting> Settings =>
-        [.. _entries.Select(e => new LuaConfigSetting(e.Key, DisplayValue(e), e.Kind, e.Description, e.Comments, e.Note))];
+        [.. _entries.Select(e => new LuaConfigSetting(e.Key, DisplayValue(e), e.Kind, e.Description, e.Comments, e.Note) { Group = e.Group })];
 
     public string? GetValue(string key) => Find(key) is { } e ? DisplayValue(e) : null;
 
@@ -237,12 +240,23 @@ public sealed partial class LuaConfigDocument
     [GeneratedRegex(@"^(?:(?:return\s*|(?:local\s+)?[A-Za-z_][A-Za-z0-9_.]*\s*=\s*)?\{|\}[,;]?)\s*(?:--.*)?$")]
     private static partial Regex TableBrace();
 
+    /// <summary>A heading longer than this is cut: it's a name, not a paragraph.</summary>
+    private const int MaxGroupLength = 80;
+
+    /// <summary>A comment longer than this is never a heading (and isn't matched as one).</summary>
+    private const int MaxHeadingLineLength = 200;
+
+    // "==== GENERAL ====", "--- Keys ---", "#### Log ####", "======" (a bare rule): the comment text of a heading line.
+    [GeneratedRegex(@"^(?:(?>[=#*~-]{3,})\s*(?<name>[^=#*~]*?)\s*[=#*~-]{3,}|[=#*~-]{3,})$")]
+    private static partial Regex Heading();
+
     private static List<Entry> Scan(List<string> lines, out int unknownLines)
     {
         var entries = new List<Entry>();
         var comments = new List<string>();
         var depth = 0;
         var inBlockComment = false;
+        var group = "";
         unknownLines = 0;
         for (var i = 0; i < lines.Count; i++)
         {
@@ -263,7 +277,23 @@ public sealed partial class LuaConfigDocument
 
             if (trimmed.StartsWith("--"))
             {
-                comments.Add(trimmed[2..].Trim());
+                // A heading ("-- ==== SPAWN AMOUNTS ====") starts a group of settings; it isn't part of
+                // the next setting's description. A bare rule ("-- ======") is dropped too.
+                var comment = trimmed[2..].Trim();
+                // Length-capped: a downloaded file's long run of dashes must not make the match slow.
+                if (depth <= 1 && comment.Length <= MaxHeadingLineLength && Heading().Match(comment) is { Success: true } heading)
+                {
+                    var name = heading.Groups["name"].Value.Trim();
+                    if (name.Any(char.IsLetter))
+                    {
+                        group = name.Length > MaxGroupLength ? name[..MaxGroupLength] : name;
+                    }
+
+                    comments.Clear();
+                    continue;
+                }
+
+                comments.Add(comment);
                 continue;
             }
 
@@ -275,7 +305,7 @@ public sealed partial class LuaConfigDocument
 
             if (depth <= 1 && TryReadSetting(line, out var key, out var start, out var length, out var kind, out var quote, out var inline))
             {
-                entries.Add(new Entry(i, key, start, length, kind, quote, [.. comments], inline));
+                entries.Add(new Entry(i, key, start, length, kind, quote, [.. comments], inline, group));
             }
             else if (!(depth <= 1 && TableBrace().IsMatch(trimmed)))
             {
