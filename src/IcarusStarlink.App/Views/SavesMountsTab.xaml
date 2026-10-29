@@ -74,7 +74,7 @@
                     <StackPanel Margin="0,0,16,8" Visibility="{Binding CanEditInside, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="Look" Style="{StaticResource FieldLabelStyle}"/>
                         <ComboBox ItemsSource="{Binding VariationOptions}" SelectedItem="{Binding Variation}" Width="70" Margin="0,4,0,0"
-                                  ToolTip="Which of its species' looks (colours and patterns), counted from 0"/>
+                                  ToolTip="Which look (colours and pattern) of its species it has, counting from 0"/>
                     </StackPanel>
                 </WrapPanel>
                 <TextBlock Text="{Binding GrowthNote}" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" TextWrapping="Wrap"

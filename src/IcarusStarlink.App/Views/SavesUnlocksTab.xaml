@@ -45,7 +45,7 @@
             <TextBox Width="260" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search unlocks (name or what it unlocks)…"
                      Text="{Binding FlagSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search unlocks"/>
             <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="{Binding ShowUnusedFlagsLabel}" IsChecked="{Binding ShowUnusedFlags}" Margin="14,0,0,0" VerticalAlignment="Center"
-                      ToolTip="Deprecated, tooltip-only, test and never-granted flags: nothing in the game reads them."/>
+                      ToolTip="Old, unused and test markers: nothing in the game reads them."/>
         </WrapPanel>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -112,7 +112,7 @@
                     </DockPanel>
                 </Expander.Header>
             <StackPanel>
-                <TextBlock Text="The game's cached list of the DLC it last saw this account own (the slot's flags file). The game also checks DLC itself when it starts (Steam, or a DLC unlocker), so a pack that's off here can still work in game, and a change here can be undone by that check."
+                <TextBlock Text="The DLC the game last saw this account own. The game also checks DLC itself when it starts (Steam, or a DLC unlocker), so a pack that's off here can still work in game, and that check can undo a change made here."
                            Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
                 <ItemsControl ItemsSource="{Binding FilteredBinaryFlags}">
                     <!-- One cell width, so the pack names line up in columns. -->
