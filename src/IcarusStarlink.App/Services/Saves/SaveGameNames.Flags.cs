@@ -17,9 +17,6 @@ public sealed partial class SaveGameNames
 
     public FlagInfo CharacterFlagInfo(int id) => id >= 0 && id < CharacterFlagInfos.Count ? CharacterFlagInfos[id] : new FlagInfo($"Flag {id}", $"Flag {id}", "Not in the game's flag table (from a mod, or removed).", FlagKind.Unknown);
 
-    public string CharacterFlagName(int id) => id >= 0 && id < CharacterFlagNames.Count ? CharacterFlagNames[id] : $"Flag {id}";
-
-    public string AccountFlagName(int id) => id >= 0 && id < AccountFlagNames.Count ? AccountFlagNames[id] : $"Flag {id}";
 
     private static readonly string[] FlagPrefixes = ["GrantedBlueprint_", "GrantedWorkshop_", "GrantedTalent_", "Talent_", "Mission_"];
 

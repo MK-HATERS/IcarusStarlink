@@ -137,9 +137,6 @@ public sealed class MountBlob
         }
     }
 
-    /// <summary>The ID the game knows it by; Mounts.json's MountIconName (its portrait's file name) is the same number.</summary>
-    public int? ActorGuid => (Tag("IcarusActorGUID")?.Property as IntProperty)?.Value;
-
     private IEnumerable<IList<FPropertyTag>> Elements(string array) =>
         (Tag(array)?.Property as ArrayProperty)?.Value?.OfType<StructProperty>().Select(s => s.Value).OfType<PropertiesStruct>().Select(p => p.Properties) ?? [];
 

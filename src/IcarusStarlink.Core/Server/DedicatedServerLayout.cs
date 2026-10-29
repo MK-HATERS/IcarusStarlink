@@ -80,11 +80,7 @@ public static class DedicatedServerLayout
         return null;
     }
 
-    /// <summary>Prospect save names (file names without .json) in the profile's Prospects folder, newest first; empty when there are none yet.</summary>
-    public static IReadOnlyList<string> ListProspects(string installFolder, string? savedDirSuffix) =>
-        [.. ListProspectFiles(installFolder, savedDirSuffix).Select(f => f.Name)];
-
-    /// <summary>The same list with each file's last write time and size (the Worlds tab shows them).</summary>
+    /// <summary>Prospect saves (file names without .json) in the profile's Prospects folder, newest first, with each file's last write time and size (the Worlds tab shows them); empty when there are none yet.</summary>
     public static IReadOnlyList<ProspectFile> ListProspectFiles(string installFolder, string? savedDirSuffix)
     {
         var folder = ProspectsFolder(installFolder, savedDirSuffix);

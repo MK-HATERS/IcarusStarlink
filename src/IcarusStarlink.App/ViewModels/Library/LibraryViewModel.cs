@@ -488,9 +488,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     // ---- The Type filter and the UE4SS built-ins toggle (the "On" tick, Status and the pending
     // bars are in LibraryViewModel.InstallStatus.cs). ----
 
-    public IReadOnlyList<string> TypeFilterOptions { get; } = ["All", "EXMOD", "Pak", "UE4SS"];
-
-    /// <summary>"All" / "EXMOD" / "Pak" / "UE4SS" — the Type dropdown next to the search box.</summary>
+    /// <summary>"All" / "EXMOD" / "Pak" / "UE4SS": narrows the list to one kind. No control on the page sets it since the Library got its two panels (the Type dropdown went); clearing the filters resets it.</summary>
     [ObservableProperty]
     private string _typeFilter = "All";
 

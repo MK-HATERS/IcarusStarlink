@@ -67,8 +67,6 @@ public sealed class LastKnownGoodStore(string rootDirectory)
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    public string RootDirectory => rootDirectory;
-
     /// <summary>Saves a snapshot now, then keeps only the newest Kept.</summary>
     /// <param name="icarusContentPath">The game's Content folder: its Paks\mods merged pak and mod list are copied. Null: none saved.</param>
     public LastKnownGoodSnapshot Create(Profile? profile, string? icarusContentPath, IReadOnlyList<string> enabledUe4ssMods, string? gameBuildId, DateTimeOffset nowUtc)

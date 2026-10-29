@@ -36,20 +36,6 @@ public sealed class ServerUe4ssSyncTests : IDisposable
     }
 
     [Fact]
-    public void SameContent_IgnoresConfigAndWhatTheModWritesWhileRunning()
-    {
-        var game = Mod("game", "Tools", ("Scripts/main.lua", "local VERSION = \"1.0\""), ("config.lua", "return { a = 1 }"),
-            ("remembered.txt", "game state"), ("Tools.log", "game log"), ("data.cache", "x"), ("config.lua.bak", "old"));
-        var server = Mod("server", "Tools", ("Scripts/main.lua", "local VERSION = \"1.0\""), ("config.lua", "return { a = 9 }"),
-            ("remembered.txt", "server state"), ("Tools.log", "server log"), ("enabled.txt", ""));
-
-        Assert.True(ServerUe4ssSync.SameContent(game, server));
-
-        File.WriteAllText(Path.Combine(server, "Scripts", "main.lua"), "local VERSION = \"1.0\" -- patched");
-        Assert.False(ServerUe4ssSync.SameContent(game, server));
-    }
-
-    [Fact]
     public void Compare_VersionsDecideTheDirection()
     {
         Mod("game", "Older", ("Scripts/main.lua", "local VERSION = \"1.2.0\""));

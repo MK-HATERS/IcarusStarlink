@@ -218,11 +218,10 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
             _candidates = candidates;
             _needs = needs;
             _firstGroup = BrokenModClues.FirstGroup(suspects, candidates.Count);
-            var first = _firstGroup.Select(s => s.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
             Suspects.Clear();
             foreach (var suspect in suspects)
             {
-                Suspects.Add(new FindBrokenModSuspectRow(suspect.FolderName, suspect.Name, suspect.Reason, ProblemCount(suspect.FolderName), first.Contains(suspect.FolderName)));
+                Suspects.Add(new FindBrokenModSuspectRow(suspect.FolderName, suspect.Name, suspect.Reason, ProblemCount(suspect.FolderName)));
             }
 
             SuspectSummary = candidates.Count == 0

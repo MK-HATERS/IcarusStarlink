@@ -1,7 +1,7 @@
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>A suspect on the first page: why, and whether the health check already knows a problem in it.</summary>
-public sealed class FindBrokenModSuspectRow(string folderName, string name, string reason, int problemCount, bool testedFirst)
+public sealed class FindBrokenModSuspectRow(string folderName, string name, string reason, int problemCount)
 {
     public string FolderName { get; } = folderName;
 
@@ -14,7 +14,4 @@ public sealed class FindBrokenModSuspectRow(string folderName, string name, stri
     public string ProblemText => problemCount == 1
         ? "The health check found 1 problem in it. Fixing it may be all it needs."
         : $"The health check found {problemCount} problems in it. Fixing them may be all it needs.";
-
-    /// <summary>In the group the first round takes out (strong reasons only when there are any).</summary>
-    public bool TestedFirst { get; } = testedFirst;
 }

@@ -53,10 +53,8 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
     /// <summary>Null in tests and headless use — then a missing requirement is only reported, never offered for download.</summary>
     private readonly IDialogService? _dialogService;
-    private readonly ModReplacementService _modReplacement;
-
     /// <summary>How every copy of a mod is replaced (this page's Activate/Reinstall, and Library's Get update and Reinstall original).</summary>
-    public ModReplacementService ModReplacement => _modReplacement;
+    private readonly ModReplacementService _modReplacement;
 
     /// <summary>UE4SS names staged and in the game — one answer for every check on this page.</summary>
     private readonly Ue4ssInstalledNames _ue4ssNames;
@@ -224,10 +222,6 @@ public sealed partial class DownloadsViewModel : ObservableObject
         ReloadPendingDownloads();
         PendingDownloadStatusMessage = $"Discarded '{item.FileName}'.";
     }
-
-    /// <summary>Records that a download was installed by something other than Activate (Library's Get update imports the catalog file itself).</summary>
-    public void RecordActivation(PendingDownloadItemViewModel item, IReadOnlyList<PendingDownloadActivatedItem> items) =>
-        MarkActivated(item, items, []);
 
     /// <summary>
     /// Saves what a download installed and shows it on its row. The row the caller holds can be
