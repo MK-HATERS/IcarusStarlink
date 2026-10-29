@@ -580,6 +580,58 @@ public sealed class LibraryViewModelTests
         Assert.Contains("all 2 of its parts", Assert.Single(harness.DialogService.ConfirmMessages));
     }
 
+    /// <summary>
+    /// Final review 2026-10-28: with the Lua half on in the game now linked, deleting either row
+    /// with the game running asked, deleted the data mod after the Yes, then couldn't take the Lua
+    /// half out of the game (in use): half a mod left behind. Refused before the question now.
+    /// </summary>
+    [Fact]
+    public void DeletingADownloadWhoseLuaHalfIsOnInTheGame_WhileTheGameRuns_IsRefusedBeforeTheQuestion()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.Ue4ssModRepository.InGame.Add("WirelessPower");
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("WirelessPower", IsEnabled: true));
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        vm.IsGameRunningCheck = () => true;
+        var data = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
+        var lua = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "WirelessPower");
+
+        vm.DeleteItemCommand.Execute(data);
+        vm.DeleteUe4ssModCommand.Execute(lua);
+
+        Assert.Empty(harness.DialogService.ConfirmMessages);
+        Assert.Contains(vm.RootItems.OfType<LibraryItemViewModel>(), i => i.FolderName == "WirelessPower");
+        Assert.Contains("Icarus is running", vm.StatusMessage);
+        Assert.Contains("Icarus is running", vm.Ue4ssStatusMessage);
+    }
+
+    /// <summary>The same when the game starts while the delete question is open: nothing goes after the Yes (the data mod went, the Lua half stayed in the game).</summary>
+    [Fact]
+    public void DeletingADownloadWhoseLuaHalfIsOnInTheGame_WhenTheGameStartsDuringTheQuestion_DeletesNothing()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.Ue4ssModRepository.InGame.Add("WirelessPower");
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("WirelessPower", IsEnabled: true));
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        // Not running when Delete is pressed; running once the question has been answered.
+        vm.IsGameRunningCheck = () => harness.DialogService.ConfirmMessages.Count > 0;
+        var data = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
+
+        vm.DeleteItemCommand.Execute(data);
+
+        Assert.Single(harness.DialogService.ConfirmMessages);
+        Assert.Contains(vm.RootItems.OfType<LibraryItemViewModel>(), i => i.FolderName == "WirelessPower");
+        Assert.Contains("Nothing was deleted", vm.StatusMessage);
+    }
+
     /// <summary>UE4SS's own built-ins (BPModLoaderMod, Keybinds…) cluttered the list with bare "v" versions — hidden by default, one remembered toggle brings them back.</summary>
     [Fact]
     public void Ue4ssBuiltIns_HiddenByDefault_ToggleShowsThemAndIsRemembered()

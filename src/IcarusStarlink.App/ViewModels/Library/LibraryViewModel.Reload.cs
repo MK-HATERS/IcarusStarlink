@@ -70,8 +70,8 @@ public sealed partial class LibraryViewModel
         }
 
         // One list for every kind of mod: pak/EXMOD rows (groups) and UE4SS rows side by side.
-        // A UE4SS mod that is the Lua half of a Mods-tab row (same Nexus download) is folded into
-        // that row and not listed on its own. Default/Name order interleaves both kinds by name
+        // A UE4SS mod that is the Lua half of a data row (same Nexus download) is its own row in
+        // the UE4SS panel, linked to that one (library-model rule 1). Default/Name order interleaves both kinds by name
         // (pinned families first, as before); any other sort keeps the UE4SS rows after the groups.
         var libraryRows = new List<(string SortName, bool Pinned, object Row)>();
         foreach (var group in groups)
