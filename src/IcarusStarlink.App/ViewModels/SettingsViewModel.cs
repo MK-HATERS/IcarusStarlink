@@ -128,10 +128,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             var install = ((SettingsViewModel)recipient).InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
         });
-        FirstLaunchSetupTask = RunFirstLaunchSetupAsync();
-        // After setup, not alongside it (an audit finding): both show modal dialogs, and an
-        // "Update available" accepted mid-setup shut the app down over a running data extraction.
-        _ = CheckForAppUpdatesAfterSetupAsync();
+        // The first-launch questions and the "Update available" offer are NOT started here: they
+        // show modal dialogs, and anything that resolved this singleton while one was open (opening
+        // Settings, an nxm:// link, GameDataFreshness) re-entered the DI factory mid-construction
+        // and built a second Settings that asked every question again (seen live 2026-10-28).
+        // App.xaml.cs starts them once this instance exists (StartFirstLaunchSetup).
         CheckForGameCrashesSinceLastInstall();
         ReportLastAppUpdateOutcome();
         _ = RefreshBackupsSizeAsync();
