@@ -66,15 +66,8 @@ public sealed partial class ExmodEditorViewModel
     internal void MarkScaleRulesDirty() => _scaleRulesDirty = true;
 
     [RelayCommand]
-    private void AddScaleRule()
-    {
-        var row = new ScaleRuleViewModel(this, new ScaleRule { CurrentFile = "Traits-D_Itemable.json", Field = "Weight", Value = 0.5, Label = "New rule" });
-        ScaleRuleRows.Add(row);
-        _scaleRulesDirty = true;
-        OnPropertyChanged(nameof(HasScaleRules));
-        OnPropertyChanged(nameof(HasNoScaleRules));
-        row.RefreshPreview();
-    }
+    private void AddScaleRule() =>
+        AddRuleRow(new ScaleRule { CurrentFile = "Traits-D_Itemable.json", Field = "Weight", Value = 0.5, Label = "New rule" });
 
     [RelayCommand]
     private void RemoveScaleRule(ScaleRuleViewModel? row)
@@ -154,6 +147,107 @@ public sealed partial class ExmodEditorViewModel
 
     /// <summary>Called by Save: unapplied rule edits are applied first. False when a rule is invalid (Save stops and says why).</summary>
     private bool ApplyPendingScaleRules() => !_scaleRulesDirty || ApplyScaleRulesCore();
+
+    /// <summary>One-click starting rules: the Quality of life template's, all turned on when picked.</summary>
+    public IReadOnlyList<ScaleRuleStarter> ScaleStarters { get; } =
+        [.. ModTemplateContent.QualityOfLifeRules().Select(r => new ScaleRuleStarter(r))];
+
+    /// <summary>Adds a starter as a new rule (on) and previews it; Apply writes it.</summary>
+    [RelayCommand]
+    private void AddStarterRule(ScaleRuleStarter? starter)
+    {
+        if (starter is null)
+        {
+            return;
+        }
+
+        if (ScaleRuleRows.Any(r => string.Equals(r.Label, starter.Rule.Label, StringComparison.OrdinalIgnoreCase)))
+        {
+            ScaleStatusMessage = $"'{starter.Rule.Label}' is already in the list.";
+            return;
+        }
+
+        var rule = starter.Rule.Clone();
+        rule.Enabled = true;
+        AddRuleRow(rule);
+        ScaleStatusMessage = $"Added '{rule.Label}'. Change the number if you like, then Apply rules.";
+    }
+
+    private ScaleRuleViewModel AddRuleRow(ScaleRule rule)
+    {
+        var row = new ScaleRuleViewModel(this, rule);
+        ScaleRuleRows.Add(row);
+        _scaleRulesDirty = true;
+        OnPropertyChanged(nameof(HasScaleRules));
+        OnPropertyChanged(nameof(HasNoScaleRules));
+        row.RefreshPreview();
+        return row;
+    }
+
+    /// <summary>Rules this mod's own rows already follow (ScaleRuleSuggester), for "Suggested from this mod".</summary>
+    public ObservableCollection<ScaleRuleSuggestion> ScaleSuggestions { get; } = [];
+
+    public bool HasScaleSuggestions => ScaleSuggestions.Count > 0;
+
+    /// <summary>What the suggestions box says when it has none (or why there are none yet).</summary>
+    [ObservableProperty]
+    private string? _scaleSuggestionsMessage;
+
+    /// <summary>Looks for rules in the mod's rows again (also run each time the view opens). Fields a rule in the list already owns are left out.</summary>
+    [RelayCommand]
+    private void FindScaleSuggestions()
+    {
+        ScaleSuggestions.Clear();
+        if (!System.IO.Directory.Exists(_dataFolder) || !GameTables.HasAnyTable())
+        {
+            ScaleSuggestionsMessage = "No game data yet: run Refresh game data in Settings, then come back.";
+            OnPropertyChanged(nameof(HasScaleSuggestions));
+            return;
+        }
+
+        var listed = ScaleRuleRows
+            .Select(r => (File: r.CurrentFile.Trim().ToUpperInvariant(), Field: ScaleRules.SplitPath(r.Field).FirstOrDefault() is { } top ? ScaleRules.StripList(top) : ""))
+            .ToHashSet();
+        foreach (var suggestion in ScaleRuleSuggester.Suggest(_package, GameTables))
+        {
+            if (!listed.Contains((suggestion.Rule.CurrentFile.ToUpperInvariant(), suggestion.Rule.TopField)))
+            {
+                ScaleSuggestions.Add(suggestion);
+            }
+        }
+
+        ScaleSuggestionsMessage = ScaleSuggestions.Count > 0 ? null
+            : $"Nothing to suggest: no field is changed the same way on {ScaleRuleSuggester.MinRows} or more game rows of a table in this mod.";
+        OnPropertyChanged(nameof(HasScaleSuggestions));
+    }
+
+    /// <summary>
+    /// Turns a suggestion into a rule. Applying it writes the same values the mod already has; after
+    /// a game update, Apply also changes the new rows its filter catches.
+    /// </summary>
+    [RelayCommand]
+    private void AddSuggestedRule(ScaleRuleSuggestion? suggestion)
+    {
+        if (suggestion is null)
+        {
+            return;
+        }
+
+        AddRuleRow(suggestion.Rule.Clone());
+        ScaleSuggestions.Remove(suggestion);
+        OnPropertyChanged(nameof(HasScaleSuggestions));
+        ScaleStatusMessage = $"Added '{suggestion.Rule.Label}'. Apply rules writes the same values this mod has now; after a game update, Apply again to catch new rows.";
+    }
+}
+
+/// <summary>One starter rule button: "Stack sizes ×4".</summary>
+public sealed record ScaleRuleStarter(ScaleRule Rule)
+{
+    public string Label => Rule.Label;
+
+    /// <summary>The table and field it changes, for the tooltip.</summary>
+    public string Details => $"{GameTableIndex.TableNameOf(Rule.CurrentFile)} › {Rule.Field}"
+        + (Rule.RowFilter is { Length: > 0 } filter ? $" (only rows named like {filter})" : "");
 }
 
 /// <summary>One rule in the Scale rules view.</summary>

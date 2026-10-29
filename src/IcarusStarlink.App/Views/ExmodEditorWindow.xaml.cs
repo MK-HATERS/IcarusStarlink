@@ -17,6 +17,7 @@ public partial class ExmodEditorWindow : Window
 
         // The list is grouped by the part of the game each row changes ("Armour", "Recipes").
         CollectionViewSource.GetDefaultView(viewModel.Items).GroupDescriptions.Add(new PropertyGroupDescription(nameof(EditorItemViewModel.Group)));
+        GroupFields(viewModel);
 
         // See ScrollSyncHelper's own doc comment — keeps each view's scroll position in step with
         // whatever else has the same view open (a popped-out pane fixed to the same mode).
@@ -28,6 +29,20 @@ public partial class ExmodEditorWindow : Window
         // Unsaved changes ask Save / Don't save / Cancel instead of vanishing with the window.
         Closing += (_, e) => e.Cancel = !viewModel.ConfirmClose();
         Closed += (_, _) => viewModel.Detach();
+    }
+
+    /// <summary>
+    /// The Fields view's sections ("Numbers", "Names and text"…), by EditorFieldViewModel.Group;
+    /// the view model already lists them section by section. The default view is shared with a
+    /// popped-out pane, so the grouping is added once.
+    /// </summary>
+    internal static void GroupFields(ExmodEditorViewModel viewModel)
+    {
+        var view = CollectionViewSource.GetDefaultView(viewModel.Fields);
+        if (view.GroupDescriptions.Count == 0)
+        {
+            view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(EditorFieldViewModel.Group)));
+        }
     }
 
     /// <summary>ListBox.SelectedItems isn't a bindable DependencyProperty in stock WPF — this is the one piece of multi-select mass edit that has to be pushed in from code-behind rather than bound directly.</summary>

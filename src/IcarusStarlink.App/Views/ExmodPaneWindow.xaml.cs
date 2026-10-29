@@ -16,6 +16,7 @@ public partial class ExmodPaneWindow : Window
         PaneTitle = $"{viewModel.WindowTitle} — {PaneLabel(fixedMode)}";
         InitializeComponent();
         DataContext = viewModel;
+        ExmodEditorWindow.GroupFields(viewModel);
 
         // See ScrollSyncHelper's own doc comment — keeps this pane's scroll position in step with
         // the main editor window (or another pane) if it's showing the same fixed view mode.

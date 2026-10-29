@@ -129,4 +129,76 @@ public sealed class ExmodEditorScaleRulesTests : IDisposable
         Assert.Empty(editor.Items);
         Assert.Contains("RequiredMillijoules", rule.FieldOptions);
     }
+
+    /// <summary>An empty Scale view offers the Quality of life rules as one-click starters.</summary>
+    [Fact]
+    public void Starter_AddsARuleThatIsOn_AndApplyWritesIt()
+    {
+        var entry = _library.CreateBlankMod("Starters", "Me", ModTemplate.Blank);
+        var editor = Open(entry.FolderName);
+        Assert.True(editor.HasNoScaleRules);
+        var stacks = editor.ScaleStarters.Single(s => s.Label == "Stack sizes ×4");
+        var offInTemplate = editor.ScaleStarters.First(s => !s.Rule.Enabled);
+
+        editor.AddStarterRuleCommand.Execute(stacks);
+        editor.AddStarterRuleCommand.Execute(offInTemplate);
+        editor.AddStarterRuleCommand.Execute(stacks);
+
+        Assert.Equal(2, editor.ScaleRuleRows.Count);
+        Assert.All(editor.ScaleRuleRows, r => Assert.True(r.Enabled));
+        Assert.Contains("already in the list", editor.ScaleStatusMessage);
+        Assert.StartsWith("Changes 1 row(s)", editor.ScaleRuleRows[0].PreviewText);
+
+        editor.ApplyScaleRulesCommand.Execute(null);
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Fiber");
+        Assert.Equal("800", editor.Fields.Single(f => f.FieldName == "MaxStack").ValueText);
+    }
+
+    /// <summary>A hand-made storage mod (every crate's slots ×2): the Scale view suggests the rule, and as a rule it writes the same values.</summary>
+    [Fact]
+    public void Suggestion_FromTheModsOwnRows_BecomesARuleThatWritesTheSameValues()
+    {
+        Write("Inventory/D_InventoryInfo.json", """
+            {"RowStruct":"S","Defaults":{"StartingSlots":0},"Rows":[
+              {"Name":"Wood_Crate","StartingSlots":10},{"Name":"Metal_Crate","StartingSlots":20},{"Name":"Big_Crate","StartingSlots":30},
+              {"Name":"Quickbar","StartingSlots":12},{"Name":"Backpack","StartingSlots":24},{"Name":"Equipment","StartingSlots":10}
+            ]}
+            """);
+        var entry = _library.CreateBlankMod("Storage x2", "Me", ModTemplate.Blank);
+        var package = ReadSaved(entry.FolderName);
+        package.Rows.Insert(0, new ExmodFileRow
+        {
+            CurrentFile = "Inventory-D_InventoryInfo.json",
+            FileItems =
+            [
+                new ExmodFileItem { Name = "Wood_Crate", Fields = { ["StartingSlots"] = System.Text.Json.Nodes.JsonValue.Create(20) } },
+                new ExmodFileItem { Name = "Metal_Crate", Fields = { ["StartingSlots"] = System.Text.Json.Nodes.JsonValue.Create(40) } },
+                new ExmodFileItem { Name = "Big_Crate", Fields = { ["StartingSlots"] = System.Text.Json.Nodes.JsonValue.Create(60) } },
+            ],
+        });
+        ExmodFolder.Write(_library.GetFolderPath(entry.FolderName), new ExmodPackageContents(package, []));
+        var editor = Open(entry.FolderName);
+
+        editor.ViewMode = ExmodEditorViewMode.ScaleRules;
+
+        var suggestion = Assert.Single(editor.ScaleSuggestions);
+        Assert.Equal("Slots ×2", suggestion.Rule.Label);
+        Assert.Equal("Crate", suggestion.Rule.RowFilter);
+
+        editor.AddSuggestedRuleCommand.Execute(suggestion);
+        Assert.Empty(editor.ScaleSuggestions);
+        Assert.Single(editor.ScaleRuleRows);
+
+        editor.SaveCommand.Execute(null);
+        var saved = ReadSaved(entry.FolderName);
+        Assert.Single(saved.ScaleRules);
+        var slots = saved.Rows.Single(r => r.CurrentFile == "Inventory-D_InventoryInfo.json").FileItems.ToDictionary(i => i.Name, i => i.Fields["StartingSlots"]!.GetValue<long>());
+        Assert.Equal(new Dictionary<string, long> { ["Wood_Crate"] = 20, ["Metal_Crate"] = 40, ["Big_Crate"] = 60 }, slots);
+
+        // Opening the view again doesn't suggest the rule it already has.
+        editor.ViewMode = ExmodEditorViewMode.ItemFields;
+        editor.ViewMode = ExmodEditorViewMode.ScaleRules;
+        Assert.Empty(editor.ScaleSuggestions);
+        Assert.Contains("Nothing to suggest", editor.ScaleSuggestionsMessage);
+    }
 }

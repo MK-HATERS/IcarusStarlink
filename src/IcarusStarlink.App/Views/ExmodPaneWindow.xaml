@@ -18,6 +18,14 @@
     always shows the one pane it was opened for), so unlike the main window's own view-mode buttons,
     there's no switcher here — just that one pane's content plus its own Save/Apply controls.
     -->
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="ExmodEditorResources.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+
     <Window.InputBindings>
         <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCommand}"/>
     </Window.InputBindings>
@@ -35,7 +43,19 @@
         <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
                 Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
             <ScrollViewer x:Name="ItemFieldsScrollViewer" VerticalScrollBarVisibility="Auto">
-                <ItemsControl ItemsSource="{Binding Fields}" Margin="8" ItemTemplate="{StaticResource EditorFieldTemplate}"/>
+                <StackPanel Margin="8">
+                    <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ExmodFieldsBarTemplate}"
+                                    Visibility="{Binding FieldsSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    <ItemsControl ItemsSource="{Binding Fields}" ItemTemplate="{StaticResource EditorFieldTemplate}">
+                        <ItemsControl.GroupStyle>
+                            <GroupStyle ContainerStyle="{StaticResource ExmodFieldGroupItemStyle}"/>
+                        </ItemsControl.GroupStyle>
+                    </ItemsControl>
+                    <TextBlock Text="{Binding FieldsEmptyText}" TextWrapping="Wrap" Margin="0,12,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Visibility="{Binding FieldsEmptyText, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ExmodAddFieldTemplate}"
+                                    Visibility="{Binding SelectedItem, Converter={StaticResource NullToVisibilityConverter}}"/>
+                </StackPanel>
             </ScrollViewer>
         </Border>
 
@@ -47,22 +67,6 @@
                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                      ToolTip="This file's items and fields as raw JSON. Edit freely, then click Apply file JSON below to update the mod — nothing here is saved until you do."/>
         </Border>
-
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0"
-                    Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ItemFields}">
-            <Grid Width="160">
-                <TextBox Text="{Binding NewFieldName, UpdateSourceTrigger=PropertyChanged}" ToolTip="Field name"/>
-                <TextBlock Text="e.g. MaxStack" Style="{StaticResource PlaceholderTextStyle}"
-                           Visibility="{Binding NewFieldName, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-            </Grid>
-            <Grid Width="200" Margin="8,0,0,0">
-                <TextBox Text="{Binding NewFieldValue, UpdateSourceTrigger=PropertyChanged}" ToolTip="JSON value, e.g. 1313 or &quot;text&quot;"/>
-                <TextBlock Text="e.g. 1313 or &quot;text&quot;" Style="{StaticResource PlaceholderTextStyle}"
-                           Visibility="{Binding NewFieldValue, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
-            </Grid>
-            <Button Content="Add field" Command="{Binding AddFieldCommand}" Margin="8,0,0,0"
-                    ToolTip="Adds this field to the selected item"/>
-        </StackPanel>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
                     Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
