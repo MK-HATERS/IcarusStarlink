@@ -175,6 +175,11 @@ public static class ExmodJson
                     Value = entry["value"]?.GetValue<double>() ?? 1,
                     RowFilter = entry["rowFilter"]?.GetValue<string>(),
                     IncludeInherited = entry["includeInherited"]?.GetValue<bool>() ?? true,
+                    // Added later: older files have no list (the rule excepts no row). Anything but a name is skipped.
+                    ExceptRows = entry["exceptRows"] is JsonArray except
+                        ? [.. except.OfType<JsonValue>().Select(v => v.TryGetValue<string>(out var s) ? s.Trim() : null).OfType<string>().Where(s => s.Length > 0)
+                            .Distinct(StringComparer.OrdinalIgnoreCase)]
+                        : [],
                 };
                 if (rule.CurrentFile.Length > 0 && rule.Field.Length > 0)
                 {
@@ -241,16 +246,27 @@ public static class ExmodJson
 
         if (package.ScaleRules.Count > 0)
         {
-            root[ScaleRulesKey] = new JsonArray([.. package.ScaleRules.Select(r => (JsonNode)new JsonObject
+            root[ScaleRulesKey] = new JsonArray([.. package.ScaleRules.Select(r =>
             {
-                ["enabled"] = r.Enabled,
-                ["label"] = r.Label,
-                ["currentFile"] = r.CurrentFile,
-                ["field"] = r.Field,
-                ["operation"] = r.Operation.ToString(),
-                ["value"] = r.Value,
-                ["rowFilter"] = r.RowFilter,
-                ["includeInherited"] = r.IncludeInherited,
+                var rule = new JsonObject
+                {
+                    ["enabled"] = r.Enabled,
+                    ["label"] = r.Label,
+                    ["currentFile"] = r.CurrentFile,
+                    ["field"] = r.Field,
+                    ["operation"] = r.Operation.ToString(),
+                    ["value"] = r.Value,
+                    ["rowFilter"] = r.RowFilter,
+                    ["includeInherited"] = r.IncludeInherited,
+                };
+
+                // Only when there are any, so a rule without exceptions is written exactly as before.
+                if (r.ExceptRows.Count > 0)
+                {
+                    rule["exceptRows"] = new JsonArray([.. r.ExceptRows.Select(n => (JsonNode)JsonValue.Create(n)!)]);
+                }
+
+                return (JsonNode)rule;
             })]);
         }
 

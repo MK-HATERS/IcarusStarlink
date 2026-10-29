@@ -71,6 +71,7 @@
                          ToolTip="Ctrl/Shift-click to select several items for mass edit">
                     <ListBox.InputBindings>
                         <KeyBinding Key="Delete" Command="{Binding RemoveSelectedItemsCommand}"/>
+                        <KeyBinding Key="F2" Command="{Binding RenameRowCommand}"/>
                     </ListBox.InputBindings>
                     <ListBox.GroupStyle>
                         <GroupStyle AlternationCount="6">
@@ -122,6 +123,7 @@
                         <ContextMenu>
                             <MenuItem Header="Copy a game row into this mod…" Command="{Binding AddItemFromGameCommand}" ToolTip="The raw way to change a game item: copy any row of the game's data, with all its values, then edit the fields you want"/>
                             <MenuItem Header="Duplicate (Ctrl+D)" Command="{Binding DuplicateItemCommand}" ToolTip="Copies the selected item under a new name"/>
+                            <MenuItem Header="Rename this row… (F2)" Command="{Binding RenameRowCommand}" ToolTip="Gives a row this mod adds a new name, and changes the links to it in this mod too. A game row can't be renamed (the mod changes it by its name): Duplicate it instead."/>
                             <MenuItem Header="Take out of this mod (Delete)" Command="{Binding RemoveSelectedItemsCommand}" ToolTip="Removes the selected row(s) from this mod: a game row goes back to the game's values, a row this mod added is gone. Undo puts them back."/>
                             <MenuItem Header="Open original file" Command="{Binding OpenOriginalFileCommand}" ToolTip="Opens the game's own, unchanged data file for the selected item"/>
                             <MenuItem Header="Insert file at location…" Command="{Binding InsertFileAtLocationCommand}" ToolTip="Add one of the game's own real data files to this mod, with no rows yet"/>
@@ -397,6 +399,31 @@
                                             </WrapPanel>
                                             <TextBlock Text="{Binding PreviewText}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                                        Visibility="{Binding PreviewText, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                            <!-- Rows kept by hand ("Keep my value"): the rule leaves them alone. -->
+                                            <StackPanel Margin="0,6,0,0" Visibility="{Binding HasExceptions, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                <TextBlock Text="{Binding ExceptionsTitle}" FontSize="11" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                <ItemsControl ItemsSource="{Binding ExceptRows}" Margin="0,2,0,0">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <WrapPanel/>
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border CornerRadius="8" Padding="6,0,2,0" Margin="0,0,6,4" Background="{DynamicResource AccentSoftBrush}">
+                                                                <StackPanel Orientation="Horizontal">
+                                                                    <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11" VerticalAlignment="Center"/>
+                                                                    <Button Content="✕" Padding="4,0" Margin="4,0,0,0" FontSize="10"
+                                                                            Command="{Binding DataContext.RemoveExceptionCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                                            CommandParameter="{Binding}"
+                                                                            ToolTip="Let the rule set this row again on the next Apply (your value is replaced)"
+                                                                            AutomationProperties.Name="Let the rule set this row again"/>
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>

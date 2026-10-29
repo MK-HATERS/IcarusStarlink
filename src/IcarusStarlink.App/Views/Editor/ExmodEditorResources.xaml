@@ -29,6 +29,12 @@
                 <StackPanel Grid.Column="0" Margin="0,3,10,0">
                     <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                     <TextBlock Text="{Binding FieldName}" FontFamily="Consolas" FontSize="10.5" Foreground="{DynamicResource FaintForegroundBrush}" TextWrapping="Wrap"/>
+                    <!-- A Scale rule writes this field of this row: Apply rules sets it. -->
+                    <Border CornerRadius="8" Padding="6,0" Margin="0,3,0,0" HorizontalAlignment="Left" Background="{DynamicResource AccentSoftBrush}"
+                            Visibility="{Binding IsSetByRule, Converter={StaticResource BoolToVisibilityConverter}}"
+                            ToolTip="A Scale rule writes this field: Apply rules (and Save after a rule change) sets it from the game's value. See Scale rules.">
+                        <TextBlock Text="{Binding RuleTag}" FontSize="10.5" TextWrapping="Wrap" Foreground="{DynamicResource AccentBrush}"/>
+                    </Border>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1">
@@ -139,6 +145,21 @@
                                Visibility="{Binding IsChangedFromOriginal, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <TextBlock Text="{Binding ParseError}" FontSize="11" Foreground="{DynamicResource DangerBrush}" Margin="0,2,0,0"
                                Visibility="{Binding ParseError, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    <!-- Changed by hand on a row a rule writes: the next Apply would put the rule's value back. -->
+                    <Border Margin="0,4,0,0" Padding="8,4" CornerRadius="4" BorderThickness="1" BorderBrush="{DynamicResource AccentBrush}"
+                            Visibility="{Binding RuleWillOverwrite, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding RuleOverwriteText}" FontSize="11.5" TextWrapping="Wrap"/>
+                            <WrapPanel Margin="0,4,0,0">
+                                <Button Content="&#x21BA; Leave it to the rule" Padding="8,1" Margin="0,0,6,0" Command="{Binding LeaveToRuleCommand}"
+                                        ToolTip="Back to the value the rule writes, so nothing changes on Apply"/>
+                                <Button Content="Keep my value" Padding="8,1" Command="{Binding KeepMyValueCommand}"
+                                        ToolTip="The rule skips this row from now on (it's listed on the rule's card in Scale rules), so Apply and Save keep your value"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="{Binding RuleExceptionText}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Visibility="{Binding RuleExceptionText, Converter={StaticResource NullToVisibilityConverter}}"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">

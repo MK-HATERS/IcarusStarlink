@@ -127,6 +127,7 @@ public sealed partial class ExmodEditorViewModel
                 OnPropertyChanged(nameof(FieldsSummary));
             }
         };
+        ApplyRuleInfo(field, owner);
         _allFields.Add(field);
         return field;
     }

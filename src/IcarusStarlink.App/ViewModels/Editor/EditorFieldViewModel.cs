@@ -130,6 +130,55 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     /// <summary>Called just before a new value is written into the item (the editor's undo snapshot).</summary>
     internal Action? BeforeWrite { get; set; }
 
+    private JsonNode? _ruleValue;
+    private Action? _keepMine;
+
+    /// <summary>"set by rule: Lighter items (Weight ×0.5)" when a Scale rule writes this field of this row; null otherwise.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSetByRule), nameof(RuleWillOverwrite), nameof(RuleOverwriteText))]
+    private string? _ruleTag;
+
+    /// <summary>"Rule 'Lighter items' skips this row, so your value stays." when a rule's exception list holds this row.</summary>
+    [ObservableProperty]
+    private string? _ruleExceptionText;
+
+    public bool IsSetByRule => RuleTag is not null;
+
+    /// <summary>The field holds a value the rule will replace on the next Apply rules (or a Save after a rule change).</summary>
+    public bool RuleWillOverwrite => IsSetByRule && !ScaleRules.SameValue(CurrentNode(), _ruleValue);
+
+    /// <summary>What the notice under a hand-edited rule field says.</summary>
+    public string? RuleOverwriteText => IsSetByRule
+        ? $"A Scale rule sets this field: Apply rules (and Save after a rule change) puts back {EditorValueText.Plain(_ruleValue)}. Leave it to the rule, or keep your value (the rule then skips this row)."
+        : null;
+
+    /// <summary>Marks the field as one a rule writes (tag null clears it). <paramref name="keepMine"/> runs on "Keep my value".</summary>
+    internal void SetRule(string? tag, JsonNode? ruleValue, Action? keepMine, string? exceptionText)
+    {
+        _ruleValue = ruleValue?.DeepClone();
+        _keepMine = keepMine;
+        RuleTag = tag;
+        RuleExceptionText = exceptionText;
+        OnPropertyChanged(nameof(RuleWillOverwrite));
+        OnPropertyChanged(nameof(RuleOverwriteText));
+    }
+
+    /// <summary>↺ to the rule's value: the field goes back to what Apply would write anyway.</summary>
+    [RelayCommand]
+    private void LeaveToRule()
+    {
+        if (IsSetByRule)
+        {
+            SetShownValue(_ruleValue);
+        }
+    }
+
+    /// <summary>Keeps the typed value: the rule gets this row on its "except these rows" list.</summary>
+    [RelayCommand]
+    private void KeepMyValue() => _keepMine?.Invoke();
+
+    private JsonNode? CurrentNode() => _fields.TryGetValue(FieldName, out var v) ? v : null;
+
     [ObservableProperty]
     private string _valueText;
 
@@ -337,14 +386,20 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             return;
         }
 
+        SetShownValue(_baseValue);
+    }
+
+    /// <summary>Puts a value in every view of the field (the box, the checkbox, the dropdown, each stat row).</summary>
+    private void SetShownValue(JsonNode? value)
+    {
         if (Kind == EditorFieldKind.Stats)
         {
             _syncingStats = true;
             Stats.Clear();
-            BuildStats(_baseValue as JsonObject);
+            BuildStats(value as JsonObject);
         }
 
-        ValueText = FormatForDisplay(_baseValue);
+        ValueText = FormatForDisplay(value);
         OnPropertyChanged(nameof(PlainText));
         OnPropertyChanged(nameof(PlainString));
         OnPropertyChanged(nameof(BoolValue));
@@ -435,6 +490,8 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             IsChanged = true;
             IsChangedFromOriginal = true;
         }
+
+        OnPropertyChanged(nameof(RuleWillOverwrite));
     }
 
     private static string FormatForDisplay(JsonNode? value) => value?.ToJsonString(ExmodJson.DisplayOptions) ?? "null";
