@@ -210,7 +210,10 @@ public sealed partial class DownloadsViewModel
         var tempExtractDirectory = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Activate_{Guid.NewGuid():N}");
         try
         {
-            AnyArchiveExtractor.ExtractToDirectory(localFilePath, tempExtractDirectory);
+            // Off the UI thread: a 30 MB zip or a big .rar/.7z froze the whole window while it
+            // unpacked. Only the unpacking — the classify-and-import below asks questions (which
+            // archive?) and touches the Library, so it stays where it was.
+            await Task.Run(() => AnyArchiveExtractor.ExtractToDirectory(localFilePath, tempExtractDirectory));
             var (classifiedStatus, classifiedItems, classifiedRequirements) =
                 await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, source, nexusModId, item.CatalogEntryId, previous, removeOld);
             return (classifiedItems, classifiedStatus, classifiedRequirements);
@@ -429,7 +432,8 @@ public sealed partial class DownloadsViewModel
         string? scratch = null;
         try
         {
-            scratch = ManualInstaller.UnpackForManualInstall(ResolveLocalFilePath(item));
+            var downloadPath = ResolveLocalFilePath(item);
+            scratch = await Task.Run(() => ManualInstaller.UnpackForManualInstall(downloadPath));
             if (ManualInstall(scratch, item.DisplayName, reason, ManualInstaller.Suggest(scratch)) is not { Count: > 0 } plan)
             {
                 return null; // the "Import failed: …" message stays
