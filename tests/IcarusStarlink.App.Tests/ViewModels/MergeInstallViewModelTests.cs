@@ -2169,6 +2169,66 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Equal(2, library.ImportedPakSets.Count);
     }
 
+    private PatchImportContents BundledPakPatch(string folderName)
+    {
+        var extracted = Path.Combine(_tempRoot, "Extracted", folderName);
+        Directory.CreateDirectory(extracted);
+        File.WriteAllBytes(Path.Combine(extracted, "Model_P.pak"), [1]);
+        return new PatchImportContents(
+            new PatchManifest
+            {
+                FormatVersion = 2, ProfileName = "S",
+                Mods = [new PatchModEntry { FolderName = folderName, Name = folderName, Author = "Friend", Version = "1", Bundled = true, IsPak = true, PakFileNames = ["Model_P.pak"] }],
+            },
+            new Dictionary<string, ExmodPackageContents>(),
+            new Dictionary<string, string> { [folderName] = extracted });
+    }
+
+    /// <summary>
+    /// Review 2026-10-28: a friend's patch bundling a mod under a folder name the player already
+    /// had deleted the player's copy (edits, notes, Nexus link) with no backup, before an import
+    /// that could still fail. It's backed up first and put back when the import fails.
+    /// </summary>
+    [Fact]
+    public async Task ImportPatch_BundledModReplacingAPlayersCopy_BacksItUpFirst_AndPutsItBackWhenTheImportFails()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("Mine", isOpaquePak: true)], ImportPaksException = new IOException("disk full") };
+        var vm = CreateViewModel(libraryRepository: library, profileStore: new FakeProfileStore(), patchService: new FakePatchService { ImportResult = BundledPakPatch("Mine") });
+        _dialogs.OnPickFile = () => "patch.zip";
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+
+        Assert.Equal(["backup:Mine", "delete:Mine", "restore:Mine"], library.Calls);
+        Assert.StartsWith("Import failed", vm.PatchStatusMessage);
+    }
+
+    /// <summary>A pak mod in the patch never takes the place of an EXMOD mod that happens to share its folder name (and the other way round).</summary>
+    [Fact]
+    public async Task ImportPatch_BundledPakMod_LeavesAnExmodModOfTheSameFolderNameAlone()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("Mine")] };
+        var vm = CreateViewModel(libraryRepository: library, profileStore: new FakeProfileStore(), patchService: new FakePatchService { ImportResult = BundledPakPatch("Mine") });
+        _dialogs.OnPickFile = () => "patch.zip";
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+
+        Assert.Empty(library.Calls);
+        Assert.Single(library.ImportedPakSets);
+    }
+
+    [Fact]
+    public async Task ImportPatch_BundledModReplacingAPlayersCopy_SaysSoAndWhereTheBackupIs()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("Mine", isOpaquePak: true)] };
+        var vm = CreateViewModel(libraryRepository: library, profileStore: new FakeProfileStore(), patchService: new FakePatchService { ImportResult = BundledPakPatch("Mine") });
+        _dialogs.OnPickFile = () => "patch.zip";
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+
+        Assert.Equal(["backup:Mine", "delete:Mine"], library.Calls);
+        Assert.Contains("your copy of 'Mine' was replaced by the patch's (backed up first", vm.PatchStatusMessage);
+    }
+
     /// <summary>Review 2026-10-27: a pak mod with no source and no pak files on disk was marked bundled with nothing to bundle, and the import refused the whole patch. It's left out and named.</summary>
     [Fact]
     public async Task ExportPatch_PakModWithNoFilesAndNoSource_IsLeftOutAndNamed()
@@ -2512,8 +2572,19 @@ public sealed class MergeInstallViewModelTests : IDisposable
         /// <summary>What ImportPaks was handed (a patch's bundled pak mod).</summary>
         public List<(IReadOnlyList<string> Paks, string Name, string? Source, int? NexusModId)> ImportedPakSets { get; } = [];
 
+        /// <summary>Thrown by ImportPaks when set.</summary>
+        public Exception? ImportPaksException { get; set; }
+
+        /// <summary>Delete, BackupMod and RestoreLatestModBackup calls in order ("delete:X", "backup:X", "restore:X").</summary>
+        public List<string> Calls { get; } = [];
+
         public LibraryEntry ImportPaks(IReadOnlyList<string> pakFilePaths, string name, string? source = null, int? nexusModId = null, string? catalogEntryId = null)
         {
+            if (ImportPaksException is not null)
+            {
+                throw ImportPaksException;
+            }
+
             ImportedPakSets.Add((pakFilePaths, name, source, nexusModId));
             var entry = new LibraryEntry
             {
@@ -2546,7 +2617,11 @@ public sealed class MergeInstallViewModelTests : IDisposable
 
         public void Refresh() => throw new NotSupportedException("Not exercised by these tests.");
 
-        public void Delete(string folderName) { }
+        public void Delete(string folderName)
+        {
+            Calls.Add($"delete:{folderName}");
+            AllEntries.RemoveAll(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+        }
 
         public void UpdateMetadata(string folderName, bool isPinned, bool isFavorite, string notes) =>
             throw new NotSupportedException("Not exercised by these tests.");
@@ -2561,11 +2636,19 @@ public sealed class MergeInstallViewModelTests : IDisposable
 
         public void SetCatalogEntry(string folderName, string catalogEntryId) => throw new NotSupportedException("Not exercised by these tests.");
 
-        public string BackupMod(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
+        public string BackupMod(string folderName)
+        {
+            Calls.Add($"backup:{folderName}");
+            return folderName + "_backup";
+        }
 
         public bool HasModBackup(string folderName) => false;
 
-        public bool RestoreLatestModBackup(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
+        public bool RestoreLatestModBackup(string folderName)
+        {
+            Calls.Add($"restore:{folderName}");
+            return true;
+        }
 
         public string? TryGetLatestModBackupPath(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
 
