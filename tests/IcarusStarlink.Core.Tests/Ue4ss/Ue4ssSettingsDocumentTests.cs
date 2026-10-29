@@ -329,6 +329,23 @@ public class Ue4ssSettingsDocumentTests
     public void Label_FromKey_ReadsAsWords(string key, string label) =>
         Assert.Equal(label, Ue4ssSettingLabel.FromKey(key));
 
+    /// <summary>
+    /// Final review 2026-10-28: the word so far was copied out for every letter of a key, so one
+    /// very long key in a downloaded config (an ini key runs to the '=') took minutes to label on
+    /// the UI thread when Edit config opened it.
+    /// </summary>
+    [Fact]
+    public void Label_FromKey_AVeryLongKey_IsQuick()
+    {
+        var key = string.Concat(Enumerable.Repeat("A1", 150_000));
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var label = Ue4ssSettingLabel.FromKey(key);
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+        Assert.Equal(key, label);
+    }
+
     [Theory]
     [InlineData("GENERAL", "General")]
     [InlineData("PACKS, HERDS AND FLOCKS", "Packs, herds and flocks")]
