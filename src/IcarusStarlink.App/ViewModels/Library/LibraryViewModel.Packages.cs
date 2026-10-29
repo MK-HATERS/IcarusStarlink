@@ -145,7 +145,9 @@ public sealed partial class LibraryViewModel
     {
         try
         {
-            return new Ue4ssInstalledNames(_ue4ssModRepository, _settingsService).All();
+            // The UE4SS panel's rows already list every mod, staged and in the game
+            // (ReloadInstalledUe4ssMods), so a search's reload doesn't read the game's Mods folder again.
+            return [.. _ue4ssModRepository.GetAll().Concat(Ue4ssMods.Select(r => r.Name)).Distinct(StringComparer.OrdinalIgnoreCase)];
         }
         catch (Exception)
         {
