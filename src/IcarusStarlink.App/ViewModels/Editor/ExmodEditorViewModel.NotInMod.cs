@@ -76,11 +76,13 @@ public sealed partial class ExmodEditorViewModel
         : null;
 
     /// <summary>What Add does with the current choices, for its tooltip and the line under the list.</summary>
-    public string NotInModAddHint => NotInModFieldName is not { } field
+    // Not "field": in C# 14 that word inside a property means the property's hidden backing field
+    // (always null here), so the hint went blank as soon as a field was picked (final review 2026-10-28).
+    public string NotInModAddHint => NotInModFieldName is not { } fieldName
         ? "Adds each ticked row with all of its game values; change what you want after."
         : NotInModUseModChange && _notInModChange is not null
-            ? $"Adds each ticked row with only {FieldLabel(field)}, changed the way this mod changes it."
-            : $"Adds each ticked row with only {FieldLabel(field)}, at the game's value: change it after (pick several on the left for mass edit). Left unchanged, Save drops it.";
+            ? $"Adds each ticked row with only {FieldLabel(fieldName)}, changed the way this mod changes it."
+            : $"Adds each ticked row with only {FieldLabel(fieldName)}, at the game's value: change it after (pick several on the left for mass edit). Left unchanged, Save drops it.";
 
     public bool HasNotInModRows => NotInModRows.Count > 0;
 

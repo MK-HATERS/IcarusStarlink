@@ -231,6 +231,8 @@ public sealed class ExmodEditorFieldsViewTests : IDisposable
         Assert.Equal("game: 20", editor.NotInModRows.Single(r => r.RowName == "Item_Stick").GameValueText);
         Assert.True(editor.HasNotInModChange);
         Assert.Contains("Stack size ×10", editor.NotInModChangeText);
+        // The line under the list names the picked field (it went blank: "field" is a keyword inside a C# 14 property).
+        Assert.Contains("Stack size", editor.NotInModAddHint);
 
         editor.PickAllNotInModCommand.Execute(null);
         editor.AddNotInModRowsCommand.Execute(null);
