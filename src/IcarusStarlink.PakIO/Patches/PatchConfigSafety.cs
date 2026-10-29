@@ -29,12 +29,46 @@ public static class PatchConfigSafety
         try
         {
             _ = LuaData.Parse(config.Text);
-            return true;
         }
         catch (FormatException)
         {
             return false;
         }
+
+        return ValuesAreData(config.Text);
+    }
+
+    /// <summary>
+    /// The import doesn't write a Lua file whole when the mod already has it: it reads the patch's
+    /// settings line by line (LuaConfigDocument) and writes each value into the mod's own file
+    /// (Ue4ssModConfigCarryOver.ApplyValues), where a value going into a table setting is written
+    /// as Lua, not as a string. Two ways that wrote code into a trusted mod although the file as a
+    /// whole is data (review 2026-10-28): a string holding Lua (Keys = "{ os.execute('x') }",
+    /// written raw into the mod's Keys = { ... }), and lines inside a long comment
+    /// (--[==[ ... ]==], or one opened after a value) that the line reader takes as settings. So
+    /// every value that would be written as a table must itself be data.
+    /// </summary>
+    private static bool ValuesAreData(string text)
+    {
+        foreach (var setting in LuaConfigDocument.Parse(text).Settings)
+        {
+            var value = setting.Value.Trim();
+            if (!value.StartsWith('{'))
+            {
+                continue;
+            }
+
+            try
+            {
+                _ = LuaData.Parse("return " + value);
+            }
+            catch (FormatException)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>Moves every config that isn't safe out of the entry's Configs into its RefusedConfigPaths.</summary>
