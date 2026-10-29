@@ -151,8 +151,11 @@
                                         <DockPanel Margin="0,4,0,2">
                                             <TextBlock DockPanel.Dock="Right" Text="{Binding SelectedLevelDisplay}" VerticalAlignment="Center" Margin="12,0,0,0" FontWeight="SemiBold"
                                                        Foreground="{DynamicResource AccentBrush}" Visibility="{Binding SelectedLevelDisplay, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                            <TextBox Text="{Binding SelectedCharacter.XpText, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas" AutomationProperties.Name="XP"/>
+                                            <TextBox Text="{Binding SelectedCharacter.XpText, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas" AutomationProperties.Name="XP"
+                                                     Style="{StaticResource SaveNumberBoxStyle}" Tag="{Binding SelectedCharacter.HasXpError}"
+                                                     AutomationProperties.HelpText="{Binding SelectedCharacter.XpError}"/>
                                         </DockPanel>
+                                        <TextBlock Text="{Binding SelectedCharacter.XpError}" Style="{StaticResource SaveNumberErrorTextStyle}" Margin="0,0,0,4"/>
                                         <TextBlock Text="Experience points. The game works out the level from this: higher = a higher level."
                                                    Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
@@ -173,8 +176,12 @@
                                                 <DataTemplate>
                                                     <DockPanel Margin="0,3">
                                                         <TextBlock DockPanel.Dock="Left" Text="{Binding Label}" Width="190" Margin="0,0,8,0" VerticalAlignment="Center" FontSize="12.5" TextWrapping="Wrap"/>
-                                                        <TextBox Text="{Binding CountText, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas" FontSize="12.5" TextAlignment="Right"
-                                                                 AutomationProperties.Name="{Binding Label}"/>
+                                                        <StackPanel>
+                                                            <TextBox Text="{Binding CountText, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas" FontSize="12.5" TextAlignment="Right"
+                                                                     AutomationProperties.Name="{Binding Label}" AutomationProperties.HelpText="{Binding NumberError}"
+                                                                     Style="{StaticResource SaveNumberBoxStyle}" Tag="{Binding HasNumberError}"/>
+                                                            <TextBlock Text="{Binding NumberError}" Style="{StaticResource SaveNumberErrorTextStyle}" TextAlignment="Right"/>
+                                                        </StackPanel>
                                                     </DockPanel>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
@@ -194,7 +201,12 @@
                                             <DataTemplate>
                                                 <DockPanel Margin="0,3,0,3">
                                                     <TextBlock DockPanel.Dock="Left" Text="{Binding Key}" Width="220" VerticalAlignment="Center" FontSize="12.5"/>
-                                                    <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas"/>
+                                                    <StackPanel>
+                                                        <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas"
+                                                                 AutomationProperties.Name="{Binding Key}" AutomationProperties.HelpText="{Binding NumberError}"
+                                                                 Style="{StaticResource SaveNumberBoxStyle}" Tag="{Binding HasNumberError}"/>
+                                                        <TextBlock Text="{Binding NumberError}" Style="{StaticResource SaveNumberErrorTextStyle}"/>
+                                                    </StackPanel>
                                                 </DockPanel>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
@@ -425,14 +437,18 @@
                                 <DockPanel Margin="2">
                                     <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
                                     <!-- Fixed widths so every row's box, "/ max" and button line up. -->
-                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBox Text="{Binding PointsText, UpdateSourceTrigger=PropertyChanged}" Width="70" FontFamily="Consolas" TextAlignment="Right"
-                                                 AutomationProperties.Name="{Binding DisplayName, StringFormat='{}{0} points'}"
-                                                 ToolTip="Field guide points for this creature. Higher = more of its entry unlocked; the number after the slash completes it."/>
-                                        <TextBlock Text="{Binding PointsRequired, StringFormat='/ {0}'}" Width="56" VerticalAlignment="Center" Margin="6,0,0,0"
-                                                   Foreground="{DynamicResource SecondaryForegroundBrush}" FontFamily="Consolas" FontSize="12"/>
-                                        <Button Content="Set max" Command="{Binding SetMaxCommand}" Padding="8,2" Margin="4,0,0,0"
-                                                ToolTip="Gives this creature all the points it needs, so its field guide entry is fully unlocked"/>
+                                    <StackPanel DockPanel.Dock="Right" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBox Text="{Binding PointsText, UpdateSourceTrigger=PropertyChanged}" Width="70" FontFamily="Consolas" TextAlignment="Right"
+                                                     AutomationProperties.Name="{Binding DisplayName, StringFormat='{}{0} points'}" AutomationProperties.HelpText="{Binding NumberError}"
+                                                     Style="{StaticResource SaveNumberBoxStyle}" Tag="{Binding HasNumberError}"
+                                                     ToolTip="Field guide points for this creature. Higher = more of its entry unlocked; the number after the slash completes it."/>
+                                            <TextBlock Text="{Binding PointsRequired, StringFormat='/ {0}'}" Width="56" VerticalAlignment="Center" Margin="6,0,0,0"
+                                                       Foreground="{DynamicResource SecondaryForegroundBrush}" FontFamily="Consolas" FontSize="12"/>
+                                            <Button Content="Set max" Command="{Binding SetMaxCommand}" Padding="8,2" Margin="4,0,0,0"
+                                                    ToolTip="Gives this creature all the points it needs, so its field guide entry is fully unlocked"/>
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding NumberError}" Style="{StaticResource SaveNumberErrorTextStyle}"/>
                                     </StackPanel>
                                     <!-- Resolved lazily off the base game's own extracted pak content (see
                                          IBaseGameIconDecoder) — collapsed entirely until (if ever) it

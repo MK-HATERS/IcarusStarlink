@@ -86,6 +86,9 @@ public interface ISaveRepository
 
     IReadOnlyList<SaveBackupInfo> ListBackups(string steamId);
 
+    /// <summary>Settings › Maintenance › Backups to keep › Save backups (each slot): how many automatic backups are kept, also each world's on the Worlds tab.</summary>
+    int AutomaticBackupsKept => Settings.BackupLimits.DefaultSaveBackupsKept;
+
     /// <summary>Writes a pre_restore safety zip of the slot as it is RIGHT NOW, then replaces the slot's contents with the chosen backup. Returns the pre_restore zip path.</summary>
     string RestoreSlot(string steamId, string backupFilePath);
 

@@ -10,6 +10,33 @@
         </Grid.ColumnDefinitions>
 
         <DockPanel Grid.Column="0">
+            <!-- The selected world's backups and Restore (only where the page says whose worlds these are). -->
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0"
+                        Visibility="{Binding ShowsBackups, Converter={StaticResource BoolToVisibilityConverter}}">
+                <StackPanel Visibility="{Binding SelectedWorld, Converter={StaticResource NullToVisibilityConverter}}">
+                    <TextBlock Text="BACKUPS OF THIS WORLD" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                    <TextBlock Text="None yet. Saving world settings or restoring backs the world up first; Find the broken mod backs up every world."
+                               TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Visibility="{Binding HasNoBackups, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <ListBox ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}" MaxHeight="220" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                             AutomationProperties.Name="Backups of this world" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             Visibility="{Binding HasBackups, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,2" ToolTip="{Binding FileName}">
+                                    <TextBlock Text="{Binding When}" FontWeight="SemiBold" FontSize="12"/>
+                                    <TextBlock Text="{Binding What}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                    <TextBlock Text="{Binding Note}" FontSize="10.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}"
+                                               Visibility="{Binding Note, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <Button Content="Restore selected" Command="{Binding RestoreBackupCommand}" HorizontalAlignment="Left" Margin="0,6,0,0"
+                            Visibility="{Binding HasBackups, Converter={StaticResource BoolToVisibilityConverter}}" ToolTipService.ShowOnDisabled="True"
+                            ToolTip="Puts this world back to the chosen backup. The world as it is now is backed up first. The game (or server) must be closed. Greyed out: pick a backup first."/>
+                </StackPanel>
+            </StackPanel>
             <TextBlock DockPanel.Dock="Top" Text="WORLDS" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
             <TextBlock DockPanel.Dock="Top" Text="{Binding EmptyText}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,4,0,0"
                        Visibility="{Binding HasNoWorlds, Converter={StaticResource BoolToVisibilityConverter}}"/>

@@ -246,6 +246,34 @@ public sealed class SaveRepositoryTests : IDisposable
             dir => Path.GetFileName(dir).Contains("_restore_scratch_"));
     }
 
+    /// <summary>
+    /// Restore put the files back with the zip's old times, so Steam Cloud could take its own copy
+    /// for the newer one and undo the restore. Every restored file now has the time of the restore.
+    /// </summary>
+    [Fact]
+    public void RestoreSlot_RestoredFilesGetTheTimeOfTheRestore_NotTheBackupsOldTime()
+    {
+        var slot = Path.Combine(_playerData, SteamId);
+        var old = new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Local);
+        foreach (var file in Directory.GetFiles(slot))
+        {
+            File.SetLastWriteTime(file, old);
+        }
+
+        var backupPath = _repository.BackupSlot(SteamId);
+        using (var zip = ZipFile.OpenRead(backupPath))
+        {
+            Assert.All(zip.Entries, e => Assert.Equal(2020, e.LastWriteTime.Year));
+        }
+
+        var before = DateTime.Now.AddSeconds(-2);
+        _repository.RestoreSlot(SteamId, backupPath);
+
+        var restored = Directory.GetFiles(slot);
+        Assert.Contains(restored, f => Path.GetFileName(f) == "Profile.json");
+        Assert.All(restored, f => Assert.True(File.GetLastWriteTime(f) >= before, $"{Path.GetFileName(f)} kept {File.GetLastWriteTime(f)}"));
+    }
+
     /// <summary>The backup picker named each backup by its zip (a Steam ID and a timestamp): it now says what each one is.</summary>
     [Fact]
     public void ListBackups_EachSaysWhatItIs_NotItsZipName()

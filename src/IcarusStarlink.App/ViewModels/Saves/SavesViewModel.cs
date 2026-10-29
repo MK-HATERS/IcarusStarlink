@@ -192,7 +192,11 @@ public sealed partial class SavesViewModel : ObservableObject
             () => gameProcessChecker.IsRunning() ? "Close Icarus first: it rewrites its worlds when it exits, which would undo this." : null,
             worldBackupFolder ?? Path.Combine(Path.GetTempPath(), "IcarusStarlink", "WorldBackups"),
             activityLog,
-            dialogService);
+            dialogService,
+            // Backups named per slot (Find the broken mod's world zips already carry the Steam id),
+            // pruned to Settings › Backups to keep › Save backups (each slot).
+            backupOwner: () => SelectedSlot?.SteamId,
+            backupsKept: () => repository.AutomaticBackupsKept);
 
         WorldSettings.PropertyChanged += (_, e) =>
         {

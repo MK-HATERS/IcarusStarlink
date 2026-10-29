@@ -101,6 +101,8 @@ public sealed partial class SaveBestiaryEntryViewModel : DirtyRow
     /// <summary>0 means "the current data extraction doesn't recognize this creature," not "already maxed" — writing 0 here would zero out real tracked progress instead of maxing it, so this only fires when a real cap is known.</summary>
     public bool CanSetMax => PointsRequired > 0;
 
+    protected override string? NumberProblem => SaveNumberRules.CountProblem(PointsText);
+
     [RelayCommand(CanExecute = nameof(CanSetMax))]
     private void SetMax() => PointsText = PointsRequired.ToString();
 
