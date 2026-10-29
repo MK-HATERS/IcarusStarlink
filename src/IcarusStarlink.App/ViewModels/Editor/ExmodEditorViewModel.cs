@@ -154,7 +154,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [ObservableProperty]
     private int _selectedItemCount;
 
-    /// <summary>2+ items selected at once — mass edit becomes available. A single selection (the common case) keeps using the normal Fields / File JSON views instead.</summary>
+    /// <summary>2+ items selected at once — mass edit becomes available. A single selection (the common case) keeps using the normal Fields view instead.</summary>
     public bool IsMassEditActive => SelectedItemCount > 1;
 
     [ObservableProperty]

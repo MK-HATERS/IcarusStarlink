@@ -74,8 +74,8 @@ public sealed partial class ExmodEditorViewModel
 
     /// <summary>
     /// Takes the selected row (or every selected row, with several picked) out of the mod: a game
-    /// row goes back to the game's own values, a row the mod added is gone. The only way to drop a
-    /// row since the raw JSON views went (a row copied in by mistake, an old row nothing uses).
+    /// row goes back to the game's own values, a row the mod added is gone. The way to drop a row
+    /// (a row copied in by mistake, an old row nothing uses).
     /// A file left with no rows goes too; the EndOfMod marker stays. Undoable.
     /// </summary>
     [RelayCommand]

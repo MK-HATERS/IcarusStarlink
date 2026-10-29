@@ -82,10 +82,6 @@ public sealed partial class LibraryViewModel
             }
 
             var items = group.Entries.Select(entry => GetOrCreateItem(entry, fullResync)).ToList();
-            foreach (var item in items)
-            {
-            }
-
             var pinned = group.Entries.Any(e => e.IsPinned);
             if (group.IsFamily)
             {

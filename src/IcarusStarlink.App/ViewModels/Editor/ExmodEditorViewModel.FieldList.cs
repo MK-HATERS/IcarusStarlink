@@ -26,8 +26,8 @@ public sealed partial class ExmodEditorViewModel
         _baseValuesByKey = baseDiff.ToDictionary(c => (c.CurrentFile, c.ItemName, c.FieldName), c => c.OriginalValue);
 
         // Explicitly clears a stale warning from an earlier refresh (e.g. a prior package version
-        // had a row with no matching base file) when a later refresh — after a File JSON
-        // Apply changed what Rows actually contains — no longer has anything to warn
+        // had a row with no matching base file) when a later refresh — after an edit
+        // changed what Rows actually contains — no longer has anything to warn
         // about; a bare "only set when there are warnings" would leave the old message showing
         // even though it no longer applies to the package's current content.
         StatusMessage = report.Warnings.Count > 0 ? report.Warnings[0] : null;
