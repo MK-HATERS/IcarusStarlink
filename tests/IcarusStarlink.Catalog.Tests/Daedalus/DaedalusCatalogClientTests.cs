@@ -144,6 +144,25 @@ public class DaedalusCatalogClientTests
         Assert.Equal("http://example.com/c.md", good.ReadmeUrl);
     }
 
+    /// <summary>Real shape (the live catalog, 2026-10-28): 20 EXMODZ-only mods list "pak": "". A blank must read as "no pak", or it hides the EXMODZ link from every PakUrl ?? ExmodzUrl lookup (the Last Updated date).</summary>
+    [Fact]
+    public async Task FetchAsync_BlankPakLink_IsNoPakLink()
+    {
+        const string mods = """
+            [ { "id": "a", "name": "Exmodz Only", "author": "Someone", "files": { "pak": "", "exmodz": "https://github.com/o/r/raw/main/a.EXMODZ" } } ]
+            """;
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/mods.json"] = mods,
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/tags.json"] = "[]",
+        });
+
+        var entry = Assert.Single(await new DaedalusCatalogClient(new HttpClient(handler)).FetchAsync());
+
+        Assert.Null(entry.PakUrl);
+        Assert.Equal("https://github.com/o/r/raw/main/a.EXMODZ", entry.PakUrl ?? entry.ExmodzUrl);
+    }
+
     [Fact]
     public async Task FetchAsync_ReturnsAllModsFromModsJson()
     {

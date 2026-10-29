@@ -25,4 +25,14 @@ public sealed record CatalogEntry(
 
     /// <summary>A web link or null — see WebLink (Readme opens it through the shell, so a file path would run that program).</summary>
     public string? ReadmeUrl { get; init; } = WebLink.HttpOrNull(ReadmeUrl);
+
+    /// <summary>
+    /// Null when the catalog lists none. The live Daedalus catalog writes "pak": "" for 20 mods that
+    /// only have an EXMODZ, and that blank won every `PakUrl ?? ExmodzUrl` — their Last Updated
+    /// date (looked up from the GitHub repo in that link) stayed empty.
+    /// </summary>
+    public string? PakUrl { get; init; } = string.IsNullOrWhiteSpace(PakUrl) ? null : PakUrl.Trim();
+
+    /// <summary>Null when the catalog lists none (a blank string counts as none, as for PakUrl).</summary>
+    public string? ExmodzUrl { get; init; } = string.IsNullOrWhiteSpace(ExmodzUrl) ? null : ExmodzUrl.Trim();
 }
