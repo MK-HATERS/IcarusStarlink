@@ -116,6 +116,34 @@ public sealed class GameEditorViewModelTests : IDisposable
         Assert.True(_library.GetAll().Single(e => e.FolderName == mine.FolderName).MadeInStarlink);
     }
 
+    /// <summary>"Only changed values" hides the game's own values (never drops them: Save still reads every card), and stays on for the next item.</summary>
+    [Fact]
+    public void OnlyChangedValues_HidesTheGamesValues_UntilSwitchedOff()
+    {
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        Weight(vm).ValueText = "50";
+
+        vm.ShowChangedValuesOnly = true;
+
+        var itemable = vm.Sections.Single(s => s.Section.Key == "Itemable");
+        Assert.True(Weight(vm).IsShown);
+        Assert.All(itemable.Fields.Where(f => f != Weight(vm)), f => Assert.False(f.IsShown));
+        Assert.All(vm.Sections.Where(s => s != itemable && s.Fields.Count > 0), s => Assert.True(s.AllHidden));
+        Assert.Single(vm.PendingChanges);
+
+        // Put back to the game's value, it stays in view (no field vanishes under the cursor).
+        Weight(vm).UseGameValueCommand.Execute(null);
+        Assert.True(Weight(vm).IsShown);
+
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Stone");
+        Assert.All(vm.Sections.SelectMany(s => s.Fields), f => Assert.False(f.IsShown));
+
+        vm.ShowChangedValuesOnly = false;
+        Assert.All(vm.Sections.SelectMany(s => s.Fields), f => Assert.True(f.IsShown));
+        Assert.All(vm.Sections, s => Assert.False(s.AllHidden));
+    }
+
     /// <summary>"Your changes" lists each changed value, and its x puts that one back.</summary>
     [Fact]
     public void YourChanges_ListsEachChange_AndItsUndoPutsItBack()
