@@ -191,6 +191,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         ReloadItems();
         SelectedItem = Items.FirstOrDefault();
         LoadScaleRules();
+        RefreshRuleTags();
 
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((ExmodEditorViewModel)recipient).OnGameDataRefreshed());
 
@@ -346,6 +347,11 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         else if (value == ExmodEditorViewMode.ScaleRules)
         {
             FindScaleSuggestions();
+        }
+        else if (value == ExmodEditorViewMode.ItemFields)
+        {
+            // A rule edited in the Scale view changes which fields it sets.
+            RefreshRuleTags();
         }
     }
 

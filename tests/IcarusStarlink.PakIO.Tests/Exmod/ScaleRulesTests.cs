@@ -335,4 +335,100 @@ public sealed class ScaleRulesTests : IDisposable
 
         Assert.Equal(1.5, Item(mod, "Traits-D_Decayable.json", "Food").Fields["SpoilTime"]!.GetValue<double>());
     }
+
+    /// <summary>"Keep my value": a row on the rule's except list keeps the modder's own value through Apply, even though the rule (without the exception) wrote it before.</summary>
+    [Fact]
+    public void ExceptRows_KeepAHandValue_ThroughApply_AndTheOtherRowsStillScale()
+    {
+        var mod = EmptyMod();
+        var weight = Rule("Traits-D_Itemable.json", "Weight", 0.5);
+        ScaleRules.ApplyToPackage(mod, [weight], _data, new MergeReport());
+        Item(mod, "Traits-D_Itemable.json", "Item_Fiber").Fields["Weight"] = 3;
+
+        var keep = weight.Clone();
+        keep.ExceptRows.Add("item_fiber"); // names ignore case
+        ScaleRules.ApplyToPackage(mod, [keep], _data, new MergeReport());
+
+        Assert.Equal(3, Item(mod, "Traits-D_Itemable.json", "Item_Fiber").Fields["Weight"]!.GetValue<int>());
+        Assert.Equal(150, Item(mod, "Traits-D_Itemable.json", "Item_Stone").Fields["Weight"]!.GetValue<long>());
+        Assert.Equal(["item_fiber"], mod.ScaleRules.Single().ExceptRows);
+        // Clone copies the list: changing the copy never changes the rule it came from.
+        Assert.Empty(weight.ExceptRows);
+    }
+
+    [Fact]
+    public void ExceptRows_AreSavedWithTheRule_AndOldFilesLoadWithNone()
+    {
+        var mod = EmptyMod();
+        var weight = Rule("Traits-D_Itemable.json", "Weight", 0.5);
+        weight.ExceptRows.Add("Item_Fiber");
+        mod.ScaleRules = [weight, Rule("Traits-D_Itemable.json", "MaxStack", 2)];
+
+        var json = ExmodJson.Serialize(mod);
+        var reloaded = ExmodJson.Parse(json);
+
+        Assert.Equal(["Item_Fiber"], reloaded.ScaleRules[0].ExceptRows);
+        Assert.Empty(reloaded.ScaleRules[1].ExceptRows);
+        // A rule with no exceptions is written exactly as before (no new key).
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(json, "exceptRows"));
+
+        // A file from before exceptions existed.
+        var old = ExmodJson.Parse("""
+            {"name":"Old","author":"Me","version":"1","description":"","fileName":"Old","Rows":[{"CurrentFile":"EndOfMod","File_Items":[]}],
+             "starlinkScaleRules":[{"enabled":true,"label":"Light","currentFile":"Traits-D_Itemable.json","field":"Weight","operation":"Multiply","value":0.5,"rowFilter":null,"includeInherited":true}]}
+            """);
+        Assert.Empty(Assert.Single(old.ScaleRules).ExceptRows);
+    }
+
+    /// <summary>The editor's tag reads this: a rule owns only the rows its filter and inherited setting let it change.</summary>
+    [Fact]
+    public void Ownership_IsExactlyTheRowsApplyWrites()
+    {
+        var stacks = Rule("Traits-D_Itemable.json", "MaxStack", 10, filter: "Fiber, Inherits");
+        stacks.IncludeInherited = false;
+        var weight = Rule("Traits-D_Itemable.json", "Weight", 0.5);
+        weight.ExceptRows.Add("Item_Stone");
+
+        var owned = ScaleRules.Ownership([stacks, weight], _data);
+
+        Assert.True(owned.TryGet("Traits-D_Itemable.json", "item_fiber", "MaxStack", out var rules, out var value));
+        Assert.Equal([0], rules);
+        Assert.Equal(1000, value!.GetValue<long>());
+        Assert.False(owned.TryGet("Traits-D_Itemable.json", "Item_Inherits", "MaxStack", out _, out _)); // inherits: off for this rule
+        Assert.False(owned.TryGet("Traits-D_Itemable.json", "Item_Stone", "MaxStack", out _, out _)); // filter
+        Assert.False(owned.TryGet("Traits-D_Itemable.json", "Item_Stone", "Weight", out _, out _)); // excepted
+        Assert.True(owned.TryGet("Traits-D_Itemable.json", "Item_Inherits", "Weight", out _, out _));
+    }
+
+    /// <summary>Only the modder's own values are listed: not what the rule writes anyway, not what the last applied rule wrote, not the game's value.</summary>
+    [Fact]
+    public void FindHandEdits_ListsOnlyValuesSetByHand()
+    {
+        var mod = EmptyMod();
+        ScaleRules.ApplyToPackage(mod, [Rule("Traits-D_Itemable.json", "Weight", 0.5)], _data, new MergeReport());
+        Item(mod, "Traits-D_Itemable.json", "Item_Fiber").Fields["Weight"] = 7;   // by hand
+        Item(mod, "Traits-D_Itemable.json", "Item_Stone").Fields["Weight"] = 300; // back to the game's value
+
+        // The factor changes: every row's old rule value differs from the new one, but only Fiber is a hand edit.
+        var lighter = Rule("Traits-D_Itemable.json", "Weight", 0.25);
+        var edit = Assert.Single(ScaleRules.FindHandEdits(mod, [lighter], _data));
+
+        Assert.Equal("Item_Fiber", edit.RowName);
+        Assert.Equal("Weight", edit.Field);
+        Assert.Equal(7, edit.ModValue!.GetValue<int>());
+        Assert.Equal(3, edit.RuleValue!.GetValue<long>()); // 10 × 0.25 = 2.5, whole field → 3
+        Assert.Equal([0], edit.RuleIndexes);
+
+        lighter.ExceptRows.Add("Item_Fiber");
+        Assert.Empty(ScaleRules.FindHandEdits(mod, [lighter], _data));
+    }
+
+    [Fact]
+    public void SameValue_ComparesNumbersByValue()
+    {
+        Assert.True(ScaleRules.SameValue(System.Text.Json.Nodes.JsonNode.Parse("100"), System.Text.Json.Nodes.JsonValue.Create(100.0)));
+        Assert.True(ScaleRules.SameValue(System.Text.Json.Nodes.JsonNode.Parse("""{"a":1,"b":[2]}"""), System.Text.Json.Nodes.JsonNode.Parse("""{"b":[2.0],"a":1.0}""")));
+        Assert.False(ScaleRules.SameValue(System.Text.Json.Nodes.JsonNode.Parse("5"), System.Text.Json.Nodes.JsonNode.Parse("5.5")));
+        Assert.False(ScaleRules.SameValue(System.Text.Json.Nodes.JsonNode.Parse("\"5\""), System.Text.Json.Nodes.JsonNode.Parse("5")));
+    }
 }

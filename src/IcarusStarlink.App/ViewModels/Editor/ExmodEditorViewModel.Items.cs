@@ -155,6 +155,7 @@ public sealed partial class ExmodEditorViewModel
         _fieldChoices.Clear();
         _fieldOptionsCache.Clear();
         _scaleTables = null;
+        InvalidateRuleOwnership();
         OnPropertyChanged(nameof(ScaleTables));
         RefreshBaseDiff();
         ApplyFilter();

@@ -52,10 +52,71 @@ public sealed class ScaleRule
     /// </summary>
     public bool IncludeInherited { get; set; } = true;
 
+    /// <summary>
+    /// Rows this rule leaves alone even though its filter catches them: the modder set the field
+    /// by hand there ("Keep my value" in the editor) and Apply must not put the rule's value back.
+    /// Row names ignore case. Saved as "exceptRows"; older files have none.
+    /// </summary>
+    public List<string> ExceptRows { get; set; } = [];
+
     /// <summary>The first path segment — the top-level field an EXMOD item replaces as a whole.</summary>
     public string TopField => ScaleRules.SplitPath(Field).FirstOrDefault() is { } first ? ScaleRules.StripList(first) : "";
 
-    public ScaleRule Clone() => (ScaleRule)MemberwiseClone();
+    /// <summary>True when <paramref name="rowName"/> is on the rule's "except these rows" list.</summary>
+    public bool Excepts(string rowName) => ExceptRows.Any(r => string.Equals(r, rowName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>What the rule does, in short: "Weight ×0.5", "MaxStack = 100".</summary>
+    public string Summary => Operation == ScaleOperation.Set
+        ? $"{Field} = {Value.ToString("0.######", CultureInfo.InvariantCulture)}"
+        : $"{Field} ×{Value.ToString("0.######", CultureInfo.InvariantCulture)}";
+
+    /// <summary>The rule's name for messages: its label and what it does ("Lighter items (Weight ×0.5)"), or just what it does.</summary>
+    public string DisplayName => Label.Trim().Length == 0 || Label.Contains(Summary, StringComparison.OrdinalIgnoreCase)
+        ? (Label.Trim().Length == 0 ? Summary : Label.Trim())
+        : $"{Label.Trim()} ({Summary})";
+
+    public ScaleRule Clone()
+    {
+        var copy = (ScaleRule)MemberwiseClone();
+        copy.ExceptRows = [.. ExceptRows];
+        return copy;
+    }
+}
+
+/// <summary>A value in the mod that a rule would replace on Apply: set by hand, not by the rule.</summary>
+/// <param name="RuleIndexes">The rules (positions in the list given) that write this field of this row.</param>
+public sealed record ScaleHandEdit(string CurrentFile, string RowName, string Field, IReadOnlyList<int> RuleIndexes, JsonNode? ModValue, JsonNode? RuleValue);
+
+/// <summary>
+/// Which fields of which rows a set of rules writes, and the value each gets — ScaleRules.Generate
+/// itself, so the editor's "set by rule" tags match exactly what Apply does (filter, inherited
+/// rows, exceptions, values the rule leaves unchanged).
+/// </summary>
+public sealed class ScaleOwnership
+{
+    private readonly Dictionary<string, Dictionary<string, Dictionary<string, JsonNode?>>> _values;
+    private readonly Dictionary<string, Dictionary<string, Dictionary<string, List<int>>>> _owners;
+
+    internal ScaleOwnership(Dictionary<string, Dictionary<string, Dictionary<string, JsonNode?>>> values, Dictionary<string, Dictionary<string, Dictionary<string, List<int>>>> owners)
+    {
+        _values = values;
+        _owners = owners;
+    }
+
+    /// <summary>True when a rule writes this field of this row; <paramref name="rules"/> are their positions, <paramref name="value"/> what they write (don't change it).</summary>
+    public bool TryGet(string currentFile, string rowName, string field, out IReadOnlyList<int> rules, out JsonNode? value)
+    {
+        rules = [];
+        value = null;
+        if (!_owners.TryGetValue(currentFile, out var byRow) || !byRow.TryGetValue(rowName, out var byField) || !byField.TryGetValue(field, out var owners))
+        {
+            return false;
+        }
+
+        rules = owners;
+        value = _values[currentFile][rowName][field];
+        return true;
+    }
 }
 
 /// <summary>A rule's effect on current game data: how many rows change, and one example.</summary>
@@ -85,12 +146,18 @@ public static class ScaleRules
         bool Owns(Dictionary<string, Dictionary<string, Dictionary<string, JsonNode?>>> written, string file, string rowName, string field) =>
             written.TryGetValue(file, out var byRow) && byRow.TryGetValue(rowName, out var fields) && fields.ContainsKey(field);
 
+        // A row a rule now excepts holds the modder's own value: the previous rules' pass mustn't take it out.
+        bool Excepted(string file, string rowName, string field) =>
+            !Owns(generated, file, rowName, field)
+            && rules.Any(r => string.Equals(r.CurrentFile, file, StringComparison.OrdinalIgnoreCase) && r.TopField == field && r.Excepts(rowName));
+
         foreach (var row in package.Rows.Where(r => previous.ContainsKey(r.CurrentFile) || generated.ContainsKey(r.CurrentFile)).ToList())
         {
             var emptied = new HashSet<ExmodFileItem>();
             foreach (var item in row.FileItems.Where(i => game.HasRow(row.CurrentFile, i.Name)))
             {
-                var keys = item.Fields.Keys.Where(k => Owns(previous, row.CurrentFile, item.Name, k) || Owns(generated, row.CurrentFile, item.Name, k)).ToList();
+                var keys = item.Fields.Keys.Where(k => (Owns(previous, row.CurrentFile, item.Name, k) || Owns(generated, row.CurrentFile, item.Name, k))
+                    && !Excepted(row.CurrentFile, item.Name, k)).ToList();
                 keys.ForEach(k => item.Fields.Remove(k));
                 if (keys.Count > 0 && item.Fields.Count == 0)
                 {
@@ -160,14 +227,91 @@ public static class ScaleRules
     /// item), plus one preview per rule (disabled rules preview as zero).
     /// </summary>
     public static (Dictionary<string, Dictionary<string, Dictionary<string, JsonNode?>>> Generated, IReadOnlyList<ScalePreview> Previews) Generate(
-        IReadOnlyList<ScaleRule> rules, string dataFolder, MergeReport report, GameTableIndex? game = null)
+        IReadOnlyList<ScaleRule> rules, string dataFolder, MergeReport report, GameTableIndex? game = null) =>
+        GenerateCore(rules, dataFolder, report, game, owners: null);
+
+    /// <summary>Which fields of which rows the enabled rules write, by which rule, and the value (see ScaleOwnership).</summary>
+    public static ScaleOwnership Ownership(IReadOnlyList<ScaleRule> rules, string dataFolder, GameTableIndex? game = null)
+    {
+        var owners = new Dictionary<string, Dictionary<string, Dictionary<string, List<int>>>>(StringComparer.OrdinalIgnoreCase);
+        var (generated, _) = GenerateCore(rules, dataFolder, new MergeReport(), game, owners);
+        return new ScaleOwnership(generated, owners);
+    }
+
+    /// <summary>
+    /// Values in the mod's copies of game rows that applying <paramref name="rules"/> would replace,
+    /// and that are the modder's own: not what the rules write anyway, not what the mod's current
+    /// (last applied) rules wrote, and not the game's own value. Rows a rule excepts aren't listed
+    /// (the rule leaves them alone). Asked about before Apply so a hand edit never vanishes quietly.
+    /// After a game update changes a value a rule scales, that row can show here too: the mod still
+    /// holds the rule's result on the old game value.
+    /// </summary>
+    public static IReadOnlyList<ScaleHandEdit> FindHandEdits(ExmodPackage package, IReadOnlyList<ScaleRule> rules, string dataFolder, GameTableIndex? game = null)
+    {
+        game ??= new GameTableIndex(dataFolder);
+        var now = Ownership(rules, dataFolder, game);
+        var before = Ownership(package.ScaleRules, dataFolder, game);
+        var found = new List<ScaleHandEdit>();
+        foreach (var row in package.Rows)
+        {
+            foreach (var item in row.FileItems)
+            {
+                foreach (var (field, value) in item.Fields)
+                {
+                    if (!now.TryGet(row.CurrentFile, item.Name, field, out var owners, out var ruleValue) || SameValue(value, ruleValue))
+                    {
+                        continue;
+                    }
+
+                    if (before.TryGet(row.CurrentFile, item.Name, field, out _, out var written) && SameValue(value, written))
+                    {
+                        continue;
+                    }
+
+                    var gameValue = game.Row(row.CurrentFile, item.Name)?[field] ?? game.Defaults(row.CurrentFile)?[field];
+                    if (SameValue(value, gameValue))
+                    {
+                        continue;
+                    }
+
+                    found.Add(new ScaleHandEdit(row.CurrentFile, item.Name, field, owners, value, ruleValue));
+                }
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>Two JSON values hold the same thing: numbers compare by value (100 = 100.0, a long = a double), objects and lists part by part.</summary>
+    public static bool SameValue(JsonNode? a, JsonNode? b)
+    {
+        if (TryGetNumber(a, out var x, out _) && TryGetNumber(b, out var y, out _))
+        {
+            return Math.Abs(x - y) <= 1e-9 * Math.Max(1, Math.Max(Math.Abs(x), Math.Abs(y)));
+        }
+
+        switch (a, b)
+        {
+            case (JsonObject oa, JsonObject ob):
+                return oa.Count == ob.Count && oa.All(kv => ob.TryGetPropertyValue(kv.Key, out var other) && SameValue(kv.Value, other));
+            case (JsonArray la, JsonArray lb):
+                return la.Count == lb.Count && la.Zip(lb).All(p => SameValue(p.First, p.Second));
+            default:
+                return JsonNode.DeepEquals(a, b);
+        }
+    }
+
+    private static (Dictionary<string, Dictionary<string, Dictionary<string, JsonNode?>>> Generated, IReadOnlyList<ScalePreview> Previews) GenerateCore(
+        IReadOnlyList<ScaleRule> rules, string dataFolder, MergeReport report, GameTableIndex? game,
+        Dictionary<string, Dictionary<string, Dictionary<string, List<int>>>>? owners)
     {
         game ??= new GameTableIndex(dataFolder);
         var generated = new Dictionary<string, Dictionary<string, Dictionary<string, JsonNode?>>>(StringComparer.OrdinalIgnoreCase);
         var previews = new List<ScalePreview>();
 
-        foreach (var rule in rules)
+        for (var ruleIndex = 0; ruleIndex < rules.Count; ruleIndex++)
         {
+            var rule = rules[ruleIndex];
             if (!rule.Enabled || rule.CurrentFile.Length == 0 || rule.TopField.Length == 0)
             {
                 previews.Add(new ScalePreview(0, 0, null));
@@ -193,7 +337,7 @@ public static class ScaleRules
 
             foreach (var (rowName, rowNode) in table.Rows)
             {
-                if (!MatchesFilter(rowName, rule.RowFilter))
+                if (!MatchesFilter(rowName, rule.RowFilter) || rule.Excepts(rowName))
                 {
                     continue;
                 }
@@ -232,6 +376,25 @@ public static class ScaleRules
                 }
 
                 rowFields[top] = updated;
+                if (owners is not null)
+                {
+                    owners.TryAdd(rule.CurrentFile, new Dictionary<string, Dictionary<string, List<int>>>(StringComparer.OrdinalIgnoreCase));
+                    var ownersByRow = owners[rule.CurrentFile];
+                    if (!ownersByRow.TryGetValue(rowName, out var ownersByField))
+                    {
+                        ownersByField = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+                        ownersByRow[rowName] = ownersByField;
+                    }
+
+                    if (!ownersByField.TryGetValue(top, out var list))
+                    {
+                        list = [];
+                        ownersByField[top] = list;
+                    }
+
+                    list.Add(ruleIndex);
+                }
+
                 rowCount++;
                 valueCount += changed;
                 example ??= $"{rowName}: {firstChange}";

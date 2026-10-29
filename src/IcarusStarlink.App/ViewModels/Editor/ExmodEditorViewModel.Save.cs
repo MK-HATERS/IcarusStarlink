@@ -98,7 +98,9 @@ public sealed partial class ExmodEditorViewModel
 
         if (!ApplyPendingScaleRules())
         {
-            StatusMessage = $"Not saved — a scale rule needs fixing: {ScaleStatusMessage}";
+            StatusMessage = _applyCancelled
+                ? "Not saved: you cancelled at the question about values you set by hand. Nothing changed."
+                : $"Not saved — a scale rule needs fixing: {ScaleStatusMessage}";
             return;
         }
 
