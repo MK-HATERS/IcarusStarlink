@@ -167,7 +167,9 @@ public static class ExtractedModClassifier
             session.Writing();
             var entry = libraryRepository.Import(extractedDirectory, source: source, nexusModId: nexusModId, catalogEntryId: catalogEntryId);
             session.Wrote(entry.FolderName, PendingDownloadActivationKind.Library);
-            return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, isOpaquePak: false, requirements, warnings);
+            return WithLooseUe4ssHalves(
+                Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, isOpaquePak: false, requirements, warnings),
+                extractedDirectory, [.. allFiles.Where(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase))], ue4ssModRepository, ue4ssNamesAlreadyInstalledInGame, session);
         }
 
         var pakFiles = allFiles.Where(f => f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToArray();
@@ -216,7 +218,9 @@ public static class ExtractedModClassifier
         if (pakFiles.Length >= 1)
         {
             var entry = await ImportPakSetAsync(pakFiles, downloadName, libraryRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, session);
-            return Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, entry.IsOpaquePak, requirements, [.. warnings, .. entry.ImportWarnings]);
+            return WithLooseUe4ssHalves(
+                Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, entry.IsOpaquePak, requirements, [.. warnings, .. entry.ImportWarnings]),
+                extractedDirectory, pakFiles, ue4ssModRepository, ue4ssNamesAlreadyInstalledInGame, session);
         }
 
         // A real bug found live (a user's own Nexus bug report, confirmed by inspecting the actual
@@ -317,6 +321,22 @@ public static class ExtractedModClassifier
         // that carries no metadata file of its own to detect it by. Named after the upload, not
         // the full Nexus file name with its id/timestamp/hash tail (a real complaint).
         var fallbackName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName), nexusModId);
+
+        // The mod folders sit deeper than the top ("Mods\MyMod\Scripts", "MyMod v1.2\MyMod\Scripts",
+        // a README beside "MyMod\Scripts", or two mods side by side): each is staged under its own
+        // name. Staging the whole download put them one folder too deep for UE4SS to load
+        // (ue4ss\Mods\Mods\MyMod\Scripts) and still reported success.
+        if (!IsUe4ssModFolder(extractedDirectory) && FindLooseUe4ssModFolders(extractedDirectory) is { Count: > 0 } modFolders)
+        {
+            session.Writing();
+            var staged = modFolders
+                .Select(folder => new PendingDownloadActivatedItem(
+                    session.Wrote(ue4ssModRepository.ImportFromFolder(folder, Path.GetFileName(folder), ue4ssNamesAlreadyInstalledInGame), PendingDownloadActivationKind.Ue4ssMod),
+                    PendingDownloadActivationKind.Ue4ssMod))
+                .ToList();
+            return new ClassifiedImport(staged[0].FolderName, staged[0].FolderName, PendingDownloadActivationKind.Ue4ssMod, IsOpaquePak: false, staged, requirements, warnings);
+        }
+
         session.Writing();
         var stagedName = session.Wrote(ue4ssModRepository.ImportFromFolder(extractedDirectory, fallbackName, ue4ssNamesAlreadyInstalledInGame), PendingDownloadActivationKind.Ue4ssMod);
         return Single(stagedName, stagedName, PendingDownloadActivationKind.Ue4ssMod, isOpaquePak: false, requirements, warnings);
@@ -360,14 +380,15 @@ public static class ExtractedModClassifier
 
     /// <summary>
     /// UE4SS mod folders sitting loose in a download ("UE4SS Mods\MiniMapa\Scripts\main.lua"): any
-    /// folder below the root holding a Scripts folder with Lua in it. The root itself never counts
-    /// (a plain UE4SS-only download is handled by the catch-all), nor a folder inside another one.
+    /// folder below the root holding a Scripts folder with Lua in it, or a dlls folder with a C++
+    /// mod's .dll. The root itself never counts (a plain UE4SS-only download is handled by the
+    /// catch-all), nor a folder inside another one.
     /// </summary>
     private static List<string> FindLooseUe4ssModFolders(string root)
     {
         var rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
-        var candidates = Directory.GetDirectories(root, "Scripts", SearchOption.AllDirectories)
-            .Where(scripts => Directory.EnumerateFiles(scripts, "*.lua", SearchOption.AllDirectories).Any())
+        var candidates = Directory.GetDirectories(root, "*", SearchOption.AllDirectories)
+            .Where(IsUe4ssCodeFolder)
             .Select(scripts => Path.GetFullPath(Path.GetDirectoryName(scripts)!).TrimEnd(Path.DirectorySeparatorChar))
             .Where(folder => !string.Equals(folder, rootFull, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -383,6 +404,54 @@ public static class ExtractedModClassifier
         }
 
         return result;
+    }
+
+    /// <summary>A mod's own code folder: "Scripts" holding Lua, or "dlls" holding a C++ mod's .dll.</summary>
+    private static bool IsUe4ssCodeFolder(string folder)
+    {
+        var name = Path.GetFileName(folder);
+        return (name.Equals("Scripts", StringComparison.OrdinalIgnoreCase) && Directory.EnumerateFiles(folder, "*.lua", SearchOption.AllDirectories).Any())
+            || (name.Equals("dlls", StringComparison.OrdinalIgnoreCase) && Directory.EnumerateFiles(folder, "*.dll", SearchOption.AllDirectories).Any());
+    }
+
+    /// <summary>The folder is itself a UE4SS mod (its Scripts or dlls folder sits directly in it).</summary>
+    private static bool IsUe4ssModFolder(string folder) =>
+        Directory.EnumerateDirectories(folder).Any(IsUe4ssCodeFolder);
+
+    /// <summary>
+    /// The Lua half that rides along with a data download (a pak or a loose .EXMOD plus
+    /// "MyMod\Scripts\main.lua"): every loose UE4SS mod folder, staged under its own name. A folder
+    /// that also holds the data files (one of <paramref name="dataFiles"/>) is left alone — staging
+    /// it would copy the paks into the UE4SS mod too.
+    /// </summary>
+    private static List<PendingDownloadActivatedItem> StageLooseUe4ssHalves(
+        string root, IReadOnlyCollection<string> dataFiles, IUe4ssModRepository ue4ssModRepository,
+        IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame, ImportSession session)
+    {
+        var items = new List<PendingDownloadActivatedItem>();
+        foreach (var folder in FindLooseUe4ssModFolders(root))
+        {
+            if (dataFiles.Any(file => Path.GetFullPath(file).StartsWith(folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            session.Writing();
+            items.Add(new PendingDownloadActivatedItem(
+                session.Wrote(ue4ssModRepository.ImportFromFolder(folder, Path.GetFileName(folder), ue4ssNamesAlreadyInstalledInGame), PendingDownloadActivationKind.Ue4ssMod),
+                PendingDownloadActivationKind.Ue4ssMod));
+        }
+
+        return items;
+    }
+
+    /// <summary>The data import plus any loose Lua half beside it (StageLooseUe4ssHalves); the data mod stays the primary item.</summary>
+    private static ClassifiedImport WithLooseUe4ssHalves(
+        ClassifiedImport data, string root, IReadOnlyCollection<string> dataFiles, IUe4ssModRepository ue4ssModRepository,
+        IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame, ImportSession session)
+    {
+        var halves = StageLooseUe4ssHalves(root, dataFiles, ue4ssModRepository, ue4ssNamesAlreadyInstalledInGame, session);
+        return halves.Count == 0 ? data : data with { Items = [.. data.Items, .. halves] };
     }
 
     /// <summary>How an inner archive is shown in the "which one?" choice: its EXMOD's own name, version and description when it has one, else just its file name.</summary>
