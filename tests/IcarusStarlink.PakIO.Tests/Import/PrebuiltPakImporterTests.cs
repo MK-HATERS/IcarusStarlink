@@ -15,7 +15,36 @@ public class PrebuiltPakImporterTests : IDisposable
     private readonly string _sourceStoreDir = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N") + "_sources");
     private readonly string _pakFilePath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N") + ".pak");
 
-    public PrebuiltPakImporterTests() => File.WriteAllText(_pakFilePath, "fake pak bytes");
+    public PrebuiltPakImporterTests() => WriteMinimalPak(_pakFilePath);
+
+    /// <summary>Just enough of a pak for the import's checks: some bytes, the footer magic, version 11 (UE 4.27).</summary>
+    private static void WriteMinimalPak(string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var stream = File.Create(path);
+        stream.Write(new byte[64]);
+        stream.Write([0xE1, 0x12, 0x6F, 0x5A]);
+        stream.Write(BitConverter.GetBytes(11));
+        stream.Write(new byte[40]);
+    }
+
+    /// <summary>
+    /// Review 2026-10-28: a ".pak" that is really a web page (a catalog link pointing at a page,
+    /// not the file) or a cut-off copy went in as an opaque pak mod, and from there into the game.
+    /// It's refused with the reason, before anything is written.
+    /// </summary>
+    [Fact]
+    public async Task ImportAsync_FileWithNoPakFooter_IsRefusedAndNothingIsImported()
+    {
+        File.WriteAllText(_pakFilePath, "<!DOCTYPE html><html><body>Not Found</body></html>");
+        using var repo = CreateRepository();
+        var importer = new PrebuiltPakImporter(new FakeConverter(null), repo, repo, CreateSourceStore());
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => importer.ImportAsync(_pakFilePath, "SomeDataFolder", "SomeUnrealPak.exe"));
+
+        Assert.Contains("isn't a working .pak file", ex.Message);
+        Assert.Empty(repo.GetAll());
+    }
 
     private FolderLibraryRepository CreateRepository() =>
         new(_extractedModsDir, _metaDir, _backupsDir, NullLogger<FolderLibraryRepository>.Instance);

@@ -50,6 +50,17 @@ public static class ModLints
         }
     }
 
+    /// <summary>
+    /// A ".pak" with no pak footer at all: a web page or error text saved under that name (a
+    /// catalog link that points at a page, not the file), or a cut-off copy. Refused with the
+    /// reason — it used to land in the Library as an opaque pak mod and go into the game with the
+    /// next Merge &amp; Install (review 2026-10-28).
+    /// </summary>
+    public static string? CheckIsPak(string pakFilePath) =>
+        File.Exists(pakFilePath) && TryReadPakVersion(pakFilePath) is null
+            ? $"'{Path.GetFileName(pakFilePath)}' isn't a working .pak file — it may be a broken or unfinished download, or a web page saved under that name. Download it again, or ask the mod author."
+            : null;
+
     /// <summary>A pak packed for a newer engine than Icarus runs — refuse it with the reason rather than import something the game will reject.</summary>
     public static string? CheckPakVersion(string pakFilePath)
     {
