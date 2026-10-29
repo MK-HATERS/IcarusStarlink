@@ -172,14 +172,18 @@ public sealed partial class EditorFieldViewModel : ObservableObject
             LinkTable = choices.LinkTable;
         }
         (Label, Hint) = GameItemEditor.FieldText(fieldName, Kind == EditorFieldKind.Number);
+        // The field's own tip (what it does in the game) stays first; a kind's how-to line goes after it.
+        // It used to replace the tip, so links like "Decay row" showed only the generic line.
+        var tip = Hint;
+        string WithTip(string howTo) => tip.Length > 0 ? $"{tip} {howTo}" : howTo;
         BasePlainText = baseValue is null ? "not in the game" : $"game: {EditorValueText.Plain(baseValue)}";
         if (Kind == EditorFieldKind.String && (CurrentString() ?? "").Contains("/Game/", StringComparison.Ordinal))
         {
-            Hint = "A game file this uses (a model, texture or sound). Use another game file's path, or ✕ to keep the game's.";
+            Hint = WithTip("A game file this uses (a model, texture or sound). Use another game file's path, or ✕ to keep the game's.");
         }
         if (Kind == EditorFieldKind.Link)
         {
-            Hint = $"Links to a row of {LinkTable}: pick one the game (or this mod) has. A link to a row that doesn't exist does nothing in game.";
+            Hint = WithTip($"Links to a row of {LinkTable}: pick one the game (or this mod) has. A link to a row that doesn't exist does nothing in game.");
             // Say so straight away when the mod's link already points nowhere (an old copy of the game's data).
             if (SelectedOption is { Length: > 0 } linked && !Options.Contains(linked, StringComparer.OrdinalIgnoreCase))
             {
@@ -189,12 +193,12 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         }
         else if (Kind == EditorFieldKind.Choice)
         {
-            Hint = "The values the game uses for this.";
+            Hint = WithTip("The values the game uses for this.");
         }
 
         if (Kind == EditorFieldKind.Stats)
         {
-            Hint = "A mod's list replaces the game's whole list: a game stat left out is gone in game. ✕ removes a stat; Put back restores one.";
+            Hint = WithTip("A mod's list replaces the game's whole list: a game stat left out is gone in game. ✕ removes a stat; Put back restores one.");
             BuildStats(current as JsonObject);
             if (statChoices is { Count: > 0 })
             {

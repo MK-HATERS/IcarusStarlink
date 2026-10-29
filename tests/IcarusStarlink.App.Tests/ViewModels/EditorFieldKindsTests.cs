@@ -96,6 +96,9 @@ public sealed class EditorFieldKindsTests : IDisposable
         var link = Field(editor, "Itemable");
         Assert.Equal(EditorFieldKind.Link, link.Kind);
         Assert.Equal("D_Itemable", link.LinkTable);
+        // The field's own tip comes first, then how a link works (the tip used to be replaced).
+        Assert.StartsWith("Links to the row with its name, icon, weight and stack size.", link.Hint);
+        Assert.Contains("Links to a row of D_Itemable", link.Hint);
         Assert.Equal(["None", "Item_Bottle", "Item_Canteen", "Item_Waterskin"], link.Options);
         Assert.Equal("Item_Canteen", link.SelectedOption);
 
