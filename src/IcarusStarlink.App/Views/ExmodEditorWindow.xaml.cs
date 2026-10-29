@@ -23,8 +23,6 @@ public partial class ExmodEditorWindow : Window
         // whatever else has the same view open (a popped-out pane fixed to the same mode).
         ScrollSyncHelper.Attach(ItemFieldsScrollViewer, ItemFieldsScrollViewer.ScrollToVerticalOffset,
             viewModel, nameof(ExmodEditorViewModel.ItemFieldsScrollOffset), () => viewModel.ItemFieldsScrollOffset, v => viewModel.ItemFieldsScrollOffset = v, this);
-        ScrollSyncHelper.Attach(FileJsonTextBox, FileJsonTextBox.ScrollToVerticalOffset,
-            viewModel, nameof(ExmodEditorViewModel.FileJsonScrollOffset), () => viewModel.FileJsonScrollOffset, v => viewModel.FileJsonScrollOffset = v, this);
 
         // Unsaved changes ask Save / Don't save / Cancel instead of vanishing with the window.
         Closing += (_, e) => e.Cancel = !viewModel.ConfirmClose();

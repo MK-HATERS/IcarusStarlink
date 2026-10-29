@@ -9,7 +9,7 @@ namespace IcarusStarlink.App.Views;
 /// Keeps one ScrollViewer (or a multi-line TextBox's own internal one — a TextBox routes
 /// ScrollViewer.ScrollChangedEvent through itself via its own control template, so attaching the
 /// same handler works for either) in sync with a shared scroll-offset property on the editor's
-/// ViewModel. Used so the same EXMOD editor view (Item fields / File JSON)
+/// ViewModel. Used so the same EXMOD editor view (Item fields)
 /// scrolls together when it's open in two places at once — the main editor window and a popped-out
 /// pane (ExmodEditorViewModel.PopOutCurrentView), or two popped-out panes fixed to the same mode.
 /// Both directions go through the same property; a guard stops the ViewModel-driven

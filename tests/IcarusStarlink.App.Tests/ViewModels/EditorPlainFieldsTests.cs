@@ -400,22 +400,6 @@ public sealed class EditorPlainFieldsTests : IDisposable
         Assert.StartsWith("Saved", editor.StatusMessage);
     }
 
-    /// <summary>File JSON whose "CurrentFile" was changed to another file the mod already has is refused: the mod would hold that file twice.</summary>
-    [Fact]
-    public void ApplyFileJson_CurrentFileChangedToOneTheModHas_IsRefused()
-    {
-        var editor = OpenMod();
-        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Larkwell");
-        editor.FileJsonText = """{"CurrentFile": "Traits-D_Armour.json", "File_Items": [{"Name": "Item_Larkwell", "Weight": 10}]}""";
-
-        editor.ApplyFileJsonCommand.Execute(null);
-
-        Assert.StartsWith("Not applied", editor.RawJsonStatusMessage);
-        Assert.Contains(editor.Items, i => i.CurrentFile == "Traits-D_Itemable.json" && i.ItemName == "Item_Larkwell");
-        Assert.Single(editor.Items, i => i.CurrentFile == "Traits-D_Armour.json");
-        Assert.False(editor.CanUndo);
-    }
-
     /// <summary>Names typed with a space around them don't become a field (or row) with a space in its name.</summary>
     [Fact]
     public void AddField_TrimsTheName()

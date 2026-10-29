@@ -26,11 +26,10 @@ public sealed record GameDataItemRef(string CurrentFile, string RealPath, string
 /// <summary>One row plus its own serialized JSON — the searchable unit for the Search game data window's reference search. Kept separate from GameDataItemRef so the (much lighter) add-item picker never pays for the serialized text it doesn't use.</summary>
 public sealed record GameDataSearchEntry(string RealPath, string ItemName, string RowJson);
 
-/// <summary>Which of the editor's views is showing in the right-hand pane. (The old "Full EXMOD JSON" view is gone: File JSON covers raw edits, one file at a time.)</summary>
+/// <summary>Which of the editor's views is showing in the right-hand pane. (The old raw JSON views are gone: the Fields view edits every field, lists included.)</summary>
 public enum ExmodEditorViewMode
 {
     ItemFields,
-    FileJson,
 
     /// <summary>"Scale a field across a table" rules (ExmodEditorViewModel.Scale.cs).</summary>
     ScaleRules,
@@ -46,7 +45,6 @@ public enum ExmodEditorViewMode
 /// pairing matches (see the plan's "7.1 — Core editor" section) — LibraryViewModel constructs a
 /// fresh instance per Edit… / New mod… click via the Func&lt;string, ExmodEditorViewModel&gt;
 /// factory registered in App.xaml.cs, rather than this being resolved as a singleton.
-/// Phase 7.2 added the File JSON raw-text view alongside Item fields.
 /// </summary>
 public sealed partial class ExmodEditorViewModel : ObservableObject
 {
@@ -152,12 +150,6 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [ObservableProperty]
     private ExmodEditorViewMode _viewMode = ExmodEditorViewMode.ItemFields;
 
-    [ObservableProperty]
-    private string _fileJsonText = "";
-
-    [ObservableProperty]
-    private string? _rawJsonStatusMessage;
-
     // Shared scroll position per view — not per window. When the same view (e.g. Item fields) is
     // open in both the main editor window and a popped-out pane at once, ScrollSyncHelper keeps
     // whichever one the user scrolls pushing its offset in here, and the other window pulls it
@@ -165,9 +157,6 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     // snapshot of wherever it happened to open scrolled to.
     [ObservableProperty]
     private double _itemFieldsScrollOffset;
-
-    [ObservableProperty]
-    private double _fileJsonScrollOffset;
 
     /// <summary>Filters Items by a substring of its Display text (file or item name) — Ctrl+F focuses the box this is bound to.</summary>
     [ObservableProperty]
@@ -261,15 +250,6 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(ShowPickItemPrompt));
         PopulateFieldsForSelection();
-
-        // Keeps the File JSON view "synced" to whatever's selected in the shared Items list, per
-        // the spec's "share selection/edits with the Item fields view" — switching the selected
-        // item while already in File JSON mode should show *that* item's own file, not whatever
-        // was showing before.
-        if (ViewMode == ExmodEditorViewMode.FileJson)
-        {
-            RefreshFileJsonText();
-        }
     }
 
     // Debounced like Library's and Downloads' own search boxes, which this was the last one not to
@@ -378,12 +358,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
 
     partial void OnViewModeChanged(ExmodEditorViewMode value)
     {
-        RawJsonStatusMessage = null;
-        if (value == ExmodEditorViewMode.FileJson)
-        {
-            RefreshFileJsonText();
-        }
-        else if (value == ExmodEditorViewMode.NotInMod)
+        if (value == ExmodEditorViewMode.NotInMod)
         {
             OpenNotInMod();
         }
@@ -413,7 +388,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     {
         if (ViewMode is ExmodEditorViewMode.ScaleRules or ExmodEditorViewMode.NotInMod)
         {
-            StatusMessage = "This view stays in this window. Pop out Fields or File JSON to watch the rows it writes.";
+            StatusMessage = "This view stays in this window. Pop out Fields to watch the rows it writes.";
             return;
         }
 
@@ -891,7 +866,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         // Library doesn't list, so the work would look saved but be nowhere to be found.
         if (!ModFolderExists())
         {
-            StatusMessage = "Not saved: this mod's folder is gone (deleted or moved in Library?). To keep your work, copy each file from the File JSON view into a new mod.";
+            StatusMessage = "Not saved: this mod's folder is gone (deleted or moved in Library?). There's nowhere to save it, so nothing was written.";
             return;
         }
 

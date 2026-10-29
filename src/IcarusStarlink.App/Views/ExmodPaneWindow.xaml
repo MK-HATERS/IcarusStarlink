@@ -8,7 +8,7 @@
         Background="{DynamicResource ContentBackgroundBrush}">
 
     <!--
-    A popped-out editor pane — one of the views (Fields / File JSON),
+    A popped-out editor pane — the Fields view,
     detached into its own window so it can sit alongside the main editor window (or another popped-
     out pane) instead of only ever showing one view at a time. DataContext is the SAME
     ExmodEditorViewModel the main editor window uses (set by ExmodEditorViewModel.PopOutCurrentView),
@@ -16,7 +16,7 @@
     shows up immediately if the main window's own Item fields pane is reselected, and Save from
     either window writes everything. FixedViewMode never changes after construction (this window
     always shows the one pane it was opened for), so unlike the main window's own view-mode buttons,
-    there's no switcher here — just that one pane's content plus its own Save/Apply controls.
+    there's no switcher here — just that one pane's content plus its own Save button.
     -->
     <Window.Resources>
         <ResourceDictionary>
@@ -58,23 +58,6 @@
                 </StackPanel>
             </ScrollViewer>
         </Border>
-
-        <Border Grid.Row="1" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
-                Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
-            <TextBox x:Name="FileJsonTextBox" Text="{Binding FileJsonText, UpdateSourceTrigger=PropertyChanged}"
-                     AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
-                     BorderThickness="0" Background="Transparent"
-                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                     ToolTip="This file's items and fields as raw JSON. Edit freely, then click Apply file JSON below to update the mod — nothing here is saved until you do."/>
-        </Border>
-
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center"
-                    Visibility="{Binding FixedViewMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
-            <Button Content="Apply file JSON" Command="{Binding ApplyFileJsonCommand}"
-                    ToolTip="Re-parse this box and replace the selected item's file in the mod"/>
-            <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                       Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
-        </StackPanel>
 
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">
             <Button Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"

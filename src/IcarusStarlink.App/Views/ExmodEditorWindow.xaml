@@ -154,7 +154,7 @@
         </Grid>
 
         <!-- Right: views over the same selected item/package — Fields (structured, orange-marked),
-             File JSON (one file's raw JSON) and Scale rules — sharing the left-hand selection. -->
+             Scale rules and Not in this mod yet — sharing the left-hand selection. -->
         <Grid Grid.Column="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -172,16 +172,6 @@
                         <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
                             <Binding Path="ViewMode"/>
                             <Binding Source="{x:Static vm:ExmodEditorViewMode.ItemFields}"/>
-                        </MultiBinding>
-                    </Button.Tag>
-                </Button>
-                <Button Content="File JSON" Style="{StaticResource ThemeButtonStyle}"
-                        Command="{Binding SetViewModeCommand}" CommandParameter="FileJson"
-                        ToolTip="The selected item's own file, as raw JSON you can edit directly">
-                    <Button.Tag>
-                        <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
-                            <Binding Path="ViewMode"/>
-                            <Binding Source="{x:Static vm:ExmodEditorViewMode.FileJson}"/>
                         </MultiBinding>
                     </Button.Tag>
                 </Button>
@@ -287,15 +277,6 @@
                     </StackPanel>
                 </ScrollViewer>
                 </Grid>
-            </Border>
-
-            <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
-                    Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
-                <TextBox x:Name="FileJsonTextBox" Text="{Binding FileJsonText, UpdateSourceTrigger=PropertyChanged}"
-                         AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" Padding="8"
-                         BorderThickness="0" Background="Transparent"
-                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                         ToolTip="This file's items and fields as raw JSON. Edit freely, then click Apply file JSON below to update the mod — nothing here is saved until you do."/>
             </Border>
 
             <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,8,0,0"
@@ -491,14 +472,6 @@
             </DockPanel>
 
             <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,8,0,0" VerticalAlignment="Center"
-                        Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=FileJson}">
-                <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Apply file JSON" Command="{Binding ApplyFileJsonCommand}"
-                        ToolTip="Re-parse this box and replace the selected item's file in the mod"/>
-                <TextBlock Text="{Binding RawJsonStatusMessage}" VerticalAlignment="Center" Margin="12,0,0,0"
-                           Foreground="{DynamicResource SecondaryForegroundBrush}" TextWrapping="Wrap"/>
-            </DockPanel>
-
-            <DockPanel Grid.Row="3" LastChildFill="True" Margin="0,8,0,0" VerticalAlignment="Center"
                         Visibility="{Binding ViewMode, Converter={StaticResource EnumEqualsConverter}, ConverterParameter=ScaleRules}">
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Add rule" Command="{Binding AddScaleRuleCommand}" ToolTip="Adds a new rule card above"/>
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Preview all" Command="{Binding PreviewScaleRulesCommand}" Margin="8,0,0,0"
@@ -511,7 +484,7 @@
 
             <DockPanel Grid.Row="4" LastChildFill="True" Margin="0,12,0,0" VerticalAlignment="Center">
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                        ToolTip="Writes every change so far to this mod's .EXMOD file — from any view (Fields, File JSON, Scale rules): they all edit the same mod"/>
+                        ToolTip="Writes every change so far to this mod's .EXMOD file — from any view (Fields, Scale rules, Not in this mod yet): they all edit the same mod"/>
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Turn on &amp; go to Merge &amp; Install" Command="{Binding TurnOnAndGoToMergeCommand}" Margin="8,0,0,0"
                         Visibility="{Binding HasSaved, Converter={StaticResource BoolToVisibilityConverter}}"
                         ToolTip="Ticks this mod ON (adds it to the merge queue) and opens Merge &amp; Install, where Install puts it in the game"/>

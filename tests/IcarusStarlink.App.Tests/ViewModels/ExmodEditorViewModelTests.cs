@@ -103,10 +103,6 @@ public sealed class ExmodEditorViewModelTests : IDisposable
 
         Assert.Equal(2, editor.Items.Count);
         Assert.All(editor.Items, i => Assert.Equal("Traits-D_Itemable.json", i.CurrentFile));
-        editor.ViewMode = ExmodEditorViewMode.FileJson;
-        var fileJson = JsonNode.Parse(editor.FileJsonText)!;
-        Assert.Equal("Traits-D_Itemable.json", fileJson["CurrentFile"]!.GetValue<string>());
-        Assert.Equal(2, fileJson["File_Items"]!.AsArray().Count);
     }
 
     /// <summary>The window's own Save prompt can't stop the app closing, so the main window's close prompt asks the editor first.</summary>

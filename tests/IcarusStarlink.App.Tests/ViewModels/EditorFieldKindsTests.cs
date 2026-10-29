@@ -127,7 +127,7 @@ public sealed class EditorFieldKindsTests : IDisposable
         return editor;
     }
 
-    /// <summary>Stats are whole numbers in the game (all 15,333 stat values in its tables are): a stat row, the stats JSON box and the raw file JSON all refuse 5.5.</summary>
+    /// <summary>Stats are whole numbers in the game (all 15,333 stat values in its tables are): a stat row and the stats JSON box both refuse 5.5.</summary>
     [Fact]
     public void Stats_NeedWholeNumbers_InEveryPlaceTheyCanBeTyped()
     {
@@ -146,12 +146,6 @@ public sealed class EditorFieldKindsTests : IDisposable
 
         stats.ValueText = """{"(Value=\"BaseOxygenSlots_+\")": 4.5}""";
         Assert.Contains("whole numbers", stats.ParseError);
-
-        editor.FileJsonText = """
-            {"CurrentFile": "Traits-D_Armour.json", "File_Items": [{"Name": "IO_Undersuit", "ArmourStats": {"(Value=\"BaseOxygenSlots_+\")": 3.5}}]}
-            """;
-        editor.ApplyFileJsonCommand.Execute(null);
-        Assert.StartsWith("Not applied", editor.RawJsonStatusMessage);
     }
 
     [Fact]
