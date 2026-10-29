@@ -22,7 +22,7 @@ UE4SS **Lua** facts live in the Hook Scout repo's `icarus-facts` skill (path in 
 | `src/IcarusStarlink.Catalog` | HTTP clients: Nexus, GitHub (cached), Daedalus/Jimk72 catalogs, UE4SS releases, app update (`release.json`) |
 | `src/IcarusStarlink.Updater` / `.Bridge` | Self-updater (trimmed single file); `IcarusStarlink.App.exe` net48 launcher kept for pre-3.0 updaters |
 | `src/ThirdParty/UeSaveGame` | Vendored (Apache) save-blob reader. **Don't edit** (csproj-only changes); a hook refuses it |
-| `tests/<Project>.Tests` | xUnit, ~2,780 tests. App VM tests build a `Harness`/`TestHarness` per test (see `LibraryViewModelTests.cs` ~line 1884, `DownloadsViewModelTests.cs` line 54) |
+| `tests/<Project>.Tests` | xUnit, ~2,950 tests. App VM tests build a `Harness`/`TestHarness` per test (Grep `class TestHarness` in `LibraryViewModelTests.cs`, `class Harness` in `DownloadsViewModelTests.cs`) |
 | `tools/WinTools` | UI Automation CLI for the running app (`/run-app`). `tools/GameRowHistory` builds the row-history resource (`/game-data`) |
 
 Nav pages: Library (`LibraryView` + `LibraryViewModel`, two panels: data mods left, UE4SS right), Downloads, Nexus, Database, Merge & Install, Saves (tabs), Editor (`GameEditorView`), Weekly Changes, Server (Local server tab = `LocalServerView`, Remote FTP = `ServerView`), Settings (tabs incl. UE4SS config), Help (`HelpViewModel` holds the topic text).
@@ -55,5 +55,13 @@ A hook refuses these; this is why:
 - Fixes get a regression test where a seam exists, and a revert-check (undo the fix by file copy, not `git stash`, see `/parallel-review`; the test must fail).
 - Review depth follows risk: code that parses downloads, zips, paks, saves or network data gets the deep multi-angle review; VM/UI code gets a normal pass (`.claude/rules/untrusted-input.md`).
 - Write C# and XAML with the Edit/Write tools, never through perl/sed/heredocs (backslashes and `\f`/`\b` got mangled into real control characters more than once).
+- The user relays bug reports from Starlink's Nexus bug tracker (sometimes as screenshots): treat them as real, current reports.
+
+## Code gotchas (each cost real time)
+
+- A JSON number built in code (`JsonValue<int>`) fails `TryGetValue<double>`: read it via `ToJsonString`.
+- C# 14 makes `field` a keyword inside property accessors: don't name a local `field` there.
+- WPF `ListBox` sets `SelectedItem = null` when its ItemsSource is cleared: guard filter refreshes.
+- Long-lived timers must use `Application.Current.Dispatcher`: VMs are built on the splash-screen thread, where a `DispatcherTimer` never ticks.
 - Commit messages: `<Area>: <what changed>` in plain words, grouped by theme, attribution line from the session reminder. Version bump is its own last commit.
 - Delete a mod's previous copy only right before the first write, never before a question the user can still cancel.
