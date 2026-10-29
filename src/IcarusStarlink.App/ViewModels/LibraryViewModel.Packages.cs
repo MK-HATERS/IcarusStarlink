@@ -68,10 +68,13 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
-    /// Groups every Library entry and staged UE4SS mod by the Nexus download they came from; only
-    /// groups with two or more parts count. A part recorded before file IDs were (no NexusFileId)
-    /// goes with its mod's one download when the Library knows only one; with several it can't tell
-    /// which, so the parts without a file ID group only with each other.
+    /// Groups every Library entry and UE4SS mod (staged, or on in the game) by the Nexus download
+    /// they came from; only groups with two or more parts count. A part recorded before file IDs
+    /// were (no NexusFileId) goes with its mod's one download when the Library knows only one; with
+    /// several it can't tell which, so the parts without a file ID group only with each other.
+    /// The UE4SS mods on in the game count too (review 2026-10-28): only staged ones did, and Apply
+    /// takes a mod out of staging when it turns it on, so ticking a download's data row split it
+    /// into two unlinked rows, and Delete then left the Lua half in the game.
     /// </summary>
     private void BuildPackages()
     {
@@ -81,7 +84,10 @@ public sealed partial class LibraryViewModel
             parts.Add((entry.NexusModId!.Value, entry.NexusFileId, entry.FolderName, null, null, entry.Name));
         }
 
-        foreach (var folderName in SafeStagedUe4ssNames())
+        var ue4ssNames = SafeStagedUe4ssNames()
+            .Concat(Ue4ssMods.Where(r => !r.IsBuiltIn).Select(r => r.Name))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var folderName in ue4ssNames)
         {
             var meta = CachedUe4ssMeta(folderName);
             if (meta.NexusModId is { } id)
