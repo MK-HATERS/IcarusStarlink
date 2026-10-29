@@ -14,7 +14,7 @@ UE4SS **Lua** facts live in the Hook Scout repo's `icarus-facts` skill (path in 
 
 | Project | Holds |
 |---|---|
-| `src/IcarusStarlink.App` | WPF app. `AppServices.cs` = DI wiring. `ViewModels/` (one VM per page, split into partial files by feature: `LibraryViewModel.*.cs`, `SavesViewModel.*.cs`, `LocalServerViewModel.*.cs`, `MergeInstallViewModel.*.cs`, `DownloadsViewModel.*.cs`, `SettingsViewModel.*.cs`), `Views/` (XAML pages + windows + dialogs), `Services/` (classifier, game update, app update, saves names, server process), `Themes/Styles.xaml`, `Assets/UE4SS/` (bundled UE4SS zip, 8 MB) |
+| `src/IcarusStarlink.App` | WPF app. `AppServices.cs` = DI wiring. `ViewModels/`, `Services/` and `Views/` each have one folder per page: `Library`, `Downloads`, `Database`, `Merge` (incl. Find the broken mod, patches), `Editor` (mod editor, Editor page, fix window), `Ue4ss` (config windows), `Saves`, `Server`, `Settings`, `Shell` (main window, Help, app update, startup), `GameUpdate`, `WeeklyChanges`, plus `Views/Shared` (common dialogs, attached helpers). **Namespaces did NOT follow the folders** (still `IcarusStarlink.App.ViewModels` / `.Services` / `.Views`): keep it that way. A page's VM is split into partial files by feature (`LibraryViewModel.*.cs`, `MergeInstallViewModel.*.cs`…). `Themes/Styles.xaml`, `Assets/UE4SS/` (bundled UE4SS zip, 8 MB) |
 | `src/IcarusStarlink.PakIO` | Everything about mod files: `Exmod/` (package, health checker, editors, row history, scale rules), `Container/` (EXMODZ/zip reading, size limits), `Import/`, `Rebuild/RebuildService.cs` (the merge build), `Install/` (game folder install, manifests, fingerprints), `Pak/` (UnrealPak, mount points), `Assets/` (CUE4Parse previews, blueprint compare, curves), `Safety/` (path guards, lints), `GameplayToggles/` |
 | `src/IcarusStarlink.Diffing` | Field-level diff/merge engine (`MergeEngine`, rules, `TableDiffer`) |
 | `src/IcarusStarlink.Core` | Models + contracts, no IO: `Library/`, `Ue4ss/`, `Server/` (ini, SteamCMD, automation, firewall, logs), `Nexus/`, `Settings/AppSettings.cs` |
@@ -22,7 +22,7 @@ UE4SS **Lua** facts live in the Hook Scout repo's `icarus-facts` skill (path in 
 | `src/IcarusStarlink.Catalog` | HTTP clients: Nexus, GitHub (cached), Daedalus/Jimk72 catalogs, UE4SS releases, app update (`release.json`) |
 | `src/IcarusStarlink.Updater` / `.Bridge` | Self-updater (trimmed single file); `IcarusStarlink.App.exe` net48 launcher kept for pre-3.0 updaters |
 | `src/ThirdParty/UeSaveGame` | Vendored (Apache) save-blob reader. **Don't edit** (csproj-only changes); a hook refuses it |
-| `tests/<Project>.Tests` | xUnit, ~2,100 tests. App VM tests build a `Harness`/`TestHarness` per test (see `LibraryViewModelTests.cs` ~line 1884, `DownloadsViewModelTests.cs` line 54) |
+| `tests/<Project>.Tests` | xUnit, ~2,780 tests. App VM tests build a `Harness`/`TestHarness` per test (see `LibraryViewModelTests.cs` ~line 1884, `DownloadsViewModelTests.cs` line 54) |
 | `tools/WinTools` | UI Automation CLI for the running app (`/run-app`). `tools/GameRowHistory` builds the row-history resource (`/game-data`) |
 
 Nav pages: Library (`LibraryView` + `LibraryViewModel`, two panels: data mods left, UE4SS right), Downloads, Nexus, Database, Merge & Install, Saves (tabs), Editor (`GameEditorView`), Weekly Changes, Server (Local server tab = `LocalServerView`, Remote FTP = `ServerView`), Settings (tabs incl. UE4SS config), Help (`HelpViewModel` holds the topic text).
@@ -41,7 +41,7 @@ Nav pages: Library (`LibraryView` + `LibraryViewModel`, two panels: data mods le
 ## Don't read whole (token sinks)
 
 A hook refuses these; this is why:
-- Files over 64 KB without offset/limit: `Views/LibraryView.xaml` (115 KB), `LocalServerView.xaml`, `Themes/Styles.xaml` (95 KB: Grep the style key), the big VM tests. Grep for the member or `x:Name`, then Read that range.
+- Files over 64 KB without offset/limit: `Views/Library/LibraryView.xaml` (115 KB), `Views/Server/LocalServerView.xaml`, `Themes/Styles.xaml` (95 KB: Grep the style key), the big VM tests. Grep for the member or `x:Name`, then Read that range.
 - `bin/`, `obj/`, `*.dll/.exe/.zip/.pak/.gz`, `Assets/UE4SS/*.zip`, `PakIO/Resources/game_row_history.json.gz`.
 - The app's runtime data folders (`Data\<Category>\D_*.json` tables, often over 1 MB; `Extracted_Mods`): use `row.py`, `Library_Meta\<Mod>.json` and `Logs\icarusstarlink-<date>.log` (tail it).
 - Shared-module and partial-class pattern: a page's VM is several files; Grep the member name across `ViewModels/<Page>ViewModel*.cs` instead of reading them all.
