@@ -495,7 +495,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,2">
                         <TextBlock Text="Craft Cost" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="Reduces the item/resource inputs every crafting-bench recipe needs. Never touches what a recipe outputs. Free (Creative mode) zeroes every input outright rather than rounding it down. (Classic IMM's own documented values.)">
+                                ToolTip="Reduces the item/resource inputs every crafting-bench recipe needs. Never touches what a recipe outputs. Free (Creative mode) zeroes every input outright rather than rounding it down. Trades with the vendors (vestiges, crops, fish and Biomass for Ren or trophies, the food shop) keep their normal price. (Classic IMM's own documented values.)">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                     </StackPanel>

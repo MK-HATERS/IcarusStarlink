@@ -519,7 +519,8 @@ public static class GameplayOptionsApplier
     /// this, Creative mode's promised "0 cost" isn't actually 0 for these recipes. QueryInputs
     /// elements use the same "Count" key as Inputs/ResourceInputs (only the reference-object key
     /// differs — "Query" vs "Element"), so the existing ZeroCountsInArray/ScaleCountsInArray helpers
-    /// apply unmodified.
+    /// apply unmodified. Trades with the NPC vendors are left alone (IsTradeRecipe): they are not
+    /// crafting, and making them cheaper or free hands out Ren, trophies and boss heads for nothing.
     /// </summary>
     private static void ApplyCraftCostReduction(GameplayOptions options, IDictionary<string, JsonObject> tables, MergeReport report)
     {
@@ -546,7 +547,7 @@ public static class GameplayOptionsApplier
             var changes = new List<FieldChange>();
             foreach (var (itemName, rowValue) in table)
             {
-                if (rowValue is not JsonObject row)
+                if (rowValue is not JsonObject row || IsTradeRecipe(row))
                 {
                     continue;
                 }
@@ -587,6 +588,42 @@ public static class GameplayOptionsApplier
         {
             report.AddWarning("Couldn't apply Craft Cost — no crafting recipes with an 'Inputs', 'ResourceInputs', or 'QueryInputs' array were found. The game data may have changed since this option's field names were last confirmed.");
         }
+    }
+
+    /// <summary>
+    /// The recipe sets that are trades with an NPC vendor, not crafting (real game data, 2026-10-28:
+    /// D_Processing's Hunter, Norex_NPC, Farmer_NPC, Fisher_NPC and Chef_NPC rows each have one of
+    /// these as their DefaultRecipeSet). Vestige/Crops/Fish_Exchange turn vestiges, crops and fish
+    /// into Ren (Common_Vestige: 1 vestige for 1 Ren), Biomass_Exchange turns Biomass into trophies
+    /// and boss heads (28 rows), and Food_Shop sells food for Ren (Food_Soda: 10 Ren). Creative mode
+    /// used to zero these, so every vendor gave currency and trophies for nothing; classic IMM 2.5.0
+    /// fixed the same thing ("issues for QueryInputs from recipes that are quest related. Mainly the
+    /// new exchange venders"). Any other set named *_Exchange counts too, so a new vendor the game
+    /// or a mod adds the same way is left alone without a code change.
+    /// </summary>
+    private static readonly string[] TradeRecipeSetNames = ["Food_Shop"];
+
+    private const string TradeRecipeSetSuffix = "_Exchange";
+
+    /// <summary>True when any of the row's RecipeSets is a vendor trade (see TradeRecipeSetNames).</summary>
+    private static bool IsTradeRecipe(JsonObject row)
+    {
+        if (row["RecipeSets"] is not JsonArray sets)
+        {
+            return false;
+        }
+
+        foreach (var set in sets)
+        {
+            if (set is JsonObject handle && handle["RowName"] is JsonValue nameValue && nameValue.TryGetValue<string>(out var name)
+                && (name.EndsWith(TradeRecipeSetSuffix, StringComparison.OrdinalIgnoreCase)
+                    || TradeRecipeSetNames.Contains(name, StringComparer.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Creative mode's own zero-out — deliberately not routed through ScaleCountsInArray, which floors every result at a minimum of 1 and so can never actually reach free. Returns a modified clone (null input in, null out) rather than mutating in place, matching TableApplier's own "the FieldChange carries the whole new value" model.</summary>

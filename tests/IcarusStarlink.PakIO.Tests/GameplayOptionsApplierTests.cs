@@ -763,6 +763,54 @@ public class GameplayOptionsApplierTests
     // GameplayOptionsFieldChangeGeneratorTests.cs — they're real FieldChanges now
     // (GameplayOptionsFieldChangeGenerator), not something GameplayOptionsApplier.Apply handles.
 
+    /// <summary>
+    /// Bug: Creative mode made every NPC vendor trade free — the Hunter gave Ren for no vestiges
+    /// (Common_Vestige: 1 Any_Common_Vestige for 1 Ren), Norex gave trophies and boss heads for no
+    /// Biomass, the Chef gave food for no Ren. Trades aren't crafting: every cost level leaves them alone.
+    /// </summary>
+    [Theory]
+    [InlineData(CraftCostReduction.Creative)]
+    [InlineData(CraftCostReduction.FiftyPercent)]
+    [InlineData(CraftCostReduction.TwentyFivePercent)]
+    public void Apply_CraftCostReduction_LeavesVendorTradesAtTheirNormalPrice(CraftCostReduction level)
+    {
+        var tables = new Dictionary<string, JsonObject>
+        {
+            ["Crafting-D_ProcessorRecipes.json"] = new()
+            {
+                ["Common_Vestige"] = Row("""
+                    {"RecipeSets": [{"RowName": "Vestige_Exchange", "DataTableName": "D_RecipeSets"}], "Inputs": [],
+                     "QueryInputs": [{"Query": {"RowName": "Any_Common_Vestige"}, "Count": 4}],
+                     "Outputs": [{"Element": {"RowName": "Ren"}, "Count": 1}]}
+                    """),
+                ["Biomass_To_Scorpion_Carapace"] = Row("""
+                    {"RecipeSets": [{"RowName": "Biomass_Exchange"}], "Inputs": [{"Element": {"RowName": "Biomass"}, "Count": 25}],
+                     "Outputs": [{"Element": {"RowName": "Scorpion_Carapace"}, "Count": 15}]}
+                    """),
+                ["Food_Soda"] = Row("""
+                    {"RecipeSets": [{"RowName": "Food_Shop"}], "Inputs": [{"Element": {"RowName": "Ren"}, "Count": 10}],
+                     "Outputs": [{"Element": {"RowName": "Meta_Soda"}, "Count": 1}]}
+                    """),
+                ["Farmer_Plant_Grain"] = Row("""
+                    {"RecipeSets": [{"RowName": "Crops_Exchange"}], "Inputs": [], "QueryInputs": [{"Query": {"RowName": "Any_Grain"}, "Count": 50}]}
+                    """),
+                ["Stone_Axe"] = Row("""
+                    {"RecipeSets": [{"RowName": "Character"}], "Inputs": [{"Element": {"RowName": "Stone"}, "Count": 12}]}
+                    """),
+            },
+        };
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { CraftCost = level }, tables, new MergeReport());
+
+        var recipes = tables["Crafting-D_ProcessorRecipes.json"];
+        Assert.Equal(4, (int)recipes["Common_Vestige"]!["QueryInputs"]![0]!["Count"]!);
+        Assert.Equal(25, (int)recipes["Biomass_To_Scorpion_Carapace"]!["Inputs"]![0]!["Count"]!);
+        Assert.Equal(10, (int)recipes["Food_Soda"]!["Inputs"]![0]!["Count"]!);
+        Assert.Equal(50, (int)recipes["Farmer_Plant_Grain"]!["QueryInputs"]![0]!["Count"]!);
+        // Ordinary crafting is still reduced.
+        Assert.True((int)recipes["Stone_Axe"]!["Inputs"]![0]!["Count"]! < 12);
+    }
+
     [Fact]
     public void Apply_NoTablesPresentForAnEnabledOption_DoesNotThrow()
     {
