@@ -426,4 +426,23 @@ public class Ue4ssSettingsDocumentTests
         Assert.Equal("1", value);
         Assert.Equal("Real", Assert.Single(settings).Key);
     }
+
+    /// <summary>A long run of spaces in the comment after a value, or in the comment above it, is read quickly.</summary>
+    [Theory]
+    [InlineData("Real = 1 ; a{0}b", " ")]
+    [InlineData("Real = 1 ; [choice a{0}b]", " ")]
+    [InlineData("Real = 1 ; (1{0}", " ")]
+    [InlineData("; Valid values: a{0}b\nReal = a", " ")]
+    [InlineData("; Valid values: a{0}b\nReal = a", ", ")]
+    [InlineData("; a{0}b\n; Default: 1\nReal = 1", " ")]
+    public void ALongRunOfSpacesInAComment_ReadsQuickly(string template, string repeated)
+    {
+        var text = "[A]\n" + string.Format(System.Globalization.CultureInfo.InvariantCulture, template, string.Concat(Enumerable.Repeat(repeated, 40_000))) + "\n";
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var settings = Ue4ssSettingsDocument.Parse(text, keepCommentLines: true).Settings;
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+        Assert.Equal("Real", Assert.Single(settings).Key);
+    }
 }
