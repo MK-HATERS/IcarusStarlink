@@ -85,6 +85,23 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <!-- The header's quick links: a small icon-and-word button each. -->
+        <Style x:Key="HeaderLinkButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Margin" Value="6,0,0,0"/>
+            <Setter Property="Padding" Value="9,4"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style x:Key="HeaderLinkIconStyle" TargetType="Path">
+            <Setter Property="Width" Value="15"/>
+            <Setter Property="Height" Value="15"/>
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="StrokeThickness" Value="1.6"/>
+            <Setter Property="StrokeLineJoin" Value="Round"/>
+            <Setter Property="StrokeStartLineCap" Value="Round"/>
+            <Setter Property="StrokeEndLineCap" Value="Round"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
         <!-- The left column's pages, grouped under their headings (NavItem.Group). -->
         <CollectionViewSource x:Key="NavGroups" Source="{Binding NavItems}">
             <CollectionViewSource.GroupDescriptions>
@@ -121,30 +138,49 @@
                                Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                 </DockPanel>
 
+                <!-- Quick links, always here whatever page is showing (they used to sit at the bottom
+                     of the menu; the Theme button took that place). Open UE4SS folder / Open game
+                     folder are greyed out (MainViewModel.CanOpenGameFolders) until the game folder is
+                     set; Play and Mods work with no setup. Each folder has its own sign. -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Theme:" VerticalAlignment="Center" Margin="0,0,4,0"
-                               Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                    <ItemsControl ItemsSource="{Binding AvailableThemes}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Button Content="{Binding}" Style="{StaticResource ThemeButtonStyle}"
-                                        Command="{Binding DataContext.SelectThemeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                        CommandParameter="{Binding}">
-                                    <Button.Tag>
-                                        <MultiBinding Converter="{StaticResource StringEqualityMultiConverter}">
-                                            <Binding Path="."/>
-                                            <Binding Path="DataContext.CurrentThemeName" RelativeSource="{RelativeSource AncestorType=Window}"/>
-                                        </MultiBinding>
-                                    </Button.Tag>
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <Button Command="{Binding LaunchGameCommand}" Style="{StaticResource HeaderLinkButtonStyle}"
+                            ToolTip="Start Icarus" AutomationProperties.Name="Launch game">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconPlay}" Fill="{DynamicResource SuccessBrush}" Style="{StaticResource HeaderLinkIconStyle}"/>
+                            <TextBlock Text="Play" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding OpenModFolderCommand}" Style="{StaticResource HeaderLinkButtonStyle}"
+                            ToolTip="Open your mod folder: the Library's mods (Extracted_Mods)" AutomationProperties.Name="Open mod folder">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconFolderMods}" Stroke="#9B6FDE" Style="{StaticResource HeaderLinkIconStyle}"/>
+                            <TextBlock Text="Mods" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding OpenUe4ssFolderCommand}" Style="{StaticResource HeaderLinkButtonStyle}"
+                            ToolTip="Open the game's UE4SS folder: its Lua mods. Greyed out: set the game folder in Settings first."
+                            ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="Open UE4SS folder">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconFolderCode}" Stroke="#4A90D9" Style="{StaticResource HeaderLinkIconStyle}"/>
+                            <TextBlock Text="UE4SS" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding OpenGameFolderCommand}" Style="{StaticResource HeaderLinkButtonStyle}"
+                            ToolTip="Open the Icarus install folder. Greyed out: set the game folder in Settings first."
+                            ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="Open game folder">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconFolderGame}" Stroke="#E08A3C" Style="{StaticResource HeaderLinkIconStyle}"/>
+                            <TextBlock Text="Game" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding OpenServerFolderCommand}" Style="{StaticResource HeaderLinkButtonStyle}"
+                            ToolTip="Open your dedicated server's folder (no server yet: opens the Server page to set one up)"
+                            AutomationProperties.Name="Open server folder">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource IconFolderServer}" Stroke="#4CAF6D" Style="{StaticResource HeaderLinkIconStyle}"/>
+                            <TextBlock Text="Server" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
 
                     <!-- Phase 10: toggles the persistent Activity drawer (see ActivityPanelView) —
                          stays available across every page, unlike a per-page status line. -->
@@ -291,53 +327,17 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <!-- Shell-level quick-links, always available regardless of which page is showing —
-                     matching NavIcon's own icon+label shape but plain buttons, not nav items (they
-                     don't change CurrentPage). Open UE4SS folder/Open game folder disable themselves
-                     (via MainViewModel.CanOpenGameFolders) until a Content path is actually
-                     configured; Launch game and Open mod folder work with zero setup. -->
+                <!-- The Theme button: one click steps to the next theme (Icarus → Dark → Light →
+                     Custom → Icarus); the label says which one is on. The quick links that used
+                     to sit here are in the header now. -->
                 <StackPanel Grid.Row="2" Margin="12,8,12,12">
                     <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,8"/>
-                    <Button Command="{Binding LaunchGameCommand}" Style="{StaticResource QuickLinkButtonStyle}"
-                            ToolTip="Launch Icarus"
-                            AutomationProperties.Name="Launch game">
+                    <Button Command="{Binding NextThemeCommand}" Style="{StaticResource QuickLinkButtonStyle}"
+                            ToolTip="{Binding NextThemeName, StringFormat='Change the colours: click for the {0} theme. Each click goes to the next one.'}"
+                            AutomationProperties.Name="{Binding ThemeButtonText}">
                         <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconPlay}" Fill="{DynamicResource SuccessBrush}" Style="{StaticResource QuickLinkIconStyle}"/>
-                            <TextBlock Text="Launch game" VerticalAlignment="Center" FontSize="12" Style="{StaticResource NavLabelStyle}"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Command="{Binding OpenModFolderCommand}" Style="{StaticResource QuickLinkButtonStyle}"
-                            ToolTip="Mod folder — your Library's mods (Extracted_Mods)"
-                            AutomationProperties.Name="Open mod folder">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconPackage}" Stroke="#9B6FDE" Style="{StaticResource QuickLinkIconStyle}"/>
-                            <TextBlock Text="Mod folder" VerticalAlignment="Center" FontSize="12" Style="{StaticResource NavLabelStyle}"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Command="{Binding OpenUe4ssFolderCommand}" Style="{StaticResource QuickLinkButtonStyle}"
-                            ToolTip="UE4SS folder — the game's UE4SS Lua mods"
-                            ToolTipService.ShowOnDisabled="True"
-                            AutomationProperties.Name="Open UE4SS folder">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconCode}" Stroke="#4A90D9" Style="{StaticResource QuickLinkIconStyle}"/>
-                            <TextBlock Text="UE4SS folder" VerticalAlignment="Center" FontSize="12" Style="{StaticResource NavLabelStyle}"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Command="{Binding OpenGameFolderCommand}" Style="{StaticResource QuickLinkButtonStyle}"
-                            ToolTip="Game folder — the Icarus install"
-                            ToolTipService.ShowOnDisabled="True"
-                            AutomationProperties.Name="Open game folder">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconGamepad}" Stroke="#E08A3C" Style="{StaticResource QuickLinkIconStyle}"/>
-                            <TextBlock Text="Game folder" VerticalAlignment="Center" FontSize="12" Style="{StaticResource NavLabelStyle}"/>
-                        </StackPanel>
-                    </Button>
-                    <Button Command="{Binding OpenServerFolderCommand}" Style="{StaticResource QuickLinkButtonStyle}"
-                            ToolTip="Server folder — your dedicated server (no server yet: opens the Server page to set one up)"
-                            AutomationProperties.Name="Open server folder">
-                        <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconServerBars}" Stroke="#4CAF6D" Style="{StaticResource QuickLinkIconStyle}"/>
-                            <TextBlock Text="Server folder" VerticalAlignment="Center" FontSize="12" Style="{StaticResource NavLabelStyle}"/>
+                            <Path Data="{StaticResource IconTheme}" Stroke="{DynamicResource AccentBrush}" Fill="{DynamicResource AccentSoftBrush}" Style="{StaticResource QuickLinkIconStyle}"/>
+                            <TextBlock Text="{Binding ThemeButtonText}" VerticalAlignment="Center" FontSize="12" Style="{StaticResource NavLabelStyle}"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
@@ -345,7 +345,7 @@
             </Border>
 
             <Border Grid.Column="1" Background="{DynamicResource ContentBackgroundBrush}">
-                <ContentControl Content="{Binding CurrentPage}"/>
+                <ContentControl x:Name="PageHost" Content="{Binding CurrentPage}"/>
             </Border>
 
             <!-- Phase 10: the persistent Activity drawer — an Auto-width column that collapses to

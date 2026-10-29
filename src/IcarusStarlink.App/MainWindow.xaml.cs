@@ -46,6 +46,43 @@ public partial class MainWindow : Window
         Activated += (_, _) => RefreshMergeInstalledState();
     }
 
+    /// <summary>
+    /// Page shortcuts: Ctrl+1 … Ctrl+9 go to the menu's pages in order (Ctrl+0 the tenth), Ctrl+F
+    /// to the page's own search or filter box (PageSearch). Windows opened from a page (the mod
+    /// editor and others) keep their own shortcuts; these are the main window's only.
+    /// </summary>
+    protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
+    {
+        if (System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Control && DataContext is MainViewModel viewModel)
+        {
+            var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
+            if (key == System.Windows.Input.Key.F && IcarusStarlink.App.Views.PageSearch.Find(PageHost) is { } search)
+            {
+                search.Focus();
+                search.SelectAll();
+                e.Handled = true;
+                return;
+            }
+
+            if (PageNumber(key) is { } number && viewModel.GoToPageNumber(number))
+            {
+                e.Handled = true;
+                return;
+            }
+        }
+
+        base.OnPreviewKeyDown(e);
+    }
+
+    /// <summary>1–9 from the number row or the keypad; 0 is the tenth page.</summary>
+    private static int? PageNumber(System.Windows.Input.Key key) => key switch
+    {
+        >= System.Windows.Input.Key.D1 and <= System.Windows.Input.Key.D9 => key - System.Windows.Input.Key.D1 + 1,
+        >= System.Windows.Input.Key.NumPad1 and <= System.Windows.Input.Key.NumPad9 => key - System.Windows.Input.Key.NumPad1 + 1,
+        System.Windows.Input.Key.D0 or System.Windows.Input.Key.NumPad0 => 10,
+        _ => null,
+    };
+
     /// <summary>The Merge &amp; Install page's state, or null while the app is starting or shutting down.</summary>
     private MergeInstallViewModel? TryGetMergeInstall()
     {

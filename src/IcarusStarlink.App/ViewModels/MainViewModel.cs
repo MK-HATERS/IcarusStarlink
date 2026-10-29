@@ -38,7 +38,24 @@ public sealed partial class MainViewModel : ObservableObject
     private object? _currentPage;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(NextThemeName), nameof(ThemeButtonText))]
     private string _currentThemeName;
+
+    /// <summary>The theme the one-click Theme button (bottom of the menu) switches to: the next in the list, round to the first.</summary>
+    public string NextThemeName
+    {
+        get
+        {
+            var index = AvailableThemes.ToList().FindIndex(t => string.Equals(t, CurrentThemeName, StringComparison.OrdinalIgnoreCase));
+            return AvailableThemes.Count == 0 ? CurrentThemeName : AvailableThemes[(index + 1) % AvailableThemes.Count];
+        }
+    }
+
+    public string ThemeButtonText => $"Theme: {CurrentThemeName}";
+
+    /// <summary>The Theme button: Icarus → Dark → Light → Custom → Icarus, one step per click.</summary>
+    [RelayCommand]
+    private void NextTheme() => SelectTheme(NextThemeName);
 
 
     /// <summary>
@@ -313,5 +330,17 @@ public sealed partial class MainViewModel : ObservableObject
         _themeService.ApplyTheme(themeName);
         _settingsService.Current.ThemeName = themeName;
         _settingsService.Save();
+    }
+
+    /// <summary>Ctrl+1 … Ctrl+9 (Ctrl+0 = 10): the menu's pages in order. False when there's no such page.</summary>
+    public bool GoToPageNumber(int number)
+    {
+        if (number < 1 || number > NavItems.Count)
+        {
+            return false;
+        }
+
+        SelectedNavItem = NavItems[number - 1];
+        return true;
     }
 }

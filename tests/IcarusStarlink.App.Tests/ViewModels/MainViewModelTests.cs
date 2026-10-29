@@ -134,12 +134,58 @@ public class MainViewModelTests
             : new object();
     }
 
+    /// <summary>The Theme button (bottom of the menu) steps through every theme, back round to the first, and saves each.</summary>
+    [Fact]
+    public void ThemeButton_StepsThroughEveryTheme_AndRoundToTheFirst()
+    {
+        var settings = new AppSettings { IcarusContentPath = @"C:\fake", ThemeName = "Icarus" };
+        var themes = new FakeThemeService();
+        var vm = new MainViewModel(new FakeServiceProvider(), themes, new FakeSettingsService(settings), new ActivityPanelViewModel(new FakeActivityLog()));
+        try
+        {
+            var seen = new List<string>();
+            for (var i = 0; i < 4; i++)
+            {
+                Assert.Equal($"Theme: {vm.CurrentThemeName}", vm.ThemeButtonText);
+                vm.NextThemeCommand.Execute(null);
+                seen.Add(vm.CurrentThemeName);
+            }
+
+            Assert.Equal(["Dark", "Light", "Custom", "Icarus"], seen);
+            Assert.Equal("Icarus", themes.Applied);
+            Assert.Equal("Icarus", settings.ThemeName);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Ctrl+1 … Ctrl+9 (Ctrl+0 = the tenth) go to the menu's pages in order; a number past the last does nothing.</summary>
+    [Fact]
+    public void GoToPageNumber_GoesToThatMenuEntry()
+    {
+        var vm = Build(@"C:\fake\Icarus\Content");
+        try
+        {
+            Assert.True(vm.GoToPageNumber(1));
+            Assert.Equal(vm.NavItems[0], vm.SelectedNavItem);
+            Assert.True(vm.GoToPageNumber(3));
+            Assert.Equal(vm.NavItems[2], vm.SelectedNavItem);
+            Assert.False(vm.GoToPageNumber(vm.NavItems.Count + 1));
+            Assert.Equal(vm.NavItems[2], vm.SelectedNavItem);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     private sealed class FakeThemeService : IThemeService
     {
-        public IReadOnlyList<string> AvailableThemes => [];
-        public void ApplyTheme(string themeName)
-        {
-        }
+        public string? Applied { get; private set; }
+        public IReadOnlyList<string> AvailableThemes => ["Icarus", "Dark", "Light", "Custom"];
+        public void ApplyTheme(string themeName) => Applied = themeName;
         public IReadOnlyDictionary<string, string> GetThemeColors(string themeName) => new Dictionary<string, string>();
     }
 
