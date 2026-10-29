@@ -251,14 +251,117 @@ public class Ue4ssSettingsDocumentTests
         Assert.Equal((Ue4ssSettingKind.Choice, true, ""), (mode.Kind, mode.NeedsRestart, mode.Description));
         Assert.Equal(["Fair", "Game", "Both"], mode.Choices);
 
+        // A key: "R" tagged [key] (Pet Commander's MenuKey), or a one-line key table without a tag (Cheats' OpenKey).
         var key = Ue4ssSettingsDocument.DescribeLuaSetting("OpenKey", "F4", LuaConfigValueKind.String, [], "the menu's key [key]");
-        Assert.Equal((Ue4ssSettingKind.Text, "the menu's key", false), (key.Kind, key.Description, key.Hidden));
+        Assert.Equal((Ue4ssSettingKind.Key, "the menu's key", false), (key.Kind, key.Description, key.Hidden));
 
         var probe = Ue4ssSettingsDocument.DescribeLuaSetting("DebugProbe", "false", LuaConfigValueKind.Boolean, [], "testing [hidden]");
         Assert.Equal((Ue4ssSettingKind.Toggle, true), (probe.Kind, probe.Hidden));
 
         var keys = Ue4ssSettingsDocument.DescribeLuaSetting("OpenKey", "{ key = \"F4\", shift = true }", LuaConfigValueKind.Table, [], "opens the window");
-        Assert.Equal(Ue4ssSettingKind.Text, keys.Kind);
+        Assert.Equal(Ue4ssSettingKind.Key, keys.Kind);
         Assert.Empty(keys.Choices);
+
+        // A table holding more than a key stays Lua text.
+        var notKey = Ue4ssSettingsDocument.DescribeLuaSetting("Keys", "{ key = \"F4\", hold = 2 }", LuaConfigValueKind.Table, [], "");
+        Assert.Equal(Ue4ssSettingKind.Text, notKey.Kind);
     }
+
+    /// <summary>
+    /// MkHaters Cheats / Stability (2026-10-28): "[server]" and "[local]" showed as text in the
+    /// description; they're marks now, and taken out of the text like the other tags.
+    /// </summary>
+    [Fact]
+    public void ServerAndLocalTags_AreMarks_NotText()
+    {
+        var god = Ue4ssSettingsDocument.DescribeLuaSetting("AllowGodMode", "true", LuaConfigValueKind.Boolean, ["Whether players may switch god mode on."], "[server]");
+        Assert.Equal((true, false, "Whether players may switch god mode on."), (god.ServerDecides, god.LocalOnly, god.Description));
+
+        var ini = Ue4ssSettingsDocument.Parse("[Hotkey]\r\nHotkeyKey = F5 ; F1-F12; restart needed [restart] [local]\r\n", keepCommentLines: true);
+        var hotkey = ini.Settings.Single();
+        Assert.Equal((true, true, "F1-F12"), (hotkey.LocalOnly, hotkey.NeedsRestart, hotkey.Description));
+    }
+
+    /// <summary>
+    /// NearbyCrafting.ini (real, 2026-10-28) writes its ranges and restarts in the comment above:
+    /// "Valid range: 1.0-500.0 metres", "Changing this setting requires an Icarus restart". The box
+    /// showed no range and no "needs a restart".
+    /// </summary>
+    [Fact]
+    public void ModIni_RangeAndRestartInTheCommentAbove_AreRead()
+    {
+        const string ini =
+            "[General]\r\n" +
+            "# Turn NearbyCrafting on or off. Changing this setting requires an Icarus restart.\r\n" +
+            "Enabled = true\r\n" +
+            "\r\n" +
+            "# How far crafting can reach, in metres.\r\n" +
+            "# Valid range: 1.0-500.0 metres (inclusive).\r\n" +
+            "ScanRadiusMeters = 100.0\r\n" +
+            "\r\n" +
+            "# Allow items inside nearby crafting stations.\r\n" +
+            "IncludeBenchInventories = true\r\n";
+        var settings = Ue4ssSettingsDocument.Parse(ini, keepCommentLines: true).Settings.ToDictionary(s => s.Key);
+
+        Assert.True(settings["Enabled"].NeedsRestart);
+        Assert.Equal((Ue4ssSettingKind.Number, 1d, 500d), (settings["ScanRadiusMeters"].Kind, settings["ScanRadiusMeters"].Minimum, settings["ScanRadiusMeters"].Maximum));
+        Assert.False(settings["ScanRadiusMeters"].NeedsRestart);
+        Assert.False(settings["IncludeBenchInventories"].NeedsRestart);
+
+        // UE4SS's own settings file is read as before (everything there needs a restart anyway).
+        var own = Ue4ssSettingsDocument.Parse("[General]\n; Valid range: 1-5. Requires a restart.\nX = 2\n").Settings.Single();
+        Assert.Equal((null, false), (own.Minimum, own.NeedsRestart));
+    }
+
+    [Theory]
+    [InlineData("bEnableHotReload", "Enable hot reload")]
+    [InlineData("ScanRadiusMeters", "Scan radius meters")]
+    [InlineData("Ammo_AssaultRifle_Auto", "Ammo assault rifle auto")]
+    [InlineData("stat_poll_ms", "Stat poll ms")]
+    [InlineData("GUIConsoleEnabled", "GUI console enabled")]
+    [InlineData("MaxFPS", "Max FPS")]
+    [InlineData("UseUE4SSLog", "Use UE4SS log")]
+    [InlineData("F12Key", "F12 key")]
+    [InlineData("Slot2Item", "Slot 2 item")]
+    [InlineData("Config.Speed", "Speed")]
+    [InlineData("962576", "962576")]
+    [InlineData("Debug", "Debug")]
+    public void Label_FromKey_ReadsAsWords(string key, string label) =>
+        Assert.Equal(label, Ue4ssSettingLabel.FromKey(key));
+
+    [Theory]
+    [InlineData("GENERAL", "General")]
+    [InlineData("PACKS, HERDS AND FLOCKS", "Packs, herds and flocks")]
+    [InlineData("WHERE THE WORLD RUNS (solo, the host, the dedicated server)", "Where the world runs (solo, the host, the dedicated server)")]
+    [InlineData("Keys", "Keys")]
+    [InlineData("NoStability", "NoStability")]
+    public void Label_Heading_IsSentenceCase(string heading, string label) =>
+        Assert.Equal(label, Ue4ssSettingLabel.Heading(heading));
+
+    [Theory]
+    [InlineData("{ key = \"F2\" }", "F2", false, false, false)]
+    [InlineData("{ key = \"F8\", ctrl = true }", "F8", true, false, false)]
+    [InlineData("{key=\"F6\",shift=true,alt=false,}", "F6", false, true, false)]
+    [InlineData("{ alt = true, key = \"NumPadOne\" }", "NumPadOne", false, false, true)]
+    public void KeyBind_ReadsTheOneLineKeyTable(string lua, string key, bool ctrl, bool shift, bool alt)
+    {
+        Assert.True(Ue4ssKeyBind.TryParse(lua, out var bind));
+        Assert.Equal(new Ue4ssKeyBind(key, ctrl, shift, alt), bind);
+    }
+
+    [Theory]
+    [InlineData("{ }")]
+    [InlineData("{ ctrl = true }")]
+    [InlineData("{ key = \"F2\", key = \"F3\" }")]
+    [InlineData("{ key = \"F 2\" }")]
+    [InlineData("{ key = \"F2\\\"\" }")]
+    [InlineData("{ key = F2 }")]
+    [InlineData("{ key = \"F2\", hold = true }")]
+    [InlineData("{ key = \"F2\", ctrl = 1 }")]
+    [InlineData("\"F2\"")]
+    public void KeyBind_AnythingElse_IsNotAKey(string lua) => Assert.False(Ue4ssKeyBind.TryParse(lua, out _));
+
+    [Fact]
+    public void KeyBind_WritesOnlyTheModifiersThatAreOn() =>
+        Assert.Equal("{ key = \"F4\", ctrl = true, alt = true }", new Ue4ssKeyBind("F4", true, false, true).ToLua());
 }

@@ -104,6 +104,51 @@ public class LuaConfigDocumentTests
         Assert.Equal(Realistic, doc.ToText());
     }
 
+    /// <summary>
+    /// MkHaters Cheats / Wildlife (real, 2026-10-28): "-- ==== GENERAL ====" headings used to land
+    /// in the first setting's description, and nothing was grouped. They name a group now.
+    /// </summary>
+    [Fact]
+    public void CommentHeadings_GroupTheSettings_AndAreNotADescription()
+    {
+        const string text =
+            "-- MkHaters Cheats settings.\r\n" +
+            "return {\r\n" +
+            "    -- ==== GENERAL ====\r\n" +
+            "    -- Turns the whole mod on or off.\r\n" +
+            "    Enabled = true,               -- [restart]\r\n" +
+            "    OpenKey = { key = \"F2\" },\r\n" +
+            "\r\n" +
+            "    -- ==== ITEMS ====\r\n" +
+            "    DefaultAmount = 1,            -- [slider 1 100 1]\r\n" +
+            "    -- ------------------------\r\n" +
+            "    MaxAmount = 1000,\r\n" +
+            "}\r\n";
+        var doc = LuaConfigDocument.Parse(text);
+        var settings = doc.Settings.ToDictionary(s => s.Key);
+
+        Assert.Equal(("GENERAL", "Turns the whole mod on or off.\n[restart]"), (settings["Enabled"].Group, settings["Enabled"].Description));
+        Assert.Equal("GENERAL", settings["OpenKey"].Group);
+        Assert.Equal(("ITEMS", ""), (settings["DefaultAmount"].Group, string.Join("|", settings["DefaultAmount"].Comments)));
+        // A bare rule is no heading and no description.
+        Assert.Equal(("ITEMS", ""), (settings["MaxAmount"].Group, settings["MaxAmount"].Description));
+        Assert.Equal(0, doc.UnknownLineCount);
+        Assert.Equal(text, doc.ToText());
+    }
+
+    /// <summary>Untrusted input: long comment lines of dashes and = (a heading-looking line that never closes) stay quick to read.</summary>
+    [Fact]
+    public void LongRuleLikeComments_ParseQuickly()
+    {
+        var line = "-- " + new string('-', 5000) + " x " + new string('=', 5000) + "y\n";
+        var text = "return {\n" + string.Concat(Enumerable.Repeat(line, 200)) + "    A = 1,\n}\n";
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var doc = LuaConfigDocument.Parse(text);
+
+        Assert.Equal("A", Assert.Single(doc.Settings).Key);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
+    }
+
     [Fact]
     public void GlobalAssignments_AreSettingsToo()
     {

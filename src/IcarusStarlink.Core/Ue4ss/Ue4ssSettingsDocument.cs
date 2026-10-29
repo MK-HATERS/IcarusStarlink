@@ -16,6 +16,9 @@ public enum Ue4ssSettingKind
 
     /// <summary>A number (a mod's own config): a box, or a slider when the mod asks for one ("[slider 1 10 0.5]").</summary>
     Number,
+
+    /// <summary>A key (a mod's Lua config): "R" with a [key] tag, or a one-line { key = "F4", ctrl = true } table.</summary>
+    Key,
 }
 
 /// <summary>One "Key = Value" line of UE4SS-settings.ini, with what its comment block says about it.</summary>
@@ -23,9 +26,12 @@ public enum Ue4ssSettingKind
 /// <param name="Step">A slider's step; set only when the mod asks for a slider.</param>
 /// <param name="NeedsRestart">The comment says the setting applies after a restart ("[restart]", "restart needed").</param>
 /// <param name="Hidden">The mod asks for it not to be shown ("[hidden]": an internal or testing value); it stays in the file for hand edits.</param>
+/// <param name="ServerDecides">"[server]": in multiplayer only the host's or server's copy is read.</param>
+/// <param name="LocalOnly">"[local]": read on each player's own PC (an exception in a file marked [server]).</param>
 public sealed record Ue4ssSetting(
     string Section, string Key, string Value, string Description, string? Default, Ue4ssSettingKind Kind, IReadOnlyList<string> Choices,
-    double? Minimum = null, double? Maximum = null, double? Step = null, bool NeedsRestart = false, bool Hidden = false);
+    double? Minimum = null, double? Maximum = null, double? Step = null, bool NeedsRestart = false, bool Hidden = false,
+    bool ServerDecides = false, bool LocalOnly = false);
 
 /// <summary>
 /// UE4SS-settings.ini, read and written line by line so that saving only changes the value part of
@@ -329,10 +335,14 @@ public sealed partial class Ue4ssSettingsDocument
     public static Ue4ssSetting DescribeLuaSetting(string key, string value, LuaConfigValueKind kind, IReadOnlyList<string> comments, string? note)
     {
         var described = Describe("", key, value, [.. comments], "\n", note ?? "");
+        // A key: "R" tagged [key], or a one-line { key = "F4", shift = true } (a key without the tag, as MkHaters Mod Settings reads it).
+        var isKey = note is not null && KeyMarker().IsMatch(note);
         var settingKind = kind switch
         {
             LuaConfigValueKind.Boolean => Ue4ssSettingKind.Toggle,
             LuaConfigValueKind.Number => Ue4ssSettingKind.Number,
+            LuaConfigValueKind.String when isKey && Ue4ssKeyBind.IsKeyName(value) => Ue4ssSettingKind.Key,
+            LuaConfigValueKind.Table when Ue4ssKeyBind.TryParse(value, out _) => Ue4ssSettingKind.Key,
             LuaConfigValueKind.String when described.Choices.Count > 1 => Ue4ssSettingKind.Choice,
             _ => Ue4ssSettingKind.Text,
         };
@@ -358,6 +368,8 @@ public sealed partial class Ue4ssSettingsDocument
         double? minimum = null, maximum = null, step = null;
         var needsRestart = false;
         var hidden = false;
+        var serverDecides = false;
+        var localOnly = false;
         if (note.Length > 0)
         {
             if (SliderMarker().Match(note) is { Success: true } slider)
@@ -377,6 +389,8 @@ public sealed partial class Ue4ssSettingsDocument
             }
 
             hidden = HiddenMarker().IsMatch(note);
+            serverDecides = ServerMarker().IsMatch(note);
+            localOnly = LocalMarker().IsMatch(note);
             needsRestart = RestartMarker().IsMatch(note) || RestartWords().IsMatch(note);
             note = RestartWords().Replace(Marker().Replace(note, ""), "").Trim().TrimEnd(';', ',').Trim();
             if (minimum is null && RangeInNote().Match(note) is { Success: true } range)
@@ -448,6 +462,18 @@ public sealed partial class Ue4ssSettingsDocument
 
         var text = string.Join(separator, description);
         var isModConfig = separator == "\n";
+        if (isModConfig)
+        {
+            // The comment above, in words (NearbyCrafting.ini: "Valid range: 1.0-500.0 metres",
+            // "Changing this setting requires an Icarus restart").
+            if (minimum is null && maximum is null && RangeInComment().Match(text) is { Success: true } range)
+            {
+                (minimum, maximum) = (Number(range.Groups["min"].Value), Number(range.Groups["max"].Value));
+            }
+
+            needsRestart = needsRestart || RestartInComment().IsMatch(text);
+        }
+
         var isSwitch = isModConfig
             ? IsModSwitch(key, value, text)
             : IsToggle(value) && (defaultValue is null || IsToggle(defaultValue)) && !NumberDescription().IsMatch(text);
@@ -457,8 +483,25 @@ public sealed partial class Ue4ssSettingsDocument
             : Ue4ssSettingKind.Text;
         return new Ue4ssSetting(section, key, value, text, defaultValue, kind, choices,
             kind == Ue4ssSettingKind.Number ? minimum : null, kind == Ue4ssSettingKind.Number ? maximum : null,
-            kind == Ue4ssSettingKind.Number ? step : null, needsRestart, hidden);
+            kind == Ue4ssSettingKind.Number ? step : null, needsRestart, hidden, serverDecides, localOnly);
     }
+
+    // "Valid range: 1.0-500.0 metres", "Range: 0 to 10": a range written out in the comment above.
+    [GeneratedRegex(@"\b(?:valid\s+)?range\s*:\s*(?<min>-?\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(?<max>-?\d+(?:\.\d+)?)", RegexOptions.IgnoreCase)]
+    private static partial Regex RangeInComment();
+
+    // "requires an Icarus restart", "needs a restart", "applies after the game is restarted", "after a restart".
+    [GeneratedRegex(@"\b(?:requires?|needs?)\s+(?:an?\s+)?(?:\w+\s+)?restart\b|\bafter\s+(?:a|the)\s+(?:\w+\s+)?(?:is\s+)?restart(?:ed)?\b|\brestart\s+(?:needed|required)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex RestartInComment();
+
+    [GeneratedRegex(@"\[key\]", RegexOptions.IgnoreCase)]
+    private static partial Regex KeyMarker();
+
+    [GeneratedRegex(@"\[server\]", RegexOptions.IgnoreCase)]
+    private static partial Regex ServerMarker();
+
+    [GeneratedRegex(@"\[local\]", RegexOptions.IgnoreCase)]
+    private static partial Regex LocalMarker();
 
     /// <summary>A number as a mod's config writes it ("2", "2.0", "-1"), or null.</summary>
     public static double? Number(string text) =>
@@ -483,7 +526,7 @@ public sealed partial class Ue4ssSettingsDocument
     private static partial Regex RestartWords();
 
     // Any "[word ...]" marker for tools, not for people (the tags MkHaters Mod Settings reads; "[Wax]" is text).
-    [GeneratedRegex(@"\s*\[(slider|restart|choice|dropdown|key|hidden)(\s[^\]]*)?\]", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\s*\[(slider|restart|choice|dropdown|key|hidden|server|local|shared)(\s[^\]]*)?\]", RegexOptions.IgnoreCase)]
     private static partial Regex Marker();
 
     // "(0-10)", "(1-100)", "(0-600; 0 = off)": the range a number takes.
