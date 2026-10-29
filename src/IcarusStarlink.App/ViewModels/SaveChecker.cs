@@ -21,6 +21,9 @@ public sealed record SaveCheckFinding(SaveCheckSeverity Severity, string Area, s
 {
     public bool CanFix => Fix is not null;
 
+    /// <summary>The character a finding is about (null for the account): two characters with the same name are still two.</summary>
+    public object? Owner { get; init; }
+
     /// <summary>A DLC / Supporters Edition note: in Fix all only with its switch on.</summary>
     public bool IsDlc => Area == SaveChecker.DlcArea;
 
@@ -55,6 +58,16 @@ public static class SaveChecker
 
         // --- Characters ---
         foreach (var character in page.Characters)
+        {
+            var firstOfCharacter = findings.Count;
+            CheckCharacter(character);
+            for (var i = firstOfCharacter; i < findings.Count; i++)
+            {
+                findings[i] = findings[i] with { Owner = character };
+            }
+        }
+
+        void CheckCharacter(SaveCharacterViewModel character)
         {
             var area = character.Name;
             if (long.TryParse(character.XpText, out var xp) && xp < 0)
@@ -260,8 +273,10 @@ public static class SaveChecker
         }
 
         // One row per fix: 14 talents needing the same unlock used to give 14 "Turn on X" rows.
+        // Per character, not per name: two characters called the same had one row whose fix
+        // only reached the first of them.
         var merged = findings
-            .GroupBy(f => f.FixLabel is null ? (object)f : (f.Severity, f.Area, f.FixLabel))
+            .GroupBy(f => f.FixLabel is null ? (object)f : (f.Severity, f.Area, f.FixLabel, f.Owner))
             .Select(g => g.Count() == 1 ? g.First() : g.First() with { Message = $"{g.First().Message} (and {g.Count() - 1} more like it)" });
         return [.. merged.OrderBy(f => f.Severity)];
     }

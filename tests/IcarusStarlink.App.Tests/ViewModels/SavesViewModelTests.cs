@@ -1318,6 +1318,109 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.False(vm.HasUnsavedChanges);
     }
 
+    // --- Review 2026-10-28 (saves journey) ---
+
+    /// <summary>"1,000,000" in the XP box: Save used to say "Saved." while the XP was skipped, leaving the page "Unsaved" with no reason given.</summary>
+    [Fact]
+    public async Task SaveChangesCommand_XpWithCommas_WritesNothingAndSaysWhichBox()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+
+            vm.Characters.Single().XpText = "1,000,000";
+            vm.SaveChangesCommand.Execute(null);
+
+            Assert.Equal(0, repository.SaveCharactersCallCount);
+            Assert.Equal(0, repository.BackupSlotCallCount);
+            Assert.Contains("Not saved", vm.StatusMessage);
+            Assert.Contains("Alpha: XP", vm.StatusMessage);
+            Assert.True(vm.HasUnsavedChanges);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>
+    /// A backup that failed (the game held a file) left the edits applied in the loaded save: an
+    /// edit the user then set back was written anyway by the next Save of another character.
+    /// </summary>
+    [Fact]
+    public async Task SaveChangesCommand_BackupFailed_AnEditSetBackIsNotWrittenByTheNextSave()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0), MakeCharacter("Beta", 1)],
+            Profile = MakeProfile(nextChrSlot: 2),
+            BackupError = new IOException("The process cannot access the file because it is being used by another process."),
+        };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var alpha = vm.Characters[0];
+
+            alpha.Name = "Renamed";
+            vm.SaveChangesCommand.Execute(null);
+            Assert.Equal(0, repository.SaveCharactersCallCount);
+            Assert.Contains("nothing was written", vm.StatusMessage);
+
+            alpha.Name = "Alpha";
+            vm.Characters[1].Name = "Beta Two";
+            vm.SaveChangesCommand.Execute(null);
+
+            var saved = repository.LastSavedCharacters!;
+            Assert.Equal("Alpha", saved[0]["CharacterName"]!.GetValue<string>());
+            Assert.Equal("Beta Two", saved[1]["CharacterName"]!.GetValue<string>());
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Two characters with the same name: the save check's merged row fixed only the first of them.</summary>
+    [Fact]
+    public async Task SaveCheck_TwoCharactersWithOneName_FixAllFixesBoth()
+    {
+        var first = MakeCharacter("Bob", 0);
+        first["XP"] = -5L;
+        var second = MakeCharacter("Bob", 1);
+        second["XP"] = -7L;
+        var vm = CreateViewModel(new FakeSaveRepository { Characters = [first, second], Profile = MakeProfile(nextChrSlot: 2) });
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+
+            vm.FixAllFindingsCommand.Execute(null);
+
+            Assert.All(vm.Characters, c => Assert.Equal("0", c.XpText));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Remove leftovers sets a rank straight to 0: a talent that was at its highest rank kept + greyed out.</summary>
+    [Fact]
+    public void TalentRow_RankSetFromOutside_RefreshesWhetherItCanRankUp()
+    {
+        var talent = new SaveTalentViewModel("Mod_Talent", new TalentDisplayInfo("Mod Talent", "", "Tree", 1, false), 1, () => { });
+        var raised = new List<string?>();
+        talent.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        Assert.False(talent.CanRankUp);
+
+        talent.Rank = 0;
+
+        Assert.True(talent.CanRankUp);
+        Assert.Contains(nameof(SaveTalentViewModel.CanRankUp), raised);
+    }
+
     // --- Each file is written only when its own section changed ---
 
     [Fact]
@@ -1657,9 +1760,18 @@ public sealed class SavesViewModelTests : IDisposable
             return null;
         }
 
+        /// <summary>When set, BackupSlot throws it once (a save file the game held while zipping).</summary>
+        public Exception? BackupError { get; set; }
+
         public string BackupSlot(string steamId)
         {
             BackupSlotCallCount++;
+            if (BackupError is { } error)
+            {
+                BackupError = null;
+                throw error;
+            }
+
             return "fake_backup.zip";
         }
 

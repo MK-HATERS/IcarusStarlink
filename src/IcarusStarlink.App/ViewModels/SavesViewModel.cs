@@ -753,6 +753,30 @@ public sealed partial class SavesViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// The edited number boxes Save couldn't write ("Alpha: XP", "Ren"), by the same rules each
+    /// row's ApplyToNode uses: a whole number, 0 or more (an appearance value may be negative).
+    /// </summary>
+    internal List<string> BadNumberBoxes()
+    {
+        static bool Count(string text) => int.TryParse(text, out var n) && n >= 0;
+        var bad = new List<string>();
+        foreach (var character in Characters.Where(c => c.IsDirty))
+        {
+            if (!Count(character.XpText))
+            {
+                bad.Add($"{character.Name}: XP");
+            }
+
+            bad.AddRange(character.Cosmetics.Where(f => f.IsDirty && !int.TryParse(f.ValueText, out _)).Select(f => $"{character.Name}: {f.Key}"));
+        }
+
+        bad.AddRange(Currencies.Where(c => c.IsDirty && !Count(c.CountText)).Select(c => c.Label));
+        bad.AddRange(BestiaryEntries.Where(b => b.IsDirty && !Count(b.PointsText)).Select(b => $"{b.DisplayName} (Bestiary)"));
+        bad.AddRange(Mounts.Where(m => m.IsDirty && !Count(m.LevelText)).Select(m => $"{m.Name}: level"));
+        return bad;
+    }
+
     /// <summary>Above 0 inside BatchedDirtyChanges: row edits only note that something changed.</summary>
     private int _dirtyBatchDepth;
 
@@ -842,6 +866,15 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
+        // A box that isn't a whole number is skipped by the write, so Save used to say "Saved."
+        // while that edit never reached the file (and the page stayed "Unsaved" with no reason).
+        if (BadNumberBoxes() is { Count: > 0 } bad)
+        {
+            StatusMessage = $"Not saved: {string.Join(", ", bad.Take(6))}{(bad.Count > 6 ? $" and {bad.Count - 6} more" : "")} "
+                + $"{(bad.Count == 1 ? "needs" : "need")} a whole number (digits only, no commas or spaces). Fix {(bad.Count == 1 ? "it" : "them")} and save again.";
+            return;
+        }
+
         if (IsGameRunning())
         {
             StatusMessage = "Icarus is running — close it before saving, or the game will overwrite your edits when it exits.";
@@ -867,7 +900,7 @@ public sealed partial class SavesViewModel : ObservableObject
             return;
         }
 
-        var backedUp = false;
+        var writing = false;
         try
         {
             // Each file is written only when its own section changed: Characters.json for the
@@ -897,6 +930,15 @@ public sealed partial class SavesViewModel : ObservableObject
                 return;
             }
 
+            // ONE backup for the whole save pass, taken up front — every SaveXxx call below passes
+            // takeBackup: false. A single click used to be able to zip the same slot up to 6 times
+            // back-to-back (Characters/Profile always, plus BinaryFlags/Accolades/Bestiary/
+            // MetaInventory whenever dirty), each one blocking the UI in turn, when one pre-save
+            // snapshot already covers everything this pass is about to change. Taken BEFORE the
+            // edits go into the loaded save: a backup that failed (a file the game held) used to
+            // leave them applied, so an edit the user then set back was written by the next Save.
+            _repository.BackupSlot(SelectedSlot.SteamId);
+
             // Only now are the edits put into the loaded save: applied before these checks, an
             // aborted save left them in it, and an edit the user then undid was written anyway by
             // the next Save (a review finding).
@@ -911,14 +953,7 @@ public sealed partial class SavesViewModel : ObservableObject
             }
 
             ApplyProfileEdits();
-
-            // ONE backup for the whole save pass, taken up front — every SaveXxx call below passes
-            // takeBackup: false. A single click used to be able to zip the same slot up to 6 times
-            // back-to-back (Characters/Profile always, plus BinaryFlags/Accolades/Bestiary/
-            // MetaInventory whenever dirty), each one blocking the UI in turn, when one pre-save
-            // snapshot already covers everything this pass is about to change.
-            _repository.BackupSlot(SelectedSlot.SteamId);
-            backedUp = true;
+            writing = true;
 
             // Characters first, then profile — keeps write ORDER consistent with before, even
             // though backup ordering no longer matters now that there's just the one upfront zip.
@@ -1005,7 +1040,7 @@ public sealed partial class SavesViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            if (backedUp)
+            if (writing)
             {
                 // Some files may already be written. Their new stamps are this page's own doing, so
                 // they become the baseline: otherwise the next Save took them for the game's and
