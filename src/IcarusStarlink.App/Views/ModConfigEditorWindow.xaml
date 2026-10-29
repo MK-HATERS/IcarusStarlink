@@ -35,7 +35,7 @@
                 <TextBox Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Width="220" Margin="0,0,16,6"
                          Style="{StaticResource SearchBoxStyle}" Tag="Find a setting…"
                          Visibility="{Binding ShowFields, Converter={StaticResource BoolToVisibilityConverter}}"
-                         ToolTip="Show only settings whose name or description contains this" AutomationProperties.Name="Filter settings"/>
+                         ToolTip="Show only settings whose name, heading or description contains this" AutomationProperties.Name="Filter settings"/>
                 <CheckBox Content="Edit as text" IsChecked="{Binding IsTextMode}" VerticalAlignment="Center" Margin="0,0,0,6"
                           IsEnabled="{Binding CanUseFields}"
                           ToolTip="The whole file, for lists and anything the fields don't show. Switching back reads the fields from your text."/>
@@ -63,12 +63,22 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal">
-                    <Button Content="Save" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                            ToolTip="Writes your changes (backs the old file up to Backups\UE4SS-Mod-Configs first)"/>
-                    <Button Content="Discard changes" Command="{Binding DiscardChangesCommand}" Margin="8,0,0,0"/>
-                    <Button Content="Close" Click="Close_Click" Margin="8,0,0,0"/>
-                </StackPanel>
+                <DockPanel>
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                        <Button Content="Save" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                ToolTip="Writes your changes to this file (backs the old file up to Backups\UE4SS-Mod-Configs first)"/>
+                        <Button Content="Discard changes" Command="{Binding DiscardChangesCommand}" Margin="8,0,0,0"
+                                ToolTip="Puts this file back the way it is on disk"/>
+                        <Button Content="Reset all to default" Command="{Binding ResetAllToDefaultCommand}" Margin="8,0,0,0"
+                                Visibility="{Binding CanResetAllToDefault, Converter={StaticResource BoolToVisibilityConverter}}"
+                                ToolTip="Puts every setting shown back to the mod's default. Nothing is written until you Save."/>
+                        <Button Content="Close" Click="Close_Click" Margin="8,0,0,0"/>
+                    </StackPanel>
+                    <!-- Unsaved edits, here and in files picked before (they're kept until saved or discarded). -->
+                    <TextBlock Text="{Binding UnsavedText}" Foreground="{DynamicResource AccentBrush}" FontSize="12" Margin="12,0,0,0"
+                               VerticalAlignment="Center" TextWrapping="Wrap"
+                               Visibility="{Binding UnsavedText, Converter={StaticResource NullToVisibilityConverter}}"/>
+                </DockPanel>
                 <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" Margin="0,8,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
                            Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
             </StackPanel>
@@ -85,11 +95,20 @@
                        Visibility="{Binding ShowNoFieldsNote, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
             <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding ShowFields, Converter={StaticResource BoolToVisibilityConverter}}">
+                <StackPanel>
+                <TextBlock Text="No setting matches the search." Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,4,0,0"
+                           Visibility="{Binding ShowNoMatches, Converter={StaticResource BoolToVisibilityConverter}}"/>
                 <ItemsControl ItemsSource="{Binding Sections}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Margin="0,0,0,14">
-                                <TextBlock Text="{Binding Name}" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,6"/>
+                            <!-- One folding group per ini [Section] or Lua comment heading ("==== GUESTS ===="), open by default. -->
+                            <Expander IsExpanded="True" Margin="0,0,8,10" AutomationProperties.Name="{Binding Name}">
+                                <Expander.Header>
+                                    <DockPanel LastChildFill="True">
+                                        <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                        <TextBlock Text="{Binding Summary}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                    </DockPanel>
+                                </Expander.Header>
                                 <ItemsControl ItemsSource="{Binding Fields}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
@@ -101,10 +120,21 @@
                                                         <ColumnDefinition Width="14"/>
                                                     </Grid.ColumnDefinitions>
                                                     <StackPanel Margin="0,0,12,0">
-                                                        <StackPanel Orientation="Horizontal">
-                                                            <TextBlock Text="{Binding Key}" FontWeight="SemiBold"/>
+                                                        <WrapPanel>
+                                                            <!-- The key in plain words, the real key small beside it (it's what the file and the mod's page call it). -->
+                                                            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" ToolTip="{Binding Key}"/>
+                                                            <TextBlock Text="{Binding Key}" FontSize="11" FontFamily="Consolas" Margin="8,0,0,0" VerticalAlignment="Center"
+                                                                       Foreground="{DynamicResource FaintForegroundBrush}" ToolTip="The setting's name in the file"
+                                                                       Visibility="{Binding ShowKeyName, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                             <TextBlock Text="  changed" Foreground="{DynamicResource AccentBrush}" FontSize="11" VerticalAlignment="Center"
+                                                                       ToolTip="Edited here and not saved yet"
                                                                        Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                            <TextBlock Text="  not the default" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11" VerticalAlignment="Center"
+                                                                       ToolTip="Differs from the value the mod ships with"
+                                                                       Visibility="{Binding CanResetToDefault, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                            <TextBlock Text="  server decides" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource FaintForegroundBrush}"
+                                                                       ToolTip="In multiplayer the host's or the server's copy of this setting is the one used"
+                                                                       Visibility="{Binding ServerDecides, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                             <Border Margin="8,0,0,0" Padding="5,1" CornerRadius="3" VerticalAlignment="Center" Background="{DynamicResource AccentBrush}"
                                                                     ToolTip="Added by the mod's last update, at its default"
                                                                     Visibility="{Binding IsNewInVersion, Converter={StaticResource BoolToVisibilityConverter}}">
@@ -113,7 +143,7 @@
                                                             <TextBlock Text="  needs a restart" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource FaintForegroundBrush}"
                                                                        ToolTip="The mod reads this once, when the game or server starts"
                                                                        Visibility="{Binding NeedsRestart, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                                        </StackPanel>
+                                                        </WrapPanel>
                                                         <TextBlock Text="{Binding Description}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                                                    Visibility="{Binding HasDescription, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                         <StackPanel Orientation="Horizontal">
@@ -129,9 +159,28 @@
                                                         <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding ChoiceValue}"
                                                                   AutomationProperties.Name="{Binding Key}"
                                                                   Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                                        <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
-                                                                 AutomationProperties.Name="{Binding Key}"
-                                                                 Visibility="{Binding IsText, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        <StackPanel Visibility="{Binding IsText, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                            <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                                     AutomationProperties.Name="{Binding Key}"/>
+                                                            <TextBlock Text="{Binding Hint}" FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}"
+                                                                       Visibility="{Binding HasHint, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        </StackPanel>
+                                                        <!-- A key: its name, and Ctrl / Shift / Alt when the mod writes it as { key = "F4", ctrl = true }. -->
+                                                        <StackPanel Visibility="{Binding IsKey, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBox Text="{Binding KeyName, UpdateSourceTrigger=PropertyChanged}" Width="110"
+                                                                         AutomationProperties.Name="{Binding Key}"
+                                                                         ToolTip="The key's Unreal name: F1-F12, A-Z, One, NumPadOne, Equals, Hyphen…"/>
+                                                                <StackPanel Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center"
+                                                                            Visibility="{Binding KeyAllowsModifiers, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                                    <CheckBox Content="Ctrl" IsChecked="{Binding KeyCtrl}" Margin="0,0,8,0" ToolTip="Ctrl must be held with the key"/>
+                                                                    <CheckBox Content="Shift" IsChecked="{Binding KeyShift}" Margin="0,0,8,0" ToolTip="Shift must be held with the key"/>
+                                                                    <CheckBox Content="Alt" IsChecked="{Binding KeyAlt}" ToolTip="Alt must be held with the key"/>
+                                                                </StackPanel>
+                                                            </StackPanel>
+                                                            <TextBlock Text="{Binding ValueProblem}" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap" Foreground="{DynamicResource DangerBrush}"
+                                                                       Visibility="{Binding HasValueProblem, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        </StackPanel>
                                                         <!-- A number: a slider when the mod gives one, otherwise a box; the range and any problem under it. -->
                                                         <StackPanel Visibility="{Binding IsNumber, Converter={StaticResource BoolToVisibilityConverter}}">
                                                             <Grid>
@@ -162,10 +211,11 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                            </StackPanel>
+                            </Expander>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                </StackPanel>
             </ScrollViewer>
         </Grid>
     </DockPanel>

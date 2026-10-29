@@ -46,6 +46,25 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
     private IReadOnlyList<Ue4ssConfigReview>? _reviews;
     private readonly Action? _markReviewed;
 
+    /// <summary>
+    /// Unsaved edits of the files (or copies) shown before, until they're shown again: switching the
+    /// File or "Edit the copy in" drop-down used to throw them away without a word.
+    /// </summary>
+    private readonly Dictionary<(string File, string Folder), Draft> _drafts = [];
+
+    /// <summary>The file and copy the fields show now, for keeping their edits when another is picked.</summary>
+    private (string File, string Folder)? _loadedKey;
+
+    /// <param name="Text">The file as edited so far (text-view edits in it).</param>
+    /// <param name="FieldValues">The fields edited and not yet written into the text, by section and key.</param>
+    private sealed record Draft(string Text, bool TextMode, Dictionary<(string Section, string Key), string> FieldValues, string Label);
+
+    /// <summary>"[MkHatersSettings] Stability [server]": every setting of the file is the server's, but those tagged [local].</summary>
+    private bool _fileWideServer;
+
+    /// <summary>The biggest config file the editor opens (a downloaded mod could ship anything under that name).</summary>
+    internal const long MaxConfigBytes = 2 * 1024 * 1024;
+
     /// <param name="reviews">What the last update changed in the config files (settings added or gone), to point out; null when nothing's waiting.</param>
     /// <param name="markReviewed">Called by Done reviewing: the caller forgets the reviews.</param>
     public ModConfigEditorViewModel(
@@ -149,7 +168,10 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         _markReviewed?.Invoke();
         OnPropertyChanged(nameof(HasReview));
         OnPropertyChanged(nameof(ReviewText));
+        // The marks go; the edits made so far stay (rebuilding the fields used to drop them).
+        var edits = EditedFieldValues();
         BuildFields();
+        RestoreFieldValues(edits);
     }
 
     /// <summary>Where "Default:" and Reset to default come from when the mod ships its defaults in a file beside this one; null when it doesn't.</summary>
@@ -192,13 +214,160 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         SelectedLocation = Locations.FirstOrDefault(l => l == previous) ?? Locations.FirstOrDefault();
         if (SelectedLocation == previous)
         {
-            Load();
+            Load(keepDraft: true);
         }
     }
 
-    partial void OnSelectedLocationChanged(ModConfigLocation? value) => Load();
+    partial void OnSelectedLocationChanged(ModConfigLocation? value) => Load(keepDraft: true);
 
     partial void OnFilterChanged(string value) => BuildSections();
+
+    partial void OnRawTextChanged(string value) => NotifyUnsaved();
+
+    /// <summary>The file shown has edits that aren't saved.</summary>
+    public bool HasChangesHere => _document is not null && (IsTextMode
+        ? RawText != _diskText
+        : _fields.Any(f => f.IsChanged) || _document.ToText() != _diskText);
+
+    /// <summary>Edits not saved yet, in the file shown or in another file or copy picked before.</summary>
+    public bool HasUnsavedChanges => HasChangesHere || _drafts.Count > 0;
+
+    /// <summary>"Not saved yet" beside Save, naming the other files that hold unsaved edits too.</summary>
+    public string? UnsavedText
+    {
+        get
+        {
+            var others = _drafts.Values.Select(d => d.Label).ToList();
+            var here = HasChangesHere ? "Not saved yet." : null;
+            var elsewhere = others.Count == 0 ? null : $"Also not saved: {string.Join(", ", others)}.";
+            return here is null && elsewhere is null ? null : string.Join(" ", new[] { here, elsewhere }.Where(t => t is not null));
+        }
+    }
+
+    private void NotifyUnsaved()
+    {
+        OnPropertyChanged(nameof(HasChangesHere));
+        OnPropertyChanged(nameof(HasUnsavedChanges));
+        OnPropertyChanged(nameof(UnsavedText));
+        OnPropertyChanged(nameof(CanResetAllToDefault));
+    }
+
+    /// <summary>Asks what to do with unsaved edits when the window closes: true = Save, false = Don't save, null = Cancel. Set by the window (tests set their own answer).</summary>
+    public Func<string, bool?>? AskSaveOnClose { get; set; }
+
+    /// <summary>
+    /// Called as the window closes: true when it may close. Unsaved edits (here or in another file
+    /// picked before) ask Save / Don't save / Cancel; a Save that doesn't go through keeps the window
+    /// open with the reason showing.
+    /// </summary>
+    public bool ConfirmClose()
+    {
+        if (!HasUnsavedChanges || AskSaveOnClose is null)
+        {
+            return true;
+        }
+
+        switch (AskSaveOnClose($"Your changes to {ModName}'s config aren't saved. Save them before closing?"))
+        {
+            case null:
+                return false;
+            case false:
+                return true;
+            default:
+                return SaveAll();
+        }
+    }
+
+    /// <summary>Saves the file shown, then each file or copy with edits kept aside. False when one couldn't be saved (it's shown, with why).</summary>
+    private bool SaveAll()
+    {
+        if (HasChangesHere && !SaveHere())
+        {
+            return false;
+        }
+
+        while (_drafts.Count > 0)
+        {
+            var key = _drafts.Keys.First();
+            if (Files.FirstOrDefault(f => f.RelativePath.Equals(key.File, StringComparison.OrdinalIgnoreCase)) is not { } file)
+            {
+                _drafts.Remove(key);
+                continue;
+            }
+
+            SelectedFile = file;
+            if (Locations.FirstOrDefault(l => l.ModFolder == key.Folder) is { } location)
+            {
+                SelectedLocation = location;
+            }
+
+            if (_loadedKey != key)
+            {
+                return false; // the copy is gone: its edits stay listed as not saved
+            }
+
+            if (HasChangesHere && !SaveHere())
+            {
+                return false;
+            }
+        }
+
+        return !HasUnsavedChanges;
+    }
+
+    /// <summary>A setting differs from the mod's shipped default (shown as Reset to default).</summary>
+    public bool CanResetAllToDefault => _fields.Any(f => f.CanResetToDefault);
+
+    /// <summary>Puts every shown setting back to the mod's default (not saved until Save; hidden settings stay as they are).</summary>
+    [RelayCommand]
+    private void ResetAllToDefault()
+    {
+        var reset = _fields.Where(f => f.CanResetToDefault).ToList();
+        foreach (var field in reset)
+        {
+            field.ResetToDefaultCommand.Execute(null);
+        }
+
+        StatusMessage = reset.Count == 0 ? "Every setting is at its default."
+            : $"{(reset.Count == 1 ? "1 setting" : $"{reset.Count} settings")} put back to the default. Save to keep it, or Discard changes.";
+    }
+
+    /// <summary>The fields edited so far, by section and key.</summary>
+    private Dictionary<(string Section, string Key), string> EditedFieldValues() =>
+        _fields.Where(f => f.Value != f.OriginalValue).ToDictionary(f => (f.Section, f.Key), f => f.Value);
+
+    private void RestoreFieldValues(Dictionary<(string Section, string Key), string> values)
+    {
+        foreach (var field in _fields)
+        {
+            if (values.TryGetValue((field.Section, field.Key), out var value))
+            {
+                field.Value = value;
+            }
+        }
+    }
+
+    /// <summary>Puts the shown file's unsaved edits aside (or forgets them when there are none) before another file or copy is shown.</summary>
+    private void KeepDraft()
+    {
+        if (_loadedKey is not { } key || _document is null)
+        {
+            return;
+        }
+
+        if (!HasChangesHere)
+        {
+            _drafts.Remove(key);
+            return;
+        }
+
+        var label = _allLocations.Count(l => File.Exists(Path.Combine(l.ModFolder, key.File))) > 1
+            ? $"{key.File} ({_allLocations.FirstOrDefault(l => l.ModFolder == key.Folder)?.Name})"
+            : key.File;
+        _drafts[key] = IsTextMode
+            ? new Draft(RawText, true, [], label)
+            : new Draft(_document.ToText(), false, EditedFieldValues(), label);
+    }
 
     partial void OnIsTextModeChanged(bool value)
     {
@@ -240,28 +409,48 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
             _document = parsed;
             BuildFields();
         }
+
+        NotifyUnsaved();
     }
 
-    private void Load()
+    /// <param name="keepDraft">A different file or copy is being shown: the edits of the one shown so far are kept aside. False for Save and Discard changes.</param>
+    private void Load(bool keepDraft = false)
     {
+        if (keepDraft)
+        {
+            KeepDraft();
+        }
+
         _loading = true;
         try
         {
             _document = _diskDocument = _defaults = null;
             _fields = [];
+            _loadedKey = null;
             AlsoSaveTo.Clear();
             StatusMessage = null;
+            Draft? draft = null;
             if (SelectedFile is { } file && SelectedLocation is { } location)
             {
                 try
                 {
+                    // A downloaded mod's file: real configs are a few KB (Wildlife's, the biggest, is 18 KB).
+                    if (new FileInfo(CurrentPath).Length > MaxConfigBytes)
+                    {
+                        throw new IOException($"it's over {MaxConfigBytes / 1024 / 1024} MB, too big for a config. Open it in a text editor.");
+                    }
+
                     var bytes = File.ReadAllBytes(CurrentPath);
                     _diskHasBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
                     _diskText = Encoding.UTF8.GetString(bytes, _diskHasBom ? 3 : 0, bytes.Length - (_diskHasBom ? 3 : 0));
+                    _fileWideServer = FileWideServerTag().IsMatch(_diskText);
                     _diskDocument = Parse(file.Format, _diskText);
-                    _document = Parse(file.Format, _diskText);
+                    _loadedKey = (file.RelativePath, location.ModFolder);
+                    // Edits made before another file was picked: back, still unsaved.
+                    _drafts.Remove(_loadedKey.Value, out draft);
+                    _document = Parse(file.Format, draft?.Text ?? _diskText);
                     _defaults = ReadDefaults(location, file);
-                    RawText = _diskText;
+                    RawText = draft?.Text ?? _diskText;
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -275,7 +464,18 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
             }
 
             BuildFields();
-            IsTextMode = !CanUseFields && _document is not null;
+            if (draft is not null)
+            {
+                RestoreFieldValues(draft.FieldValues);
+            }
+
+            IsTextMode = (draft?.TextMode ?? false) || (!CanUseFields && _document is not null);
+            if (draft is not null)
+            {
+                StatusMessage = "Your unsaved changes to this file are back.";
+            }
+
+            NotifyUnsaved();
             OnPropertyChanged(nameof(HasOtherLocations));
             OnPropertyChanged(nameof(CurrentPath));
             OnPropertyChanged(nameof(DefaultsNote));
@@ -295,7 +495,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
     private static IConfigText? ReadDefaults(ModConfigLocation location, Ue4ssModConfigFile file)
     {
         var path = Path.Combine(location.ModFolder, Ue4ssModConfigFiles.DefaultsPathFor(file.RelativePath));
-        if (file.Format == Ue4ssModConfigFormat.Text || !File.Exists(path))
+        if (file.Format == Ue4ssModConfigFormat.Text || !File.Exists(path) || new FileInfo(path).Length > MaxConfigBytes)
         {
             return null;
         }
@@ -319,15 +519,31 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         // A setting the mod marks [hidden] (internal or testing) stays in the file, out of the fields.
         var added = CurrentReview?.Added ?? [];
         static string Name(Ue4ssSetting s) => s.Section.Length == 0 ? s.Key : $"[{s.Section}] {s.Key}";
-        _fields = _document is null
+        var document = _document;
+        _fields = document is null
             ? []
-            : [.. _document.Settings.Where(s => !s.Hidden).Select(s => new Ue4ssConfigField(WithShippedDefault(s), _diskDocument?.Get(s.Section, s.Key))
+            : [.. document.Settings.Where(s => !s.Hidden).Select(s => new Ue4ssConfigField(WithShippedDefault(s), _diskDocument?.Get(s.Section, s.Key))
             {
                 IsNewInVersion = added.Contains(Name(s), StringComparer.OrdinalIgnoreCase),
+                Group = document.GroupOf(s.Section, s.Key),
+                Hint = document.HintOf(s.Key),
+                ServerDecides = (s.ServerDecides || _fileWideServer) && !s.LocalOnly,
             })];
+        foreach (var field in _fields)
+        {
+            field.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(Ue4ssConfigField.Value))
+                {
+                    NotifyUnsaved();
+                }
+            };
+        }
+
         OnPropertyChanged(nameof(CanUseFields));
         OnPropertyChanged(nameof(ShowFields));
         OnPropertyChanged(nameof(ShowNoFieldsNote));
+        OnPropertyChanged(nameof(CanResetAllToDefault));
         BuildSections();
     }
 
@@ -335,15 +551,23 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
     {
         Sections.Clear();
         var filter = Filter.Trim();
+        // Grouped by the ini's [Section] or the Lua file's comment headings ("==== GUESTS ===="), in file order.
         foreach (var group in _fields
                      .Where(f => filter.Length == 0
                          || f.Key.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                         || f.Label.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                         || f.Group.Contains(filter, StringComparison.OrdinalIgnoreCase)
                          || f.Description.Contains(filter, StringComparison.OrdinalIgnoreCase))
-                     .GroupBy(f => f.Section))
+                     .GroupBy(f => f.Group))
         {
-            Sections.Add(new Ue4ssConfigSection(group.Key.Length == 0 ? "Settings" : group.Key, [.. group]));
+            Sections.Add(new Ue4ssConfigSection(group.Key.Length == 0 ? "Settings" : Ue4ssSettingLabel.Heading(group.Key), [.. group]));
         }
+
+        OnPropertyChanged(nameof(ShowNoMatches));
     }
+
+    /// <summary>The search hides every setting.</summary>
+    public bool ShowNoMatches => ShowFields && Sections.Count == 0 && Filter.Trim().Length > 0;
 
     /// <summary>Writes every field's value into the working document; the ones that can't be written, with why.</summary>
     private List<string> ApplyFields()
@@ -366,11 +590,14 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void Save()
+    private void Save() => SaveHere();
+
+    /// <summary>Saves the file shown (and the ticked other copies). False when it wasn't saved (the status says why).</summary>
+    private bool SaveHere()
     {
         if (SelectedFile is not { } file || SelectedLocation is not { } location || _document is null || _diskDocument is null)
         {
-            return;
+            return false;
         }
 
         string text;
@@ -385,11 +612,12 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
             // comment gives is only warned about, since the author may mean it (user's call 2026-10-26).
             var notNumbers = _fields.Where(f => f.IsNumber && f.IsChanged && Ue4ssSettingsDocument.Number(f.Value) is null)
                 .Select(f => $"{f.Key} isn't a number (decimals take a dot: 1.5)");
-            var problems = notNumbers.Concat(ApplyFields()).ToList();
+            var badKeys = _fields.Where(f => f.KeyProblem.Length > 0).Select(f => $"{f.Key}: {f.KeyProblem}");
+            var problems = notNumbers.Concat(badKeys).Concat(ApplyFields()).ToList();
             if (problems.Count > 0)
             {
                 StatusMessage = $"Not saved: {string.Join("; ", problems)}";
-                return;
+                return false;
             }
 
             text = _document.ToText();
@@ -403,8 +631,10 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         var textChanged = text != _diskText;
         if (!textChanged && (extra.Count == 0 || changes.Count == 0 && file.Format != Ue4ssModConfigFormat.Text))
         {
+            // Edits put back by hand: the file is as it was, so nothing is waiting to be saved.
+            ReloadKeepingView();
             StatusMessage = "Nothing changed.";
-            return;
+            return true;
         }
 
         var saved = new List<string>();
@@ -419,7 +649,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 StatusMessage = $"Not saved: {ex.Message}";
-                return;
+                return false;
             }
         }
 
@@ -428,6 +658,11 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
             try
             {
                 var path = Path.Combine(target.ModFolder, file.RelativePath);
+                if (new FileInfo(path).Length > MaxConfigBytes)
+                {
+                    throw new IOException($"its copy is over {MaxConfigBytes / 1024 / 1024} MB, too big for a config");
+                }
+
                 var bytes = File.ReadAllBytes(path);
                 var bom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
                 var targetText = Encoding.UTF8.GetString(bytes, bom ? 3 : 0, bytes.Length - (bom ? 3 : 0));
@@ -464,10 +699,24 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
             }
         }
 
-        var checkedNames = extra.Select(e => e.Name).ToHashSet();
+        ReloadKeepingView();
+        StatusMessage = (saved.Count > 0
+                ? $"Saved to {string.Join(" and ", saved)} (the old file is in Backups\\UE4SS-Mod-Configs). The mod reads it when the game or server starts, unless it has its own reload key."
+                : "")
+            + (problemsSaving.Count > 0 ? $"{(saved.Count > 0 ? " " : "")}Couldn't save: {string.Join("; ", problemsSaving)}" : "");
+        return true;
+    }
+
+    /// <summary>Throws away the shown file's unsaved edits (other files keep theirs).</summary>
+    [RelayCommand]
+    private void DiscardChanges() => ReloadKeepingView();
+
+    /// <summary>Reads the shown file again from disk, staying in the text view when it was open and keeping the "Also save to" ticks.</summary>
+    private void ReloadKeepingView()
+    {
         var textMode = IsTextMode;
+        var checkedNames = AlsoSaveTo.Where(a => a.IsChecked).Select(a => a.Location.Name).ToHashSet();
         Load();
-        // Stays in the text view after a save, the same as Discard changes.
         if (textMode && CanUseFields)
         {
             IsTextMode = true;
@@ -476,22 +725,6 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         foreach (var also in AlsoSaveTo)
         {
             also.IsChecked = checkedNames.Contains(also.Location.Name);
-        }
-
-        StatusMessage = (saved.Count > 0
-                ? $"Saved to {string.Join(" and ", saved)} (the old file is in Backups\\UE4SS-Mod-Configs). The mod reads it when the game or server starts, unless it has its own reload key."
-                : "")
-            + (problemsSaving.Count > 0 ? $"{(saved.Count > 0 ? " " : "")}Couldn't save: {string.Join("; ", problemsSaving)}" : "");
-    }
-
-    [RelayCommand]
-    private void DiscardChanges()
-    {
-        var textMode = IsTextMode;
-        Load();
-        if (textMode && CanUseFields)
-        {
-            IsTextMode = true;
         }
     }
 
@@ -523,7 +756,17 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         string? Set(string section, string key, string value);
 
         string ToText();
+
+        /// <summary>The heading a setting is listed under: its [Section], or the Lua comment heading above it.</summary>
+        string GroupOf(string section, string key) => section;
+
+        /// <summary>A short note on how to write the value, when the box needs one (a Lua list).</summary>
+        string? HintOf(string key) => null;
     }
+
+    // "; [MkHatersSettings] Stability [server]" / "-- [MkHatersSettings] Wildlife [server]": the mod's whole file is read where the world runs.
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[ \t]*(?:--|;|#).*\[MkHatersSettings\][^\r\n]*\[server\]", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex FileWideServerTag();
 
     private sealed class IniText(Ue4ssSettingsDocument document) : IConfigText
     {
@@ -555,9 +798,29 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
 
         public string? Get(string section, string key) => document.GetValue(key);
 
-        public string? Set(string section, string key, string value) => document.SetValue(key, value);
+        public string? Set(string section, string key, string value)
+        {
+            _byKey = null;
+            return document.SetValue(key, value);
+        }
 
         public string ToText() => document.ToText();
+
+        // The settings by key, read once per change (GroupOf/HintOf run for every field).
+        private Dictionary<string, LuaConfigSetting>? _byKey;
+
+        private LuaConfigSetting? Raw(string key)
+        {
+            _byKey ??= document.Settings.GroupBy(s => s.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+            return _byKey.GetValueOrDefault(key);
+        }
+
+        public string GroupOf(string section, string key) => Raw(key)?.Group ?? "";
+
+        public string? HintOf(string key) =>
+            Raw(key) is { Kind: LuaConfigValueKind.Table } s && !Ue4ssKeyBind.TryParse(s.Value, out _)
+                ? "A Lua list: keep the { } and the commas, and names in quotes."
+                : null;
     }
 
     private sealed class PlainText(string text) : IConfigText

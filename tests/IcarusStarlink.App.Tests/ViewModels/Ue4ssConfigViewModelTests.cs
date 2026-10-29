@@ -177,6 +177,25 @@ public class Ue4ssConfigViewModelTests : IDisposable
         Assert.Equal("5", zeroStep.Value);
     }
 
+    /// <summary>Picking the server in Edit and back dropped the game's unsaved edits (same bug as the mod config editor's file switch).</summary>
+    [Fact]
+    public void SwitchingTargets_KeepsTheUnsavedEdits()
+    {
+        var vm = Build();
+        vm.Sections.SelectMany(s => s.Fields).Single(f => f.Key == "EnableHotReloadSystem").IsOn = true;
+
+        vm.SelectedTarget = vm.Targets[1];
+        Assert.True(vm.HasUnsavedChanges);
+        vm.SelectedTarget = vm.Targets[0];
+
+        var field = vm.Sections.SelectMany(s => s.Fields).Single(f => f.Key == "EnableHotReloadSystem");
+        Assert.True(field.IsOn);
+        Assert.True(field.IsChanged);
+        vm.SaveCommand.Execute(null);
+        Assert.Contains("EnableHotReloadSystem = 1", File.ReadAllText(GameIniPath));
+        Assert.False(vm.HasUnsavedChanges);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))
