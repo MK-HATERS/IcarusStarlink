@@ -218,6 +218,25 @@ public class Ue4ssConfigViewModelTests : IDisposable
         Assert.False(vm.HasUnsavedChanges);
     }
 
+    /// <summary>
+    /// Final review 2026-10-28: Save wrote the copy read when the target was picked, so a change
+    /// made to the file since (by hand, or a new setting a UE4SS update added) was put back.
+    /// </summary>
+    [Fact]
+    public void Save_AfterTheFileChangedOnDisk_KeepsThatChange()
+    {
+        var vm = Build();
+        File.WriteAllText(GameIniPath, GameIni.Replace("EnableAutoReloadingLuaMods = 1", "EnableAutoReloadingLuaMods = 0") + "\n[Debug]\nConsoleEnabled = 1\n");
+        vm.Sections.SelectMany(s => s.Fields).Single(f => f.Key == "EnableHotReloadSystem").IsOn = true;
+
+        vm.SaveCommand.Execute(null);
+
+        var saved = Ue4ssSettingsDocument.Load(GameIniPath);
+        Assert.Equal("1", saved.GetValue("General", "EnableHotReloadSystem"));
+        Assert.Equal("0", saved.GetValue("General", "EnableAutoReloadingLuaMods"));
+        Assert.Equal("1", saved.GetValue("Debug", "ConsoleEnabled"));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

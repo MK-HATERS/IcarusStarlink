@@ -42,7 +42,8 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
 
     /// <param name="Text">The file as edited so far (text-view edits in it).</param>
     /// <param name="FieldValues">The fields edited and not yet written into the text, by section and key.</param>
-    private sealed record Draft(string Text, bool TextMode, Dictionary<(string Section, string Key), string> FieldValues, string Label);
+    /// <param name="BaseText">The file as it was on disk when these edits were made: Save compares the file with it, so a change made on disk meanwhile isn't written over.</param>
+    private sealed record Draft(string Text, bool TextMode, Dictionary<(string Section, string Key), string> FieldValues, string Label, string BaseText, bool BaseBom);
 
     /// <summary>"[MkHatersSettings] Stability [server]": every setting of the file is the server's, but those tagged [local].</summary>
     private bool _fileWideServer;
@@ -350,8 +351,8 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
             ? $"{key.File} ({_allLocations.FirstOrDefault(l => l.ModFolder == key.Folder)?.Name})"
             : key.File;
         _drafts[key] = IsTextMode
-            ? new Draft(RawText, true, [], label)
-            : new Draft(_document.ToText(), false, EditedFieldValues(), label);
+            ? new Draft(RawText, true, [], label, _diskText, _diskHasBom)
+            : new Draft(_document.ToText(), false, EditedFieldValues(), label, _diskText, _diskHasBom);
     }
 
     partial void OnIsTextModeChanged(bool value)
@@ -433,6 +434,19 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
                     _loadedKey = (file.RelativePath, location.ModFolder);
                     // Edits made before another file was picked: back, still unsaved.
                     _drafts.Remove(_loadedKey.Value, out draft);
+                    if (draft is not null && draft.BaseText != _diskText)
+                    {
+                        // The file changed on disk while its edits were kept aside (the mod's own
+                        // settings menu writes it). The draft's text is the OLD file with the edits
+                        // in it: compared with the new file, Save took every outside change for an
+                        // edit made here and wrote the old file back over it. Compared with the file
+                        // the edits were made on, Save sees the file changed and writes only the
+                        // edits into it (or refuses, for the text view).
+                        _diskText = draft.BaseText;
+                        _diskHasBom = draft.BaseBom;
+                        _diskDocument = Parse(file.Format, _diskText);
+                    }
+
                     _document = Parse(file.Format, draft?.Text ?? _diskText);
                     _defaults = ReadDefaults(location, file);
                     RawText = draft?.Text ?? _diskText;

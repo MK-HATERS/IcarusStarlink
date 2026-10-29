@@ -527,7 +527,11 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
         {
             try
             {
-                var document = t == target ? _document : Ue4ssSettingsDocument.Load(t.IniPath);
+                // Read again, the shown target too: the tab can stay open for days, and the copy
+                // read when it was picked put back whatever changed in the file since (an edit by
+                // hand, or a UE4SS update's new settings while edits waited here). Only the
+                // changed settings go into the file as it is now.
+                var document = Ue4ssSettingsDocument.Load(t.IniPath);
                 foreach (var field in changed)
                 {
                     document.SetValue(field.Section, field.Key, field.Value);
@@ -535,6 +539,11 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
 
                 FolderBackup.BackupFile(t.IniPath, Path.Combine(_backupDirectory, "UE4SS-Settings", SafeName(t.Name)));
                 document.Save(t.IniPath);
+                if (t == target)
+                {
+                    _document = document;
+                }
+
                 saved.Add(t.Name);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
