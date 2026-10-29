@@ -20,7 +20,7 @@ public static class FieldTips
         ["ResourceInputs"] = ("Uses while crafting", "Water, power, fuel or other resources the bench uses for it."),
         ["QueryInputs"] = ("Any-of-a-kind ingredients", "Costs like \"any raw meat\": any item of that kind counts."),
         ["Requirement"] = ("Needs blueprint", "The blueprint (talent) you must learn before the recipe shows. Empty = known from the start."),
-        ["ResourceCostMultipliers"] = ("Resource cost changes", "Multiplies how much water, power or fuel it uses. 1 = normal, lower = less."),
+        ["ResourceCostMultipliers"] = ("Cost-changing stats", "The stats that make its ingredients cheaper or dearer, like a talent's \"-N% Resource Cost of Crafted Pickaxes\"."),
         ["ExperienceMultiplier"] = ("XP multiplier", "Higher = more XP from it, lower = less; 1 = normal."),
 
         // Items (D_ItemsStatic and the rows it links)
@@ -40,7 +40,7 @@ public static class FieldTips
         ["Highlightable"] = ("Highlight row", "Links to how it's outlined when you look at it."),
         ["Interactable"] = ("Interact row", "Links to what pressing the interact key on it does."),
         ["Actionable"] = ("Actions row", "Links to the actions it can do."),
-        ["Transmutable"] = ("Fuel / conversion row", "Links to what it can be burned or turned into."),
+        ["Transmutable"] = ("Generator fuel row", "Links to what it gives when a generator or machine uses it up (like oxite into oxygen), and what's left after."),
         ["Processing"] = ("Crafting station row", "Links to its crafting settings when it's a bench or machine."),
         ["Floatable"] = ("Floats row", "Links to how it floats in water."),
         ["Flammable"] = ("Burns row", "Links to how it catches fire."),
@@ -132,7 +132,7 @@ public static class FieldTips
         ["SpoiledItem"] = ("Spoils into", "What it turns into once it spoils. Empty = it just goes away."),
 
         // Power, water, generators
-        ["GenerationRate"] = ("Makes per second", "How much it makes. Higher = more."),
+        ["GenerationRate"] = ("Output rate", "How much it makes. Higher = more."),
         ["ResourceFlowRate"] = ("Flow rate", "How fast power or water moves through it. Higher = more."),
         ["AutoActivate"] = ("Starts by itself", "On = it starts working as soon as it can."),
         ["RequiresEnergy"] = ("Needs power", "On = it only works with power."),
@@ -140,7 +140,7 @@ public static class FieldTips
 
         // Farming (D_FarmingSeeds)
         ["OptimalBiomes"] = ("Grows best in", "The biomes where it grows best."),
-        ["FatigueModifier"] = ("Tires the soil", "How much growing it wears out the soil. Lower = the soil lasts longer."),
+        ["FatigueModifier"] = ("Tired plant buff", "Links to the buff the plant gets after each harvest: slower growth and less yield until it's replanted."),
 
         // Heat (D_Thermal)
         ["InnerRadius"] = ("Full heat range", "Within this distance you get the full warming or cooling. Higher = bigger."),
@@ -158,7 +158,7 @@ public static class FieldTips
         ["DeployableActor"] = ("Placed model", "What's placed in the world."),
 
         // Stats themselves (D_Stats)
-        ["Title"] = ("Title", "The stat's name players see."),
+        ["Title"] = ("Title", "The name players see."),
         ["PositiveDescription"] = ("Text when above 0", "What players read for a bonus. {0} is the number."),
         ["NegativeDescription"] = ("Text when below 0", "What players read for a penalty. {0} is the number."),
         ["StatCategory"] = ("Stat group", "Which group of stats it's listed under."),

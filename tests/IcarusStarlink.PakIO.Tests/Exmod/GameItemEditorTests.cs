@@ -60,6 +60,29 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.Equal("Stack size", GameItemEditor.FieldText("MaxStack", isNumber: true).Label);
     }
 
+    /// <summary>
+    /// Tips that said the wrong thing, checked against the game's tables: ResourceCostMultipliers is
+    /// a list of crafting-cost stats ("BasePickaxeCraftingCost_+%"), not a water/power factor;
+    /// FatigueModifier links to a buff row (Seed_Fatigue), it isn't a number where lower is better;
+    /// Transmutable is what a generator gets from the item (oxite → oxygen, stick → charcoal left);
+    /// Title is also a lineage's or a stat group's name, not only a stat's.
+    /// </summary>
+    [Fact]
+    public void Tips_SayWhatTheGamesTablesHold()
+    {
+        var cost = GameItemEditor.FieldText("ResourceCostMultipliers", isNumber: false).Description;
+        Assert.Contains("stats", cost);
+        Assert.DoesNotContain("water", cost);
+
+        var fatigue = GameItemEditor.FieldText("FatigueModifier", isNumber: false).Description;
+        Assert.StartsWith("Links to the buff", fatigue);
+        Assert.DoesNotContain("Lower", fatigue);
+
+        Assert.Contains("generator", GameItemEditor.FieldText("Transmutable", isNumber: false).Description);
+        Assert.Equal("The name players see.", GameItemEditor.FieldText("Title", isNumber: false).Description);
+        Assert.DoesNotContain("per second", GameItemEditor.FieldText("GenerationRate", isNumber: true).Label);
+    }
+
     /// <summary>A stat's tip quotes the line players read in the game (D_Stats), with N for the number.</summary>
     [Fact]
     public void StatHint_QuotesTheGamesOwnLine()
