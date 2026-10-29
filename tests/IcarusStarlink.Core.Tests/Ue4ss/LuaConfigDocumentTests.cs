@@ -204,6 +204,18 @@ public class LuaConfigDocumentTests
         Assert.Equal("[A]\r\nX = 1\nY = 2\r\nZ = 3\r\n", ini.ToText());
     }
 
+    /// <summary>A downloaded config with a long run of digits ending in a letter: the number check tried every split of the digits (18 s for 20,000 on the UI thread).</summary>
+    [Fact]
+    public void ALongRunOfDigitsThatIsntANumber_ParsesQuickly()
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var doc = LuaConfigDocument.Parse("return {\n    A = " + new string('1', 50_000) + "x,\n    B = 1.5e3,\n    C = .5,\n    D = 2.,\n}\n");
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+        Assert.Equal(["B", "C", "D"], doc.Settings.Select(s => s.Key));
+        Assert.All(doc.Settings, s => Assert.Equal(LuaConfigValueKind.Number, s.Kind));
+    }
+
     /// <summary>A key written twice: Lua keeps the last value, so the editor shows and edits that line (it edited the first, which nothing reads).</summary>
     [Fact]
     public void AKeyWrittenTwice_IsShownOnce_AndTheLastLineIsEdited()

@@ -280,7 +280,10 @@ public sealed partial class LuaConfigDocument
         return sb.ToString();
     }
 
-    [GeneratedRegex(@"^-?(0[xX][0-9a-fA-F]+|(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?)$")]
+    // "\d+(\.\d*)?" and not "\d+\.?\d*": with the dot optional, a long run of digits that ends in
+    // something else ("1111…1x" in a downloaded file) was split every possible way before failing,
+    // which took 18 s for 20,000 digits on the UI thread.
+    [GeneratedRegex(@"^-?(?:0[xX][0-9a-fA-F]+|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)$")]
     private static partial Regex NumberText();
 
     [GeneratedRegex(@"^(?<lead>\s*(?:local\s+)?)(?<key>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*=(?!=)\s*")]
