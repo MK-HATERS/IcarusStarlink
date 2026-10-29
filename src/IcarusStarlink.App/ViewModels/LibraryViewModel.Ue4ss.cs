@@ -200,6 +200,33 @@ public sealed partial class LibraryViewModel
         }
     }
 
+    private const string Ue4ssGameRunningMessage =
+        "Icarus is running, so its UE4SS Mods folder is in use. Close the game, then try again.";
+
+    /// <summary>
+    /// Whether Icarus is running (Merge &amp; Install's check; tests set their own). Apply and Delete
+    /// move mod folders in and out of the game's Mods folder: with the game running, a C++ mod's dll
+    /// is locked and a move stops halfway, and a Lua mod already loaded keeps running from memory.
+    /// A failing check counts as not running, as it does for Install.
+    /// </summary>
+    internal Func<bool> IsGameRunningCheck
+    {
+        get => _isGameRunningCheck ??= () =>
+        {
+            try
+            {
+                return _mergeInstallViewModel().IsGameRunningNow();
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        };
+        set => _isGameRunningCheck = value;
+    }
+
+    private Func<bool>? _isGameRunningCheck;
+
     private void RecomputeHasPendingUe4ssChanges()
     {
         HasPendingUe4ssChanges = Ue4ssMods.Any(m => m.IsDirty);
@@ -215,22 +242,38 @@ public sealed partial class LibraryViewModel
     {
         try
         {
+            var backedUp = false;
             var contentPath = _settingsService.Current.IcarusContentPath;
             if (!string.IsNullOrWhiteSpace(contentPath))
             {
                 var modsFolder = Ue4ssGamePaths.ResolveModsFolder(contentPath);
                 if (_ue4ssModRepository.ListInstalledInGame(modsFolder).Contains(folderName, StringComparer.OrdinalIgnoreCase))
                 {
+                    if (IsGameRunningCheck())
+                    {
+                        return Ue4ssGameRunningMessage;
+                    }
+
                     var failures = _ue4ssModStateService.Apply(modsFolder, new Dictionary<string, bool> { [folderName] = false }, _backupDirectory);
                     if (failures.Count > 0)
                     {
                         return failures[0].Reason;
                     }
+
+                    backedUp = true; // Apply backed up the game copy before moving it out
                 }
             }
 
             if (_ue4ssModRepository.GetAll().Contains(folderName, StringComparer.OrdinalIgnoreCase))
             {
+                // Backed up first, as the game copy is above and every Library part is: a mod that
+                // was off (only in staging) used to go for good, while the question said the parts
+                // are backed up. One that can't be backed up isn't deleted.
+                if (!backedUp)
+                {
+                    IcarusStarlink.PakIO.Install.FolderBackup.BackupFolder(_ue4ssModRepository.GetFolderPath(folderName), _backupDirectory);
+                }
+
                 _ue4ssModRepository.Delete(folderName);
             }
 
@@ -268,10 +311,17 @@ public sealed partial class LibraryViewModel
             }
         }
 
+        // Not asked at all while the game holds its Mods folder: the delete would fail after the Yes.
+        if (item.IsFolderInGame && IsGameRunningCheck())
+        {
+            Ue4ssStatusMessage = Ue4ssGameRunningMessage;
+            return;
+        }
+
         var confirm = _dialogService.Confirm(
             item.IsFolderInGame
-                ? $"Delete '{item.Name}'?\n\nIt is removed from the game's Mods folder (a backup is kept under Backups\\UE4SS) and from Starlink's holding folder. Re-download it to get it back."
-                : $"Delete '{item.Name}'?\n\nIts staged folder is removed from disk. Re-download it to get it back.",
+                ? $"Delete '{item.Name}'?\n\nIt is removed from the game's Mods folder and from Starlink's holding folder. A copy is kept in Starlink's Backups folder."
+                : $"Delete '{item.Name}'?\n\nIts staged folder is removed from disk. A copy is kept in Starlink's Backups folder.",
             "Delete UE4SS mod", ThemedConfirmSeverity.Warning);
         if (!confirm)
         {
@@ -374,9 +424,6 @@ public sealed partial class LibraryViewModel
         }
     }
 
-    /// <summary>Whether Icarus is running; set by the app (null: never refuses, as in tests that don't care).</summary>
-    public IcarusStarlink.App.Services.IGameProcessChecker? GameProcess { get; init; }
-
     /// <summary>
     /// Moves every dirty row to match its toggled state — enabling copies staging→game, disabling
     /// backs up then moves game→staging (IUe4ssModStateService.Apply) — then reloads so every row's
@@ -391,11 +438,9 @@ public sealed partial class LibraryViewModel
             return;
         }
 
-        // Like Install: UE4SS reads its mods when the game starts, and a running game can hold a
-        // mod's files (a C++ mod's dll), so a change now would be half done or not take effect.
-        if (GameProcess?.IsRunning() == true)
+        if (IsGameRunningCheck())
         {
-            Ue4ssStatusMessage = "Close Icarus first: UE4SS mods change when the game starts. Nothing was moved.";
+            Ue4ssStatusMessage = Ue4ssGameRunningMessage;
             return;
         }
 

@@ -315,6 +315,8 @@ public sealed class PatchService : IPatchService
                 mod.Configs ??= [];
                 mod.Configs.RemoveAll(c => c is null || string.IsNullOrWhiteSpace(c.Path));
                 RequireSafeName(mod.Name, "a UE4SS mod's name");
+                // Written into mods the player runs with no question: settings only, never code.
+                PatchConfigSafety.Filter(mod);
             }
 
             return manifest;

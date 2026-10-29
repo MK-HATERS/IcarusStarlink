@@ -351,12 +351,27 @@ public sealed class GameUpdateCoordinator(
             return null;
         }
 
+        // Again after the question, as Install does: the game may have been started while it was
+        // open, and the pak it holds open would be replaced under it.
+        if (IsGameRunning())
+        {
+            return "Icarus started while the question was open. Nothing was rolled back: close the game, then Roll back.";
+        }
+
+        var merge = mergeInstall();
+        if (merge.IsRebuilding || merge.IsInstalling)
+        {
+            return "Merge & Install started building or installing while the question was open. Nothing was rolled back: Roll back once it's done.";
+        }
+
         var done = new List<string>();
         var problems = new List<string>();
         var contentPath = settingsService.Current.IcarusContentPath;
-        var merge = mergeInstall();
         if (contentPath is { Length: > 0 })
         {
+            // Install, Copy to game, Remove and Restore refuse while the pak is put back (they
+            // check IsInstalling): one of them clicked meanwhile wrote the same files at once.
+            merge.IsInstalling = true;
             try
             {
                 await Task.Run(() => snapshots.RestoreMergedPak(snapshot, contentPath, backupDirectory));
@@ -365,6 +380,10 @@ public sealed class GameUpdateCoordinator(
             catch (Exception ex)
             {
                 problems.Add($"the merged pak couldn't be put back ({ex.Message})");
+            }
+            finally
+            {
+                merge.IsInstalling = false;
             }
         }
 

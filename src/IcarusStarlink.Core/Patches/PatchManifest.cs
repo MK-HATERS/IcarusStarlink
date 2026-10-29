@@ -98,6 +98,14 @@ public sealed class PatchUe4ssEntry
 
     /// <summary>Its config files (config.lua, config.ini, config\*.ini) as text, relative to the mod folder; empty when the exporter left settings out.</summary>
     public List<PatchConfigFile> Configs { get; set; } = [];
+
+    /// <summary>
+    /// Not in the file: the config paths reading the patch took out of Configs because they
+    /// aren't plain settings (a script, a path out of the folder, Lua that isn't only data), for
+    /// the import to name. Set by PatchService when it reads a patch.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<string> RefusedConfigPaths { get; set; } = [];
 }
 
 /// <summary>One config file's text, as it was in the exporter's mod folder.</summary>

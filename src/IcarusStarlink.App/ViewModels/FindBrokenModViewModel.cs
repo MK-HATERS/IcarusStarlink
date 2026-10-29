@@ -119,8 +119,9 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
             else
             {
                 Step = FindBrokenModStep.Round;
-                // A round left waiting for its answer was installed before the app closed.
-                ShowRound(isInstalled: resume.Search.Testing is not null && resume.Installed is not null);
+                // A round left waiting for its answer, if its install finished before the app
+                // closed; one whose install failed shows Install this round again.
+                ShowRound(isInstalled: resume.Search.Testing is not null && resume.RoundInstalled);
             }
         }
     }

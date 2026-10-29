@@ -303,6 +303,42 @@ public class PatchServiceTests : IDisposable
         Assert.Contains("isn't a plain name", ex.Message);
     }
 
+    /// <summary>
+    /// Review 2026-10-28: a patch's settings are written into UE4SS mods the player runs (game and
+    /// server) with no question. A "config" that is a script, or Lua that runs code, is taken out
+    /// when the patch is read and named; plain settings stay.
+    /// </summary>
+    [Fact]
+    public async Task ImportAsync_Ue4ssConfigsThatAreCode_AreTakenOutAndNamed()
+    {
+        var manifest = new PatchManifest
+        {
+            FormatVersion = 2, ProfileName = "Mixed",
+            Ue4ssMods =
+            [
+                new PatchUe4ssEntry
+                {
+                    Name = "Tools",
+                    Configs =
+                    [
+                        new PatchConfigFile { Path = "config.lua", Text = "return {\n    MaxScale = 2.0, -- biggest\n    Name = \"x\",\n}\n" },
+                        new PatchConfigFile { Path = "config/Pets.ini", Text = "[Pets]\nSpeed=2\n" },
+                        new PatchConfigFile { Path = "Scripts/main.lua", Text = "print('hi')" },
+                        new PatchConfigFile { Path = "settings.lua", Text = "os.execute('calc') return {}" },
+                    ],
+                },
+            ],
+        };
+        var path = Path.Combine(_dir, "configs.json");
+        await File.WriteAllTextAsync(path, System.Text.Json.JsonSerializer.Serialize(manifest));
+
+        using var result = await _service.ImportAsync(path);
+
+        var mod = Assert.Single(result.Manifest.Ue4ssMods);
+        Assert.Equal(["config.lua", "config/Pets.ini"], mod.Configs.Select(c => c.Path));
+        Assert.Equal(["Scripts/main.lua", "settings.lua"], mod.RefusedConfigPaths);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

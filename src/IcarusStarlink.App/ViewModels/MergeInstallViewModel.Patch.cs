@@ -278,7 +278,8 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             // The bundled mods this import put in the Library, by the patch's folder name: the
             // second pass (after downloads) finds them instead of importing them again.
             var imported = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes, imported);
+            var replaced = new List<string>();
+            var (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes, imported, replaced);
             var configured = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var ue4ss = ImportUe4ssFromPatch(contents, configured, versionNotes);
             var downloaded = 0;
@@ -313,7 +314,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
                 // What landed is matched the same way again; the UE4SS mods that just arrived get their settings now.
                 var before = missing.Count + ue4ss.Missing.Count;
-                (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes: null, imported);
+                (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes: null, imported, replaced);
                 var again = ImportUe4ssFromPatch(contents, configured, versionNotes: null);
                 ue4ss = new Ue4ssImportOutcome(
                     [.. ue4ss.Lines.Concat(again.Lines).Distinct(StringComparer.Ordinal)],
@@ -382,6 +383,11 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
                 summary.Add($"{versionNotes.Count} mod(s) are a different version from the patch's (see the warnings below)");
             }
 
+            if (replaced.Count > 0)
+            {
+                summary.Add($"your copy of {string.Join(", ", replaced)} was replaced by the patch's (backed up first: Restore latest backup in the Library brings yours back)");
+            }
+
             summary.AddRange(ue4ss.Lines);
             summary.AddRange(turnedOn);
             PatchStatusMessage = summary.Count == 0
@@ -405,7 +411,8 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
     /// differs from the patch's. A second call (after downloads) doesn't import the bundled
     /// mods again: it finds the copies the first call made.
     /// </summary>
-    private (List<string> Resolved, List<MissingPatchMod> Missing) ResolvePatchMods(PatchImportContents contents, List<string>? versionNotes, Dictionary<string, string> imported)
+    private (List<string> Resolved, List<MissingPatchMod> Missing) ResolvePatchMods(
+        PatchImportContents contents, List<string>? versionNotes, Dictionary<string, string> imported, List<string> replaced)
     {
         var resolved = new List<string>();
         var missing = new List<MissingPatchMod>();
@@ -413,13 +420,13 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         {
             if (mod.Bundled && mod.IsPak && contents.BundledPakFolders.TryGetValue(mod.FolderName, out var pakFolder))
             {
-                resolved.Add(imported.TryGetValue(mod.FolderName, out var pakCopy) ? pakCopy : imported[mod.FolderName] = ImportBundledPak(mod, pakFolder));
+                resolved.Add(imported.TryGetValue(mod.FolderName, out var pakCopy) ? pakCopy : imported[mod.FolderName] = ImportBundledPak(mod, pakFolder, replaced));
                 continue;
             }
 
             if (mod.Bundled && contents.BundledMods.TryGetValue(mod.FolderName, out var exmod))
             {
-                resolved.Add(imported.TryGetValue(mod.FolderName, out var exmodCopy) ? exmodCopy : imported[mod.FolderName] = ImportBundledMod(exmod));
+                resolved.Add(imported.TryGetValue(mod.FolderName, out var exmodCopy) ? exmodCopy : imported[mod.FolderName] = ImportBundledMod(exmod, replaced));
                 continue;
             }
 
@@ -461,20 +468,16 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         return entries.FirstOrDefault(e => CatalogKey.Normalize(e.Name, e.Author) == modKey);
     }
 
-    private string ImportBundledMod(ExmodPackageContents contents)
+    private string ImportBundledMod(ExmodPackageContents contents, List<string> replaced)
     {
         var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.EXMODZ");
         try
         {
             ExmodzArchive.Write(tempPath, contents);
 
-            var existing = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, contents.Package.FileName, StringComparison.OrdinalIgnoreCase));
-            if (existing is not null)
-            {
-                _libraryRepository.Delete(existing.FolderName);
-            }
-
-            return _libraryRepository.Import(tempPath).FolderName;
+            // Only an EXMOD mod is the same mod: the patch's file name can't take a pak mod's place.
+            var existing = _libraryRepository.GetAll().FirstOrDefault(e => !e.IsOpaquePak && string.Equals(e.FolderName, contents.Package.FileName, StringComparison.OrdinalIgnoreCase));
+            return ReplaceForPatch(existing, replaced, () => _libraryRepository.Import(tempPath).FolderName);
         }
         finally
         {
@@ -482,8 +485,65 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         }
     }
 
+    /// <summary>
+    /// A bundled mod takes the place of the Library copy under the same folder name. That copy can be
+    /// the player's own (a hand edit, notes, a Nexus link): it was deleted with no backup, before
+    /// the import that could still fail. Now it's backed up first (no backup, no replace), its
+    /// Library info kept, and put back when the import fails.
+    /// </summary>
+    private string ReplaceForPatch(LibraryEntry? existing, List<string> replaced, Func<string> import)
+    {
+        if (existing is null)
+        {
+            return import();
+        }
+
+        try
+        {
+            _libraryRepository.BackupMod(existing.FolderName);
+        }
+        catch (Exception ex)
+        {
+            throw new IOException($"couldn't back up your copy of '{existing.Name}', so it wasn't replaced: {ex.Message}", ex);
+        }
+
+        string? snapshot = null;
+        try
+        {
+            snapshot = _libraryRepository.ReadMetaSnapshot(existing.FolderName);
+        }
+        catch (Exception)
+        {
+            // Without it the restore below still brings the folder back.
+        }
+
+        _libraryRepository.Delete(existing.FolderName);
+        try
+        {
+            var folderName = import();
+            replaced.Add($"'{existing.Name}'");
+            return folderName;
+        }
+        catch (Exception)
+        {
+            try
+            {
+                if (_libraryRepository.RestoreLatestModBackup(existing.FolderName) && snapshot is not null)
+                {
+                    _libraryRepository.WriteMetaSnapshot(existing.FolderName, snapshot);
+                }
+            }
+            catch (Exception restoreEx)
+            {
+                Serilog.Log.Warning(restoreEx, "Couldn't put '{Folder}' back after a failed patch import", existing.FolderName);
+            }
+
+            throw;
+        }
+    }
+
     /// <summary>A bundled pak mod: its pak files (in the order the patch names them) become one Library mod, replacing a same-named copy.</summary>
-    private string ImportBundledPak(PatchModEntry mod, string pakFolder)
+    private string ImportBundledPak(PatchModEntry mod, string pakFolder, List<string> replaced)
     {
         var onDisk = Directory.GetFiles(pakFolder, "*.pak");
         var ordered = mod.PakFileNames
@@ -496,13 +556,10 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             throw new FormatException($"The patch's bundled pak mod '{mod.Name}' has no pak files.");
         }
 
-        var existing = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, mod.FolderName, StringComparison.OrdinalIgnoreCase));
-        if (existing is not null)
-        {
-            _libraryRepository.Delete(existing.FolderName);
-        }
-
-        return _libraryRepository.ImportPaks(ordered, mod.Name, source: "Patch", nexusModId: mod.NexusModId, catalogEntryId: mod.CatalogEntryId).FolderName;
+        // Only a pak mod is the same mod: the patch's folder name can't take an EXMOD mod's place.
+        var existing = _libraryRepository.GetAll().FirstOrDefault(e => e.IsOpaquePak && string.Equals(e.FolderName, mod.FolderName, StringComparison.OrdinalIgnoreCase));
+        return ReplaceForPatch(existing, replaced,
+            () => _libraryRepository.ImportPaks(ordered, mod.Name, source: "Patch", nexusModId: mod.NexusModId, catalogEntryId: mod.CatalogEntryId).FolderName);
     }
 
     /// <summary>
@@ -541,6 +598,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         }
 
         var settingsApplied = 0;
+        var refusedConfigs = new List<string>();
         var landed = 0;
         var configBackups = Path.Combine(_backupDirectory, "UE4SS-Mod-Configs");
         foreach (var mod in wanted)
@@ -575,14 +633,17 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
             if (configured.Add(name))
             {
+                refusedConfigs.AddRange(mod.RefusedConfigPaths.Select(p => $"{name}: {p}"));
                 foreach (var config in mod.Configs)
                 {
-                    var relative = config.Path.Replace('/', Path.DirectorySeparatorChar);
-                    if (relative.Contains("..", StringComparison.Ordinal) || Path.IsPathRooted(relative))
+                    // PatchService already took these out; checked again for any other reader.
+                    if (!PatchConfigSafety.IsSafe(config))
                     {
-                        continue; // a config path that leaves the mod folder isn't one
+                        refusedConfigs.Add($"{name}: {config.Path}");
+                        continue;
                     }
 
+                    var relative = config.Path.Replace('/', Path.DirectorySeparatorChar);
                     Ue4ssModConfigCarryOver.ApplyValues(folder, relative, config.Text, configBackups);
                     settingsApplied++;
                 }
@@ -602,6 +663,11 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         if (settingsApplied > 0)
         {
             lines.Add($"settings written for {wanted.Count - missing.Count} UE4SS mod(s) (your old files are in Backups\\UE4SS-Mod-Configs)");
+        }
+
+        if (refusedConfigs.Count > 0)
+        {
+            lines.Add($"left out {refusedConfigs.Count} file(s) the patch called settings that aren't plain settings ({string.Join(", ", refusedConfigs)})");
         }
 
         return new Ue4ssImportOutcome(lines, toTurnOn, missing);

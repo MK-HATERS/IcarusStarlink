@@ -319,6 +319,66 @@ public sealed class LibraryViewModelTests
     /// (WirelessPower; both carry Nexus mod ID 361) is deleted whole, with one confirmation that
     /// names both halves — half a mod is a broken mod, and the UE4SS tab's own Delete routes here too.
     /// </summary>
+    /// <summary>
+    /// Review 2026-10-28: the Lua half of a download that was off (only in staging) was deleted
+    /// for good, while the question said the parts are backed up. It's backed up first now.
+    /// </summary>
+    [Fact]
+    public void DeleteItemCommand_OnAModWithALuaHalfThatIsOff_BacksUpTheLuaHalfFirst()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.Ue4ssModRepository.Staged.Add("WirelessPower");
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
+        var staged = Path.Combine(harness.Ue4ssModRepository.StagingRoot, "WirelessPower", "Scripts");
+        Directory.CreateDirectory(staged);
+        File.WriteAllText(Path.Combine(staged, "main.lua"), "print('hi')");
+        var vm = harness.Build();
+
+        vm.DeleteItemCommand.Execute(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower"));
+
+        Assert.Equal(["WirelessPower"], harness.Ue4ssModRepository.DeleteCalls);
+        var backup = Assert.Single(FolderBackup.EnumerateFolderBackups(harness.BackupDirectory, "WirelessPower"));
+        Assert.Equal("print('hi')", File.ReadAllText(Path.Combine(backup, "Scripts", "main.lua")));
+    }
+
+    /// <summary>
+    /// Review 2026-10-28: the UE4SS panel's Delete of a mod that is in the game asked, then tried
+    /// to move it out of the game's Mods folder with the game running (in use: it fails, or a C++
+    /// mod stops halfway). Refused now, before the question.
+    /// </summary>
+    [Fact]
+    public void DeleteUe4ssMod_InTheGame_WhileTheGameRuns_IsRefusedBeforeTheQuestion()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("MkHatersTools", IsEnabled: true));
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        vm.IsGameRunningCheck = () => true;
+        var row = Assert.Single(vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>());
+
+        vm.DeleteUe4ssModCommand.Execute(row);
+
+        Assert.Empty(harness.DialogService.ConfirmMessages);
+        Assert.Empty(harness.Ue4ssModRepository.DeleteCalls);
+        Assert.Contains("Icarus is running", vm.Ue4ssStatusMessage);
+    }
+
+    /// <summary>Review 2026-10-28: the UE4SS panel's Apply moved mod folders in and out of the game's Mods folder with the game running (a C++ mod's dll is locked: a move stops halfway).</summary>
+    [Fact]
+    public void ApplyUe4ssChanges_WhileTheGameRuns_IsRefused()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        var vm = harness.Build();
+        vm.IsGameRunningCheck = () => true;
+
+        vm.ApplyUe4ssChangesCommand.Execute(null);
+
+        Assert.Contains("Icarus is running", vm.Ue4ssStatusMessage);
+    }
+
     [Fact]
     public void DeleteItemCommand_OnAModWithALuaHalf_DeletesBothHalvesAndNamesThemInTheConfirmation()
     {
@@ -589,27 +649,6 @@ public sealed class LibraryViewModelTests
         Assert.Equal([true, false], raised);
         Assert.Equal("Not enabled", item.InstallStatus);
         Assert.Equal("Pak", item.TypeLabel);
-    }
-
-    /// <summary>
-    /// UE4SS Apply while Icarus runs (review 2026-10-28): it never checked, unlike Install, so a C++
-    /// mod's held dll could leave a half-moved mod. It now refuses and moves nothing.
-    /// </summary>
-    [Fact]
-    public void ApplyUe4ssChanges_WhileTheGameRuns_MovesNothingAndSaysWhy()
-    {
-        var harness = new TestHarness { GameProcess = new RunningGame(true) };
-        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
-        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("NearbyCrafting", IsEnabled: false));
-        var vm = harness.Build();
-        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
-        var row = vm.RootItems.OfType<Ue4ssModRowViewModel>().Single();
-        row.IsEnabled = true;
-
-        vm.ApplyUe4ssChangesCommand.Execute(null);
-
-        Assert.StartsWith("Close Icarus first", vm.Ue4ssStatusMessage);
-        Assert.True(row.IsDirty);
     }
 
     /// <summary>A ticked UE4SS mod with no UE4SS in the game: the bar under the list says so and offers the install, and the row's status says why.</summary>
@@ -2063,17 +2102,8 @@ public sealed class LibraryViewModelTests
                 ThumbnailCacheDirectory, PakPreviewCacheDirectory, DialogService)
             {
                 SharedFixService = FixService,
-                GameProcess = GameProcess,
             };
         }
-
-        /// <summary>Whether Icarus counts as running (null: no check, as the app's tests that don't care).</summary>
-        public IGameProcessChecker? GameProcess { get; set; }
-    }
-
-    private sealed class RunningGame(bool running) : IGameProcessChecker
-    {
-        public bool IsRunning() => running;
     }
 
     /// <summary>A catalog download Get update can install: Downloads' Activate unpacks it and finds an .EXMOD (the fake repository's Import does the rest).</summary>
@@ -2372,9 +2402,13 @@ public sealed class LibraryViewModelTests
             Staged.RemoveAll(n => string.Equals(n, folderName, StringComparison.OrdinalIgnoreCase));
         }
 
-        public string GetFolderPath(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
+        /// <summary>Where a staged mod's folder is (a test creates it to see the delete back it up); a path nothing is at otherwise.</summary>
+        public string StagingRoot { get; } = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N") + "_Staged_UE4SS");
+
+        public string GetFolderPath(string folderName) => Path.Combine(StagingRoot, folderName);
+
         /// <summary>Enabled mods in the game's Mods folder (read only when the settings have a game path).</summary>
-        public List<string> InGame { get; } = [];
+        public List<string> InGame { get; set; } = [];
 
         public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) => [.. InGame];
         public string AdoptFromGame(string gameModsFolderPath, string folderName, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
