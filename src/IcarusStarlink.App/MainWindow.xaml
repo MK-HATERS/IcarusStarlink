@@ -333,7 +333,7 @@
                 <StackPanel Grid.Row="2" Margin="12,8,12,12">
                     <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,0,0,8"/>
                     <Button Command="{Binding NextThemeCommand}" Style="{StaticResource QuickLinkButtonStyle}"
-                            ToolTip="{Binding NextThemeName, StringFormat='Change the colours: click for the {0} theme. Each click goes to the next one.'}"
+                            ToolTip="{Binding ThemeButtonToolTip}"
                             AutomationProperties.Name="{Binding ThemeButtonText}">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconTheme}" Stroke="{DynamicResource AccentBrush}" Fill="{DynamicResource AccentSoftBrush}" Style="{StaticResource QuickLinkIconStyle}"/>

@@ -133,29 +133,45 @@ public static class UiScale
     /// <summary>
     /// A pop-up window with a set size grows with its content (capped to the screen) and keeps its
     /// centre. The main window keeps its own size: it's usually maximised, and its content reflows.
-    /// Windows that size to their content follow it by themselves.
+    /// A side the window sizes to its content follows it by itself; a set side is scaled. So a
+    /// question box (a set width, its height from its text) gets wider too: it used to keep its
+    /// width, its content was squeezed into two thirds of it at 150%, and a row of three buttons
+    /// ran off the edge.
     /// </summary>
     private static void ResizePopUpWindow(Window window, double factor)
     {
-        if (window is MainWindow || window.WindowState != WindowState.Normal || window.SizeToContent != SizeToContent.Manual
-            || double.IsNaN(window.Width) || double.IsNaN(window.Height))
+        if (window is MainWindow || window.WindowState != WindowState.Normal)
         {
             return;
         }
 
+        var scaleWidth = window.SizeToContent is SizeToContent.Manual or SizeToContent.Height && !double.IsNaN(window.Width);
+        var scaleHeight = window.SizeToContent is SizeToContent.Manual or SizeToContent.Width && !double.IsNaN(window.Height);
         var workArea = SystemParameters.WorkArea;
         var oldWidth = window.Width;
         var oldHeight = window.Height;
-        window.MinWidth = Math.Min(window.MinWidth * factor, workArea.Width);
-        window.MinHeight = Math.Min(window.MinHeight * factor, workArea.Height);
-        window.Width = Math.Clamp(oldWidth * factor, window.MinWidth, workArea.Width);
-        window.Height = Math.Clamp(oldHeight * factor, window.MinHeight, workArea.Height);
+        if (scaleWidth)
+        {
+            window.MinWidth = Math.Min(window.MinWidth * factor, workArea.Width);
+            window.Width = Math.Clamp(oldWidth * factor, window.MinWidth, workArea.Width);
+        }
+
+        if (scaleHeight)
+        {
+            window.MinHeight = Math.Min(window.MinHeight * factor, workArea.Height);
+            window.Height = Math.Clamp(oldHeight * factor, window.MinHeight, workArea.Height);
+        }
 
         // Re-centred only, not clamped to the primary screen's work area: that would pull a window
         // off a second monitor. The title bar is kept from going above the top of the screen it's on.
-        if (!double.IsNaN(window.Left) && !double.IsNaN(window.Top))
+        // A side sized to its content is left to WPF.
+        if (scaleWidth && !double.IsNaN(window.Left))
         {
             window.Left -= (window.Width - oldWidth) / 2;
+        }
+
+        if (scaleHeight && !double.IsNaN(window.Top))
+        {
             window.Top = Math.Max(window.Top - (window.Height - oldHeight) / 2, SystemParameters.VirtualScreenTop);
         }
     }

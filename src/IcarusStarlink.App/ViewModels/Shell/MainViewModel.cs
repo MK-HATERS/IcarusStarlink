@@ -38,7 +38,7 @@ public sealed partial class MainViewModel : ObservableObject
     private object? _currentPage;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(NextThemeName), nameof(ThemeButtonText))]
+    [NotifyPropertyChangedFor(nameof(NextThemeName), nameof(ThemeButtonText), nameof(ThemeButtonToolTip))]
     private string _currentThemeName;
 
     /// <summary>The theme the one-click Theme button (bottom of the menu) switches to: the next in the list, round to the first.</summary>
@@ -52,6 +52,12 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     public string ThemeButtonText => $"Theme: {CurrentThemeName}";
+
+    /// <summary>
+    /// The Theme button's tooltip. Built here, not with StringFormat in the XAML: ToolTip isn't a
+    /// text property, so WPF ignores StringFormat on it and the tooltip said only "Dark".
+    /// </summary>
+    public string ThemeButtonToolTip => $"Change the colours: click for the {NextThemeName} theme. Each click goes to the next one.";
 
     /// <summary>The Theme button: Icarus → Dark → Light → Custom → Icarus, one step per click.</summary>
     [RelayCommand]
