@@ -52,6 +52,16 @@ public sealed partial class DownloadsViewModel
             return ModReplacementResult.Cancel("Nothing to install.");
         }
 
+        // The file was deleted or moved out of Pending_Downloads: say so plainly. It used to go
+        // through the whole install (taking the installed copy out and putting it back) and then
+        // the manual install, ending on "Manual install failed: Could not find file …".
+        if (!File.Exists(ResolveLocalFilePath(item)))
+        {
+            var gone = $"The downloaded file '{item.FileName}' isn't in Pending_Downloads any more — download '{item.DisplayName}' again, or Discard this row.";
+            PendingDownloadStatusMessage = gone;
+            return ModReplacementResult.Failure(gone, error: null, rolledBack: false);
+        }
+
         try
         {
             var (replaced, previous) = await RunInstallStepAsync(() => InstallAndRecordAsync(item, pristine));

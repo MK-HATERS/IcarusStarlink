@@ -176,6 +176,32 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         Assert.Contains("Needs:", item.RequirementsSummary);
     }
 
+    /// <summary>
+    /// Review 2026-10-28: Reinstall on a row whose file was deleted from Pending_Downloads went
+    /// through the install, failed, opened nothing useful and ended on "Manual install failed:
+    /// Could not find file …". It now says the file is gone and what to do, and leaves the
+    /// installed mod alone.
+    /// </summary>
+    [Fact]
+    public async Task Reinstall_DownloadedFileGone_SaysSoWithoutTheManualInstall()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        var manualInstallOpened = false;
+        vm.ManualInstall = (_, _, _, _) => { manualInstallOpened = true; return null; };
+        var item = harness.AddDownload("WirelessPower 1.0.0 361 1 2026-10-12T13-49Z UAfrx4UUt.zip", WriteWirelessPowerLayout);
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+        File.Delete(item.LocalFilePath);
+
+        var result = await vm.ActivateAsync(item);
+
+        Assert.False(result.Succeeded);
+        Assert.False(manualInstallOpened);
+        Assert.Contains("isn't in Pending_Downloads any more", vm.PendingDownloadStatusMessage);
+        Assert.Contains("WirelessPower", harness.Ue4ss.GetAll());
+        Assert.Single(harness.Library.GetAll());
+    }
+
     /// <summary>A download Starlink can't sort out (loose .uasset files next to a Lua mod) — the import fails and only THEN the manual install opens, with the reason, pre-filled with Starlink's guesses.</summary>
     private static void WriteUnrecognisable(ZipArchive archive)
     {
