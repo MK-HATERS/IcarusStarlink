@@ -567,10 +567,15 @@
                         <StackPanel>
                         <TextBlock Text="Starlink always keeps a basic log of what you did and what happened (at most 5 MB a file, the newest 14 files). If you run into a bug, export a diagnostics zip (logs + sanitized settings, never API keys or tokens) to attach to your report."
                                    Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10" TextWrapping="Wrap"/>
-                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Advanced log" IsChecked="{Binding AdvancedLogging}" Margin="0,0,0,10"
+                        <!-- The two switches do different things (the user asked): one line under each says which. -->
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Advanced log" IsChecked="{Binding AdvancedLogging}" Margin="0,0,0,2"
                                   ToolTip="Off (Basic): the log records what you did and what happened: imports, merges, installs, fixes, warnings and errors. On (Advanced): every detail too, like each fix made to a mod, the merge order, conflict picks and web requests. Turn it on to chase a bug: it goes back to Basic by itself after 24 hours. Works at once. Either way each file stops at 5 MB and only the newest 14 are kept."/>
-                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Performance tracking" IsChecked="{Binding PerformanceTrackingEnabled}" Margin="0,0,0,10"
+                        <TextBlock Text="More detail in the normal log, for chasing a bug when something goes wrong. Goes back to off by itself after 24 hours."
+                                   Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="44,0,0,10"/>
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Performance tracking" IsChecked="{Binding PerformanceTrackingEnabled}" Margin="0,0,0,2"
                                   ToolTip="Off by default. When on, writes how long merges, installs and catalog refreshes take to a separate log file (app.perf). Useful when something feels slow and you want real numbers for a bug report."/>
+                        <TextBlock Text="Not the log: a separate file (app.perf) with how long merges, installs and catalog refreshes take, for when something feels slow."
+                                   Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="44,0,0,10"/>
                         <WrapPanel>
                             <Button Command="{Binding ExportDiagnosticsCommand}" AutomationProperties.Name="Export diagnostics zip">
                                 <StackPanel Orientation="Horizontal">
