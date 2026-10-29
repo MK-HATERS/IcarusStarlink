@@ -105,7 +105,7 @@ public sealed partial class SettingsViewModel
             }
             else
             {
-                SkinStatusMessage = "Skin saved — pick the Custom theme (top right) to see it.";
+                SkinStatusMessage = "Skin saved — click the Theme button at the bottom of the menu until it says Custom to see it.";
             }
         }
         catch (Exception ex)

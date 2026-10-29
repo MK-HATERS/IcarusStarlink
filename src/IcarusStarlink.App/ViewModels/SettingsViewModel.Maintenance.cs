@@ -53,8 +53,9 @@ public sealed partial class SettingsViewModel
     partial void OnPerformanceTrackingEnabledChanged(bool value) =>
         _settingsService.SetAndSave(s => s.PerformanceTrackingEnabled, (s, v) => s.PerformanceTrackingEnabled = v, value);
 
-    [RelayCommand]
-    private void ExportDiagnostics()
+    /// <summary>Zipping up to 14 days of logs (70 MB at most) runs off the UI thread: the window used to freeze while it ran.</summary>
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task ExportDiagnosticsAsync()
     {
         if (_dialogService.PickSaveFile(
                 "Export diagnostics zip", "Zip archive (*.zip)|*.zip", $"IcarusStarlink-Diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.zip") is not { } zipPath)
@@ -62,9 +63,10 @@ public sealed partial class SettingsViewModel
             return;
         }
 
+        DiagnosticsStatusMessage = "Exporting…";
         try
         {
-            DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, zipPath);
+            await Task.Run(() => DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, zipPath));
             DiagnosticsStatusMessage = $"Exported to '{zipPath}'.";
         }
         catch (Exception ex)
