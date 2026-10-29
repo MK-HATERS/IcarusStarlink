@@ -11,6 +11,12 @@ public sealed class AppSettings
 
     /// <summary>Settings › Appearance › Show pop-up messages: results (a merge finished, an import failed…) pop up for a few seconds under the bell.</summary>
     public bool ShowPopUpMessages { get; set; } = true;
+
+    /// <summary>Settings › Appearance › Size of text and controls: every window drawn this many times bigger (1.0 = normal, 1.5 = half again as big, for 4K screens).</summary>
+    public double UiScale { get; set; } = 1.0;
+
+    /// <summary>The Database page: which mods the player has already seen there, so mods added (or updated) since show a New tag.</summary>
+    public CatalogSeenState CatalogSeen { get; set; } = new();
     public bool PerformanceTrackingEnabled { get; set; }
 
     /// <summary>Settings › Diagnostics › Advanced log: the log file also records debug detail and web requests.</summary>
@@ -118,6 +124,23 @@ public sealed class AppSettings
     /// in-app update tells the updater not to copy the launcher back (ExeRenameMigration).
     /// </summary>
     public bool ExeRenameDone { get; set; }
+}
+
+/// <summary>
+/// What the player has already seen on the Database page. Recorded when Starlink closes, for each
+/// tab opened that session, or straight away by that tab's Mark all seen. The very first load of
+/// each catalog counts as seen, so a first run (or the update that brings this) shows no wall of "new".
+/// </summary>
+public sealed class CatalogSeenState
+{
+    /// <summary>IMM Database entries seen: catalog entry id → the version listed then (a different version later reads as Updated).</summary>
+    public Dictionary<string, string> ImmDatabaseVersions { get; set; } = [];
+
+    /// <summary>IMM Database sources (Daedalus, Jimk72) already given their first-run baseline. A source that was down at the first load gets its own baseline later.</summary>
+    public List<string> ImmDatabaseSources { get; set; } = [];
+
+    /// <summary>Nexus mods published (or updated) after this time are new. Null until the Nexus tab is first built (it is then set to that moment).</summary>
+    public DateTimeOffset? NexusSeenUpToUtc { get; set; }
 }
 
 /// <summary>A window's last size, restored the next time it opens.</summary>
