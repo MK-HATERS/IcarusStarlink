@@ -585,6 +585,104 @@ public sealed class ServerViewModelTests
         }
     }
 
+    /// <summary>
+    /// The connection drops on the second mod: the first went up whole and is turned on (it used to
+    /// stay off for good, as the next sync skipped its folder as "already there"), the broken one is
+    /// named, and nothing claims success.
+    /// </summary>
+    [Fact]
+    public async Task SyncUe4ssMods_ConnectionDropsPartWay_TurnsOnTheModsThatWentUpWholeAndNamesTheBrokenOne()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        try
+        {
+            var mods = IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveModsFolder(settings.Current.IcarusContentPath!);
+            WriteFile(Path.Combine(mods, "mods.txt"), "AMod : 1\r\nBMod : 1\r\n");
+            WriteFile(Path.Combine(mods, "AMod", "Scripts", "main.lua"));
+            WriteFile(Path.Combine(mods, "BMod", "Scripts", "main.lua"));
+            var ftp = new MemoryFtpClient { FailUploadContaining = "/BMod/" };
+            ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"] = "Keybinds : 1\r\n";
+            var vm = await ConnectedAsync(ftp, settings);
+
+            await vm.SyncUe4ssModsToServerCommand.ExecuteAsync(null);
+
+            var txt = ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"];
+            Assert.Contains("AMod : 1", txt);
+            Assert.DoesNotContain("BMod", txt);
+            Assert.Contains("Keybinds : 1", txt);
+            Assert.Contains("part way", vm.ConnectionStatusMessage);
+            Assert.Contains("'BMod'", vm.ConnectionStatusMessage);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>A second listing that failed read as "no mods.txt there", and a new one holding only the uploaded mods went up over the server's whole list.</summary>
+    [Fact]
+    public async Task SyncUe4ssMods_ListingFailsBeforeModsTxtIsEdited_KeepsTheServersOtherLines()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        try
+        {
+            var mods = IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveModsFolder(settings.Current.IcarusContentPath!);
+            WriteFile(Path.Combine(mods, "mods.txt"), "OnMod : 1\r\n");
+            WriteFile(Path.Combine(mods, "OnMod", "Scripts", "main.lua"));
+            var ftp = new MemoryFtpClient();
+            ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"] = "Existing : 1\r\nKeybinds : 1\r\n";
+            ftp.Files[$"{RemoteUe4ss}/Mods/Existing/Scripts/main.lua"] = "x";
+            var vm = await ConnectedAsync(ftp, settings);
+            ftp.ListingsBeforeFailure = 1; // the sync's own listing works, any later one fails
+
+            await vm.SyncUe4ssModsToServerCommand.ExecuteAsync(null);
+
+            var txt = ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"];
+            Assert.Contains("Existing : 1", txt);
+            Assert.Contains("Keybinds : 1", txt);
+            Assert.Contains("OnMod : 1", txt);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A host that blocks delete (SurvivalServers): the old merged pak of the SAME name is written
+    /// over, so it isn't "left behind". It used to be named in the "will remain" warning and the
+    /// result said an old file couldn't be removed and two paks might load.
+    /// </summary>
+    [Fact]
+    public async Task InstallPakToServer_HostBlocksDelete_TheSameNamePakIsNotCalledALeftover()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            File.WriteAllText(Path.Combine(folder, "ISL-Merged_9999_P.pak"), "pak");
+            var ftp = new RecordingFtpClient("ISL-Merged_9999_P.pak");
+            var site = MakeSite(Guid.NewGuid());
+            site.SupportsDelete = false;
+            var dialogs = new FakeDialogService(confirmResult: true);
+            var vm = CreateViewModel(new FakeFtpSiteStore([site]), ftp, dialogs, outputPakPath: Path.Combine(folder, "ISL-Merged_9999_P.pak"));
+            vm.SelectedSite = vm.Sites.Single();
+            vm.PasswordInput = "irrelevant-password";
+            await vm.ConnectCommand.ExecuteAsync(null);
+
+            await vm.InstallPakToServerCommand.ExecuteAsync(null);
+
+            Assert.DoesNotContain(dialogs.Messages, m => m.Contains("will remain"));
+            Assert.Contains("Installed the merged pak", vm.ConnectionStatusMessage);
+            Assert.DoesNotContain("couldn't remove", vm.ConnectionStatusMessage);
+            Assert.Contains(Mods + "ISL-Merged_9999_P.pak", ftp.Files);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
     /// <summary>The game's own UE4SS.log (and crash dumps) used to be uploaded over the server's; the loader files still go.</summary>
     [Fact]
     public async Task SyncUe4ssLoader_SkipsTheGamesLogs()
@@ -620,8 +718,24 @@ public sealed class ServerViewModelTests
 
         public Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+        /// <summary>Listings that still work; after that every listing fails (a dropped connection). Null: never fails.</summary>
+        public int? ListingsBeforeFailure { get; set; }
+
+        /// <summary>An upload whose remote path contains this fails part way (the file is left half there).</summary>
+        public string? FailUploadContaining { get; set; }
+
         public Task<IReadOnlyList<FtpEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default)
         {
+            if (ListingsBeforeFailure is { } left)
+            {
+                if (left <= 0)
+                {
+                    throw new IOException("Connection reset.");
+                }
+
+                ListingsBeforeFailure = left - 1;
+            }
+
             var prefix = remotePath.TrimEnd('/') + "/";
             var children = Files.Keys.Where(f => f.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 .Select(f => f[prefix.Length..])
@@ -633,6 +747,12 @@ public sealed class ServerViewModelTests
 
         public Task UploadFileAsync(string localPath, string remotePath, CancellationToken cancellationToken = default)
         {
+            if (FailUploadContaining is { } failing && remotePath.Contains(failing, StringComparison.OrdinalIgnoreCase))
+            {
+                Files[remotePath] = "partial";
+                throw new IOException("Connection reset mid-upload.");
+            }
+
             Files[remotePath] = File.ReadAllText(localPath);
             return Task.CompletedTask;
         }
@@ -721,9 +841,12 @@ public sealed class ServerViewModelTests
     {
         public int ConfirmCallCount { get; private set; }
 
+        public List<string> Messages { get; } = [];
+
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {
             ConfirmCallCount++;
+            Messages.Add(message);
             return confirmResult;
         }
 
