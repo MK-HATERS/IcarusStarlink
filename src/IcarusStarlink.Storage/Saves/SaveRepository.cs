@@ -306,6 +306,18 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
 
         var slotFolder = ResolveSlot(steamId);
 
+        // A zip without Profile.json at its top (made by hand, or with the slot folder inside it)
+        // would replace every player file with nothing, and a slot without Profile.json isn't
+        // listed (ListSlots), so the page lost the slot and its Restore with it. Checked before
+        // anything is written; a damaged zip already fails here too.
+        using (var backup = ZipFile.OpenRead(backupFilePath))
+        {
+            if (!backup.Entries.Any(e => string.Equals(e.FullName, ProfileFileName, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidDataException($"That backup has no {ProfileFileName} in it, so it isn't a whole player save. Nothing was changed.");
+            }
+        }
+
         // The spec's own safety rule, verbatim: "Restore writes a pre_restore safety zip first,
         // then replaces the slot" — so even a restore of the wrong backup is itself undoable.
         // Same temp-name-then-rename pattern as BackupSlot's own zip write, for the same reason:

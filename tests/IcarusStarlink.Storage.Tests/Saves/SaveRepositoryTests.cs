@@ -234,6 +234,28 @@ public sealed class SaveRepositoryTests : IDisposable
             dir => Path.GetFileName(dir).Contains("_restore_scratch_"));
     }
 
+    /// <summary>
+    /// A zip with no Profile.json at its top (the slot folder zipped by hand, with the folder inside)
+    /// replaced every player file with nothing; the slot then wasn't listed, so its Restore was gone too.
+    /// </summary>
+    [Fact]
+    public void RestoreSlot_BackupWithoutProfileAtItsTop_RefusesAndLeavesTheSlotAlone()
+    {
+        Directory.CreateDirectory(_backups);
+        var nested = Path.Combine(_backups, $"{SteamId}_by_hand.zip");
+        using (var zip = ZipFile.Open(nested, ZipArchiveMode.Create))
+        {
+            zip.CreateEntryFromFile(Path.Combine(_playerData, SteamId, "Profile.json"), $"{SteamId}/Profile.json");
+        }
+
+        var ex = Assert.Throws<InvalidDataException>(() => _repository.RestoreSlot(SteamId, nested));
+
+        Assert.Contains("Nothing was changed", ex.Message);
+        Assert.Single(_repository.ListSlots());
+        Assert.True(File.Exists(Path.Combine(_playerData, SteamId, "Characters.json")));
+        Assert.DoesNotContain(Directory.GetFiles(_backups), f => f.Contains("pre_restore"));
+    }
+
     /// <summary>A failure partway through the swap (here: the second rename into place) puts every live file back as it was.</summary>
     [Fact]
     public void ReplaceTopLevelFiles_FailureMidSwap_PutsTheLiveFilesBack()
