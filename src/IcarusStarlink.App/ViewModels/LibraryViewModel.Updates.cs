@@ -66,12 +66,17 @@ public sealed partial class LibraryViewModel
             // currently showing right here. Only a pending entry that ISN'T currently reflected as a
             // live Library item (never activated, or activated then since removed) is genuinely
             // "unclaimed" and worth pointing the user at instead of Nexus.
+            // UE4SS halves count wherever they are: an ENABLED one sits in the game's Mods folder,
+            // not staging — looking at staging alone called every download with an enabled Lua
+            // half "unclaimed", so Update on its pak half only ever pointed back at the old file.
+            var ue4ssNames = item.NexusModId is null ? null
+                : new Ue4ssInstalledNames(_ue4ssModRepository, _settingsService).All().ToHashSet(StringComparer.OrdinalIgnoreCase);
             var hasUnclaimedDownload = item.NexusModId is { } nexusModId && _pendingDownloadStore.Entries
                 .Where(e => e.ModId == nexusModId)
                 .Any(e => e.AllActivatedItems.Count == 0
                     || e.AllActivatedItems.Any(activated => activated.Kind == PendingDownloadActivationKind.Library
                         ? !_repository.GetAll().Any(le => string.Equals(le.FolderName, activated.FolderName, StringComparison.OrdinalIgnoreCase))
-                        : !_ue4ssModRepository.GetAll().Any(f => string.Equals(f, activated.FolderName, StringComparison.OrdinalIgnoreCase))));
+                        : !ue4ssNames!.Contains(activated.FolderName)));
             if (hasUnclaimedDownload)
             {
                 StatusMessage = "A downloaded file for this mod is already on the Downloads page — Activate or Reinstall it there (or re-download from Nexus if it's older than the update).";
