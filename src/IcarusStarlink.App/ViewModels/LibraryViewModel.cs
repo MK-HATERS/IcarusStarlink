@@ -902,6 +902,14 @@ public sealed partial class LibraryViewModel : ObservableObject
             }
         }
 
+        // A UE4SS part on in the game can't come out of its Mods folder while the game runs: asked
+        // anyway, the Library parts went and the Lua half stayed, half a mod left behind.
+        if (ue4ssParts.Count > 0 && IsGameRunningCheck() && Ue4ssPartsInGame(ue4ssParts) is { Count: > 0 } running)
+        {
+            StatusMessage = $"Icarus is running, and {string.Join(", ", running)} from the same download is on in the game. Close the game, then delete.";
+            return;
+        }
+
         var confirm = _dialogService.Confirm(message, "Delete mod(s)", ThemedConfirmSeverity.Warning);
         if (!(confirm))
         {

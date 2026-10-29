@@ -342,6 +342,69 @@ public sealed class LibraryViewModelTests
         Assert.Equal("print('hi')", File.ReadAllText(Path.Combine(backup, "Scripts", "main.lua")));
     }
 
+    /// <summary>
+    /// Review 2026-10-28: with the game running, deleting a download whose Lua half is on in the
+    /// game removed the Library part and then failed on the Lua half (its folder is in use), half
+    /// a mod left. Nothing is deleted then, and nothing is asked.
+    /// </summary>
+    [Fact]
+    public void DeleteItemCommand_LuaHalfOnInTheGame_WhileTheGameRuns_DeletesNothing()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.Ue4ssModRepository.InGame = ["WirelessPower"];
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("WirelessPower", IsEnabled: true));
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        vm.IsGameRunningCheck = () => true;
+        var mod = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
+        Assert.Equal(["WirelessPower"], mod.LinkedUe4ssNames);
+
+        vm.DeleteItemCommand.Execute(mod);
+
+        Assert.Empty(harness.Repository.DeleteCalls);
+        Assert.Empty(harness.DialogService.ConfirmMessages);
+        Assert.Contains("Icarus is running", vm.StatusMessage);
+    }
+
+    /// <summary>
+    /// Review 2026-10-28: only staged UE4SS mods were grouped with their download's data mod, and
+    /// Apply takes a mod out of staging when it turns it on: a WirelessPower whose Lua half is on
+    /// showed as two unlinked rows, and deleting the data row left the Lua half in the game.
+    /// </summary>
+    [Fact]
+    public void LuaHalfOnInTheGame_IsStillLinkedToItsDataMod()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("WirelessPower", IsEnabled: true));
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
+        var vm = harness.Build();
+
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+
+        var mod = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
+        Assert.Equal(["WirelessPower"], mod.LinkedUe4ssNames);
+        Assert.Empty(vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>());
+    }
+
+    /// <summary>Review 2026-10-28: the UE4SS panel's Apply moved mod folders in and out of the game's Mods folder with the game running (a C++ mod's dll is locked: a move stops halfway).</summary>
+    [Fact]
+    public void ApplyUe4ssChanges_WhileTheGameRuns_IsRefused()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        var vm = harness.Build();
+        vm.IsGameRunningCheck = () => true;
+
+        vm.ApplyUe4ssChangesCommand.Execute(null);
+
+        Assert.Contains("Icarus is running", vm.Ue4ssStatusMessage);
+    }
+
     [Fact]
     public void DeleteItemCommand_OnAModWithALuaHalf_DeletesBothHalvesAndNamesThemInTheConfirmation()
     {
@@ -2334,7 +2397,10 @@ public sealed class LibraryViewModelTests
         public string StagingRoot { get; } = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N") + "_Staged_UE4SS");
 
         public string GetFolderPath(string folderName) => Path.Combine(StagingRoot, folderName);
-        public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) => throw new NotSupportedException("Not exercised by these tests.");
+        /// <summary>What ListInstalledInGame reports (null: the call isn't expected, it throws).</summary>
+        public List<string>? InGame { get; set; }
+
+        public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) => InGame ?? throw new NotSupportedException("Not exercised by these tests.");
         public string AdoptFromGame(string gameModsFolderPath, string folderName, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
     }
 

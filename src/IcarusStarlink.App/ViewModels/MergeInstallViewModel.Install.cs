@@ -341,6 +341,9 @@ public sealed partial class MergeInstallViewModel
         }
     }
 
+    /// <summary>The same check, for the Library's UE4SS Apply and Delete (the Library has no process checker of its own).</summary>
+    internal bool IsGameRunningNow() => IsGameRunning();
+
     /// <summary>Whether Icarus is running; a failing process query counts as not running.</summary>
     private bool IsGameRunning()
     {

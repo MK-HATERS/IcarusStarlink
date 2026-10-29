@@ -200,6 +200,52 @@ public sealed partial class LibraryViewModel
         }
     }
 
+    private const string Ue4ssGameRunningMessage =
+        "Icarus is running, so its UE4SS Mods folder is in use. Close the game, then try again.";
+
+    /// <summary>
+    /// Whether Icarus is running (Merge &amp; Install's check; tests set their own). Apply and Delete
+    /// move mod folders in and out of the game's Mods folder: with the game running, a C++ mod's dll
+    /// is locked and a move stops halfway, and a Lua mod already loaded keeps running from memory.
+    /// A failing check counts as not running, as it does for Install.
+    /// </summary>
+    internal Func<bool> IsGameRunningCheck
+    {
+        get => _isGameRunningCheck ??= () =>
+        {
+            try
+            {
+                return _mergeInstallViewModel().IsGameRunningNow();
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        };
+        set => _isGameRunningCheck = value;
+    }
+
+    private Func<bool>? _isGameRunningCheck;
+
+    /// <summary>Which of these UE4SS mods are in the game's Mods folder (none without a game path, or when it can't be read).</summary>
+    private List<string> Ue4ssPartsInGame(IEnumerable<string> names)
+    {
+        if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
+        {
+            return [];
+        }
+
+        try
+        {
+            var inGame = _ue4ssModRepository.ListInstalledInGame(Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath));
+            return [.. names.Where(n => inGame.Contains(n, StringComparer.OrdinalIgnoreCase))];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
     private void RecomputeHasPendingUe4ssChanges()
     {
         HasPendingUe4ssChanges = Ue4ssMods.Any(m => m.IsDirty);
@@ -222,6 +268,11 @@ public sealed partial class LibraryViewModel
                 var modsFolder = Ue4ssGamePaths.ResolveModsFolder(contentPath);
                 if (_ue4ssModRepository.ListInstalledInGame(modsFolder).Contains(folderName, StringComparer.OrdinalIgnoreCase))
                 {
+                    if (IsGameRunningCheck())
+                    {
+                        return Ue4ssGameRunningMessage;
+                    }
+
                     var failures = _ue4ssModStateService.Apply(modsFolder, new Dictionary<string, bool> { [folderName] = false }, _backupDirectory);
                     if (failures.Count > 0)
                     {
@@ -396,6 +447,12 @@ public sealed partial class LibraryViewModel
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
             Ue4ssStatusMessage = "Set the Icarus Content folder in Settings first.";
+            return;
+        }
+
+        if (IsGameRunningCheck())
+        {
+            Ue4ssStatusMessage = Ue4ssGameRunningMessage;
             return;
         }
 
