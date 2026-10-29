@@ -339,6 +339,39 @@ public class PatchServiceTests : IDisposable
         Assert.Equal(["Scripts/main.lua", "settings.lua"], mod.RefusedConfigPaths);
     }
 
+    /// <summary>
+    /// Review 2026-10-28: a Lua config that is data as a whole could still carry code into the
+    /// mod's own file, because the import writes the patch's values into that file line by line,
+    /// and a value going into a table setting is written as Lua. A string holding Lua, and lines
+    /// hidden in a long comment the line reader takes as settings, are refused.
+    /// </summary>
+    [Theory]
+    [InlineData("return {\n    Keys = \"{ os.execute('calc') }\",\n}\n")]
+    [InlineData("return {\n--[==[\n    Keys = { os.execute('calc') },\n--]==]\n}\n")]
+    [InlineData("return {\n    Speed = 1, --[[\n    Keys = { os.execute('calc') },\n--]]\n}\n")]
+    public void IsSafe_DataLuaWhoseValuesWouldWriteCodeIntoTheMod_IsRefused(string text)
+    {
+        var modFolder = Path.Combine(_dir, "TrustedMod");
+        Directory.CreateDirectory(modFolder);
+        File.WriteAllText(Path.Combine(modFolder, "config.lua"), "return {\n    Speed = 1,\n    Keys = { \"F1\" },\n}\n");
+
+        Assert.False(PatchConfigSafety.IsSafe(new PatchConfigFile { Path = "config.lua", Text = text }));
+
+        // What it would have done: the call lands in the mod's own config.lua.
+        IcarusStarlink.Core.Ue4ss.Ue4ssModConfigCarryOver.ApplyValues(modFolder, "config.lua", text, Path.Combine(_dir, "backups"));
+        Assert.Contains("os.execute", File.ReadAllText(Path.Combine(modFolder, "config.lua")));
+    }
+
+    [Fact]
+    public void IsSafe_DataLuaWithTableAndStringValues_IsKept()
+    {
+        Assert.True(PatchConfigSafety.IsSafe(new PatchConfigFile
+        {
+            Path = "config.lua",
+            Text = "return {\n    Keys = { \"F1\", \"F2\" }, -- keys\n    Name = \"Bob {the builder}\",\n    Nested = { A = 1, B = { true } },\n}\n",
+        }));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))
