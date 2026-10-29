@@ -215,6 +215,7 @@ public sealed partial class LibraryViewModel
     {
         try
         {
+            var backedUp = false;
             var contentPath = _settingsService.Current.IcarusContentPath;
             if (!string.IsNullOrWhiteSpace(contentPath))
             {
@@ -226,11 +227,21 @@ public sealed partial class LibraryViewModel
                     {
                         return failures[0].Reason;
                     }
+
+                    backedUp = true; // Apply backed up the game copy before moving it out
                 }
             }
 
             if (_ue4ssModRepository.GetAll().Contains(folderName, StringComparer.OrdinalIgnoreCase))
             {
+                // Backed up first, as the game copy is above and every Library part is: a mod that
+                // was off (only in staging) used to go for good, while the question said the parts
+                // are backed up. One that can't be backed up isn't deleted.
+                if (!backedUp)
+                {
+                    IcarusStarlink.PakIO.Install.FolderBackup.BackupFolder(_ue4ssModRepository.GetFolderPath(folderName), _backupDirectory);
+                }
+
                 _ue4ssModRepository.Delete(folderName);
             }
 

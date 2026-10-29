@@ -319,6 +319,29 @@ public sealed class LibraryViewModelTests
     /// (WirelessPower; both carry Nexus mod ID 361) is deleted whole, with one confirmation that
     /// names both halves — half a mod is a broken mod, and the UE4SS tab's own Delete routes here too.
     /// </summary>
+    /// <summary>
+    /// Review 2026-10-28: the Lua half of a download that was off (only in staging) was deleted
+    /// for good, while the question said the parts are backed up. It's backed up first now.
+    /// </summary>
+    [Fact]
+    public void DeleteItemCommand_OnAModWithALuaHalfThatIsOff_BacksUpTheLuaHalfFirst()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.Ue4ssModRepository.Staged.Add("WirelessPower");
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
+        var staged = Path.Combine(harness.Ue4ssModRepository.StagingRoot, "WirelessPower", "Scripts");
+        Directory.CreateDirectory(staged);
+        File.WriteAllText(Path.Combine(staged, "main.lua"), "print('hi')");
+        var vm = harness.Build();
+
+        vm.DeleteItemCommand.Execute(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower"));
+
+        Assert.Equal(["WirelessPower"], harness.Ue4ssModRepository.DeleteCalls);
+        var backup = Assert.Single(FolderBackup.EnumerateFolderBackups(harness.BackupDirectory, "WirelessPower"));
+        Assert.Equal("print('hi')", File.ReadAllText(Path.Combine(backup, "Scripts", "main.lua")));
+    }
+
     [Fact]
     public void DeleteItemCommand_OnAModWithALuaHalf_DeletesBothHalvesAndNamesThemInTheConfirmation()
     {
@@ -2307,7 +2330,10 @@ public sealed class LibraryViewModelTests
             Staged.RemoveAll(n => string.Equals(n, folderName, StringComparison.OrdinalIgnoreCase));
         }
 
-        public string GetFolderPath(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
+        /// <summary>Where a staged mod's folder is (a test creates it to see the delete back it up); a path nothing is at otherwise.</summary>
+        public string StagingRoot { get; } = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N") + "_Staged_UE4SS");
+
+        public string GetFolderPath(string folderName) => Path.Combine(StagingRoot, folderName);
         public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) => throw new NotSupportedException("Not exercised by these tests.");
         public string AdoptFromGame(string gameModsFolderPath, string folderName, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
     }
