@@ -147,6 +147,7 @@ public class MainViewModelTests
             for (var i = 0; i < 4; i++)
             {
                 Assert.Equal($"Theme: {vm.CurrentThemeName}", vm.ThemeButtonText);
+                Assert.Equal($"Change the colours: click for the {vm.NextThemeName} theme. Each click goes to the next one.", vm.ThemeButtonToolTip);
                 vm.NextThemeCommand.Execute(null);
                 seen.Add(vm.CurrentThemeName);
             }
