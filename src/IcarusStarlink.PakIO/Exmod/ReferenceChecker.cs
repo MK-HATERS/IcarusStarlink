@@ -41,6 +41,42 @@ public static class ReferenceChecker
         var linked = new HashSet<(string Table, string Row)>(new TableRowComparer());
 
         var broken = new List<BrokenReference>();
+        VisitLinks(package, game, link =>
+        {
+            linked.Add((link.Table, link.RowName));
+            if (!game.HasRow(link.TargetFile, link.RowName) && modRows.GetValueOrDefault(link.Table)?.Contains(link.RowName) != true)
+            {
+                broken.Add(new BrokenReference(link.Row.CurrentFile, link.Item.Name, link.Path, link.Table, link.RowName));
+            }
+        });
+
+        // Item traits only exist to be linked from an item, so an unlinked one the game lacks does nothing.
+        var traitTables = TraitTables(game);
+        IReadOnlyCollection<byte[]>? assetBytes = null;
+        bool MentionedByAssets(string name) => MentionedIn(assetBytes ??= assets?.Invoke() ?? [], name);
+        var unused = package.Rows
+            .Where(r => traitTables.Contains(GameTableIndex.TableNameOf(r.CurrentFile)) && game.Rows(r.CurrentFile) is not null)
+            .SelectMany(r => r.FileItems
+                .Where(i => !game.HasRow(r.CurrentFile, i.Name) && !linked.Contains((GameTableIndex.TableNameOf(r.CurrentFile), i.Name)) && !MentionedByAssets(i.Name))
+                .Select(i => new UnusedRow(r.CurrentFile, i.Name)))
+            .ToList();
+
+        return new ReferenceReport(broken, unused);
+    }
+
+    /// <summary>One link in a mod row whose target table is known ({"RowName": …} with its DataTableName, or one the table's Defaults name).</summary>
+    /// <param name="Node">The link object itself, for re-pointing it.</param>
+    /// <param name="Table">Where it points: "D_Itemable".</param>
+    /// <param name="TargetFile">That table EXMOD-style: "Traits-D_Itemable.json".</param>
+    public sealed record ModLink(ExmodFileRow Row, ExmodFileItem Item, string Path, string RowName, string Table, string TargetFile, JsonObject Node);
+
+    /// <summary>
+    /// Every link in the mod's rows (game tables only) whose target table can be told: its own
+    /// DataTableName, else the table's Defaults (where Icarus keeps it for top-level links). "None"
+    /// and empty links are skipped. The same walk Check uses, shared by Rename this row.
+    /// </summary>
+    public static void VisitLinks(ExmodPackage package, GameTableIndex game, Action<ModLink> visit)
+    {
         foreach (var row in package.Rows)
         {
             if (game.Rows(row.CurrentFile) is null)
@@ -61,28 +97,11 @@ public static class ReferenceChecker
                             return; // can't tell where it points — say nothing rather than guess
                         }
 
-                        linked.Add((table, link.RowName));
-                        if (!game.HasRow(targetFile, link.RowName) && modRows.GetValueOrDefault(table)?.Contains(link.RowName) != true)
-                        {
-                            broken.Add(new BrokenReference(row.CurrentFile, item.Name, link.Path, table, link.RowName));
-                        }
+                        visit(new ModLink(row, item, link.Path, link.RowName, table, targetFile, link.Node));
                     });
                 }
             }
         }
-
-        // Item traits only exist to be linked from an item, so an unlinked one the game lacks does nothing.
-        var traitTables = TraitTables(game);
-        IReadOnlyCollection<byte[]>? assetBytes = null;
-        bool MentionedByAssets(string name) => MentionedIn(assetBytes ??= assets?.Invoke() ?? [], name);
-        var unused = package.Rows
-            .Where(r => traitTables.Contains(GameTableIndex.TableNameOf(r.CurrentFile)) && game.Rows(r.CurrentFile) is not null)
-            .SelectMany(r => r.FileItems
-                .Where(i => !game.HasRow(r.CurrentFile, i.Name) && !linked.Contains((GameTableIndex.TableNameOf(r.CurrentFile), i.Name)) && !MentionedByAssets(i.Name))
-                .Select(i => new UnusedRow(r.CurrentFile, i.Name)))
-            .ToList();
-
-        return new ReferenceReport(broken, unused);
     }
 
     /// <summary>The tables D_ItemsStatic links into (D_Itemable, D_Armour, D_Consumable …), from its Defaults.</summary>
@@ -117,7 +136,7 @@ public static class ReferenceChecker
             HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Table), StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Row));
     }
 
-    private readonly record struct Link(string Path, string RowName, string? ExplicitTable, string? DefaultsTable, bool TopLevel);
+    private readonly record struct Link(string Path, string RowName, string? ExplicitTable, string? DefaultsTable, bool TopLevel, JsonObject Node);
 
     /// <summary>Visits every {"RowName": …} under node; shape is the matching part of the table's Defaults, which may name the target table.</summary>
     private static void Walk(JsonNode? node, JsonNode? shape, string path, bool topLevel, Action<Link> visit)
@@ -131,7 +150,7 @@ public static class ReferenceChecker
                     {
                         var explicitTable = obj["DataTableName"] is JsonValue t && t.TryGetValue<string>(out var s) && s.Length > 0 ? s : null;
                         var defaultsTable = (shape as JsonObject)?["DataTableName"] is JsonValue d && d.TryGetValue<string>(out var ds) && ds.Length > 0 ? ds : null;
-                        visit(new Link(path, rowName, explicitTable, defaultsTable, topLevel));
+                        visit(new Link(path, rowName, explicitTable, defaultsTable, topLevel, obj));
                     }
 
                     return;
