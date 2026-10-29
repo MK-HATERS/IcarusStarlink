@@ -437,12 +437,14 @@ public sealed partial class MergeInstallViewModel
     private bool IsBuildable(LibraryEntry entry) => !entry.IsMissingFromLibrary && !IsIslBuiltPack(entry);
 
     private BuildSnapshot TakeSnapshot() => new(
-        [.. Queue.Where(IsBuildable)],
+        // A Find the broken mod round builds only part of the queue (FindBroken.cs); the queue itself stays.
+        [.. Queue.Where(IsBuildable).Where(e => _finderOnly is null || _finderOnly.Contains(e.FolderName))],
         [.. Queue.Where(e => e.IsMissingFromLibrary).Select(e => e.Name)],
         BuildGameplayOptionsFromUi(),
         ActiveOptionsSummary,
         new Dictionary<string, string>(_winners, StringComparer.OrdinalIgnoreCase),
-        _manualPicks,
+        // Picks are positions among the queued mods: with part of the queue they'd mean other mods.
+        _finderOnly is null ? _manualPicks : null,
         ScanArcFission(),
         SelectedProfileName ?? "Default",
         _settingsService.Current.UnrealPakExePath ?? "");

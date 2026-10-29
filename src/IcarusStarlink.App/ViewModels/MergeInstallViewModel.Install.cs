@@ -471,7 +471,8 @@ public sealed partial class MergeInstallViewModel
         // only write it again) — unless the library itself is gone or off: then nothing rewrites it,
         // and it holds whole tables from an older game, so removing it is offered.
         var leftoverArcFission = LeftoverArcFissionDataPaks(_settingsService.Current.IcarusContentPath!);
-        var keepArcFission = leftoverArcFission.Count == 0 || !Confirm(
+        // A Find the broken mod round leaves it be: that's a question for a normal install.
+        var keepArcFission = leftoverArcFission.Count == 0 || _finderOnly is not null || _finderRestoring || !Confirm(
             $"ArcFission Library isn't installed (or is turned off), but its data pak is still in the mods folder:\n"
             + string.Join('\n', leftoverArcFission.Select(n => $"  - {n}"))
             + "\n\nNothing updates it any more: it holds whole game tables from the game version it was written for, so it can put old values back in game.\n\n"
@@ -506,8 +507,17 @@ public sealed partial class MergeInstallViewModel
         // Same explicit Yes/No gate as every other real-machine write this app makes (the nxm://
         // registry registration, the UE4SS loader install) — this one specifically overwrites the
         // user's actual installed mod pack, so it shouldn't ever be reachable via a single
-        // accidental click.
-        if (!ConfirmWithGameClosed(
+        // accidental click. A Find the broken mod round (or putting the mods back after one) was
+        // asked for in its own window, which said what it installs: asked again only when the
+        // install would also remove other files (FinderSkipsInstallQuestion).
+        if (FinderSkipsInstallQuestion(otherFilesToClear.Count, oldArcFission))
+        {
+            if (RefuseWhileGameRunning("Icarus is running — close it before installing, or the game keeps loading the old pack and the copy can fail halfway."))
+            {
+                return InstallOutcome.NotDone;
+            }
+        }
+        else if (!ConfirmWithGameClosed(
             $"This copies the staged pak into '{_settingsService.Current.IcarusContentPath}\\Paks\\mods', overwriting whatever's currently installed there.\n\n" +
             $"The existing pak is backed up first (last {BackupCleanup.MergedPakBackupsKept} kept).{clearNote}\n\nContinue?",
             "Install to Icarus", retry: "Install again", declinedMessage: "Not installed: you chose not to."))
