@@ -177,6 +177,31 @@ public sealed class ScaleRuleSuggesterTests : IDisposable
         Assert.Empty(ScaleRuleSuggester.Suggest(mod, Game()));
     }
 
+    /// <summary>
+    /// Asked about one table's field ("Not in this mod yet" on each search), it checks only that
+    /// field, and finds the same rule the whole check finds there (the whole check took most of a
+    /// second on a big real mod, on the UI thread, per search).
+    /// </summary>
+    [Fact]
+    public void OneField_ChecksOnlyThatField_AndFindsTheSameRule()
+    {
+        var mod = Mod(Itemable, "MaxStack", ("Item_Fiber", 200), ("Item_Stone", 100), ("Item_Wood", 200), ("Item_Stick", 40));
+        foreach (var (row, weight) in new[] { ("Item_Fiber", 14), ("Item_Stone", 18), ("Item_Wood", 22), ("Item_Stick", 26) })
+        {
+            mod.Rows[0].FileItems.Single(i => i.Name == row).Fields["Weight"] = JsonValue.Create(weight);
+        }
+
+        var all = ScaleRuleSuggester.Suggest(mod, Game());
+        Assert.Contains(all, s => s.Rule.Field == "Weight");
+
+        var stacks = ScaleRuleSuggester.Suggest(mod, Game(), Itemable.ToLowerInvariant(), "MaxStack");
+
+        var only = Assert.Single(stacks);
+        Assert.Equal("MaxStack", only.Rule.Field);
+        Assert.Equal(all.Single(s => s.Rule.Field == "MaxStack").Text, only.Text);
+        Assert.Empty(ScaleRuleSuggester.Suggest(mod, Game(), Inventory, "MaxStack"));
+    }
+
     /// <summary>Every value in the mod by file, row and field (Apply may reorder rows; the game doesn't care).</summary>
     private static string Values(ExmodPackage mod) => string.Join("; ", mod.Rows
         .SelectMany(r => r.FileItems.SelectMany(i => i.Fields.Select(f => $"{r.CurrentFile}/{i.Name}/{f.Key}={(ScaleRules.TryReadNumber(f.Value, out var n) ? n.ToString(System.Globalization.CultureInfo.InvariantCulture) : f.Value?.ToJsonString())}")))
