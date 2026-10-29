@@ -88,6 +88,10 @@ public sealed partial class WorldSettingRowViewModel : ObservableObject
             {
                 Value = Definition.MaxValue > Definition.MinValue ? Math.Clamp(n, Definition.MinValue, Definition.MaxValue) : n;
             }
+
+            // The box shows the value Save will write: letters, or a number past the range when the
+            // value was already at its end, stayed typed in the box while the old value was saved.
+            OnPropertyChanged();
         }
     }
 

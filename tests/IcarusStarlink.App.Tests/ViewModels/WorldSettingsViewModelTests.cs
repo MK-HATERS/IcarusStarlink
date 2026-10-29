@@ -138,6 +138,22 @@ public sealed class WorldSettingsViewModelTests : IDisposable
         Assert.Equal(50, row.Value);
     }
 
+    /// <summary>Letters, or 99 when the value is already 50 (its top): nothing changed, so the box kept the typed text while 50 was what Save wrote.</summary>
+    [Fact]
+    public void NumberSetting_TextItCantUse_TellsTheBoxToShowTheRealValueAgain()
+    {
+        var row = new WorldSettingRowViewModel(
+            new WorldSettingDefinition("StartingLevel", "Starting level", "", "Misc", "Int", 1, 1, 50, true, []), 50);
+        var told = 0;
+        row.PropertyChanged += (_, e) => told += e.PropertyName == nameof(WorldSettingRowViewModel.ValueText) ? 1 : 0;
+
+        row.ValueText = "nonsense";
+        row.ValueText = "99";
+
+        Assert.Equal(2, told);
+        Assert.Equal("50", row.ValueText);
+    }
+
     /// <summary>Refresh game data used to rebuild the rows (InvalidateDefinitions) and drop the unsaved settings.</summary>
     [Fact]
     public void InvalidateDefinitions_KeepsUnsavedSettings()
