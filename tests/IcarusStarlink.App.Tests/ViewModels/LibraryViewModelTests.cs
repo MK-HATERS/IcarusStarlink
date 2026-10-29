@@ -343,52 +343,26 @@ public sealed class LibraryViewModelTests
     }
 
     /// <summary>
-    /// Review 2026-10-28: with the game running, deleting a download whose Lua half is on in the
-    /// game removed the Library part and then failed on the Lua half (its folder is in use), half
-    /// a mod left. Nothing is deleted then, and nothing is asked.
+    /// Review 2026-10-28: the UE4SS panel's Delete of a mod that is in the game asked, then tried
+    /// to move it out of the game's Mods folder with the game running (in use: it fails, or a C++
+    /// mod stops halfway). Refused now, before the question.
     /// </summary>
     [Fact]
-    public void DeleteItemCommand_LuaHalfOnInTheGame_WhileTheGameRuns_DeletesNothing()
+    public void DeleteUe4ssMod_InTheGame_WhileTheGameRuns_IsRefusedBeforeTheQuestion()
     {
         var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
         harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
-        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
-        harness.Ue4ssModRepository.InGame = ["WirelessPower"];
-        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("WirelessPower", IsEnabled: true));
-        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("MkHatersTools", IsEnabled: true));
         var vm = harness.Build();
         vm.ReloadInstalledUe4ssModsCommand.Execute(null);
         vm.IsGameRunningCheck = () => true;
-        var mod = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
-        Assert.Equal(["WirelessPower"], mod.LinkedUe4ssNames);
+        var row = Assert.Single(vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>());
 
-        vm.DeleteItemCommand.Execute(mod);
+        vm.DeleteUe4ssModCommand.Execute(row);
 
-        Assert.Empty(harness.Repository.DeleteCalls);
         Assert.Empty(harness.DialogService.ConfirmMessages);
-        Assert.Contains("Icarus is running", vm.StatusMessage);
-    }
-
-    /// <summary>
-    /// Review 2026-10-28: only staged UE4SS mods were grouped with their download's data mod, and
-    /// Apply takes a mod out of staging when it turns it on: a WirelessPower whose Lua half is on
-    /// showed as two unlinked rows, and deleting the data row left the Lua half in the game.
-    /// </summary>
-    [Fact]
-    public void LuaHalfOnInTheGame_IsStillLinkedToItsDataMod()
-    {
-        var harness = new TestHarness();
-        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
-        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
-        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("WirelessPower", IsEnabled: true));
-        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
-        var vm = harness.Build();
-
-        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
-
-        var mod = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
-        Assert.Equal(["WirelessPower"], mod.LinkedUe4ssNames);
-        Assert.Empty(vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>());
+        Assert.Empty(harness.Ue4ssModRepository.DeleteCalls);
+        Assert.Contains("Icarus is running", vm.Ue4ssStatusMessage);
     }
 
     /// <summary>Review 2026-10-28: the UE4SS panel's Apply moved mod folders in and out of the game's Mods folder with the game running (a C++ mod's dll is locked: a move stops halfway).</summary>

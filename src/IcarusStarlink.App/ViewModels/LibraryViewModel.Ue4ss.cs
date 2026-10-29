@@ -227,25 +227,6 @@ public sealed partial class LibraryViewModel
 
     private Func<bool>? _isGameRunningCheck;
 
-    /// <summary>Which of these UE4SS mods are in the game's Mods folder (none without a game path, or when it can't be read).</summary>
-    private List<string> Ue4ssPartsInGame(IEnumerable<string> names)
-    {
-        if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
-        {
-            return [];
-        }
-
-        try
-        {
-            var inGame = _ue4ssModRepository.ListInstalledInGame(Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath));
-            return [.. names.Where(n => inGame.Contains(n, StringComparer.OrdinalIgnoreCase))];
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return [];
-        }
-    }
-
     private void RecomputeHasPendingUe4ssChanges()
     {
         HasPendingUe4ssChanges = Ue4ssMods.Any(m => m.IsDirty);
@@ -330,10 +311,17 @@ public sealed partial class LibraryViewModel
             }
         }
 
+        // Not asked at all while the game holds its Mods folder: the delete would fail after the Yes.
+        if (item.IsFolderInGame && IsGameRunningCheck())
+        {
+            Ue4ssStatusMessage = Ue4ssGameRunningMessage;
+            return;
+        }
+
         var confirm = _dialogService.Confirm(
             item.IsFolderInGame
-                ? $"Delete '{item.Name}'?\n\nIt is removed from the game's Mods folder (a backup is kept under Backups\\UE4SS) and from this app's staging. Re-download it to get it back."
-                : $"Delete '{item.Name}'?\n\nIts staged folder is removed from disk. Re-download it to get it back.",
+                ? $"Delete '{item.Name}'?\n\nIt is removed from the game's Mods folder and from this app's staging. A copy is kept in Starlink's Backups folder."
+                : $"Delete '{item.Name}'?\n\nIts staged folder is removed from disk. A copy is kept in Starlink's Backups folder.",
             "Delete UE4SS mod", ThemedConfirmSeverity.Warning);
         if (!confirm)
         {
