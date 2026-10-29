@@ -497,7 +497,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     public bool IsFixedByIsl => FixedByIslAtUtc is not null;
 
     public string FixedByIslToolTip => FixedByIslAtUtc is { } at
-        ? $"Fixed by ISL's mod check (first on {at.ToLocalTime():d MMM yyyy}). The fixes are made again after game updates. Right-click › Reinstall original or Restore latest backup to undo."
+        ? $"Fixed by Starlink's mod check (first on {at.ToLocalTime():d MMM yyyy}). The fixes are made again after game updates. Right-click › Reinstall original or Restore latest backup to undo."
         : "";
 
     /// <summary>True once this mod's own EXMOD was derived from a prebuilt pak (automatically at import, or via Convert to EXMOD…) rather than authored directly — the candidate set LibraryViewModel's own silent post-data-update refresh re-derives from its saved source pak, as long as IsLocallyEdited hasn't since gone true.</summary>

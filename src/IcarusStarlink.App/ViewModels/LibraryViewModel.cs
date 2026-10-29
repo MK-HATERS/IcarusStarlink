@@ -655,7 +655,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
         if (Downloads.FindOriginalDownload(item.FolderName) is not { } download)
         {
-            StatusMessage = $"ISL doesn't have the original download for '{item.Name}' (it was imported from a file, or the download was discarded). Import that file again, or use Restore latest backup.";
+            StatusMessage = $"Starlink doesn't have the original download for '{item.Name}' (it was imported from a file, or the download was discarded). Import that file again, or use Restore latest backup.";
             return;
         }
 

@@ -168,7 +168,7 @@
                         <MenuItem Header="Open folder"
                                   Command="{Binding PlacementTarget.Tag.OpenUe4ssModFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
-                                  ToolTip="Opens this mod's folder — in the game's Mods folder when enabled, in this app's staging when disabled"/>
+                                  ToolTip="Opens this mod's folder: in the game's Mods folder when it's on, in Starlink's own holding folder when it's off"/>
                         <MenuItem Header="Edit config…"
                                   Command="{Binding PlacementTarget.Tag.EditUe4ssModConfigCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
@@ -183,18 +183,18 @@
                         <MenuItem Header="{Binding NexusLinkActionLabel}"
                                   Command="{Binding PlacementTarget.Tag.LinkUe4ssModToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding IsUserAdded}"
-                                  ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates. Greyed out: one of UE4SS's own built-in mods."
+                                  ToolTip="Link this mod to its Nexus mod ID so Starlink can check it for updates. Greyed out: one of UE4SS's own built-in mods."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="Set minimum UE4SS version…"
                                   Command="{Binding PlacementTarget.Tag.SetMinUe4ssVersionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding IsUserAdded}"
-                                  ToolTip="Declare the minimum UE4SS loader version this mod needs, so this app can warn you if your installed loader is older. Greyed out: one of UE4SS's own built-in mods."
+                                  ToolTip="Set the oldest UE4SS version this mod works with, so Starlink can warn you when yours is older. Greyed out: one of UE4SS's own built-in mods."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <Separator/>
                         <MenuItem Header="Delete"
                                   Command="{Binding PlacementTarget.Tag.DeleteUe4ssModCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding IsUserAdded}"
-                                  ToolTip="Removes this mod from the game's Mods folder (backed up first) and from staging — asks first. Greyed out: one of UE4SS's own built-in mods, which can only be turned off."
+                                  ToolTip="Deletes this mod from the game and from Starlink. Asks first, and backs up what's in the game first. Greyed out: one of UE4SS's own built-in mods, which can only be turned off."
                                   ToolTipService.ShowOnDisabled="True"/>
                     </ContextMenu>
                 </Grid.ContextMenu>
@@ -226,7 +226,7 @@
                     <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Margin="8,0,0,0" CornerRadius="8" Padding="7,1" VerticalAlignment="Center"
                             Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                            ToolTip="Ships with the UE4SS loader itself — not something you installed separately"
+                            ToolTip="Comes with UE4SS itself: you didn't install it on its own"
                             Visibility="{Binding IsBuiltIn, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="Default" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                     </Border>
@@ -237,11 +237,11 @@
                 </Grid>
 
                 <TextBlock Grid.Column="4" Text="{Binding VersionText}" VerticalAlignment="Center" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0"
-                           ToolTip="From the mod's own Scripts\main.lua when it states one, else the version it was downloaded at"
+                           ToolTip="The version the mod's own script states, or else the version you downloaded"
                            Visibility="{Binding DataContext.ShowVersionColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                 <Border Grid.Column="5" Visibility="{Binding DataContext.ShowSourceColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" HorizontalAlignment="Left" Background="{DynamicResource SourceNexusBrush}"
-                            ToolTip="Linked to a Nexus mod page for update-checking"
+                            ToolTip="Linked to its Nexus page, so Starlink can check it for updates"
                             Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock Text="Nexus" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource WindowBackgroundBrush}"/>
                     </Border>
@@ -385,7 +385,7 @@
                         <MenuItem Header="Select all"
                                   Command="{Binding PlacementTarget.Tag.SelectAllForBulkCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="data"
-                                  ToolTip="Selects every data mod currently shown (respects the search box), ready for a bulk action below"/>
+                                  ToolTip="Selects every data mod in the list (only the ones the search shows), so you can act on them all at once"/>
                         <Separator/>
                         <MenuItem Header="Pinned" IsCheckable="True" IsChecked="{Binding IsPinned}"/>
                         <MenuItem Header="Favorite" IsCheckable="True" IsChecked="{Binding IsFavorite}"/>
@@ -393,7 +393,7 @@
                         <MenuItem Header="Rename…"
                                   Command="{Binding PlacementTarget.Tag.RenameItemCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
-                                  ToolTip="Change how this mod displays in Library — its real folder/files aren't touched"/>
+                                  ToolTip="Changes the name Library shows for this mod. Its files aren't touched."/>
                         <MenuItem Header="Edit config…"
                                   Command="{Binding PlacementTarget.Tag.EditLinkedUe4ssConfigCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
@@ -402,7 +402,7 @@
                         <MenuItem Header="Check against the game &amp; fix…"
                                   Command="{Binding PlacementTarget.Tag.OpenModFixCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding CanEdit}"
-                                  ToolTip="Compares this mod with the current game: old copies of game data (from a mod made for an older version), rows both the mod and the game changed, and renamed rows. Shows each with a fix to choose. Greyed out: a prebuilt pak (make it editable first)."
+                                  ToolTip="Checks this mod against the current game: game data it copied from an older version, things both the mod and the game changed, and renamed rows. Shows a fix to pick for each. Greyed out: a ready-made pak (make it editable first)."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="Find the broken mod…"
                                   Command="{Binding PlacementTarget.Tag.FindBrokenModCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
@@ -410,13 +410,13 @@
                         <MenuItem Header="Convert to EXMOD…"
                                   Command="{Binding PlacementTarget.Tag.ConvertToExmodCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding IsOpaquePak}"
-                                  ToolTip="Turns this prebuilt .pak import into a real, editable mod by diffing its own data against the current game data — backs up the original first. Greyed out: this mod is already editable."
+                                  ToolTip="Turns this ready-made pak into a mod you can edit, by comparing it with the current game data. Backs up the original first. Greyed out: you can already edit this mod."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <Separator/>
                         <MenuItem Header="Create mod backup"
                                   Command="{Binding PlacementTarget.Tag.BackupModCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
-                                  ToolTip="Snapshots this mod's whole folder — a safety net before a risky manual edit"/>
+                                  ToolTip="Saves a backup of this whole mod, in case an edit goes wrong"/>
                         <MenuItem Header="Restore latest backup"
                                   Command="{Binding PlacementTarget.Tag.RestoreModBackupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding HasModBackup}"
@@ -425,11 +425,11 @@
                         <MenuItem Header="Reinstall original"
                                   Command="{Binding PlacementTarget.Tag.ReinstallOriginalCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
-                                  ToolTip="Imports the mod again from the download ISL kept, exactly as its author made it. Fixes and edits made since are dropped (backed up first)."/>
+                                  ToolTip="Imports the mod again from the download Starlink kept, just as its author made it. Fixes and edits made since are dropped (backed up first)."/>
                         <MenuItem Header="See what changed vs previous version…"
                                   Command="{Binding PlacementTarget.Tag.CompareToPreviousVersionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}" IsEnabled="{Binding HasModBackup}"
-                                  ToolTip="Shows exactly which values and files the author changed between your previous copy and the current one — read-only, nothing is restored. Greyed out: no previous copy kept yet."
+                                  ToolTip="Shows which values and files the author changed between your previous copy and this one. It only shows them; nothing is put back. Greyed out: no previous copy kept yet."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="Find in Database"
                                   Command="{Binding PlacementTarget.Tag.FindInDatabaseCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
@@ -445,9 +445,9 @@
                         <MenuItem Header="{Binding NexusLinkActionLabel}"
                                   Command="{Binding PlacementTarget.Tag.LinkToNexusCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
-                                  ToolTip="Connect this mod to a real Nexus mod ID so it can be checked for updates"/>
+                                  ToolTip="Link this mod to its Nexus mod ID so Starlink can check it for updates"/>
                         <MenuItem Header="Endorse" Command="{Binding EndorseCommand}"
-                                  ToolTip="Endorses this mod on Nexus, on your account's behalf. Greyed out: not linked to Nexus, or already endorsed."
+                                  ToolTip="Endorses this mod on Nexus from your account. Greyed out: not linked to Nexus, or already endorsed."
                                   ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="Don't endorse (stop asking)" Command="{Binding AbstainCommand}"
                                   ToolTip="Tells Nexus you've decided not to endorse this mod, so you aren't asked again (Nexus calls this &quot;abstain&quot;). Greyed out: not linked to Nexus, or already set."
@@ -456,10 +456,10 @@
                         <MenuItem Header="Delete"
                                   Command="{Binding PlacementTarget.Tag.DeleteItemCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
-                                  ToolTip="Removes the selected mod(s)' folders from your Library — asks first (naming how many), can't be undone without a backup"/>
+                                  ToolTip="Deletes the selected mods from your Library. Asks first; you can't undo it unless you made a backup."/>
                         <MenuItem Header="Delete all…"
                                   Command="{Binding PlacementTarget.Tag.DeleteAllCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                                  ToolTip="Removes every mod in your Library, regardless of what's selected — asks first (naming the real count), can't be undone without a backup"/>
+                                  ToolTip="Deletes every mod in your Library, whatever is selected. Asks first; you can't undo it unless you made a backup."/>
                     </ContextMenu>
                 </Grid.ContextMenu>
                 <!-- A faint line under every row. -->
@@ -486,7 +486,7 @@
                           Visibility="{Binding IsFixedByIsl, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <Path Data="{StaticResource IconPackage}" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.4"
                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="11" Height="11" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"
-                          ToolTip="A rebuilt merged pak, re-imported as its own mod"
+                          ToolTip="A merged pak from an earlier Merge &amp; Install, brought back in as its own mod"
                           Visibility="{Binding IsMergedPack, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <!-- Set by "Check mods against game data": clickable, it opens the fix window. -->
                     <Button Style="{StaticResource IconButtonStyle}" Width="14" Height="14" Padding="0" Margin="0,0,5,0"
@@ -511,7 +511,7 @@
                     <TextBlock TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
                         <TextBlock.ToolTip>
                             <ToolTip Visibility="{Binding HasBuiltForText, Converter={StaticResource BoolToVisibilityConverter}}">
-                                <TextBlock MaxWidth="420" TextWrapping="Wrap"><Run Text="{Binding BuiltForText, Mode=OneWay}"/><Run Text=". Read from the game rows this mod carries: some were removed from the game after this. An older mod can still work; check it against the game to see what doesn't fit."/></TextBlock>
+                                <TextBlock MaxWidth="420" TextWrapping="Wrap"><Run Text="{Binding BuiltForText, Mode=OneWay}"/><Run Text=". Worked out from the game data this mod carries: some of it was removed from the game since. An older mod can still work; check it against the game to see what doesn't fit."/></TextBlock>
                             </ToolTip>
                         </TextBlock.ToolTip>
                         <Run Text="{Binding Name}"/><Run Text="{Binding VariantLabel, Converter={StaticResource VariantSuffixConverter}}" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
@@ -540,7 +540,7 @@
 
                 <Border Grid.Column="4" Style="{StaticResource TypeTagStyle}" VerticalAlignment="Center" Margin="8,0,0,0" HorizontalAlignment="Left">
                     <Border.ToolTip>
-                        <TextBlock Text="EXMOD: an editable data mod merged by Merge &amp; Install. Pak: a prebuilt pak folded in as-is. Pak + UE4SS: this download also ships Lua scripts, which enable together with it."/>
+                        <TextBlock Text="EXMOD: a data mod you can edit; Merge &amp; Install merges it with the others. Pak: a ready-made pak, added as it is. Pak + UE4SS: the download also has Lua scripts, which turn on and off with it."/>
                     </Border.ToolTip>
                     <TextBlock Text="{Binding TypeLabel}" FontSize="10.5" FontFamily="Consolas"/>
                 </Border>
@@ -710,11 +710,11 @@
                             <Button.ContextMenu>
                                 <ContextMenu Placement="Bottom">
                                     <MenuItem Header="Import archive…" Command="{Binding ImportFileCommand}"
-                                              ToolTip="A .zip/.rar/.7z/.EXMODZ — automatically recognized as an EXMOD-shaped mod, a bare .pak, or a UE4SS mod, whatever's actually inside"/>
+                                              ToolTip="A .zip, .rar, .7z or .EXMODZ file. Starlink looks inside and works out what kind of mod it is (EXMOD, pak or UE4SS)."/>
                                     <MenuItem Header="Import folder…" Command="{Binding ImportFolderCommand}"
-                                              ToolTip="An already-unpacked mod folder — recognized the same way as an archive (EXMOD, .pak or UE4SS mod). You can also drag folders or archives onto this page."/>
+                                              ToolTip="A mod folder that's already unpacked, read the same way as an archive (EXMOD, pak or UE4SS mod). You can also drag folders or archives onto this page."/>
                                     <MenuItem Header="Import .pak…" Command="{Binding ImportPakCommand}"
-                                              ToolTip="A prebuilt .pak — turned into an editable mod when it can be (needs UnrealPak.exe and game data), otherwise imported as it is"/>
+                                              ToolTip="A ready-made .pak. Turned into a mod you can edit when it can be (needs UnrealPak.exe and game data), otherwise added as it is."/>
                                     <MenuItem Header="Import UE4SS mod…" Command="{Binding ImportUe4ssModCommand}"
                                               ToolTip="A UE4SS (Lua) mod archive — lands in the list unticked; tick it and click Apply"/>
                                 </ContextMenu>
@@ -731,29 +731,29 @@
                         <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0" Margin="0,4,10,4"/>
 
                         <Button Click="DropdownButton_Click" Margin="0,0,8,0"
-                                ToolTip="Whole-library checks — these look at every mod, not just one, so they take longer than the actions above"
+                                ToolTip="Checks for the whole Library: they look at every mod, not just one, so they take longer than the actions above"
                                 AutomationProperties.Name="Check">
                             <Button.ContextMenu>
                                 <ContextMenu Placement="Bottom">
                                     <!-- Grouped by what they look at: mod updates, the game data, Nexus endorsements. -->
                                     <MenuItem Header="Check for updates" Command="{Binding CheckForUpdatesCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Checks every Nexus- or Database-sourced mod against its current version. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
+                                              ToolTip="Checks every mod from Nexus or the Database for a newer version. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Update all" Command="{Binding UpdateAllCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Updates every mod the last check found outdated — Database mods in place, Nexus mods listed on the Nexus page for one-click download. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
+                                              ToolTip="Updates every mod the last check found out of date: Database mods right here, Nexus mods listed on the Nexus page for one-click download. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                     <Separator/>
                                     <MenuItem Header="Check mods against game data" Command="{Binding CheckModsAgainstCurrentDataCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Compares every editable mod with the current game data and flags what no longer fits (it only looks — fixes are made from the warning badge or Fix sure problems). Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
+                                              ToolTip="Checks every editable mod against the current game data and flags what no longer fits. It only looks: fix them from the warning badge or Fix sure problems. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Fix sure problems in every mod" Command="{Binding FixSureProblemsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="After Check mods against game data: makes every sure fix in every flagged mod (old copies of game data, proven broken links and renames), each mod backed up first. What needs a look stays flagged. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
+                                              ToolTip="After Check mods against game data: makes every sure fix in every flagged mod (game data copied from an older version, proven broken links and renames), backing up each mod first. Anything that needs a look stays flagged. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Make prebuilt paks editable…" Command="{Binding ConvertAllOpaqueModsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Tries again to turn every prebuilt .pak mod into an editable mod — useful right after setting up UnrealPak.exe (it also runs by itself after every Refresh game data). Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
+                                              ToolTip="Tries again to turn every ready-made pak mod into one you can edit. Handy right after setting up UnrealPak.exe (it also runs by itself after every Refresh game data). Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="What the last game update changed…" Command="{Binding ShowLastGameUpdateCommand}"
                                               ToolTip="What the last Update everything fixed, what still needs a look, and which mods replace game files the update changed. Roll back is there too."/>
                                     <MenuItem Header="Find the broken mod…" Command="{Binding FindBrokenModCommand}"
                                               ToolTip="Something broken in game and you don't know which mod does it? Tests your mods in rounds until it finds the one. Your saves are backed up first and your mods go back at the end."/>
                                     <Separator/>
                                     <MenuItem Header="Check endorsements" Command="{Binding CheckEndorsementsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Fetches your Nexus endorsement history and shows which of your Nexus-linked mods you haven't endorsed yet. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
+                                              ToolTip="Gets your Nexus endorsements and shows which of your Nexus mods you haven't endorsed yet. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                 </ContextMenu>
                             </Button.ContextMenu>
                             <StackPanel Orientation="Horizontal">
@@ -1185,7 +1185,7 @@
                                 Visibility="{Binding HasPendingUe4ssChanges, Converter={StaticResource BoolToVisibilityConverter}}">
                             <DockPanel>
                                 <Button DockPanel.Dock="Right" Content="Apply" Command="{Binding ApplyUe4ssChangesCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="10,0,0,0"
-                                        ToolTip="Moves every ticked/unticked UE4SS mod to match — backs up anything removed from the game folder first"/>
+                                        ToolTip="Puts ticked UE4SS mods into the game and takes unticked ones out. Backs up anything it takes out first."/>
                                 <TextBlock Text="CHANGES WAITING" Style="{StaticResource FieldLabelStyle}" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                 <TextBlock Text="{Binding PendingUe4ssText}" VerticalAlignment="Center" FontSize="13" TextTrimming="CharacterEllipsis" ToolTip="{Binding PendingUe4ssText}"/>
                             </DockPanel>

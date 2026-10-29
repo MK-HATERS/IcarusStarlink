@@ -25,7 +25,7 @@
                        FontSize="16" Margin="8,0,0,8" ToolTip="Downloads shown in the list below"/>
         </StackPanel>
         <TextBlock Grid.Row="1" Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,4,0,12"
-                   Text="Everything downloaded through this app, from Nexus or the IMM Database. A download is imported the moment it finishes — one download is one mod: its paks and any Lua part all land in Library's list, as linked rows. Reinstall puts a removed mod back; Discard deletes the downloaded file."/>
+                   Text="Everything you downloaded through Starlink, from Nexus or the IMM Database. A download goes into your Library as soon as it finishes. One download is one mod: its paks and any Lua part show in Library as linked rows. Reinstall puts a removed mod back; Discard deletes the downloaded file."/>
 
         <DockPanel Grid.Row="2" Margin="0,0,0,8">
             <!-- ContentStringFormat, not Binding.StringFormat: Content is an object, so a
@@ -94,7 +94,7 @@
                                 <Button Margin="4,2"
                                         Command="{Binding DataContext.ActivatePendingDownloadCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                         CommandParameter="{Binding}"
-                                        ToolTip="Import this download — Reinstall replaces what's currently there"
+                                        ToolTip="Adds this download to your Library. Reinstall replaces the copy you have now."
                                         AutomationProperties.Name="{Binding ActionLabel}">
                                     <StackPanel Orientation="Horizontal">
                                         <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"

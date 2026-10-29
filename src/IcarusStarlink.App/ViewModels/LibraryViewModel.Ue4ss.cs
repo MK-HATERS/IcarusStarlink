@@ -270,7 +270,7 @@ public sealed partial class LibraryViewModel
 
         var confirm = _dialogService.Confirm(
             item.IsFolderInGame
-                ? $"Delete '{item.Name}'?\n\nIt is removed from the game's Mods folder (a backup is kept under Backups\\UE4SS) and from this app's staging. Re-download it to get it back."
+                ? $"Delete '{item.Name}'?\n\nIt is removed from the game's Mods folder (a backup is kept under Backups\\UE4SS) and from Starlink's holding folder. Re-download it to get it back."
                 : $"Delete '{item.Name}'?\n\nIts staged folder is removed from disk. Re-download it to get it back.",
             "Delete UE4SS mod", ThemedConfirmSeverity.Warning);
         if (!confirm)
@@ -492,7 +492,7 @@ public sealed partial class LibraryViewModel
 
         var result = _dialogService.PromptRename(
             item.MinUe4ssVersion ?? string.Empty,
-            description: "Enter the minimum UE4SS loader version this mod needs (e.g. \"3.0.1\") — read it from the mod's own Nexus page or readme, since this app has no way to detect a mod's own requirement automatically. Compared against your installed UE4SS loader version to show a warning if it's too old.",
+            description: "Type the oldest UE4SS version this mod works with (like \"3.0.1\"). Find it on the mod's Nexus page or readme: Starlink can't work it out by itself. If your UE4SS is older, the mod shows a warning.",
             resetValue: null,
             resetLabel: "Clear requirement",
             resetTooltip: "Removes the minimum UE4SS version requirement — no warning will show for this mod",

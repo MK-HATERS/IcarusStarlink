@@ -16,7 +16,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Copies every item this mod doesn't already have from the picked mod — an item already present here is left alone, never overwritten."
+        <TextBlock Grid.Row="0" Text="Copies every item this mod doesn't have yet from the mod you pick. Items it already has are left as they are."
                    Style="{StaticResource PageBodyTextStyle}" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
         <Grid Grid.Row="1" Margin="0,0,0,8">
