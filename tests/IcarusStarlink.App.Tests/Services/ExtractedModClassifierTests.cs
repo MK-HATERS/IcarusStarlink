@@ -760,7 +760,6 @@ public sealed class ExtractedModClassifierTests : IDisposable
         }
 
         public IReadOnlyList<string> GetAll() => throw new NotSupportedException("Not exercised by these tests.");
-        public string Import(string zipFilePath, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
         public void Delete(string folderName) => Deleted.Add(folderName);
         public string GetFolderPath(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
         public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) => throw new NotSupportedException("Not exercised by these tests.");

@@ -68,8 +68,8 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
         // on the entry's first path segment, so a release zip with an unexpected layout (a single
         // wrapping folder — the shape newer UE4SS builds have shipped — or no UE4SS.dll at all)
         // used to go through the full backup and then land a broken, misplaced install with no
-        // error. A single wrapping folder is stripped (same convention Ue4ssModArchive uses for mod
-        // zips); anything else without the two loader files at its root is refused untouched.
+        // error. A single wrapping folder is stripped (same convention UE4SS mod imports use);
+        // anything else without the two loader files at its root is refused untouched.
         // Two real release layouts:
         // - flat (official v3.0.1): dwmapi.dll, UE4SS.dll, UE4SS-settings.ini and Mods\ all at the
         //   root; everything but dwmapi.dll goes into Binaries\Win64\ue4ss.

@@ -1,6 +1,5 @@
 using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Install;
-using IcarusStarlink.PakIO.Ue4ss;
 
 namespace IcarusStarlink.Storage.Ue4ss;
 
@@ -16,17 +15,6 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
 
     public IReadOnlyList<string> GetAll() =>
         [.. Directory.GetDirectories(_stagedDirectory).Select(Path.GetFileName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase)!];
-
-    public string Import(string zipFilePath, IReadOnlyCollection<string>? namesAlreadyInUse = null)
-    {
-        // Opens and scans the zip's entries once — DeriveFolderName+Extract used to each do this
-        // independently, opening and scanning the same archive twice for every import.
-        using var archive = Ue4ssModArchive.Open(zipFilePath);
-        var folderName = MakeUniqueFolderName(archive.DerivedFolderName, namesAlreadyInUse);
-        var targetFolder = Path.Combine(_stagedDirectory, folderName);
-        archive.ExtractTo(targetFolder);
-        return folderName;
-    }
 
     public string ImportFromFolder(string sourceFolder, string fallbackName, IReadOnlyCollection<string>? namesAlreadyInUse = null)
     {
@@ -61,7 +49,7 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
         return targetName;
     }
 
-    /// <summary>Every entry sits under one single top-level subfolder → that's a wrapping folder, same convention as Ue4ssModArchive's own zip-entry version of this check.</summary>
+    /// <summary>Every entry sits under one single top-level subfolder → that's a wrapping folder.</summary>
     private static string? FindSingleWrappingFolder(string sourceFolder)
     {
         var entries = Directory.GetFileSystemEntries(sourceFolder);

@@ -402,8 +402,6 @@ public class NexusCatalogViewModelTests
     private sealed class FakeUe4ssModRepository : IUe4ssModRepository
     {
         public IReadOnlyList<string> GetAll() => [];
-        public string Import(string zipFilePath, IReadOnlyCollection<string>? namesAlreadyInUse = null) =>
-            throw new NotSupportedException("Not exercised by these tests.");
         public string ImportFromFolder(string sourceFolder, string fallbackName, IReadOnlyCollection<string>? namesAlreadyInUse = null) =>
             throw new NotSupportedException("Not exercised by these tests.");
         public void Delete(string folderName) => throw new NotSupportedException("Not exercised by these tests.");

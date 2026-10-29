@@ -1,4 +1,3 @@
-using System.IO.Compression;
 using IcarusStarlink.Storage.Ue4ss;
 
 namespace IcarusStarlink.Storage.Tests.Ue4ss;
@@ -17,17 +16,13 @@ public class Ue4ssModRepositoryTests : IDisposable
 
     private Ue4ssModRepository CreateRepository() => new(_stagedDir);
 
-    private string MakeModZip(string zipFileName, string modFolderName)
+    /// <summary>An extracted download holding one wrapped UE4SS mod (modFolderName\Scripts\main.lua).</summary>
+    private string MakeExtractedMod(string extractedName, string modFolderName)
     {
-        var zipPath = Path.Combine(_dir, zipFileName);
-        Directory.CreateDirectory(_dir);
-        using var stream = File.Create(zipPath);
-        using var archive = new ZipArchive(stream, ZipArchiveMode.Create);
-        var entry = archive.CreateEntry($"{modFolderName}/Scripts/main.lua");
-        using var entryStream = entry.Open();
-        using var writer = new StreamWriter(entryStream);
-        writer.Write("-- lua");
-        return zipPath;
+        var scripts = Path.Combine(_dir, extractedName, modFolderName, "Scripts");
+        Directory.CreateDirectory(scripts);
+        File.WriteAllText(Path.Combine(scripts, "main.lua"), "-- lua");
+        return Path.Combine(_dir, extractedName);
     }
 
     [Fact]
@@ -37,34 +32,10 @@ public class Ue4ssModRepositoryTests : IDisposable
     }
 
     [Fact]
-    public void Import_ThenGetAll_ListsTheStagedModByItsFolderName()
-    {
-        var repo = CreateRepository();
-        var zip = MakeModZip("NearbyCrafting.zip", "NearbyCrafting");
-
-        var folderName = repo.Import(zip);
-
-        Assert.Equal("NearbyCrafting", folderName);
-        Assert.Equal(["NearbyCrafting"], repo.GetAll());
-        Assert.True(File.Exists(Path.Combine(repo.GetFolderPath("NearbyCrafting"), "Scripts", "main.lua")));
-    }
-
-    [Fact]
-    public void Import_SameModTwice_DisambiguatesRatherThanOverwriting()
-    {
-        var repo = CreateRepository();
-        repo.Import(MakeModZip("first.zip", "NearbyCrafting"));
-        var second = repo.Import(MakeModZip("second.zip", "NearbyCrafting"));
-
-        Assert.Equal("NearbyCrafting_2", second);
-        Assert.Equal(["NearbyCrafting", "NearbyCrafting_2"], repo.GetAll());
-    }
-
-    [Fact]
     public void Delete_RemovesTheStagedModFolder()
     {
         var repo = CreateRepository();
-        repo.Import(MakeModZip("mod.zip", "NearbyCrafting"));
+        repo.ImportFromFolder(MakeExtractedMod("mod", "NearbyCrafting"), "mod");
 
         repo.Delete("NearbyCrafting");
 
@@ -115,7 +86,7 @@ public class Ue4ssModRepositoryTests : IDisposable
     public void AdoptFromGame_AlreadyStagedUnderThatName_DisambiguatesRatherThanOverwriting()
     {
         var repo = CreateRepository();
-        repo.Import(MakeModZip("first.zip", "ActorDumperMod"));
+        repo.ImportFromFolder(MakeExtractedMod("first", "ActorDumperMod"), "first");
         Directory.CreateDirectory(Path.Combine(_gameModsDir, "ActorDumperMod"));
 
         var adopted = repo.AdoptFromGame(_gameModsDir, "ActorDumperMod");
@@ -187,17 +158,6 @@ public class Ue4ssModRepositoryTests : IDisposable
     /// happened to get disabled.
     /// </summary>
     [Fact]
-    public void Import_NameCollidesWithAnAlreadyInstalledGameMod_DisambiguatesAgainstItToo()
-    {
-        var repo = CreateRepository();
-        var zip = MakeModZip("mod.zip", "NearbyCrafting");
-
-        var folderName = repo.Import(zip, namesAlreadyInUse: ["NearbyCrafting"]);
-
-        Assert.Equal("NearbyCrafting_2", folderName);
-    }
-
-    [Fact]
     public void ImportFromFolder_NameCollidesWithAnAlreadyInstalledGameMod_DisambiguatesAgainstItToo()
     {
         var extracted = Path.Combine(_dir, "ExtractedCollision");
@@ -226,7 +186,7 @@ public class Ue4ssModRepositoryTests : IDisposable
     public void ImportFromFolder_NameCollision_DisambiguatesRatherThanOverwriting()
     {
         var repo = CreateRepository();
-        repo.Import(MakeModZip("first.zip", "NearbyCrafting"));
+        repo.ImportFromFolder(MakeExtractedMod("first", "NearbyCrafting"), "first");
 
         var extracted = Path.Combine(_dir, "Extracted3");
         var wrapping = Path.Combine(extracted, "NearbyCrafting");
