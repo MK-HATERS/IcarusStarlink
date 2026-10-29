@@ -104,7 +104,10 @@ public sealed partial class Ue4ssSettingsDocument
     [GeneratedRegex(@"^\s*\[(?<name>[^\]]+)\]\s*$")]
     private static partial Regex SectionLine();
 
-    [GeneratedRegex(@"^(?<lead>\s*)(?<key>[^;#=\[\s][^=]*?)(?<eq>\s*=[ \t]?)(?<value>.*)$")]
+    // The key ends on a character that isn't white space, so it and the "\s*" before '=' never
+    // share the spaces: with a lazy key ("[^=]*?") a long run of spaces on a line with no '=' (a
+    // downloaded config) was tried every possible way, 49 s for 100,000 spaces on the UI thread.
+    [GeneratedRegex(@"^(?<lead>\s*)(?<key>[^;#=\[\s](?:[^=]*[^=\s])?)(?<eq>\s*=[ \t]?)(?<value>.*)$")]
     private static partial Regex KeyLine();
 
     [GeneratedRegex(@"^Default:\s*(?<value>.*)$", RegexOptions.IgnoreCase)]

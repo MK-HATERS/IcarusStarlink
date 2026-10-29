@@ -407,4 +407,23 @@ public class Ue4ssSettingsDocumentTests
         Assert.True(document.SetValue("A", "K3999", "x"));
         Assert.EndsWith("K3999 = x\nAdded = 2\n\n[B]\nNew = 1", document.ToText());
     }
+
+    /// <summary>A downloaded config's odd lines (a long run of spaces with no '=', a long key) read quickly.</summary>
+    [Theory]
+    [InlineData(" ")]
+    [InlineData("a ")]
+    [InlineData("a")]
+    public void ALongLineWithNoEquals_ReadsQuickly(string repeated)
+    {
+        var text = "[A]\nK" + string.Concat(Enumerable.Repeat(repeated, 100_000)) + "x\nReal = 1\n";
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var document = Ue4ssSettingsDocument.Parse(text, keepCommentLines: true);
+        var settings = document.Settings;
+        var value = document.GetValue("A", "Real");
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+        Assert.Equal("1", value);
+        Assert.Equal("Real", Assert.Single(settings).Key);
+    }
 }
