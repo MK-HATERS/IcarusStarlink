@@ -250,4 +250,27 @@ public class LuaConfigDocumentTests
         Assert.Equal(0, doc.UnknownLineCount);
         Assert.Equal(["Config.Speed", "Config.Debug"], doc.Settings.Select(s => s.Key));
     }
+
+    /// <summary>Untrusted input: long odd lines (spaces, words, an unclosed string or table, a long key) stay quick to read and describe.</summary>
+    [Theory]
+    [InlineData("    ", " ")]
+    [InlineData("    ", "a ")]
+    [InlineData("    X = \"", "a ")]
+    [InlineData("    X = ", "{\"a\"}")]
+    [InlineData("    local ", " ")]
+    [InlineData("    -- valid ", " ")]
+    [InlineData("    -- requires ", "a ")]
+    [InlineData("    Key", "a.b")]
+    public void ALongOddLine_ParsesQuickly(string start, string repeated)
+    {
+        var text = "return {\n" + start + string.Concat(Enumerable.Repeat(repeated, 50_000)) + "\n    A = 1,\n}\n";
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var doc = LuaConfigDocument.Parse(text);
+        var described = doc.Settings.Select(s => Ue4ssSettingsDocument.DescribeLuaSetting(s.Key, s.Value, s.Kind, s.Comments, s.Note)).ToList();
+        _ = described.Select(s => Ue4ssSettingLabel.FromKey(s.Key)).ToList();
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+        Assert.Contains(described, s => s.Key == "A");
+    }
 }

@@ -329,6 +329,23 @@ public class Ue4ssSettingsDocumentTests
     public void Label_FromKey_ReadsAsWords(string key, string label) =>
         Assert.Equal(label, Ue4ssSettingLabel.FromKey(key));
 
+    /// <summary>
+    /// Final review 2026-10-28: the word so far was copied out for every letter of a key, so one
+    /// very long key in a downloaded config (an ini key runs to the '=') took minutes to label on
+    /// the UI thread when Edit config opened it.
+    /// </summary>
+    [Fact]
+    public void Label_FromKey_AVeryLongKey_IsQuick()
+    {
+        var key = string.Concat(Enumerable.Repeat("A1", 150_000));
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var label = Ue4ssSettingLabel.FromKey(key);
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+        Assert.Equal(key, label);
+    }
+
     [Theory]
     [InlineData("GENERAL", "General")]
     [InlineData("PACKS, HERDS AND FLOCKS", "Packs, herds and flocks")]
@@ -389,5 +406,43 @@ public class Ue4ssSettingsDocumentTests
         Assert.Equal(("1", "2", "3999"), (document.GetValue("B", "New"), document.GetValue("A", "Added"), document.GetValue("A", "K3999")));
         Assert.True(document.SetValue("A", "K3999", "x"));
         Assert.EndsWith("K3999 = x\nAdded = 2\n\n[B]\nNew = 1", document.ToText());
+    }
+
+    /// <summary>A downloaded config's odd lines (a long run of spaces with no '=', a long key) read quickly.</summary>
+    [Theory]
+    [InlineData(" ")]
+    [InlineData("a ")]
+    [InlineData("a")]
+    public void ALongLineWithNoEquals_ReadsQuickly(string repeated)
+    {
+        var text = "[A]\nK" + string.Concat(Enumerable.Repeat(repeated, 100_000)) + "x\nReal = 1\n";
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var document = Ue4ssSettingsDocument.Parse(text, keepCommentLines: true);
+        var settings = document.Settings;
+        var value = document.GetValue("A", "Real");
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+        Assert.Equal("1", value);
+        Assert.Equal("Real", Assert.Single(settings).Key);
+    }
+
+    /// <summary>A long run of spaces in the comment after a value, or in the comment above it, is read quickly.</summary>
+    [Theory]
+    [InlineData("Real = 1 ; a{0}b", " ")]
+    [InlineData("Real = 1 ; [choice a{0}b]", " ")]
+    [InlineData("Real = 1 ; (1{0}", " ")]
+    [InlineData("; Valid values: a{0}b\nReal = a", " ")]
+    [InlineData("; Valid values: a{0}b\nReal = a", ", ")]
+    [InlineData("; a{0}b\n; Default: 1\nReal = 1", " ")]
+    public void ALongRunOfSpacesInAComment_ReadsQuickly(string template, string repeated)
+    {
+        var text = "[A]\n" + string.Format(System.Globalization.CultureInfo.InvariantCulture, template, string.Concat(Enumerable.Repeat(repeated, 40_000))) + "\n";
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var settings = Ue4ssSettingsDocument.Parse(text, keepCommentLines: true).Settings;
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+        Assert.Equal("Real", Assert.Single(settings).Key);
     }
 }

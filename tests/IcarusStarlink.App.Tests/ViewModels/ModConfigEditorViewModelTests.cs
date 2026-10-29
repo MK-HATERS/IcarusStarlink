@@ -507,4 +507,50 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
         Assert.StartsWith("Not saved: the file was changed outside this window", vm.StatusMessage);
         Assert.Contains("Debug = true", vm.RawText);
     }
+
+    /// <summary>
+    /// Final review 2026-10-28: edits kept aside while another file was shown came back on the OLD
+    /// file's text. When the file changed on disk meanwhile (the mod's settings menu), Save took
+    /// every outside change for an edit made here and wrote the old file back over it.
+    /// </summary>
+    [Fact]
+    public void SwitchingFilesAndBack_AfterTheFileChangedOnDisk_SaveKeepsThatChange()
+    {
+        var game = Mod("game", "config.lua", Lua);
+        Directory.CreateDirectory(Path.Combine(game, "config"));
+        File.WriteAllText(Path.Combine(game, "config", "Extra.ini"), "[General]\r\nRadius = 10\r\n");
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+        var lua = vm.Files.Single(f => f.RelativePath == "config.lua");
+        var extra = vm.Files.Single(f => f.RelativePath != "config.lua");
+
+        Field(vm, "Debug").IsOn = true;
+        vm.SelectedFile = extra;
+        var changed = Lua.Replace("DefendRadius = 5000", "DefendRadius = 8000");
+        File.WriteAllText(Path.Combine(game, "config.lua"), changed);
+        vm.SelectedFile = lua;
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(changed.Replace("Debug = false", "Debug = true"), File.ReadAllText(Path.Combine(game, "config.lua")));
+    }
+
+    /// <summary>The same in the text view: there is nothing to merge, so it refuses instead of writing the old text back.</summary>
+    [Fact]
+    public void SwitchingCopiesAndBack_InTheTextView_AfterTheFileChangedOnDisk_IsRefused()
+    {
+        var game = Mod("game", "config.lua", Lua);
+        var server = Mod("server", "config.lua", Lua);
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife",
+            [new ModConfigLocation("Your game", game, false), new ModConfigLocation("Server: Test", server, true)], Path.Combine(_root, "Backups"));
+
+        vm.IsTextMode = true;
+        vm.RawText = vm.RawText.Replace("Debug = false", "Debug = true");
+        vm.SelectedLocation = vm.Locations[1];
+        var changed = Lua.Replace("DefendRadius = 5000", "DefendRadius = 8000");
+        File.WriteAllText(Path.Combine(game, "config.lua"), changed);
+        vm.SelectedLocation = vm.Locations[0];
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(changed, File.ReadAllText(Path.Combine(game, "config.lua")));
+        Assert.StartsWith("Not saved: the file was changed outside this window", vm.StatusMessage);
+    }
 }

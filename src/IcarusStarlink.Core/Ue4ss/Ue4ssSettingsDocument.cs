@@ -104,7 +104,10 @@ public sealed partial class Ue4ssSettingsDocument
     [GeneratedRegex(@"^\s*\[(?<name>[^\]]+)\]\s*$")]
     private static partial Regex SectionLine();
 
-    [GeneratedRegex(@"^(?<lead>\s*)(?<key>[^;#=\[\s][^=]*?)(?<eq>\s*=[ \t]?)(?<value>.*)$")]
+    // The key ends on a character that isn't white space, so it and the "\s*" before '=' never
+    // share the spaces: with a lazy key ("[^=]*?") a long run of spaces on a line with no '=' (a
+    // downloaded config) was tried every possible way, 49 s for 100,000 spaces on the UI thread.
+    [GeneratedRegex(@"^(?<lead>\s*)(?<key>[^;#=\[\s](?:[^=]*[^=\s])?)(?<eq>\s*=[ \t]?)(?<value>.*)$")]
     private static partial Regex KeyLine();
 
     [GeneratedRegex(@"^Default:\s*(?<value>.*)$", RegexOptions.IgnoreCase)]
@@ -535,14 +538,18 @@ public sealed partial class Ue4ssSettingsDocument
     private static partial Regex HiddenMarker();
 
     // "[choice A B C]", "[dropdown Conifer Forest|Arctic|Desert]": the mod's own list of values.
-    [GeneratedRegex(@"\[(choice|dropdown)\s+(?<list>[^\]]+)\]", RegexOptions.IgnoreCase)]
+    // Untrusted text (a downloaded mod's comments), so none of these may try a long run of spaces
+    // every way: a match starts only where white space starts ("(?<!\s)"), white space next to
+    // white space is taken whole ("(?>…)"), and a marker's contents are a few hundred characters at
+    // most. Without that, one line of 100,000 spaces took minutes to read on the UI thread.
+    [GeneratedRegex(@"\[(choice|dropdown)\s+(?<list>[^\]]{1,1000})\]", RegexOptions.IgnoreCase)]
     private static partial Regex ChoiceMarker();
 
-    [GeneratedRegex(@"\s*[;,]?\s*\brestart (needed|required)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(?<!\s)(?>\s*)(?:[;,](?>\s*))?\brestart (needed|required)\b", RegexOptions.IgnoreCase)]
     private static partial Regex RestartWords();
 
     // Any "[word ...]" marker for tools, not for people (the tags MkHaters Mod Settings reads; "[Wax]" is text).
-    [GeneratedRegex(@"\s*\[(slider|restart|choice|dropdown|key|hidden|server|local|shared)(\s[^\]]*)?\]", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(?<!\s)(?>\s*)\[(slider|restart|choice|dropdown|key|hidden|server|local|shared)(\s[^\]]{0,1000})?\]", RegexOptions.IgnoreCase)]
     private static partial Regex Marker();
 
     // "(0-10)", "(1-100)", "(0-600; 0 = off)": the range a number takes.
@@ -550,17 +557,17 @@ public sealed partial class Ue4ssSettingsDocument
     private static partial Regex RangeInNote();
 
     // "(0-10)" or "(at least 10)" with nothing else in the brackets.
-    [GeneratedRegex(@"\s*\((at least\s+)?-?\d+(\.\d+)?(\s*[-–]\s*-?\d+(\.\d+)?)?\)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(?<!\s)(?>\s*)\((at least\s+)?-?\d+(\.\d+)?(\s*[-–]\s*-?\d+(\.\d+)?)?\)", RegexOptions.IgnoreCase)]
     private static partial Regex RangeOnly();
 
     [GeneratedRegex(@"\bat least (?<min>-?\d+(\.\d+)?)", RegexOptions.IgnoreCase)]
     private static partial Regex AtLeast();
 
     // "Fair or Game", "Reach, Strength or Both", "A, B, C": only words, commas and "or".
-    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*(\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*(\s*,?\s+or\s+[A-Za-z_][A-Za-z0-9_]*)?$")]
+    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*((?>\s*),(?>\s*)[A-Za-z_][A-Za-z0-9_]*)*((?:(?>\s*),(?>\s+)|(?>\s+))or\s+[A-Za-z_][A-Za-z0-9_]*)?$")]
     private static partial Regex ChoiceList();
 
-    [GeneratedRegex(@"\s*,\s*or\s+|\s*,\s*|\s+or\s+")]
+    [GeneratedRegex(@"(?<!\s)(?:(?>\s*),(?>\s*)or\s+|(?>\s*),(?>\s*)|(?>\s+)or\s+)")]
     private static partial Regex WordOrList();
 
     /// <summary>

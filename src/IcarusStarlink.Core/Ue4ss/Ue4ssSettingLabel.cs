@@ -21,6 +21,11 @@ public static class Ue4ssSettingLabel
 
         var words = new List<string>();
         var current = new StringBuilder();
+
+        // What IsAcronym says of the word so far, kept as it grows: copying the word out to ask
+        // made one very long key (a downloaded config's) take minutes to label.
+        var currentHasLetter = false;
+        var currentAllCapsOrDigits = true;
         void Flush()
         {
             if (current.Length > 0)
@@ -28,6 +33,9 @@ public static class Ue4ssSettingLabel
                 words.Add(current.ToString());
                 current.Clear();
             }
+
+            currentHasLetter = false;
+            currentAllCapsOrDigits = true;
         }
 
         for (var i = 0; i < name.Length; i++)
@@ -43,11 +51,11 @@ public static class Ue4ssSettingLabel
             {
                 var prev = name[i - 1];
                 var next = i + 1 < name.Length ? name[i + 1] : '\0';
-                var soFar = current.ToString();
+                var soFarIsAcronym = currentHasLetter && currentAllCapsOrDigits;
                 var split =
                     (char.IsUpper(c) && char.IsLower(prev))                          // spawnDensity
                     || (char.IsUpper(c) && char.IsUpper(prev) && char.IsLower(next))  // FPSLimit → FPS Limit
-                    || (char.IsDigit(c) && char.IsLetter(prev) && !IsAcronym(soFar)) // Slot2, not UE4SS / F12
+                    || (char.IsDigit(c) && char.IsLetter(prev) && !soFarIsAcronym)   // Slot2, not UE4SS / F12
                     || (char.IsUpper(c) && char.IsDigit(prev) && char.IsLower(next)); // F12Key → F12 Key
                 if (split)
                 {
@@ -56,6 +64,8 @@ public static class Ue4ssSettingLabel
             }
 
             current.Append(c);
+            currentHasLetter |= char.IsLetter(c);
+            currentAllCapsOrDigits &= char.IsUpper(c) || char.IsDigit(c);
         }
 
         Flush();
