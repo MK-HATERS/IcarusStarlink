@@ -25,4 +25,22 @@
     <SolidColorBrush x:Key="SuccessSoftBrush" Color="#2052D68A"/>
     <SolidColorBrush x:Key="InfoBrush" Color="#5FA8FF"/>
 
+    <!-- More colour (2026-10-28): amber for "waiting / needs a look" (orange stays the accent for
+         buttons), one colour per mod type and per source, and six heading colours that grouped
+         lists cycle through in order (GroupColor). -->
+    <SolidColorBrush x:Key="WarningBrush" Color="#F5B83D"/>
+    <SolidColorBrush x:Key="WarningSoftBrush" Color="#26F5B83D"/>
+    <SolidColorBrush x:Key="TagExmodBrush" Color="#3ED6C8"/>
+    <SolidColorBrush x:Key="TagPakBrush" Color="#6FA8FF"/>
+    <SolidColorBrush x:Key="TagUe4ssBrush" Color="#B98CFF"/>
+    <SolidColorBrush x:Key="TagPakUe4ssBrush" Color="#F38BD0"/>
+    <SolidColorBrush x:Key="SourceNexusBrush" Color="#F0A35E"/>
+    <SolidColorBrush x:Key="SourceDatabaseBrush" Color="#7FD4F5"/>
+    <SolidColorBrush x:Key="GroupColor0Brush" Color="#5FA8FF"/>
+    <SolidColorBrush x:Key="GroupColor1Brush" Color="#52D68A"/>
+    <SolidColorBrush x:Key="GroupColor2Brush" Color="#F5B83D"/>
+    <SolidColorBrush x:Key="GroupColor3Brush" Color="#B98CFF"/>
+    <SolidColorBrush x:Key="GroupColor4Brush" Color="#FF7FAF"/>
+    <SolidColorBrush x:Key="GroupColor5Brush" Color="#3ED6C8"/>
+
 </ResourceDictionary>

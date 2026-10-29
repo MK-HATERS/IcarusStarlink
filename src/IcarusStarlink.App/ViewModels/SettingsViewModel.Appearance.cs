@@ -32,6 +32,20 @@ public sealed partial class SettingsViewModel
         ("SuccessBrush", "Success / additions"),
         ("SuccessSoftBrush", "Soft success fill (badges)"),
         ("InfoBrush", "Info"),
+        ("WarningBrush", "Waiting / needs a look"),
+        ("WarningSoftBrush", "Soft waiting fill (badges)"),
+        ("TagExmodBrush", "EXMOD tag"),
+        ("TagPakBrush", "Pak tag"),
+        ("TagUe4ssBrush", "UE4SS tag"),
+        ("TagPakUe4ssBrush", "Pak + UE4SS tag"),
+        ("SourceNexusBrush", "Source: Nexus"),
+        ("SourceDatabaseBrush", "Source: IMM Database"),
+        ("GroupColor0Brush", "Group heading colour 1"),
+        ("GroupColor1Brush", "Group heading colour 2"),
+        ("GroupColor2Brush", "Group heading colour 3"),
+        ("GroupColor3Brush", "Group heading colour 4"),
+        ("GroupColor4Brush", "Group heading colour 5"),
+        ("GroupColor5Brush", "Group heading colour 6"),
     ];
 
     public System.Collections.ObjectModel.ObservableCollection<SkinTokenViewModel> SkinTokens { get; } = [];

@@ -23,4 +23,20 @@
     <SolidColorBrush x:Key="SuccessSoftBrush" Color="#204ADE80"/>
     <SolidColorBrush x:Key="InfoBrush" Color="#60A5FA"/>
 
+    <!-- More colour: see Icarus.xaml. -->
+    <SolidColorBrush x:Key="WarningBrush" Color="#FBBF24"/>
+    <SolidColorBrush x:Key="WarningSoftBrush" Color="#26FBBF24"/>
+    <SolidColorBrush x:Key="TagExmodBrush" Color="#2DD4BF"/>
+    <SolidColorBrush x:Key="TagPakBrush" Color="#60A5FA"/>
+    <SolidColorBrush x:Key="TagUe4ssBrush" Color="#A78BFA"/>
+    <SolidColorBrush x:Key="TagPakUe4ssBrush" Color="#F0ABFC"/>
+    <SolidColorBrush x:Key="SourceNexusBrush" Color="#FB923C"/>
+    <SolidColorBrush x:Key="SourceDatabaseBrush" Color="#7DD3FC"/>
+    <SolidColorBrush x:Key="GroupColor0Brush" Color="#60A5FA"/>
+    <SolidColorBrush x:Key="GroupColor1Brush" Color="#4ADE80"/>
+    <SolidColorBrush x:Key="GroupColor2Brush" Color="#FBBF24"/>
+    <SolidColorBrush x:Key="GroupColor3Brush" Color="#A78BFA"/>
+    <SolidColorBrush x:Key="GroupColor4Brush" Color="#F472B6"/>
+    <SolidColorBrush x:Key="GroupColor5Brush" Color="#2DD4BF"/>
+
 </ResourceDictionary>
