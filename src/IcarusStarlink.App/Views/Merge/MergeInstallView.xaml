@@ -167,8 +167,21 @@
                                     <!-- Type tag, the same look as the Library's Type column. The queue only
                                          holds Library mods, so it's EXMOD or Pak. -->
                                     <Border CornerRadius="8" Padding="6,0" Margin="0,0,7,0" VerticalAlignment="Center" MinWidth="44"
-                                            Background="{DynamicResource CardRaisedBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
-                                        <TextBlock FontSize="10" FontFamily="Consolas" HorizontalAlignment="Center" Foreground="{DynamicResource SecondaryForegroundBrush}">
+                                            Background="{DynamicResource CardRaisedBackgroundBrush}" BorderThickness="1">
+                                        <!-- The Library's tag colours: EXMOD teal, Pak blue. -->
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="BorderBrush" Value="{DynamicResource TagExmodBrush}"/>
+                                                <Setter Property="TextElement.Foreground" Value="{DynamicResource TagExmodBrush}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsOpaquePak}" Value="True">
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource TagPakBrush}"/>
+                                                        <Setter Property="TextElement.Foreground" Value="{DynamicResource TagPakBrush}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock FontSize="10" FontFamily="Consolas" HorizontalAlignment="Center">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Text" Value="EXMOD"/>
