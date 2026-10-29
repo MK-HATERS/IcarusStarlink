@@ -1742,6 +1742,37 @@ public sealed class LibraryViewModelTests
         Assert.Contains("no test searches Nexus", ex.Message);
     }
 
+    /// <summary>
+    /// Review 2026-10-28: the most common Nexus shape (a pak plus its Lua half) with the Lua half
+    /// ENABLED — it lives in the game's Mods folder then, not staging. Looking at staging alone
+    /// called that download "unclaimed", so Update on the pak half only ever said "already on the
+    /// Downloads page" and pointed back at the old file. It must open Nexus (the harness's
+    /// Nexus factory throws: that throw proves the search was reached).
+    /// </summary>
+    [Fact]
+    public async Task GetUpdateCommand_NexusModWhoseLuaHalfIsEnabledInTheGame_OpensNexusInsteadOfRedirecting()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("WirelessPower", source: "Nexus", nexusModId: 361);
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests", "NoGame", "Content");
+        harness.Ue4ssModRepository.InGame.Add("WirelessPower");
+        harness.PendingDownloadStore.EntriesList.Add(new PendingDownloadEntry
+        {
+            ModId = 361, FileId = 1, FileName = "WirelessPower.zip", LocalFilePath = @"C:\fake\WirelessPower.zip",
+            ActivatedItems =
+            [
+                new PendingDownloadActivatedItem("WirelessPower", PendingDownloadActivationKind.Ue4ssMod),
+                new PendingDownloadActivatedItem("WirelessPower", PendingDownloadActivationKind.Library),
+            ],
+        });
+        var vm = harness.Build();
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower");
+
+        var ex = await Assert.ThrowsAsync<NotSupportedException>(() => vm.GetUpdateCommand.ExecuteAsync(item));
+
+        Assert.Contains("no test searches Nexus", ex.Message);
+    }
+
     [Fact]
     public async Task GetUpdateCommand_DatabaseSourcedModNoLongerInTheCatalog_ReportsStatusWithoutTouchingTheRepository()
     {
@@ -1777,9 +1808,13 @@ public sealed class LibraryViewModelTests
     {
         var harness = new TestHarness();
         harness.AddMod("OldFolderName", name: "Some Mod", source: "Nexus", nexusModId: 555);
+        // A real file: Activate refuses a download whose file is gone (the pak importer here is a fake).
+        var pakPath = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests", $"SomeMod-v2_{Guid.NewGuid():N}.pak");
+        Directory.CreateDirectory(Path.GetDirectoryName(pakPath)!);
+        File.WriteAllBytes(pakPath, [1]);
         harness.PendingDownloadStore.EntriesList.Add(new PendingDownloadEntry
         {
-            ModId = 555, FileId = 999, FileName = "SomeMod-v2.pak", LocalFilePath = @"C:\fake\SomeMod-v2.pak",
+            ModId = 555, FileId = 999, FileName = "SomeMod-v2.pak", LocalFilePath = pakPath,
         });
         harness.PrebuiltPakImporter.Result = new LibraryEntry
         {
@@ -2338,7 +2373,10 @@ public sealed class LibraryViewModelTests
         }
 
         public string GetFolderPath(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
-        public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) => throw new NotSupportedException("Not exercised by these tests.");
+        /// <summary>Enabled mods in the game's Mods folder (read only when the settings have a game path).</summary>
+        public List<string> InGame { get; } = [];
+
+        public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) => [.. InGame];
         public string AdoptFromGame(string gameModsFolderPath, string folderName, IReadOnlyCollection<string>? namesAlreadyInUse = null) => throw new NotSupportedException("Not exercised by these tests.");
     }
 

@@ -345,6 +345,88 @@ public sealed class ExtractedModClassifierTests : IDisposable
         Assert.Equal(0, ue4ssModRepository.ImportFromFolderCallCount);
     }
 
+    /// <summary>
+    /// Review 2026-10-28: a UE4SS zip whose mod folder sits one level down ("Mods\CoolMod\Scripts",
+    /// with a README beside it) was staged whole — the mod landed as ue4ss\Mods\&lt;download&gt;\Mods\
+    /// CoolMod, too deep for UE4SS to load, and the install still said it worked.
+    /// </summary>
+    [Fact]
+    public async Task ClassifyAndImport_Ue4ssModFolderBelowTheTop_IsStagedUnderItsOwnName()
+    {
+        var scripts = Path.Combine(_extractedDir, "Mods", "CoolMod", "Scripts");
+        Directory.CreateDirectory(scripts);
+        File.WriteAllText(Path.Combine(scripts, "main.lua"), "print('hi')");
+        File.WriteAllText(Path.Combine(_extractedDir, "README.txt"), "Copy Mods into ue4ss.");
+        var ue4ssModRepository = new FakeUe4ssModRepository { Result = "CoolMod" };
+
+        var result = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Cool Mod 1.2-123-1-999.zip", new FakeLibraryRepository(), ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null);
+
+        Assert.Equal(PendingDownloadActivationKind.Ue4ssMod, result.Kind);
+        Assert.Equal(1, ue4ssModRepository.ImportFromFolderCallCount);
+        Assert.Equal(Path.Combine(_extractedDir, "Mods", "CoolMod"), ue4ssModRepository.LastSourceFolder);
+        Assert.Equal("CoolMod", ue4ssModRepository.LastFallbackName);
+    }
+
+    /// <summary>Two UE4SS mods side by side in one zip (a Lua mod and a C++ one) are two UE4SS mods, not one folder holding both.</summary>
+    [Fact]
+    public async Task ClassifyAndImport_TwoUe4ssModsSideBySide_StagesEach()
+    {
+        Directory.CreateDirectory(Path.Combine(_extractedDir, "LuaOne", "Scripts"));
+        File.WriteAllText(Path.Combine(_extractedDir, "LuaOne", "Scripts", "main.lua"), "print('1')");
+        Directory.CreateDirectory(Path.Combine(_extractedDir, "CppTwo", "dlls"));
+        File.WriteAllBytes(Path.Combine(_extractedDir, "CppTwo", "dlls", "main.dll"), [1]);
+        var ue4ssModRepository = new FakeUe4ssModRepository();
+
+        var result = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Pack.zip", new FakeLibraryRepository(), ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null);
+
+        Assert.Equal(2, ue4ssModRepository.ImportFromFolderCallCount);
+        Assert.Equal(2, result.Items.Count);
+        Assert.All(result.Items, i => Assert.Equal(PendingDownloadActivationKind.Ue4ssMod, i.Kind));
+    }
+
+    /// <summary>
+    /// Review 2026-10-28: a pak with its Lua half beside it ("MyMod_P.pak" + "MyMod\Scripts\main.lua")
+    /// imported the pak and silently dropped the Lua half. One download = one mod: both halves land.
+    /// </summary>
+    [Fact]
+    public async Task ClassifyAndImport_PakWithLooseLuaHalf_StagesTheLuaHalfToo()
+    {
+        File.WriteAllBytes(Path.Combine(_extractedDir, "MyMod_P.pak"), [1, 2, 3]);
+        Directory.CreateDirectory(Path.Combine(_extractedDir, "MyMod", "Scripts"));
+        File.WriteAllText(Path.Combine(_extractedDir, "MyMod", "Scripts", "main.lua"), "print('lua half')");
+        var ue4ssModRepository = new FakeUe4ssModRepository { Result = "MyMod" };
+        var prebuiltPakImporter = new FakePrebuiltPakImporter();
+
+        var result = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "MyMod.zip", new FakeLibraryRepository(), ue4ssModRepository, prebuiltPakImporter, "SomeDataFolder", null);
+
+        Assert.Equal(PendingDownloadActivationKind.Library, result.Kind);
+        Assert.Equal(1, prebuiltPakImporter.ImportCallCount);
+        Assert.Equal(1, ue4ssModRepository.ImportFromFolderCallCount);
+        Assert.Equal(Path.Combine(_extractedDir, "MyMod"), ue4ssModRepository.LastSourceFolder);
+        Assert.Equal([PendingDownloadActivationKind.Library, PendingDownloadActivationKind.Ue4ssMod], result.Items.Select(i => i.Kind));
+    }
+
+    /// <summary>A pak inside the Lua folder itself isn't split out: staging that folder would copy the pak into the UE4SS mod as well.</summary>
+    [Fact]
+    public async Task ClassifyAndImport_PakInsideTheLuaFolder_OnlyImportsThePak()
+    {
+        Directory.CreateDirectory(Path.Combine(_extractedDir, "MyMod", "Scripts"));
+        File.WriteAllText(Path.Combine(_extractedDir, "MyMod", "Scripts", "main.lua"), "print('x')");
+        File.WriteAllBytes(Path.Combine(_extractedDir, "MyMod", "MyMod_P.pak"), [1, 2, 3]);
+        var ue4ssModRepository = new FakeUe4ssModRepository();
+        var prebuiltPakImporter = new FakePrebuiltPakImporter();
+
+        var result = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "MyMod.zip", new FakeLibraryRepository(), ue4ssModRepository, prebuiltPakImporter, "SomeDataFolder", null);
+
+        Assert.Equal(1, prebuiltPakImporter.ImportCallCount);
+        Assert.Equal(0, ue4ssModRepository.ImportFromFolderCallCount);
+        Assert.Single(result.Items);
+    }
+
     [Fact]
     public async Task ClassifyAndImport_PureLuaContentNoUnrealAssets_StillFallsBackToUe4ssModImport()
     {

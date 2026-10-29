@@ -52,6 +52,16 @@ public sealed partial class DownloadsViewModel
             return ModReplacementResult.Cancel("Nothing to install.");
         }
 
+        // The file was deleted or moved out of Pending_Downloads: say so plainly. It used to go
+        // through the whole install (taking the installed copy out and putting it back) and then
+        // the manual install, ending on "Manual install failed: Could not find file …".
+        if (!File.Exists(ResolveLocalFilePath(item)))
+        {
+            var gone = $"The downloaded file '{item.FileName}' isn't in Pending_Downloads any more — download '{item.DisplayName}' again, or Discard this row.";
+            PendingDownloadStatusMessage = gone;
+            return ModReplacementResult.Failure(gone, error: null, rolledBack: false);
+        }
+
         try
         {
             var (replaced, previous) = await RunInstallStepAsync(() => InstallAndRecordAsync(item, pristine));
@@ -200,7 +210,10 @@ public sealed partial class DownloadsViewModel
         var tempExtractDirectory = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Activate_{Guid.NewGuid():N}");
         try
         {
-            AnyArchiveExtractor.ExtractToDirectory(localFilePath, tempExtractDirectory);
+            // Off the UI thread: a 30 MB zip or a big .rar/.7z froze the whole window while it
+            // unpacked. Only the unpacking — the classify-and-import below asks questions (which
+            // archive?) and touches the Library, so it stays where it was.
+            await Task.Run(() => AnyArchiveExtractor.ExtractToDirectory(localFilePath, tempExtractDirectory));
             var (classifiedStatus, classifiedItems, classifiedRequirements) =
                 await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, source, nexusModId, item.CatalogEntryId, previous, removeOld);
             return (classifiedItems, classifiedStatus, classifiedRequirements);
@@ -419,7 +432,8 @@ public sealed partial class DownloadsViewModel
         string? scratch = null;
         try
         {
-            scratch = ManualInstaller.UnpackForManualInstall(ResolveLocalFilePath(item));
+            var downloadPath = ResolveLocalFilePath(item);
+            scratch = await Task.Run(() => ManualInstaller.UnpackForManualInstall(downloadPath));
             if (ManualInstall(scratch, item.DisplayName, reason, ManualInstaller.Suggest(scratch)) is not { Count: > 0 } plan)
             {
                 return null; // the "Import failed: …" message stays

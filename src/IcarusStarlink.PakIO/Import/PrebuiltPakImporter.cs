@@ -19,7 +19,7 @@ public sealed class PrebuiltPakImporter(
         // A pak packed for a newer engine is refused up front with the reason (see ModLints) — every
         // pak import path in the app funnels through here, and importing it would only move the
         // failure to an in-game "mod does nothing" with no explanation.
-        if (Safety.ModLints.CheckPakVersion(pakFilePath) is { } wrongVersion)
+        if ((Safety.ModLints.CheckIsPak(pakFilePath) ?? Safety.ModLints.CheckPakVersion(pakFilePath)) is { } wrongVersion)
         {
             throw new FormatException(wrongVersion);
         }

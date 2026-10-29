@@ -21,6 +21,14 @@ internal sealed class ExmodSizeBudget(string totalDescription)
 
     public void Charge(string entryDescription, long declaredLength)
     {
+        // A 7z/RAR header stores sizes as unsigned 64-bit numbers, which can read back negative:
+        // charged as-is, one such entry gave the total budget back and let the rest of the
+        // archive unpack far past the cap (review 2026-10-28).
+        if (declaredLength < 0)
+        {
+            throw new FormatException($"{entryDescription} declares an impossible size ({declaredLength:N0} bytes) — refusing to read it.");
+        }
+
         if (declaredLength > ExmodSizeLimits.MaxAssetEntryBytes)
         {
             throw new FormatException(

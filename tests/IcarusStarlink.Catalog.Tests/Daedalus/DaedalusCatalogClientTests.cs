@@ -107,6 +107,80 @@ public class DaedalusCatalogClientTests
         Assert.Empty(only.Categories);
     }
 
+    /// <summary>
+    /// Review 2026-10-28: the catalog is other people's JSON. Readme opened its link through the
+    /// shell (a file path ran that program) and the picture was a WPF Image source (a \\server
+    /// path made Windows log in to that server). Only web links are kept.
+    /// </summary>
+    [Fact]
+    public async Task FetchAsync_ReadmeOrImageThatIsNotAWebLink_IsDropped()
+    {
+        const string hostileMods = """
+            [
+              { "id": "a", "name": "Bad Links", "author": "Someone", "image_url": "\\\\evil-host\\share\\x.png",
+                "readme_url": "C:\\Windows\\System32\\calc.exe", "files": { "pak": "https://example.com/a.pak" } },
+              { "id": "b", "name": "File Links", "author": "Someone", "image_url": "file:///C:/x.png",
+                "readme_url": "ms-settings:privacy", "files": { "pak": "https://example.com/b.pak" } },
+              { "id": "c", "name": "Good Links", "author": "Someone", "image_url": "https://example.com/c.png",
+                "readme_url": "http://example.com/c.md", "files": { "pak": "https://example.com/c.pak" } }
+            ]
+            """;
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/mods.json"] = hostileMods,
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/tags.json"] = "[]",
+        });
+
+        var entries = await new DaedalusCatalogClient(new HttpClient(handler)).FetchAsync();
+
+        Assert.Equal(3, entries.Count);
+        Assert.All(entries.Where(e => e.Id != "c"), e =>
+        {
+            Assert.Null(e.ImageUrl);
+            Assert.Null(e.ReadmeUrl);
+        });
+        var good = entries.Single(e => e.Id == "c");
+        Assert.Equal("https://example.com/c.png", good.ImageUrl);
+        Assert.Equal("http://example.com/c.md", good.ReadmeUrl);
+    }
+
+    /// <summary>Real shape (the live catalog, 2026-10-28): 20 EXMODZ-only mods list "pak": "". A blank must read as "no pak", or it hides the EXMODZ link from every PakUrl ?? ExmodzUrl lookup (the Last Updated date).</summary>
+    [Fact]
+    public async Task FetchAsync_BlankPakLink_IsNoPakLink()
+    {
+        const string mods = """
+            [ { "id": "a", "name": "Exmodz Only", "author": "Someone", "files": { "pak": "", "exmodz": "https://github.com/o/r/raw/main/a.EXMODZ" } } ]
+            """;
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/mods.json"] = mods,
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/tags.json"] = "[]",
+        });
+
+        var entry = Assert.Single(await new DaedalusCatalogClient(new HttpClient(handler)).FetchAsync());
+
+        Assert.Null(entry.PakUrl);
+        Assert.Equal("https://github.com/o/r/raw/main/a.EXMODZ", entry.PakUrl ?? entry.ExmodzUrl);
+    }
+
+    /// <summary>Review 2026-10-28: one null in a tag's mod list (other people's JSON) threw and the whole Daedalus catalog read as "unavailable".</summary>
+    [Fact]
+    public async Task FetchAsync_NullInATagsModList_IsSkippedNotFatal()
+    {
+        const string tags = """
+            [ { "tag": "building", "mods": [ null, { "name": "A WZG balance overhaul", "author": "Waldo" } ] } ]
+            """;
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/mods.json"] = ModsJson,
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/tags.json"] = tags,
+        });
+
+        var entries = await new DaedalusCatalogClient(new HttpClient(handler)).FetchAsync();
+
+        Assert.Equal(["building"], entries.Single(e => e.Id == "waldo--a-wzg-balance-overhaul").Categories);
+    }
+
     [Fact]
     public async Task FetchAsync_ReturnsAllModsFromModsJson()
     {
