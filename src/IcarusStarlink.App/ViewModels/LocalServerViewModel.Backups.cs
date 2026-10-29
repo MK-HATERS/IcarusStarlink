@@ -256,11 +256,68 @@ public sealed partial class LocalServerViewModel
         if (SelectedProfile is not { } p)
         {
             AdminWhitelistText = BanListText = "";
+            _adminListOnLoad = _banListOnLoad = "";
             return;
         }
 
-        AdminWhitelistText = ReadOrEmpty(DedicatedServerLayout.AdminWhitelistPath(p.InstallFolder, p.SavedDirSuffix));
-        BanListText = ReadOrEmpty(DedicatedServerLayout.BanListPath(p.InstallFolder, p.SavedDirSuffix));
+        _adminListOnLoad = TryReadList(DedicatedServerLayout.AdminWhitelistPath(p.InstallFolder, p.SavedDirSuffix));
+        _banListOnLoad = TryReadList(DedicatedServerLayout.BanListPath(p.InstallFolder, p.SavedDirSuffix));
+        AdminWhitelistText = _adminListOnLoad ?? "";
+        BanListText = _banListOnLoad ?? "";
+    }
+
+    /// <summary>The lists as read when the boxes were filled; null when the file couldn't be read.</summary>
+    private string? _adminListOnLoad;
+
+    private string? _banListOnLoad;
+
+    /// <summary>
+    /// The boxes are filled when the server is selected, which can be days before Save: meanwhile
+    /// the running server's BanPlayer/UnbanPlayer rewrote the ban list, and Save put the old list
+    /// back over those bans. A list the owner didn't touch takes what is on disk now; one they
+    /// edited asks before it replaces the newer file. False when nothing should be written.
+    /// </summary>
+    private bool ReconcileListWithDisk(string path, string label, string? onLoad, string boxText, Action<string> setBox, Action<string> setOnLoad)
+    {
+        var now = TryReadList(path);
+        if (now is null)
+        {
+            StatusMessage = $"Couldn't read the {label} on disk, so neither list was saved (saving would replace it). Close whatever has it open, then try again.";
+            return false;
+        }
+
+        if (onLoad is not null && SameListLines(now, onLoad))
+        {
+            return true;
+        }
+
+        if (onLoad is not null && SameListLines(boxText, onLoad))
+        {
+            // Not edited here: keep what the server (or another program) wrote.
+            setOnLoad(now);
+            setBox(now);
+            return true;
+        }
+
+        if (_dialogService.Confirm(
+                $"The {label} on disk {(onLoad is null ? "couldn't be read when this page opened" : "changed since this page read it (the server's BanPlayer and UnbanPlayer chat commands edit the ban list)")}.\n\n" +
+                $"Replace it with the list shown here? Choose No to load the list that is on disk now instead; nothing is saved then.",
+                "Admin and ban lists", ThemedConfirmSeverity.Warning))
+        {
+            setOnLoad(now);
+            return true;
+        }
+
+        setOnLoad(now);
+        setBox(now);
+        StatusMessage = $"Nothing was saved. The {label} box now shows the file as it is on disk.";
+        return false;
+    }
+
+    private static bool SameListLines(string a, string b)
+    {
+        static IEnumerable<string> Lines(string text) => text.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0);
+        return Lines(a).SequenceEqual(Lines(b), StringComparer.Ordinal);
     }
 
     /// <summary>Writes both lists. The server reads them on start, and its own BanPlayer/UnbanPlayer commands rewrite the ban list while running — so edit while stopped.</summary>
@@ -280,11 +337,23 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        var adminPath = DedicatedServerLayout.AdminWhitelistPath(p.InstallFolder, p.SavedDirSuffix);
+        var banPath = DedicatedServerLayout.BanListPath(p.InstallFolder, p.SavedDirSuffix);
+        if (!ReconcileListWithDisk(banPath, "ban list", _banListOnLoad, BanListText, t => BanListText = t, t => _banListOnLoad = t)
+            || !ReconcileListWithDisk(adminPath, "admin list", _adminListOnLoad, AdminWhitelistText, t => AdminWhitelistText = t, t => _adminListOnLoad = t))
+        {
+            return;
+        }
+
+        // Read again: a list not edited here may have just taken the newer text from disk.
+        admins = AdminWhitelistText.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
         try
         {
-            WriteList(DedicatedServerLayout.AdminWhitelistPath(p.InstallFolder, p.SavedDirSuffix), admins);
+            WriteList(adminPath, admins);
             var bans = BanListText.Replace("\r\n", "\n").Split('\n').Select(l => l.TrimEnd()).Where(l => l.Length > 0).ToList();
-            WriteList(DedicatedServerLayout.BanListPath(p.InstallFolder, p.SavedDirSuffix), bans);
+            WriteList(banPath, bans);
+            _adminListOnLoad = TryReadList(adminPath);
+            _banListOnLoad = TryReadList(banPath);
             StatusMessage = $"Saved {admins.Count} admin(s) and {bans.Count} ban entr{(bans.Count == 1 ? "y" : "ies")}. They apply on the next start.";
         }
         catch (Exception ex)
@@ -293,15 +362,16 @@ public sealed partial class LocalServerViewModel
         }
     }
 
-    private static string ReadOrEmpty(string path)
+    /// <summary>The file's text, "" when there is none, null when it exists but can't be read (an empty box for a locked file used to be saved over it).</summary>
+    private static string? TryReadList(string path)
     {
         try
         {
             return File.Exists(path) ? File.ReadAllText(path) : "";
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return "";
+            return null;
         }
     }
 

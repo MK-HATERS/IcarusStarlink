@@ -147,12 +147,31 @@ public sealed partial class LocalServerViewModel
         // Guarded like ReadIniSettings: this runs inside the SelectedProfile setter, so a locked or
         // unreadable ini used to throw straight out of a binding.
         var s = ReadIniSettings(p);
+        _iniUnreadable = s is null;
         if (s is null)
         {
             ValidationMessage = "Couldn't read this server's ServerSettings.ini, so the game settings below are blank. Check the file before you save.";
             s = new DedicatedServerSettings();
         }
 
+        ApplyIniToForm(s);
+        FillProspects(ReadProspectFiles(p));
+
+        WorldSettings.Reload();
+        OnPropertyChanged(nameof(InstallFolder));
+        OnPropertyChanged(nameof(SettingsIniPath));
+        OnPropertyChanged(nameof(CommandLinePreview));
+        OnPropertyChanged(nameof(LogPath));
+    }
+
+    /// <summary>
+    /// The form's game settings came from an ini that couldn't be read (they are blanks, not the
+    /// server's settings): Save and Start must not write them over the real file.
+    /// </summary>
+    private bool _iniUnreadable;
+
+    private void ApplyIniToForm(DedicatedServerSettings s)
+    {
         JoinPassword = s.JoinPassword ?? "";
         AdminPassword = s.AdminPassword ?? "";
         MaxPlayersText = s.MaxPlayers?.ToString(CultureInfo.InvariantCulture) ?? "";
@@ -168,14 +187,6 @@ public sealed partial class LocalServerViewModel
         FiberFoliageRespawn = s.FiberFoliageRespawn;
         LargeStonesRespawn = s.LargeStonesRespawn;
         LastProspectName = s.LastProspectName;
-
-        FillProspects(ReadProspectFiles(p));
-
-        WorldSettings.Reload();
-        OnPropertyChanged(nameof(InstallFolder));
-        OnPropertyChanged(nameof(SettingsIniPath));
-        OnPropertyChanged(nameof(CommandLinePreview));
-        OnPropertyChanged(nameof(LogPath));
     }
 
     private static IReadOnlyList<ProspectFile> ReadProspectFiles(DedicatedServerProfile p)
@@ -216,6 +227,22 @@ public sealed partial class LocalServerViewModel
     {
         if (SelectedProfile is not { } current)
         {
+            return false;
+        }
+
+        // A locked ini on select left the game settings blank; written as they are, Save (and
+        // Start, which saves first) wiped the passwords, the prospect and every other setting.
+        if (_iniUnreadable)
+        {
+            if (ReadIniSettings(current) is not { } onDisk)
+            {
+                ValidationMessage = "ServerSettings.ini still can't be read, so nothing was saved: it would have replaced the server's passwords and settings with the blank form. Close whatever has the file open, then try again.";
+                return false;
+            }
+
+            _iniUnreadable = false;
+            ApplyIniToForm(onDisk);
+            ValidationMessage = "ServerSettings.ini can be read now, so its settings are loaded below in place of the blanks. Check them, then save again.";
             return false;
         }
 

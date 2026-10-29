@@ -71,7 +71,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
         WorldSettings = new WorldSettingsViewModel(
             () => SelectedProfile is { } p ? DedicatedServerLayout.ProspectsFolder(p.InstallFolder, p.SavedDirSuffix) : null,
             () => DataFolder,
-            () => IsRunning ? "Stop the server first: it rewrites its worlds when it shuts down, which would undo this." : null,
+            () => IsRunning ? "Stop the server first: it rewrites its worlds when it shuts down, which would undo this."
+                : IsBusy || IsAutomationBusy ? "Wait until the server has finished starting, stopping or updating." : null,
             Path.Combine(_backupsRoot, "WorldSettings"),
             activityLog,
             dialogService);

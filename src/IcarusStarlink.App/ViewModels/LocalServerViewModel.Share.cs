@@ -199,6 +199,12 @@ public sealed partial class LocalServerViewModel
                 {
                     serverLines.Add("install UE4SS on the server first, then apply the patch again for its UE4SS mods");
                 }
+                else if (!EnsureInstallStoppedFor(p, "apply a patch"))
+                {
+                    // The Library import can take a while, and Start stays clickable meanwhile:
+                    // looked at again, so mod files are never swapped under a server that started.
+                    serverLines.Add("the server was started while the patch was imported, so its UE4SS mods weren't changed; stop it and apply the patch again");
+                }
                 else
                 {
                     serverLines.AddRange(await PutPatchUe4ssOnServerAsync(p, contents));
