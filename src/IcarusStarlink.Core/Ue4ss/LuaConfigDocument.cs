@@ -92,7 +92,16 @@ public sealed partial class LuaConfigDocument
         _endings = endings;
         _entries = Scan(lines, out var unknown);
         UnknownLineCount = unknown;
+        // Lines and keys never change after the scan (SetValue only changes a value's length), so
+        // the index holds; a lookup per field stays cheap on a big downloaded file.
+        for (var i = 0; i < _entries.Count; i++)
+        {
+            _lastIndexByKey[_entries[i].Key] = i;
+        }
     }
+
+    /// <summary>Each key's last entry (see Find).</summary>
+    private readonly Dictionary<string, int> _lastIndexByKey = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Lines that aren't a setting, a comment, blank, or the table's own braces: the inside of a
@@ -109,8 +118,12 @@ public sealed partial class LuaConfigDocument
 
     public string ToText() => TextLines.Join(_lines, _endings);
 
-    public IReadOnlyList<LuaConfigSetting> Settings =>
-        [.. _entries.Select(e => new LuaConfigSetting(e.Key, DisplayValue(e), e.Kind, e.Description, e.Comments, e.Note) { Group = e.Group })];
+    /// <summary>The settings in file order; a key written twice is listed once, where it last appears (the value Lua keeps, and the line Find edits).</summary>
+    public IReadOnlyList<LuaConfigSetting> Settings
+    {
+        get => [.. _entries.Where((e, i) => _lastIndexByKey[e.Key] == i)
+            .Select(e => new LuaConfigSetting(e.Key, DisplayValue(e), e.Kind, e.Description, e.Comments, e.Note) { Group = e.Group })];
+    }
 
     public string? GetValue(string key) => Find(key) is { } e ? DisplayValue(e) : null;
 
@@ -145,8 +158,7 @@ public sealed partial class LuaConfigDocument
         }
 
         _lines[entry.Line] = line[..entry.ValueStart] + text + line[(entry.ValueStart + entry.ValueLength)..];
-        var index = _entries.IndexOf(entry);
-        _entries[index] = entry with { ValueLength = text.Length };
+        _entries[_lastIndexByKey[key]] = entry with { ValueLength = text.Length };
         return null;
     }
 
@@ -158,7 +170,12 @@ public sealed partial class LuaConfigDocument
         _ => "can't span lines",
     };
 
-    private Entry? Find(string key) => _entries.FirstOrDefault(e => e.Key.Equals(key, StringComparison.Ordinal));
+    /// <summary>
+    /// The key's LAST line: a key written twice ("A = 1, ... A = 2" in one table, or "Config.A" set
+    /// twice) ends up with the last value in Lua, so that's the one shown and edited. Editing the
+    /// first changed a line the mod never reads (the ini document picks the last the same way).
+    /// </summary>
+    private Entry? Find(string key) => _lastIndexByKey.TryGetValue(key, out var index) ? _entries[index] : null;
 
     private string DisplayValue(Entry e)
     {
@@ -263,7 +280,10 @@ public sealed partial class LuaConfigDocument
         return sb.ToString();
     }
 
-    [GeneratedRegex(@"^-?(0[xX][0-9a-fA-F]+|(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?)$")]
+    // "\d+(\.\d*)?" and not "\d+\.?\d*": with the dot optional, a long run of digits that ends in
+    // something else ("1111…1x" in a downloaded file) was split every possible way before failing,
+    // which took 18 s for 20,000 digits on the UI thread.
+    [GeneratedRegex(@"^-?(?:0[xX][0-9a-fA-F]+|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)$")]
     private static partial Regex NumberText();
 
     [GeneratedRegex(@"^(?<lead>\s*(?:local\s+)?)(?<key>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*=(?!=)\s*")]
@@ -272,6 +292,10 @@ public sealed partial class LuaConfigDocument
     // "return {", "local Config = {", "Config = {", "}" or "}," (optionally with a comment after): the table's own lines.
     [GeneratedRegex(@"^(?:(?:return\s*|(?:local\s+)?[A-Za-z_][A-Za-z0-9_.]*\s*=\s*)?\{|\}[,;]?)\s*(?:--.*)?$")]
     private static partial Regex TableBrace();
+
+    // At the top of a "Config.Key = value" file: "local Config = {}" and "return Config", the frame around the settings.
+    [GeneratedRegex(@"^(?:(?:local\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*\{\s*\}|return\s+[A-Za-z_][A-Za-z0-9_]*)\s*;?\s*(?:--.*)?$")]
+    private static partial Regex TopLevelFrame();
 
     /// <summary>A heading longer than this is cut: it's a name, not a paragraph.</summary>
     private const int MaxGroupLength = 80;
@@ -336,11 +360,11 @@ public sealed partial class LuaConfigDocument
                 continue;
             }
 
-            if (depth <= 1 && TryReadSetting(line, out var key, out var start, out var length, out var kind, out var quote, out var inline))
+            if (depth <= 1 && TryReadSetting(line, depth, out var key, out var start, out var length, out var kind, out var quote, out var inline))
             {
                 entries.Add(new Entry(i, key, start, length, kind, quote, [.. comments], inline, group));
             }
-            else if (!(depth <= 1 && TableBrace().IsMatch(trimmed)))
+            else if (!(depth <= 1 && TableBrace().IsMatch(trimmed)) && !(depth == 0 && TopLevelFrame().IsMatch(trimmed)))
             {
                 unknownLines++;
             }
@@ -352,7 +376,8 @@ public sealed partial class LuaConfigDocument
         return entries;
     }
 
-    private static bool TryReadSetting(string line, out string key, out int start, out int length, out LuaConfigValueKind kind, out char quote, out string? inlineComment)
+    /// <param name="depth">How many tables the line sits inside: 0 at the top of the file.</param>
+    private static bool TryReadSetting(string line, int depth, out string key, out int start, out int length, out LuaConfigValueKind kind, out char quote, out string? inlineComment)
     {
         key = "";
         start = length = 0;
@@ -405,9 +430,11 @@ public sealed partial class LuaConfigDocument
         }
         else if (raw[0] == '{')
         {
-            if (raw[1..^1].Trim().Length == 0)
+            // At the top, "local Config = {}" is the table the settings go into, not a setting.
+            // Inside the settings table, "NoGuests = {}," is an empty list the player can fill.
+            if (depth == 0 && raw[1..^1].Trim().Length == 0)
             {
-                return false; // "local Config = {}": the table the settings go into, not a setting
+                return false;
             }
 
             kind = LuaConfigValueKind.Table;

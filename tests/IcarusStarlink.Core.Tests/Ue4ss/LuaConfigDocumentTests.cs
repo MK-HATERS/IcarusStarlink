@@ -203,4 +203,51 @@ public class LuaConfigDocumentTests
         ini.SetValue("A", "Z", "3");
         Assert.Equal("[A]\r\nX = 1\nY = 2\r\nZ = 3\r\n", ini.ToText());
     }
+
+    /// <summary>A downloaded config with a long run of digits ending in a letter: the number check tried every split of the digits (18 s for 20,000 on the UI thread).</summary>
+    [Fact]
+    public void ALongRunOfDigitsThatIsntANumber_ParsesQuickly()
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var doc = LuaConfigDocument.Parse("return {\n    A = " + new string('1', 50_000) + "x,\n    B = 1.5e3,\n    C = .5,\n    D = 2.,\n}\n");
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+        Assert.Equal(["B", "C", "D"], doc.Settings.Select(s => s.Key));
+        Assert.All(doc.Settings, s => Assert.Equal(LuaConfigValueKind.Number, s.Kind));
+    }
+
+    /// <summary>A key written twice: Lua keeps the last value, so the editor shows and edits that line (it edited the first, which nothing reads).</summary>
+    [Fact]
+    public void AKeyWrittenTwice_IsShownOnce_AndTheLastLineIsEdited()
+    {
+        var doc = LuaConfigDocument.Parse("return {\n    Speed = 1,\n    Debug = false,\n    Speed = 3, -- pasted from a forum\n}\n");
+
+        Assert.Equal(["Debug", "Speed"], doc.Settings.Select(s => s.Key));
+        Assert.Equal("3", doc.GetValue("Speed"));
+        Assert.Null(doc.SetValue("Speed", "5"));
+        Assert.Equal("return {\n    Speed = 1,\n    Debug = false,\n    Speed = 5, -- pasted from a forum\n}\n", doc.ToText());
+    }
+
+    /// <summary>An empty list inside the settings ("NoGuests = {}" in MkHaters Wildlife) is a setting the player fills in, not something that can't be read.</summary>
+    [Fact]
+    public void AnEmptyListInsideTheSettings_IsASetting()
+    {
+        var doc = LuaConfigDocument.Parse("return {\n    NoGuests = {},                -- e.g. { \"Yeti\" }\n    Debug = false,\n}\n");
+
+        Assert.Equal(0, doc.UnknownLineCount);
+        var noGuests = doc.Settings.First();
+        Assert.Equal(("NoGuests", "{}", LuaConfigValueKind.Table), (noGuests.Key, noGuests.Value, noGuests.Kind));
+        Assert.Null(doc.SetValue("NoGuests", "{ \"Yeti\" }"));
+        Assert.StartsWith("return {\n    NoGuests = { \"Yeti\" },", doc.ToText());
+    }
+
+    /// <summary>"local Config = {}" … "return Config" is the frame of a Config.Key file, not something the update merge can't carry.</summary>
+    [Fact]
+    public void TheFrameOfAConfigDotKeyFile_IsNotUnknown()
+    {
+        var doc = LuaConfigDocument.Parse("local Config = {}\nConfig.Speed = 2\nConfig.Debug = false\nreturn Config\n");
+
+        Assert.Equal(0, doc.UnknownLineCount);
+        Assert.Equal(["Config.Speed", "Config.Debug"], doc.Settings.Select(s => s.Key));
+    }
 }

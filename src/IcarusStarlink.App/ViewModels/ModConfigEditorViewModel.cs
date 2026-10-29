@@ -639,11 +639,46 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
 
         var saved = new List<string>();
         var problemsSaving = new List<string>();
+        var changedOnDisk = false;
         if (textChanged)
         {
             try
             {
-                Write(location, file, text, _diskHasBom);
+                // The file may have changed since it was opened (the mod's own in-game settings
+                // menu writes it, so does another editor): writing the text read back then would
+                // silently put every other setting back to what it was.
+                var (nowText, nowBom) = ReadConfigText(Path.Combine(location.ModFolder, file.RelativePath));
+                var bom = _diskHasBom;
+                if (nowText != _diskText)
+                {
+                    if (IsTextMode || file.Format == Ue4ssModConfigFormat.Text)
+                    {
+                        StatusMessage = "Not saved: the file was changed outside this window since it was opened (by the mod or another editor). "
+                            + "Copy your text, click Discard changes to load the new file, then make your edit again.";
+                        return false;
+                    }
+
+                    // The fields: only the settings changed here go into the file as it is now.
+                    var current = Parse(file.Format, nowText);
+                    foreach (var change in changes)
+                    {
+                        if (current.Set(change.Section, change.Key, change.Value) is { } problem)
+                        {
+                            StatusMessage = $"Not saved: the file was changed outside this window since it was opened, and {problem}. Click Discard changes to load the new file.";
+                            return false;
+                        }
+                    }
+
+                    text = current.ToText();
+                    bom = nowBom;
+                    changedOnDisk = true;
+                }
+
+                if (text != nowText)
+                {
+                    Write(location, file, text, bom);
+                }
+
                 saved.Add(location.Name);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -657,15 +692,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         {
             try
             {
-                var path = Path.Combine(target.ModFolder, file.RelativePath);
-                if (new FileInfo(path).Length > MaxConfigBytes)
-                {
-                    throw new IOException($"its copy is over {MaxConfigBytes / 1024 / 1024} MB, too big for a config");
-                }
-
-                var bytes = File.ReadAllBytes(path);
-                var bom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
-                var targetText = Encoding.UTF8.GetString(bytes, bom ? 3 : 0, bytes.Length - (bom ? 3 : 0));
+                var (targetText, bom) = ReadConfigText(Path.Combine(target.ModFolder, file.RelativePath));
                 string newText;
                 if (file.Format == Ue4ssModConfigFormat.Text)
                 {
@@ -703,8 +730,22 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         StatusMessage = (saved.Count > 0
                 ? $"Saved to {string.Join(" and ", saved)} (the old file is in Backups\\UE4SS-Mod-Configs). The mod reads it when the game or server starts, unless it has its own reload key."
                 : "")
+            + (changedOnDisk ? " The file had been changed outside this window since it was opened: only the settings you changed here were written into it." : "")
             + (problemsSaving.Count > 0 ? $"{(saved.Count > 0 ? " " : "")}Couldn't save: {string.Join("; ", problemsSaving)}" : "");
         return true;
+    }
+
+    /// <summary>A config file's text (UTF-8, a leading BOM noted, not kept in the text); refuses one over MaxConfigBytes.</summary>
+    private static (string Text, bool Bom) ReadConfigText(string path)
+    {
+        if (new FileInfo(path).Length > MaxConfigBytes)
+        {
+            throw new IOException($"it's over {MaxConfigBytes / 1024 / 1024} MB, too big for a config");
+        }
+
+        var bytes = File.ReadAllBytes(path);
+        var bom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+        return (Encoding.UTF8.GetString(bytes, bom ? 3 : 0, bytes.Length - (bom ? 3 : 0)), bom);
     }
 
     /// <summary>Throws away the shown file's unsaved edits (other files keep theirs).</summary>

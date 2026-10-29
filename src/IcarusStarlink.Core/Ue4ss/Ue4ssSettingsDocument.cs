@@ -132,6 +132,7 @@ public sealed partial class Ue4ssSettingsDocument
 
     private void AddLine(string line)
     {
+        _lineIndex = null;
         _endings[^1] = _newline;
         _lines.Add(line);
         _endings.Add("");
@@ -267,6 +268,7 @@ public sealed partial class Ue4ssSettingsDocument
         }
         else
         {
+            _lineIndex = null;
             _lines.Insert(insertAt, $"{key} = {value}");
             _endings.Insert(insertAt, _newline);
         }
@@ -294,16 +296,31 @@ public sealed partial class Ue4ssSettingsDocument
     /// line-by-line Lua readers mods use for their config. Showing or editing the first would
     /// change a line nothing reads.
     /// </summary>
-    private int? FindLine(string section, string key)
+    private int? FindLine(string section, string key) =>
+        LineIndex().TryGetValue((section.ToLowerInvariant(), key.ToLowerInvariant()), out var found) ? found : null;
+
+    /// <summary>
+    /// Every key's last line by (section, key), lower case, read in one pass and kept until a line
+    /// is added (a changed value keeps its line and key). Looking each key up by reading the whole
+    /// file again made a downloaded config with a few thousand keys take seconds to open.
+    /// </summary>
+    private Dictionary<(string Section, string Key), int>? _lineIndex;
+
+    private Dictionary<(string Section, string Key), int> LineIndex()
     {
-        int? found = null;
+        if (_lineIndex is not null)
+        {
+            return _lineIndex;
+        }
+
+        var index = new Dictionary<(string Section, string Key), int>();
         var current = "";
         for (var i = 0; i < _lines.Count; i++)
         {
             var line = _lines[i];
             if (SectionLine().Match(line) is { Success: true } sectionMatch)
             {
-                current = sectionMatch.Groups["name"].Value.Trim();
+                current = sectionMatch.Groups["name"].Value.Trim().ToLowerInvariant();
                 continue;
             }
 
@@ -313,15 +330,13 @@ public sealed partial class Ue4ssSettingsDocument
                 continue;
             }
 
-            if (current.Equals(section, StringComparison.OrdinalIgnoreCase)
-                && KeyLine().Match(line) is { Success: true } keyMatch
-                && keyMatch.Groups["key"].Value.Trim().Equals(key, StringComparison.OrdinalIgnoreCase))
+            if (KeyLine().Match(line) is { Success: true } keyMatch)
             {
-                found = i;
+                index[(current, keyMatch.Groups["key"].Value.Trim().ToLowerInvariant())] = i;
             }
         }
 
-        return found;
+        return _lineIndex = index;
     }
 
     /// <summary>

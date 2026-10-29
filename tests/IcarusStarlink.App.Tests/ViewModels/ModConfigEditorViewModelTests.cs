@@ -469,4 +469,42 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
 
         Assert.Equal("return {\r\n    Speed = 1,\r\n    Debug = false,\r\n    Probe = true, -- [hidden]\r\n}\r\n", File.ReadAllText(Path.Combine(game, "config.lua")));
     }
+
+    /// <summary>
+    /// The window stays open while the player changes a setting in the mod's own in-game menu
+    /// (MkHaters Mod Settings writes config.lua). Saving here used to write the file as it was read
+    /// at opening, putting that setting back without a word.
+    /// </summary>
+    [Fact]
+    public void Save_AfterTheFileChangedOnDisk_WritesOnlyTheEditsHere_IntoTheNewFile()
+    {
+        var game = Mod("game", "config.lua", Lua);
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+
+        File.WriteAllText(Path.Combine(game, "config.lua"), Lua.Replace("DefendRadius = 5000", "DefendRadius = 8000"));
+        Field(vm, "Debug").IsOn = true;
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(Lua.Replace("DefendRadius = 5000", "DefendRadius = 8000").Replace("Debug = false", "Debug = true"), File.ReadAllText(Path.Combine(game, "config.lua")));
+        Assert.Contains("changed outside this window", vm.StatusMessage);
+        Assert.Equal("8000", Field(vm, "DefendRadius").Value);
+    }
+
+    /// <summary>The text view has no single settings to carry: a file changed on disk meanwhile isn't overwritten, and the text stays to copy.</summary>
+    [Fact]
+    public void SaveText_AfterTheFileChangedOnDisk_IsRefused_AndTheTextStays()
+    {
+        var game = Mod("game", "config.lua", Lua);
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+        vm.IsTextMode = true;
+
+        var changed = Lua.Replace("DefendRadius = 5000", "DefendRadius = 8000");
+        File.WriteAllText(Path.Combine(game, "config.lua"), changed);
+        vm.RawText = Lua.Replace("Debug = false", "Debug = true");
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(changed, File.ReadAllText(Path.Combine(game, "config.lua")));
+        Assert.StartsWith("Not saved: the file was changed outside this window", vm.StatusMessage);
+        Assert.Contains("Debug = true", vm.RawText);
+    }
 }

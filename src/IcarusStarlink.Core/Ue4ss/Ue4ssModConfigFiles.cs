@@ -156,6 +156,14 @@ public static partial class Ue4ssModConfigFiles
     {
         try
         {
+            // This runs for every UE4SS row on every Library reload: a downloaded mod's huge
+            // Scripts\*config*.lua isn't read whole each time. A settings file is a few KB (the
+            // editor won't open one over 2 MB anyway), so anything bigger is taken as code.
+            if (new FileInfo(path).Length > MaxScannedBytes)
+            {
+                return true;
+            }
+
             return CodeMarker().IsMatch(File.ReadAllText(path));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -163,6 +171,9 @@ public static partial class Ue4ssModConfigFiles
             return false;
         }
     }
+
+    /// <summary>The biggest Scripts file read to tell settings from code.</summary>
+    internal const long MaxScannedBytes = 2 * 1024 * 1024;
 
     [GeneratedRegex(@"\bfunction\b|\brequire\s*[\(""']")]
     private static partial Regex CodeMarker();

@@ -364,4 +364,30 @@ public class Ue4ssSettingsDocumentTests
     [Fact]
     public void KeyBind_WritesOnlyTheModifiersThatAreOn() =>
         Assert.Equal("{ key = \"F4\", ctrl = true, alt = true }", new Ue4ssKeyBind("F4", true, false, true).ToLua());
+
+    /// <summary>
+    /// A downloaded config.ini with a few thousand keys: every look-up read the whole file again,
+    /// so opening it in Edit config (one look-up per field) took seconds on the UI thread (3.5 s at
+    /// 2,000 keys, four times that at 4,000).
+    /// </summary>
+    [Fact]
+    public void ManyKeys_LookUpQuickly_AndAnAddedKeyIsFound()
+    {
+        var document = Ue4ssSettingsDocument.Parse("[A]\n" + string.Concat(Enumerable.Range(0, 4_000).Select(i => $"K{i} = {i}\n")), keepCommentLines: true);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        foreach (var setting in document.Settings)
+        {
+            Assert.Equal(setting.Value, document.GetValue(setting.Section, setting.Key));
+        }
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+
+        // Adding lines moves the ones after them: look-ups still find the right line.
+        document.SetValue("B", "New", "1");
+        document.SetValue("A", "Added", "2");
+        Assert.Equal(("1", "2", "3999"), (document.GetValue("B", "New"), document.GetValue("A", "Added"), document.GetValue("A", "K3999")));
+        Assert.True(document.SetValue("A", "K3999", "x"));
+        Assert.EndsWith("K3999 = x\nAdded = 2\n\n[B]\nNew = 1", document.ToText());
+    }
 }
