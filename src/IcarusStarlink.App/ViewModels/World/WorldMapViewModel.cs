@@ -296,8 +296,9 @@ public sealed partial class WorldMapViewModel : ObservableObject
             return (false, "The Map page is already busy drawing.");
         }
 
-        await RunReloadAsync(everything: false);
-        return (true, StatusMessage);
+        // A reload that threw says so in StatusMessage: that's Skipped, not "redrawn".
+        var done = await RunReloadAsync(everything: false);
+        return (done, StatusMessage);
     }
 
     private async Task LoadAsync()
@@ -358,12 +359,13 @@ public sealed partial class WorldMapViewModel : ObservableObject
         }
     }
 
-    private async Task RunReloadAsync(bool everything)
+    /// <returns>Whether the reload ran to the end (false: StatusMessage says why).</returns>
+    private async Task<bool> RunReloadAsync(bool everything)
     {
         if (Problem() is { } problem)
         {
             StatusMessage = problem;
-            return;
+            return false;
         }
 
         IsBusy = true;
@@ -376,11 +378,13 @@ public sealed partial class WorldMapViewModel : ObservableObject
             _loadedOnce = true;
             OutOfDateMessage = null;
             StatusMessage = result.Summary;
+            return true;
         }
         catch (Exception ex)
         {
             // Not awaited by anyone either (a button, the page opening): say what went wrong.
             StatusMessage = $"Couldn't make the maps: {ex.Message}";
+            return false;
         }
         finally
         {

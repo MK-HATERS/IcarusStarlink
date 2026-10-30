@@ -159,7 +159,17 @@ public static class GameUpdateOrchestrator
             // The maps are only for looking at: a map that can't be drawn never stops the run.
             current = GameUpdateStep.Maps;
             Report(GameUpdateStepState.Running);
-            var maps = await steps.RedrawMapsAsync();
+            GameUpdateStepResult maps;
+            try
+            {
+                maps = await steps.RedrawMapsAsync();
+            }
+            catch (Exception ex)
+            {
+                // Thrown, not returned as Failed: still only the maps, so the run goes on.
+                maps = GameUpdateStepResult.Failed($"The maps couldn't be redrawn: {ex.Message}");
+            }
+
             Report(maps.State == GameUpdateStepState.Failed ? GameUpdateStepState.Skipped : maps.State, maps.Message);
 
             current = GameUpdateStep.CheckMods;

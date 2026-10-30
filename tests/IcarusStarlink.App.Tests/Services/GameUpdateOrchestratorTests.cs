@@ -41,10 +41,12 @@ public sealed class GameUpdateOrchestratorTests
 
         public GameUpdateStepResult Maps { get; set; } = GameUpdateStepResult.Done();
 
+        public bool MapsThrow { get; set; }
+
         public Task<GameUpdateStepResult> RedrawMapsAsync()
         {
             Calls.Add("maps");
-            return Task.FromResult(Maps);
+            return MapsThrow ? throw new IOException("The map cache is locked.") : Task.FromResult(Maps);
         }
 
         public Task CheckModsAsync()
@@ -135,6 +137,19 @@ public sealed class GameUpdateOrchestratorTests
         Assert.True(result.Completed);
         Assert.Contains("install", steps.Calls);
         Assert.Contains(progress, p => p.Step == GameUpdateStep.Maps && p.State == GameUpdateStepState.Skipped && p.Text == "The game's paks can't be read.");
+    }
+
+    [Fact]
+    public async Task MapsThatThrow_DontStopTheRunEither()
+    {
+        var steps = new FakeSteps { MapsThrow = true };
+        var progress = new List<GameUpdateProgress>();
+
+        var result = await GameUpdateOrchestrator.RunAsync(steps, progress.Add);
+
+        Assert.True(result.Completed);
+        Assert.Contains("install", steps.Calls);
+        Assert.Contains(progress, p => p.Step == GameUpdateStep.Maps && p.State == GameUpdateStepState.Skipped && p.Text.Contains("The map cache is locked.", StringComparison.Ordinal));
     }
 
     [Fact]

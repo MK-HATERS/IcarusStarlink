@@ -132,6 +132,26 @@ public sealed class WorldMapViewModelTests : IDisposable
         Assert.True(vm.ShowCaves); // what was ticked stays
     }
 
+    /// <summary>Regression: a reload that threw was reported to Update everything as "redrawn" (Done) with the error as its message.</summary>
+    [Fact]
+    public async Task AGameUpdateReloadThatFails_IsNotReportedAsRedrawn()
+    {
+        var map = new WorldMapInfo("Terrain_016", "Olympus", false, [], [], []);
+        var tablesBroken = false;
+        var store = new WorldMapStore(Path.Combine(_root, "World"),
+            () => tablesBroken ? throw new IOException("D_WorldData.json is locked.") : [map], new NoRenderer());
+        store.Reload(everything: false);
+        Directory.CreateDirectory(Path.Combine(_root, "Data", "World"));
+        var settings = new Settings { Current = { IcarusContentPath = _root, RedrawMapsDuringGameUpdate = true } };
+        var vm = new WorldMapViewModel(store, settings, Path.Combine(_root, "Data"));
+        tablesBroken = true;
+
+        var (redrawn, message) = await vm.ReloadForGameUpdateAsync();
+
+        Assert.False(redrawn);
+        Assert.Contains("D_WorldData.json is locked.", message);
+    }
+
     [Fact]
     public void PuttingTheChoicesBack_SavesNothing()
     {
