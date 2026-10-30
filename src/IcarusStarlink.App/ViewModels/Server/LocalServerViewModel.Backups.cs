@@ -187,6 +187,7 @@ public sealed partial class LocalServerViewModel
         {
             var path = await CreateBackupAsync(p, "manual");
             StatusMessage = $"Backed up '{p.Name}' to {Path.GetFileName(path)}.";
+            RecordEventLine(GetWatch(p), $"{Clock():HH:mm}  Backup made: {Path.GetFileName(path)}");
         }
         catch (Exception ex)
         {

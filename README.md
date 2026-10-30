@@ -210,8 +210,9 @@ gathered from the feature descriptions above:
   browsing/search/downloads); GitHub (this app's own release check on every launch, the community
   mod catalog, and — only when you click Install/Update in Settings — UnrealPak.exe and a newer
   UE4SS loader); SteamCMD and Steam's own servers, only when you install or update a dedicated
-  server; and, only if you configure one, your own FTP server on the Server tab. Nothing
-  else. There is no telemetry, analytics, or usage tracking of any kind anywhere in this app.
+  server; `api.ipify.org`, only when you press "Show my public IP" on the Server page (it answers
+  with your public IP address, which is shown and not saved); and, only if you configure one, your
+  own FTP server on the Server tab. Nothing else. There is no telemetry, analytics, or usage tracking of any kind anywhere in this app.
 - **Self-update** — downloads only from this project's own GitHub Releases
   (`github.com/MK-HATERS/IcarusStarlink`), or, on the Stable channel when you're signed in to Nexus,
   from this app's own Nexus page (mod 330); either way it verifies the download's SHA-256 against the

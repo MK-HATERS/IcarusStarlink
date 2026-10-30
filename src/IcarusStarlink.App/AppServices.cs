@@ -410,8 +410,11 @@ internal static class AppServices
             library: sp.GetRequiredService<ILibraryRepository>(),
             patchService: sp.GetRequiredService<IPatchService>(),
             ue4ssMetaStore: sp.GetRequiredService<IUe4ssModMetaStore>(),
-            patchImporter: sp.GetRequiredService<MergeInstallViewModel>()));
+            patchImporter: sp.GetRequiredService<MergeInstallViewModel>(),
+            network: sp.GetRequiredService<INetworkAddressService>()));
         services.AddSingleton<IFirewallService, FirewallService>();
+        // The Connect card's addresses: this PC's adapters, and api.ipify.org only on "Show my public IP".
+        services.AddSingleton<INetworkAddressService>(sp => new NetworkAddressService(sp.GetRequiredService<HttpClient>()));
         // Find the broken mod (Merge & Install › More ▾): rounds of part-installs through Merge &
         // Install, the search saved beside the settings so a closed app can still put the mods back.
         services.AddSingleton(sp => new FindBrokenModLauncher(() => new FindBrokenModContext

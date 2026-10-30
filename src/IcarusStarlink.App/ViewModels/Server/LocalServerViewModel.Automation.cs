@@ -260,8 +260,25 @@ public sealed partial class LocalServerViewModel
                     ResetWatchEvents(watch);
                 }
 
+                var wasRunning = watch.Running is not null;
+                var wasObserved = watch.Observed;
+                watch.Observed = true;
                 watch.Running = found;
                 var action = watch.Automation.Evaluate(profile, new ServerObservation(Clock(), found is not null, watch.Events.Online.Count, watch.CleanExitSeen, found?.ProcessId));
+                if (found is not null && !wasRunning && wasObserved)
+                {
+                    RecordEventLine(watch, $"{Clock():HH:mm}  Server started");
+                }
+                else if (found is null && wasRunning)
+                {
+                    RecordEventLine(watch, $"{Clock():HH:mm}  " + watch.Automation.LastStopKind switch
+                    {
+                        ServerStopKind.ByOwner => "Server stopped by you",
+                        ServerStopKind.Clean => "Server stopped cleanly",
+                        _ => "Server crashed (it stopped without a clean exit in its log)",
+                    });
+                }
+
                 if (action.Kind != AutomationActionKind.None)
                 {
                     await ExecuteAutomationAsync(watch, action);
@@ -288,7 +305,7 @@ public sealed partial class LocalServerViewModel
         {
             case AutomationActionKind.RestartAfterCrash:
                 ReportAutomation(watch, $"'{p.Name}': {action.Reason}. Starting it again.", ActivityEntryKind.Warning);
-                await RunAsAutomationAsync(watch, () => LaunchIfStillWantedAsync(watch));
+                await RunAsAutomationAsync(watch, "restarting it after a crash", () => LaunchIfStillWantedAsync(watch));
                 break;
 
             case AutomationActionKind.GaveUpAfterCrashes:
@@ -297,7 +314,7 @@ public sealed partial class LocalServerViewModel
 
             case AutomationActionKind.ScheduledRestart:
                 ReportAutomation(watch, $"'{p.Name}': {action.Reason}. Restarting.", ActivityEntryKind.Info);
-                await RunAsAutomationAsync(watch, () => AutomatedRestartAsync(watch, checkForUpdate: p.UpdateOnRestart));
+                await RunAsAutomationAsync(watch, p.UpdateOnRestart ? "doing the daily restart (with an update check)" : "doing the daily restart", () => AutomatedRestartAsync(watch, checkForUpdate: p.UpdateOnRestart));
                 break;
 
             case AutomationActionKind.CheckForUpdate:
@@ -317,7 +334,7 @@ public sealed partial class LocalServerViewModel
                 }
 
                 ReportAutomation(watch, $"'{p.Name}': {action.Reason}. Updating.", ActivityEntryKind.Info);
-                await RunAsAutomationAsync(watch, () => AutomatedRestartAsync(watch, checkForUpdate: true));
+                await RunAsAutomationAsync(watch, "stopping it to install a newer build, then starting it again", () => AutomatedRestartAsync(watch, checkForUpdate: true));
                 break;
 
             case AutomationActionKind.DailyBackup:
@@ -328,7 +345,7 @@ public sealed partial class LocalServerViewModel
                 }
                 else
                 {
-                    watch.LastAutomationEvent = $"{Clock():HH:mm}  Daily backup made: {Path.GetFileName(made)}";
+                    RecordEventLine(watch, $"{Clock():HH:mm}  Daily backup made: {Path.GetFileName(made)}");
                     _activityLog.Log($"'{p.Name}': daily backup made ({Path.GetFileName(made)}).", ActivityEntryKind.Info);
                     if (SelectedProfile?.Id == p.Id)
                     {
@@ -342,7 +359,6 @@ public sealed partial class LocalServerViewModel
 
     private void ReportAutomation(ServerWatch watch, string text, ActivityEntryKind kind)
     {
-        watch.LastAutomationEvent = $"{Clock():HH:mm}  {text}";
         _activityLog.Log(text, kind);
         RecordEventLine(watch, $"{Clock():HH:mm}  {text}");
         if (SelectedProfile?.Id == watch.Profile.Id)
@@ -357,8 +373,9 @@ public sealed partial class LocalServerViewModel
     /// <summary>Any server is being restarted or updated by automation right now.</summary>
     internal bool AnyAutomationBusy => _watches.Values.Any(w => w.AutomationBusy);
 
-    private async Task RunAsAutomationAsync(ServerWatch watch, Func<Task> work)
+    private async Task RunAsAutomationAsync(ServerWatch watch, string doing, Func<Task> work)
     {
+        watch.AutomationDoing = doing;
         watch.AutomationBusy = true;
         RaiseAutomationBusyChanged();
         try
@@ -368,6 +385,7 @@ public sealed partial class LocalServerViewModel
         finally
         {
             watch.AutomationBusy = false;
+            watch.AutomationDoing = null;
             RaiseAutomationBusyChanged();
         }
     }
@@ -460,7 +478,8 @@ public sealed partial class LocalServerViewModel
         }
 
         var selected = SelectedProfile?.Id == p.Id;
-        var token = BeginSteamCmdRun();
+        var token = BeginSteamCmdRun($"Checking '{p.Name}' for an update", p.Id);
+        SteamCmdStatus = "asking Steam for the latest build…";
         IsSteamCmdBusy = true;
         try
         {
@@ -486,6 +505,7 @@ public sealed partial class LocalServerViewModel
         finally
         {
             IsSteamCmdBusy = false;
+            SteamCmdStatus = null;
         }
     }
 
@@ -509,7 +529,7 @@ public sealed partial class LocalServerViewModel
         }
 
         var backup = await TryBackupAsync(p, "before-update");
-        var result = await RunSteamCmdAsync(token => _steamCmd.InstallOrUpdateAsync(p.InstallFolder, SteamCmd.NormalizeBranch(p.Branch), line => OnSteamCmdLineFor(p.Id, line), token));
+        var result = await RunSteamCmdAsync($"Updating '{p.Name}'", p.Id, token => _steamCmd.InstallOrUpdateAsync(p.InstallFolder, SteamCmd.NormalizeBranch(p.Branch), line => OnSteamCmdLineFor(p.Id, line), token));
         watch.Automation.NoteUpdateFinished();
         ReportAutomation(watch,
             result.Success

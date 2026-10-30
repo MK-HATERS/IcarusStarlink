@@ -40,12 +40,44 @@ public sealed partial class LocalServerViewModel
     /// <summary>Cancels the SteamCMD run in progress (Cancel in the SteamCMD box); a new one per run.</summary>
     private CancellationTokenSource? _steamCmdCancel;
 
-    private CancellationToken BeginSteamCmdRun()
+    /// <param name="action">What the run is for, the SteamCMD card's title ("Updating 'My server'").</param>
+    /// <param name="profileId">The server it acts on; null for SteamCMD itself or a server not in the list yet.</param>
+    private CancellationToken BeginSteamCmdRun(string action, Guid? profileId)
     {
         _steamCmdCancel?.Dispose();
         _steamCmdCancel = new CancellationTokenSource();
+        SteamCmdAction = action;
+        SteamCmdOutcome = null;
+        _steamCmdFor = profileId;
+        _steamCmdDownloads = false;
         return _steamCmdCancel.Token;
     }
+
+    /// <summary>The run in progress downloads (an install or update), rather than only asking Steam for the latest build.</summary>
+    private bool _steamCmdDownloads;
+
+    partial void OnSteamCmdStatusChanged(string? value) => OnPropertyChanged(nameof(NowLine));
+
+    /// <summary>The SteamCMD card's title: what the run is for ("Updating 'My server'", "Installing a new server").</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SteamCmdTitle))]
+    private string _steamCmdAction = "SteamCMD";
+
+    /// <summary>How the last run ended ("finished", "failed", "cancelled"); null while one runs.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SteamCmdTitle))]
+    private string? _steamCmdOutcome;
+
+    /// <summary>Which server the SteamCMD run in progress acts on (null: SteamCMD itself or a new server).</summary>
+    private Guid? _steamCmdFor;
+
+    /// <summary>"Updating 'My server' · downloading 40%" while it runs; "Updating 'My server' · finished" after.</summary>
+    public string SteamCmdTitle => IsSteamCmdBusy
+        ? $"{SteamCmdAction} · {SteamCmdStatus ?? "starting"}"
+        : $"{SteamCmdAction} · {SteamCmdOutcome ?? "finished"}";
+
+    private static string OutcomeOf(bool success, string? message) =>
+        success ? "finished" : message == SteamCmdCancelledMessage ? "cancelled" : "failed";
 
     private bool CanCancelSteamCmd() => IsSteamCmdBusy && _steamCmdCancel is { IsCancellationRequested: false };
 
@@ -62,10 +94,15 @@ public sealed partial class LocalServerViewModel
 
     /// <summary>0-100 while SteamCMD reports progress.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SteamCmdProgressUnknown))]
     private double _steamCmdProgress;
 
-    /// <summary>The latest meaningful SteamCMD line ("downloading 39.8%").</summary>
+    /// <summary>SteamCMD is busy but hasn't reported a percentage yet (starting, asking Steam): the bar moves without a value.</summary>
+    public bool SteamCmdProgressUnknown => IsSteamCmdBusy && SteamCmdProgress <= 0;
+
+    /// <summary>The latest meaningful SteamCMD line ("downloading 40%").</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SteamCmdTitle))]
     private string? _steamCmdStatus;
 
     /// <summary>Steam has a newer build for the profile's branch, or the profile asks for a different branch than the one installed.</summary>
@@ -188,10 +225,10 @@ public sealed partial class LocalServerViewModel
         StartSteamCmdOutput();
         // The new run's token first: setting IsSteamCmdBusy re-asks whether Cancel can run,
         // which looks at this run's token, not the last (null or already-cancelled) one.
-        var token = BeginSteamCmdRun();
+        var token = BeginSteamCmdRun("Installing SteamCMD", null);
         IsSteamCmdBusy = true;
         SteamCmdProgress = 0;
-        SteamCmdStatus = "Downloading SteamCMD…";
+        SteamCmdStatus = "downloading SteamCMD…";
         try
         {
             await _steamCmd!.InstallOwnCopyAsync(OnSteamCmdLine, token);
@@ -205,16 +242,19 @@ public sealed partial class LocalServerViewModel
             }
 
             StatusMessage = $"SteamCMD installed in {_steamCmd.OwnInstallFolder}.";
+            SteamCmdOutcome = "finished";
             return true;
         }
         catch (OperationCanceledException)
         {
             StatusMessage = SteamCmdCancelledMessage;
+            SteamCmdOutcome = "cancelled";
             return false;
         }
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't install SteamCMD: {ex.Message}";
+            SteamCmdOutcome = "failed";
             return false;
         }
         finally
@@ -330,7 +370,7 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        var result = await RunSteamCmdAsync(token => _steamCmd.InstallOrUpdateAsync(target, "public", OnSteamCmdLine, token));
+        var result = await RunSteamCmdAsync("Installing a new server", null, token => _steamCmd.InstallOrUpdateAsync(target, "public", OnSteamCmdLine, token));
         if (!result.Success)
         {
             StatusMessage = $"Install failed: {result.Message}";
@@ -360,8 +400,8 @@ public sealed partial class LocalServerViewModel
         }
 
         ReadInstalledBuild();
-        SteamCmdStatus = "Asking Steam for the latest build…";
-        var token = BeginSteamCmdRun();
+        SteamCmdStatus = "asking Steam for the latest build…";
+        var token = BeginSteamCmdRun($"Checking '{SelectedProfile?.Name}' for an update", SelectedProfile?.Id);
         IsSteamCmdBusy = true;
         try
         {
@@ -423,7 +463,8 @@ public sealed partial class LocalServerViewModel
         try
         {
             var backup = await TryBackupAsync(profile, "before-update");
-            var result = await RunSteamCmdAsync(token => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, line => OnSteamCmdLineFor(profile.Id, line), token));
+            var result = await RunSteamCmdAsync($"Updating '{profile.Name}'", profile.Id,
+                token => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, line => OnSteamCmdLineFor(profile.Id, line), token));
             if (SelectedProfile?.Id == profile.Id)
             {
                 ReadInstalledBuild();
@@ -436,6 +477,7 @@ public sealed partial class LocalServerViewModel
             StatusMessage = result.Success
                 ? $"Updated '{profile.Name}' ({BuildSummary}).{(backup is null ? "" : " Worlds and settings were backed up first.")}"
                 : $"Update failed: {result.Message}";
+            RecordEventLine(GetWatch(profile), $"{Clock():HH:mm}  {(result.Success ? "Update installed" : "Update failed")}");
             _activityLog.Log(StatusMessage, result.Success ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
         }
         finally
@@ -461,6 +503,9 @@ public sealed partial class LocalServerViewModel
     {
         OnPropertyChanged(nameof(ShowSteamCmdPanel));
         OnPropertyChanged(nameof(IsSteamCmdIdle));
+        OnPropertyChanged(nameof(SteamCmdTitle));
+        OnPropertyChanged(nameof(SteamCmdProgressUnknown));
+        RefreshOverview();
     }
 
     [RelayCommand]
@@ -476,31 +521,38 @@ public sealed partial class LocalServerViewModel
         OnPropertyChanged(nameof(ShowSteamCmdPanel));
     }
 
-    private async Task<SteamCmdResultView> RunSteamCmdAsync(Func<CancellationToken, Task<Services.SteamCmdResult>> run)
+    private async Task<SteamCmdResultView> RunSteamCmdAsync(string action, Guid? profileId, Func<CancellationToken, Task<Services.SteamCmdResult>> run)
     {
         StartSteamCmdOutput();
-        var token = BeginSteamCmdRun();
+        var token = BeginSteamCmdRun(action, profileId);
+        _steamCmdDownloads = true;
         IsSteamCmdBusy = true;
         SteamCmdProgress = 0;
-        SteamCmdStatus = "Starting SteamCMD…";
+        SteamCmdStatus = "starting SteamCMD…";
+        SteamCmdResultView view;
         try
         {
             var result = await run(token);
-            return new SteamCmdResultView(result.Success, result.Message);
+            view = new SteamCmdResultView(result.Success, result.Message);
         }
         catch (OperationCanceledException)
         {
-            return new SteamCmdResultView(false, SteamCmdCancelledMessage);
+            view = new SteamCmdResultView(false, SteamCmdCancelledMessage);
         }
         catch (Exception ex)
         {
-            return new SteamCmdResultView(false, ex.Message);
+            view = new SteamCmdResultView(false, ex.Message);
         }
-        finally
+
+        SteamCmdOutcome = OutcomeOf(view.Success, view.Message);
+        if (view.Success)
         {
-            IsSteamCmdBusy = false;
-            SteamCmdStatus = null;
+            SteamCmdProgress = 100;
         }
+
+        IsSteamCmdBusy = false;
+        SteamCmdStatus = null;
+        return view;
     }
 
     /// <summary>The view scrolls the SteamCMD box to its newest line.</summary>
@@ -519,7 +571,7 @@ public sealed partial class LocalServerViewModel
             if (SteamCmd.ParseProgressPercent(line) is { } pct)
             {
                 SteamCmdProgress = pct;
-                SteamCmdStatus = $"{SteamCmd.ParseProgressPhase(line)} {pct:0.0}%";
+                SteamCmdStatus = $"{SteamCmd.ParseProgressPhase(line)} {pct.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}%";
             }
             else if (SteamCmd.IsErrorLine(line) || line.StartsWith("[Starlink]", StringComparison.Ordinal))
             {

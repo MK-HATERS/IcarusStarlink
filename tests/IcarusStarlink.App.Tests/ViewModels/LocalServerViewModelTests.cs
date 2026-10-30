@@ -53,10 +53,11 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         var processes = new FakeProcesses();
         var dialogs = new FakeDialogs(confirm);
         var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, () => pickExe, startTimer: false, firewall: Firewall,
-            library: library, patchService: patches, patchImporter: importer)
+            library: library, patchService: patches, patchImporter: importer, network: Network)
         {
             StartPollDelay = TimeSpan.Zero,
             RunWorkInline = true,
+            CopyToClipboard = Copied.Add,
         };
         SteamCmd.Chosen = () => Settings.Current.SteamCmdExePath;
         return (vm, store, processes, dialogs);

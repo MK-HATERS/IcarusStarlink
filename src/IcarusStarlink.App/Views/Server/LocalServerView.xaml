@@ -47,7 +47,6 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="SERVERS ON THIS PC" Style="{StaticResource ServerSectionLabelStyle}" Margin="0,0,0,6"/>
             <!-- No sideways scrolling: a long name or path is cut with … and shown in full on hover. -->
@@ -98,39 +97,14 @@
                     </WrapPanel>
                 </StackPanel>
             </StackPanel>
-            <Border Grid.Row="3" Margin="0,10,0,0" Padding="10,8" CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}"
-                    BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
-                    Visibility="{Binding ShowSteamCmdPanel, Converter={StaticResource BoolToVisibilityConverter}}">
-                <StackPanel>
-                    <DockPanel>
-                        <Button DockPanel.Dock="Right" Content="Hide" Command="{Binding DismissSteamCmdOutputCommand}" Padding="6,0" FontSize="11"
-                                Visibility="{Binding IsSteamCmdIdle, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                        <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding CancelSteamCmdCommand}" Padding="6,0" FontSize="11"
-                                Visibility="{Binding IsSteamCmdBusy, Converter={StaticResource BoolToVisibilityConverter}}"
-                                ToolTip="Stops SteamCMD. Run the install or update again later; it carries on from what it already downloaded."/>
-                        <TextBlock Text="STEAMCMD" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center"/>
-                    </DockPanel>
-                    <ProgressBar Value="{Binding SteamCmdProgress}" Maximum="100" Height="6" Margin="0,6,0,6"/>
-                    <TextBlock Text="{Binding SteamCmdStatus}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                    <ListBox x:Name="SteamCmdOutputList" ItemsSource="{Binding SteamCmdOutput}" Height="160" Margin="0,6,0,0"
-                             FontFamily="Consolas" FontSize="10.5" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
-                             ScrollViewer.HorizontalScrollBarVisibility="Auto">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}"/>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </StackPanel>
-            </Border>
         </Grid>
 
-        <TextBlock Grid.Column="2" Margin="0,40,0,0" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                   Visibility="{Binding HasNoProfile, Converter={StaticResource BoolToVisibilityConverter}}"
-                   Text="No servers yet. Click 'Install new server…' to download one with SteamCMD, or 'Add existing server…' and pick the folder that holds IcarusServer.exe. Starlink then edits its ServerSettings.ini, starts and stops it, keeps it updated, manages its mods and backups, and shows its log here."/>
-
-        <Grid Grid.Column="2" Visibility="{Binding HasProfile, Converter={StaticResource BoolToVisibilityConverter}}">
+        <!-- Right: one column whose parts show when they apply. With no server yet (a first
+             install) only the SteamCMD card, the "No servers yet" text and the status line show. -->
+        <Grid Grid.Column="2">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -138,7 +112,8 @@
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0" Padding="14,10" CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}"
-                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                    Visibility="{Binding HasProfile, Converter={StaticResource BoolToVisibilityConverter}}">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Content="Start" Command="{Binding StartCommand}" Style="{StaticResource PrimaryButtonStyle}"
@@ -204,12 +179,52 @@
                 </DockPanel>
             </Border>
 
-            <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
+            <!-- SteamCMD at work (install, update, check): right under the status card so it is
+                 seen, and shown with no server selected too (a first install has none yet). -->
+            <Border Grid.Row="1" Margin="0,8,0,0" Padding="14,10" CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}"
+                    BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" AutomationProperties.Name="SteamCMD progress"
+                    Visibility="{Binding ShowSteamCmdPanel, Converter={StaticResource BoolToVisibilityConverter}}">
+                <StackPanel>
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Hide" Command="{Binding DismissSteamCmdOutputCommand}" Padding="8,1" FontSize="11.5" Margin="8,0,0,0"
+                                Visibility="{Binding IsSteamCmdIdle, Converter={StaticResource BoolToVisibilityConverter}}"
+                                ToolTip="Closes this box. What SteamCMD did is also in the Log tab and the activity log."/>
+                        <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding CancelSteamCmdCommand}" Padding="8,1" FontSize="11.5" Margin="8,0,0,0"
+                                Visibility="{Binding IsSteamCmdBusy, Converter={StaticResource BoolToVisibilityConverter}}"
+                                ToolTip="Stops SteamCMD. Run the install or update again later; it carries on from what it already downloaded."/>
+                        <TextBlock Text="{Binding SteamCmdTitle}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding SteamCmdTitle}"/>
+                    </DockPanel>
+                    <ProgressBar Value="{Binding SteamCmdProgress}" Maximum="100" Height="8" Margin="0,8,0,2"
+                                 IsIndeterminate="{Binding SteamCmdProgressUnknown}" AutomationProperties.Name="SteamCMD progress bar"/>
+                    <Expander IsExpanded="False" Margin="0,6,0,0" AutomationProperties.Name="SteamCMD output">
+                        <Expander.Header>
+                            <TextBlock Text="SteamCMD output" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                        </Expander.Header>
+                        <ListBox x:Name="SteamCmdOutputList" ItemsSource="{Binding SteamCmdOutput}" Height="160" Margin="0,4,0,0"
+                                 FontFamily="Consolas" FontSize="10.5" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Expander>
+                </StackPanel>
+            </Border>
+
+            <TextBlock Grid.Row="2" Margin="0,40,0,0" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                       Visibility="{Binding HasNoProfile, Converter={StaticResource BoolToVisibilityConverter}}"
+                       Text="No servers yet. Click 'Install new server…' to download one with SteamCMD, or 'Add existing server…' and pick the folder that holds IcarusServer.exe. Starlink then edits its ServerSettings.ini, starts and stops it, keeps it updated, manages its mods and backups, and shows its log here."/>
+
+            <TextBlock Grid.Row="3" Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
                        Foreground="{DynamicResource SecondaryForegroundBrush}"
                        Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
             <!-- Live tiles: the selected server at a glance. -->
-            <UniformGrid Grid.Row="2" Rows="1" Columns="6" Margin="0,8,0,0">
+            <UniformGrid Grid.Row="4" Rows="1" Columns="6" Margin="0,8,0,0"
+                         Visibility="{Binding HasProfile, Converter={StaticResource BoolToVisibilityConverter}}">
                 <UniformGrid.Resources>
                     <Style x:Key="TileStyle" TargetType="Border">
                         <Setter Property="Padding" Value="12,8"/>
@@ -278,7 +293,7 @@
                 </Border>
             </UniformGrid>
 
-            <TabControl Grid.Row="3" Margin="0,8,0,0">
+            <TabControl Grid.Row="5" Margin="0,8,0,0" Visibility="{Binding HasProfile, Converter={StaticResource BoolToVisibilityConverter}}">
                 <TabItem Header="Overview">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
                         <Grid Margin="0,0,8,0">
@@ -287,6 +302,10 @@
                                 <ColumnDefinition Width="16"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
                             <Grid.Resources>
                                 <Style x:Key="OptionHintStyle" TargetType="TextBlock">
                                     <Setter Property="FontSize" Value="11.5"/>
@@ -298,7 +317,16 @@
 
                             <!-- Automation: open by default (it's what the Overview is for); the header
                                  says which options are on, so it can be folded away once set. -->
-                            <Expander Grid.Column="0" VerticalAlignment="Top" IsExpanded="True" AutomationProperties.Name="Automation">
+                            <!-- Now: one plain sentence for what the server is doing. -->
+                            <Border Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,12" Padding="12,8" CornerRadius="6"
+                                    Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Text="NOW" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                    <TextBlock Text="{Binding NowLine}" FontSize="13" TextWrapping="Wrap" VerticalAlignment="Center" AutomationProperties.Name="What the server is doing now"/>
+                                </DockPanel>
+                            </Border>
+
+                            <Expander Grid.Row="1" Grid.Column="0" VerticalAlignment="Top" IsExpanded="True" AutomationProperties.Name="Automation">
                                 <Expander.Header>
                                     <DockPanel LastChildFill="True">
                                         <TextBlock DockPanel.Dock="Left" Text="Automation" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
@@ -359,10 +387,47 @@
                             </StackPanel>
                             </Expander>
 
-                            <StackPanel Grid.Column="2">
+                            <StackPanel Grid.Row="1" Grid.Column="2">
                                 <TextBlock Text="{Binding SaveOnExitWarning}" Foreground="{DynamicResource DangerBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,10"
                                            Visibility="{Binding SaveOnExitWarning, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                <TextBlock Text="NEXT UP" Style="{StaticResource ServerSectionLabelStyle}"/>
+
+                                <!-- Connect: the address friends type into Direct Connect in game. The
+                                     public address is only looked up on the button, never on its own. -->
+                                <Expander IsExpanded="True" Margin="0,0,0,12" AutomationProperties.Name="Connect">
+                                    <Expander.Header>
+                                        <DockPanel LastChildFill="True">
+                                            <TextBlock DockPanel.Dock="Left" Text="Connect" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                                            <TextBlock Text="{Binding LanJoinAddress}" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                                        </DockPanel>
+                                    </Expander.Header>
+                                    <StackPanel>
+                                        <TextBlock Text="On your network" FontSize="12" FontWeight="SemiBold"/>
+                                        <DockPanel Margin="0,2,0,8">
+                                            <Button DockPanel.Dock="Right" Content="Copy" Command="{Binding CopyLanAddressCommand}" Padding="8,1" FontSize="11" Margin="6,0,0,0"
+                                                    VerticalAlignment="Center" ToolTip="Copies this address. Friends on your home network type it into Direct Connect in game."/>
+                                            <Button DockPanel.Dock="Right" Content="Look again" Command="{Binding RefreshLanAddressCommand}" Padding="8,1" FontSize="11"
+                                                    VerticalAlignment="Center" ToolTip="Reads this PC's network again (after you plug in a cable or switch Wi-Fi)"/>
+                                            <TextBlock Text="{Binding LanAddressText}" FontSize="13" TextWrapping="Wrap" VerticalAlignment="Center"
+                                                       AutomationProperties.Name="Address on your network"/>
+                                        </DockPanel>
+
+                                        <TextBlock Text="Over the internet" FontSize="12" FontWeight="SemiBold"/>
+                                        <DockPanel Margin="0,2,0,4">
+                                            <Button DockPanel.Dock="Right" Content="Copy" Command="{Binding CopyPublicAddressCommand}" Padding="8,1" FontSize="11" Margin="6,0,0,0"
+                                                    VerticalAlignment="Center" Visibility="{Binding HasPublicAddress, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                    ToolTip="Copies this address. Friends outside your home network type it into Direct Connect in game."/>
+                                            <Button DockPanel.Dock="Right" Content="Show my public IP" Command="{Binding ShowPublicAddressCommand}" Padding="8,1" FontSize="11"
+                                                    VerticalAlignment="Center"
+                                                    ToolTip="Asks api.ipify.org for this PC's address on the internet. Only when you press this; it is not saved."/>
+                                            <TextBlock Text="{Binding PublicJoinAddress}" FontSize="13" VerticalAlignment="Center" AutomationProperties.Name="Address over the internet"/>
+                                        </DockPanel>
+                                        <TextBlock Text="{Binding PublicAddressProblem}" Foreground="{DynamicResource DangerBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,4"
+                                                   Visibility="{Binding PublicAddressProblem, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                        <TextBlock Text="{Binding PortForwardHint}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,4,0,0"/>
+                                    </StackPanel>
+                                </Expander>
+
+                                <TextBlock Text="COMING UP" Style="{StaticResource ServerSectionLabelStyle}"/>
                                 <ItemsControl ItemsSource="{Binding NextUp}" Margin="0,0,0,14">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
@@ -370,6 +435,19 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+
+                                <!-- The newest few of the Log tab's Events list. -->
+                                <StackPanel Margin="0,0,0,14" Visibility="{Binding HasRecentEvents, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="RECENT EVENTS" Style="{StaticResource ServerSectionLabelStyle}"/>
+                                    <ItemsControl ItemsSource="{Binding RecentEvents}" AutomationProperties.Name="Recent events">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,3"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Text="Every event, and the server's own log, are on the Log tab." Style="{StaticResource ServerHintStyle}" Margin="0,2,0,0"/>
+                                </StackPanel>
 
                                 <!-- Firewall: a set-once job, so folded by default; the header says
                                      whether every port gets through, so a problem is still seen. -->

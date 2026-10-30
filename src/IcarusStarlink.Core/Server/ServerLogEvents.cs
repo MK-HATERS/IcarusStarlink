@@ -34,6 +34,9 @@ public sealed partial class ServerLogEvents
 {
     private static readonly TimeSpan TravelGrace = TimeSpan.FromSeconds(60);
 
+    /// <summary>How a ModPakMounted event's text starts (one per mod pak at every start: the Overview's Recent events leave them out).</summary>
+    public const string ModPakMountedText = "Mod pak loaded: ";
+
     private readonly Dictionary<string, string> _namesById = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, OnlinePlayer> _online = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Players whose connection closed at the given time; they stay online until TravelGrace passes without a rejoin (a lobby→prospect move closes and reopens within seconds).</summary>
@@ -150,7 +153,7 @@ public sealed partial class ServerLogEvents
 
         if (MountPattern().Match(line) is { Success: true } mount)
         {
-            return new ServerLogEvent(ServerLogEventKind.ModPakMounted, time, $"Mod pak loaded: {mount.Groups["pak"].Value}");
+            return new ServerLogEvent(ServerLogEventKind.ModPakMounted, time, $"{ModPakMountedText}{mount.Groups["pak"].Value}");
         }
 
         if (ServerLogFilter.IsError(line))

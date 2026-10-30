@@ -79,7 +79,7 @@ public sealed partial class LocalServerViewModelTests
 
         Assert.Empty(processes.Stopped);
         Assert.Empty(SteamCmd.Installs);
-        Assert.Contains(vm.NextUp, l => l.Contains("skipped the update"));
+        Assert.Contains(vm.RecentEvents, l => l.Contains("skipped the update"));
         Assert.Equal(first.Id, vm.SelectedProfile!.Id);
     }
 
