@@ -297,13 +297,18 @@ public static partial class WorldMapCatalog
     [GeneratedRegex("Value=\"([^\"]*)\"")]
     private static partial Regex ValueInKey();
 
+    /// <summary>Tiles per side at most (Olympus has 8): a mod's "_x99999999999" tile is left out, not drawn on a canvas that size.</summary>
+    private const int MaxTilesPerSide = 64;
+
     private static IReadOnlyList<WorldTile> Tiles(JsonNode? list) =>
         [.. (list as JsonArray ?? [])
             .Select(n => AssetPath(n))
             .Where(p => p is not null)
             .Select(p => (Path: p!, Match: TileXY().Match(p!)))
             .Where(t => t.Match.Success)
-            .Select(t => new WorldTile(int.Parse(t.Match.Groups[1].Value), int.Parse(t.Match.Groups[2].Value), t.Path))];
+            .Select(t => (t.Path, X: int.TryParse(t.Match.Groups[1].Value, out var x) ? x : -1, Y: int.TryParse(t.Match.Groups[2].Value, out var y) ? y : -1))
+            .Where(t => t.X is >= 0 and < MaxTilesPerSide && t.Y is >= 0 and < MaxTilesPerSide)
+            .Select(t => new WorldTile(t.X, t.Y, t.Path))];
 
     [GeneratedRegex(@"_x(\d+)_y(\d+)\.uasset$", RegexOptions.IgnoreCase)]
     private static partial Regex TileXY();
@@ -452,7 +457,11 @@ public sealed class WorldTable
 
         try
         {
-            if (JsonNode.Parse(json) is not JsonObject root || root["Rows"] is not JsonArray rows)
+            // A key twice in one object (a mod's hand-edited table) would parse, then throw an
+            // ArgumentException the first time that object is read, far from here; refused here
+            // instead, so the table is left out like any other unreadable one.
+            if (JsonNode.Parse(json, documentOptions: new System.Text.Json.JsonDocumentOptions { AllowDuplicateProperties = false }) is not JsonObject root
+                || root["Rows"] is not JsonArray rows)
             {
                 return (null, null);
             }

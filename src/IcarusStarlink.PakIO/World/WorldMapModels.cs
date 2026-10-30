@@ -80,10 +80,25 @@ public sealed record WorldMapInfo(
     /// <summary>The in-game grid's square, in world units (proven: every "OLY_I7"-style exotic spot id matches it).</summary>
     public const double GridSquare = 50400;
 
-    /// <summary>The grid's squares across and down (16 x 16 on Olympus); 0 without an extent.</summary>
-    public (int Columns, int Rows) GridSize => Extent is { } e
-        ? ((int)Math.Round(e.Width / GridSquare), (int)Math.Round(e.Height / GridSquare))
-        : (0, 0);
+    /// <summary>
+    /// The grid's squares across and down (16 x 16 on Olympus); 0 without an extent, or when it
+    /// wouldn't fit the game's naming (letters A-Z across, up to 99 down): a mod's huge GridBounds
+    /// would otherwise ask the page for billions of grid lines.
+    /// </summary>
+    public (int Columns, int Rows) GridSize
+    {
+        get
+        {
+            if (Extent is not { } e)
+            {
+                return (0, 0);
+            }
+
+            var columns = Math.Round(e.Width / GridSquare);
+            var rows = Math.Round(e.Height / GridSquare);
+            return columns is >= 1 and <= 26 && rows is >= 1 and <= 99 ? ((int)columns, (int)rows) : (0, 0);
+        }
+    }
 
     /// <summary>Where dropships land (D_WorldData DropGroups); empty when the game lists none.</summary>
     public IReadOnlyList<WorldDropSite> DropSites => Drops ?? [];
