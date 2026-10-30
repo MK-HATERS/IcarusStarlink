@@ -77,13 +77,25 @@ public sealed class SteamCmdService(HttpClient httpClient, Core.Settings.ISettin
     public async Task<int?> GetLatestBuildIdAsync(string branch, CancellationToken cancellationToken = default)
     {
         var exe = RequireExe();
-        var output = new StringBuilder();
-        await RunAsync(exe, SteamCmd.BuildAppInfoArguments(), line => output.AppendLine(line), cancellationToken);
-        return SteamCmd.ParseLatestBuildId(output.ToString(), branch);
+
+        // Read from each source whole, not from the de-duplicated lines: app info repeats lines on
+        // purpose ("public" is a depot manifest before it is a branch, two branches can share a
+        // build id), and dropping the repeats lost the branch, so no update was ever found (the
+        // user's report, 2026-10-30: server on build 25621760 while Steam listed 26313077).
+        var stdout = new StringBuilder();
+        var log = new StringBuilder();
+        await RunAsync(exe, SteamCmd.BuildAppInfoArguments(), _ => { }, cancellationToken,
+            (line, fromLog) => (fromLog ? log : stdout).AppendLine(line));
+        return SteamCmd.ParseLatestBuildId(stdout.ToString(), branch) ?? SteamCmd.ParseLatestBuildId(log.ToString(), branch);
     }
 
-    /// <summary>Runs steamcmd.exe hidden; every line (split on \r or \n — progress lines rewrite in place) goes to onLine. One run at a time: SteamCMD locks its own folder.</summary>
-    private async Task<int> RunAsync(string exe, string arguments, Action<string> onLine, CancellationToken cancellationToken)
+    /// <summary>
+    /// Runs steamcmd.exe hidden; every line (split on \r or \n — progress lines rewrite in place) goes to onLine,
+    /// each text once. onRawLine gets every line as it came, with whether it came from the log file.
+    /// One run at a time: SteamCMD locks its own folder.
+    /// </summary>
+    private async Task<int> RunAsync(string exe, string arguments, Action<string> onLine, CancellationToken cancellationToken,
+        Action<string, bool>? onRawLine = null)
     {
         await _oneAtATime.WaitAsync(cancellationToken);
         try
@@ -110,8 +122,9 @@ public sealed class SteamCmdService(HttpClient httpClient, Core.Settings.ISettin
             consoleLog.SeekToEnd();
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var gate = new object();
-            void Forward(string line)
+            void Forward(string line, bool fromLog)
             {
+                onRawLine?.Invoke(line, fromLog);
                 var text = SteamCmd.StripLogTimestamp(line).Trim();
                 if (text.Length == 0)
                 {
@@ -155,7 +168,7 @@ public sealed class SteamCmdService(HttpClient httpClient, Core.Settings.ISettin
                 {
                     foreach (var line in consoleLog.Poll())
                     {
-                        Forward(line);
+                        Forward(line, true);
                     }
 
                     try
@@ -168,8 +181,8 @@ public sealed class SteamCmdService(HttpClient httpClient, Core.Settings.ISettin
                 }
             });
 
-            var stdout = PumpAsync(process.StandardOutput, Forward);
-            var stderr = PumpAsync(process.StandardError, Forward);
+            var stdout = PumpAsync(process.StandardOutput, line => Forward(line, false));
+            var stderr = PumpAsync(process.StandardError, line => Forward(line, false));
             try
             {
                 await process.WaitForExitAsync(cancellationToken);
@@ -181,7 +194,7 @@ public sealed class SteamCmdService(HttpClient httpClient, Core.Settings.ISettin
                 await follow;
                 foreach (var line in consoleLog.Poll())
                 {
-                    Forward(line);
+                    Forward(line, true);
                 }
             }
 
