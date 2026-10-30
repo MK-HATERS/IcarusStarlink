@@ -25,9 +25,15 @@ public sealed record WorldMapItemViewModel(WorldMapInfo Map)
 }
 
 /// <summary>A dropship drop site on the map: placed in the map's 1000 x 1000 square, with its landing spots.</summary>
-public sealed class WorldDropSiteViewModel(WorldDropSite site)
+public sealed partial class WorldDropSiteViewModel(WorldDropSite site) : ObservableObject
 {
     public string Name => site.Name;
+
+    public WorldMapPoint Centre => site.Centre;
+
+    /// <summary>How far (screen pixels) the name is moved down so it doesn't sit on a nearby one.</summary>
+    [ObservableProperty]
+    private double _labelShift;
 
     public string Label => $"{site.Number} · {site.Name}";
 
@@ -179,6 +185,7 @@ public sealed partial class WorldMapViewModel : ObservableObject
         _store = store;
         _settings = settings;
         _dataFolder = dataFolder;
+        RestoreChoices();
     }
 
     public string Title => "Map";
@@ -412,11 +419,13 @@ public sealed partial class WorldMapViewModel : ObservableObject
 
     private void ShowMap(WorldMapItemViewModel? item)
     {
-        // The boxes ticked for the last world stay ticked for the next. First time: creatures only (the
-        // game's fishing zones cover the land too, so together they hide the creature zones).
+        // The boxes ticked for the last world stay ticked for the next; the first world gets what was
+        // ticked last time (first time ever: creatures only, as the game's fishing zones cover the land too
+        // and together they hide the creature zones).
+        var saved = SavedChoices();
         var shown = Layers.Count > 0
             ? Layers.Where(l => l.IsShown).Select(l => l.Kind).ToHashSet()
-            : [WorldLayerKind.Creatures];
+            : new[] { WorldLayerKind.Creatures, WorldLayerKind.Fishing, WorldLayerKind.Biomes }.Where(k => saved.Contains(k.ToString())).ToHashSet();
         foreach (var layer in Layers)
         {
             layer.PropertyChanged -= OnLayerTicked;
@@ -485,7 +494,7 @@ public sealed partial class WorldMapViewModel : ObservableObject
     {
         if (e.PropertyName == nameof(WorldLayerOption.IsShown))
         {
-            ShowLayers();
+            Changed(ShowLayers);
         }
     }
 

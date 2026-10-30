@@ -7,8 +7,16 @@ using IcarusStarlink.PakIO.World;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>A marker on the map for one placed feature: where (in the 1000 x 1000 square), how it looks, what it says.</summary>
-public sealed class WorldFeatureMarkerViewModel(WorldFeature feature, string glyph, Brush fill, double size, string? label, string toolTip)
+public sealed partial class WorldFeatureMarkerViewModel(WorldFeature feature, string glyph, Brush fill, double size, string? label, string toolTip, Brush? glyphBrush = null)
+    : ObservableObject
 {
+    /// <summary>The glyph's colour: white, or dark on a light marker.</summary>
+    public Brush GlyphBrush { get; } = glyphBrush ?? Brushes.White;
+
+    /// <summary>How far (screen pixels) the label is moved down so it doesn't sit on a nearby one.</summary>
+    [ObservableProperty]
+    private double _labelShift;
+
     public WorldFeature Feature { get; } = feature;
 
     public double X => Feature.At.U * WorldMapViewModel.MapUnits;
@@ -29,6 +37,9 @@ public sealed class WorldFeatureMarkerViewModel(WorldFeature feature, string gly
 
     public string ToolTip { get; } = toolTip;
 }
+
+/// <summary>One line of the map's key: a marker as it looks on the map, and what it means.</summary>
+public sealed record WorldLegendItem(string Glyph, Brush Fill, Brush GlyphBrush, string Text);
 
 /// <summary>A grid label: a column letter along the top or a row number down the left.</summary>
 public sealed record WorldGridLabel(string Text, double X, double Y);
@@ -53,7 +64,8 @@ public sealed partial class WorldMapViewModel
     private static readonly Brush OreBrush = Frozen("#C08A4A");
     private static readonly Brush ExoticBrush = Frozen("#E35DD8");
     private static readonly Brush FishBrush = Frozen("#5FA8FF");
-    private static readonly Brush MissionBrush = Frozen("#F2E27A");
+    private static readonly Brush MissionBrush = Frozen("#FFD23F");
+    private static readonly Brush DarkGlyph = Frozen("#17110A");
 
     private static Brush Frozen(string hex)
     {
@@ -68,7 +80,7 @@ public sealed partial class WorldMapViewModel
     public ObservableCollection<WorldFeatureMarkerViewModel> Markers { get; } = [];
 
     [ObservableProperty]
-    private bool _showCaves = true;
+    private bool _showCaves;
 
     [ObservableProperty]
     private bool _showGeysers;
@@ -172,9 +184,9 @@ public sealed partial class WorldMapViewModel
     private void ShowFeatures(WorldMapInfo? map)
     {
         _features = map is null ? WorldFeatures.None : _store.ReadFeatures(map.Id);
-        CaveTier ??= CaveTierOptions[0];
 
-        var keep = MissionCategory?.Key;
+        var keep = _settings.Current.MapMissionCategory ?? MissionCategory?.Key;
+        _listingCategories = true;
         MissionCategories.Clear();
         var missions = _features.Features.Where(f => f.Kind == WorldFeatureKind.MissionSpot).ToList();
         if (missions.Count > 0)
@@ -187,6 +199,7 @@ public sealed partial class WorldMapViewModel
         }
 
         MissionCategory = MissionCategories.FirstOrDefault(c => c.Key == keep) ?? MissionCategories.FirstOrDefault();
+        _listingCategories = false;
 
         foreach (var name in new[]
         {
@@ -204,17 +217,107 @@ public sealed partial class WorldMapViewModel
 
     partial void OnSelectedFeatureChanged(WorldFeatureDetailsViewModel? value) => OnPropertyChanged(nameof(ZoneHint));
 
-    partial void OnShowCavesChanged(bool value) => RebuildMarkers();
-    partial void OnShowGeysersChanged(bool value) => RebuildMarkers();
-    partial void OnShowDensAndBossesChanged(bool value) => RebuildMarkers();
-    partial void OnShowDeepOreChanged(bool value) => RebuildMarkers();
-    partial void OnShowExoticChanged(bool value) => RebuildMarkers();
-    partial void OnShowFishingSpotsChanged(bool value) => RebuildMarkers();
-    partial void OnShowMissionsChanged(bool value) => RebuildMarkers();
-    partial void OnCaveTierChanged(WorldFilterOption? value) => RebuildMarkers();
-    partial void OnMissionCategoryChanged(WorldFilterOption? value) => RebuildMarkers();
-    partial void OnShowWaterChanged(bool value) => DrawWater();
-    partial void OnShowGridChanged(bool value) => DrawGrid(SelectedMap?.Map);
+    partial void OnShowCavesChanged(bool value) => Changed(RebuildMarkers);
+    partial void OnShowGeysersChanged(bool value) => Changed(RebuildMarkers);
+    partial void OnShowDensAndBossesChanged(bool value) => Changed(RebuildMarkers);
+    partial void OnShowDeepOreChanged(bool value) => Changed(RebuildMarkers);
+    partial void OnShowExoticChanged(bool value) => Changed(RebuildMarkers);
+    partial void OnShowFishingSpotsChanged(bool value) => Changed(RebuildMarkers);
+    partial void OnShowMissionsChanged(bool value) => Changed(RebuildMarkers);
+    partial void OnCaveTierChanged(WorldFilterOption? value) => Changed(RebuildMarkers);
+    partial void OnShowWaterChanged(bool value) => Changed(DrawWater);
+    partial void OnShowGridChanged(bool value) => Changed(() => DrawGrid(SelectedMap?.Map));
+
+    partial void OnMissionCategoryChanged(WorldFilterOption? value)
+    {
+        RebuildMarkers();
+        // Only a pick the user made is kept (a world without that kind falls back to "all" without forgetting it).
+        if (!_restoring && !_listingCategories && value is not null)
+        {
+            _settings.Current.MapMissionCategory = value.Key;
+            _settings.Save();
+        }
+    }
+
+    /// <summary>The choices are being put back from settings (or the category list refilled): nothing to save.</summary>
+    private bool _restoring;
+    private bool _listingCategories;
+
+    /// <summary>A box or the cave tier changed: redraw, and remember what's ticked.</summary>
+    private void Changed(Action redraw)
+    {
+        redraw();
+        if (!_restoring)
+        {
+            SaveChoices();
+        }
+    }
+
+    private const string DropSitesKey = "DropSites", GridKey = "Grid", CavesKey = "Caves", GeysersKey = "Geysers", DensKey = "Dens",
+        DeepOreKey = "DeepOre", ExoticKey = "Exotic", WaterKey = "Water", FishingSpotsKey = "FishingSpots", MissionsKey = "Missions";
+
+    /// <summary>What was ticked last time (first time: creature zones, drop sites and caves).</summary>
+    private HashSet<string> SavedChoices() =>
+        _settings.Current.MapShown is { } shown
+            ? new HashSet<string>(shown, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>([nameof(WorldLayerKind.Creatures), DropSitesKey, CavesKey], StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Puts back what was ticked and picked last time.</summary>
+    private void RestoreChoices()
+    {
+        _restoring = true;
+        try
+        {
+            var shown = SavedChoices();
+            ShowDropSites = shown.Contains(DropSitesKey);
+            ShowGrid = shown.Contains(GridKey);
+            ShowCaves = shown.Contains(CavesKey);
+            ShowGeysers = shown.Contains(GeysersKey);
+            ShowDensAndBosses = shown.Contains(DensKey);
+            ShowDeepOre = shown.Contains(DeepOreKey);
+            ShowExotic = shown.Contains(ExoticKey);
+            ShowWater = shown.Contains(WaterKey);
+            ShowFishingSpots = shown.Contains(FishingSpotsKey);
+            ShowMissions = shown.Contains(MissionsKey);
+            CaveTier = CaveTierOptions.FirstOrDefault(o => o.Key == _settings.Current.MapCaveTier) ?? CaveTierOptions[0];
+        }
+        finally
+        {
+            _restoring = false;
+        }
+    }
+
+    /// <summary>Remembers every box (zone layers too) and the cave tier.</summary>
+    private void SaveChoices()
+    {
+        var shown = new List<string>();
+        // Zone layers: the ticked ones of this world; a layer this world doesn't have keeps its last choice.
+        var saved = SavedChoices();
+        foreach (var kind in new[] { WorldLayerKind.Creatures, WorldLayerKind.Fishing, WorldLayerKind.Biomes })
+        {
+            var layer = Layers.FirstOrDefault(l => l.Kind == kind);
+            if (layer?.IsShown ?? saved.Contains(kind.ToString()))
+            {
+                shown.Add(kind.ToString());
+            }
+        }
+
+        foreach (var (key, on) in new[]
+        {
+            (DropSitesKey, ShowDropSites), (GridKey, ShowGrid), (CavesKey, ShowCaves), (GeysersKey, ShowGeysers), (DensKey, ShowDensAndBosses),
+            (DeepOreKey, ShowDeepOre), (ExoticKey, ShowExotic), (WaterKey, ShowWater), (FishingSpotsKey, ShowFishingSpots), (MissionsKey, ShowMissions),
+        })
+        {
+            if (on)
+            {
+                shown.Add(key);
+            }
+        }
+
+        _settings.Current.MapShown = shown;
+        _settings.Current.MapCaveTier = CaveTier?.Key;
+        _settings.Save();
+    }
 
     private void RebuildMarkers()
     {
@@ -238,12 +341,12 @@ public sealed partial class WorldMapViewModel
                 WorldFeatureKind.EnzymeGeyser when ShowGeysers => new WorldFeatureMarkerViewModel(f, "E", EnzymeBrush, 13, null, $"Enzyme geyser{(f.Category is { } c ? $" ({c})" : "")}"),
                 WorldFeatureKind.HuntDen when ShowDensAndBosses => new WorldFeatureMarkerViewModel(f, "D", DenBrush, 18, f.Name, f.Name),
                 WorldFeatureKind.BossSpawn when ShowDensAndBosses => new WorldFeatureMarkerViewModel(f, "W", BossBrush, 13, null, f.Name),
-                WorldFeatureKind.DeepOreSpot when ShowDeepOre => new WorldFeatureMarkerViewModel(f, "", OreBrush, 7, null, f.Name),
+                WorldFeatureKind.DeepOreSpot when ShowDeepOre => new WorldFeatureMarkerViewModel(f, "", OreBrush, 8, null, f.Name),
                 WorldFeatureKind.DeepOreDeposit when ShowDeepOre => new WorldFeatureMarkerViewModel(f, "D", OreBrush, 14, null, f.Name),
                 WorldFeatureKind.ExoticSpot when ShowExotic => new WorldFeatureMarkerViewModel(f, "X", ExoticBrush, 11, null, f.Category is { } k ? $"{f.Name} ({k})" : f.Name),
                 WorldFeatureKind.FishingSpot when ShowFishingSpots => new WorldFeatureMarkerViewModel(f, "F", FishBrush, 12, null, f.Name),
                 WorldFeatureKind.MissionSpot when ShowMissions && (string.IsNullOrEmpty(MissionCategory?.Key) || f.Category == MissionCategory.Key) =>
-                    new WorldFeatureMarkerViewModel(f, "", MissionBrush, 7, null, $"{f.Category}: {f.Name}"),
+                    new WorldFeatureMarkerViewModel(f, "M", MissionBrush, 12, null, $"{f.Category}: {f.Name}", DarkGlyph),
                 _ => null,
             };
 
@@ -251,6 +354,81 @@ public sealed partial class WorldMapViewModel
             {
                 Markers.Add(marker);
             }
+        }
+
+        SpreadAllLabels();
+    }
+
+    /// <summary>The key to the markers on the map now (only what's shown).</summary>
+    public ObservableCollection<WorldLegendItem> Legend { get; } = [];
+
+    private static readonly Brush DropSiteBrush = Frozen("#FF8A3D");
+
+    private void BuildLegend()
+    {
+        Legend.Clear();
+        var shown = Markers.Select(m => m.Feature.Kind).ToHashSet();
+        if (ShowDropSites && DropSites.Count > 0)
+        {
+            Legend.Add(new("▲", DropSiteBrush, DarkGlyph, "Drop site (zoom in for its landing spots)"));
+        }
+
+        if (shown.Contains(WorldFeatureKind.Cave))
+        {
+            Legend.Add(new("1", TierBrushes[0], Brushes.White, "Cave, tier 1: up to 3 cave worms"));
+            Legend.Add(new("2", TierBrushes[1], Brushes.White, "Cave, tier 2: 4-6 cave worms"));
+            Legend.Add(new("3", TierBrushes[2], Brushes.White, "Cave, tier 3: 7 or more cave worms"));
+        }
+
+        void Add(WorldFeatureKind kind, string glyph, Brush fill, string text, Brush? glyphBrush = null)
+        {
+            if (shown.Contains(kind))
+            {
+                Legend.Add(new(glyph, fill, glyphBrush ?? Brushes.White, text));
+            }
+        }
+
+        Add(WorldFeatureKind.BigCave, "B", BigCaveBrush, "Big cave (hand-made, often several entrances)");
+        Add(WorldFeatureKind.OilGeyser, "O", OilBrush, "Oil geyser");
+        Add(WorldFeatureKind.EnzymeGeyser, "E", EnzymeBrush, "Enzyme geyser");
+        Add(WorldFeatureKind.HuntDen, "D", DenBrush, "Great Hunt den");
+        Add(WorldFeatureKind.BossSpawn, "W", BossBrush, "World boss spawn spot");
+        Add(WorldFeatureKind.DeepOreSpot, "", OreBrush, "Possible deep ore spot");
+        Add(WorldFeatureKind.DeepOreDeposit, "D", OreBrush, "Deep ore deposit (always there)");
+        Add(WorldFeatureKind.ExoticSpot, "X", ExoticBrush, "Possible exotic spot");
+        Add(WorldFeatureKind.FishingSpot, "F", FishBrush, "Fishing spot");
+        Add(WorldFeatureKind.MissionSpot, "M", MissionBrush, "Mission spot", DarkGlyph);
+    }
+
+    /// <summary>The shown drop sites' and markers' names, spread so none sits on another.</summary>
+    private void SpreadAllLabels()
+    {
+        BuildLegend();
+        SpreadLabels(
+            (ShowDropSites ? DropSites.Select(d => (d.Centre, (Action<double>)(shift => d.LabelShift = shift))) : [])
+            .Concat(Markers.Where(m => m.Label is not null).Select(m => (m.Feature.At, (Action<double>)(shift => m.LabelShift = shift)))));
+    }
+
+    partial void OnShowDropSitesChanged(bool value) => Changed(SpreadAllLabels);
+
+    /// <summary>
+    /// Moves a label down a line for each label already placed close beside it (the whole map in view: a
+    /// label is about a tenth of the map wide), so two names near each other don't sit on top of each other.
+    /// </summary>
+    internal static void SpreadLabels(IEnumerable<(WorldMapPoint At, Action<double> SetShift)> labelled)
+    {
+        const double LabelWidth = 0.12, LineHeight = 0.02, ShiftPixels = 16;
+        var placed = new List<(WorldMapPoint At, int Line)>();
+        foreach (var (at, setShift) in labelled.OrderBy(l => l.At.V).ThenBy(l => l.At.U))
+        {
+            var line = 0;
+            while (placed.Any(p => p.Line == line && Math.Abs(p.At.U - at.U) < LabelWidth && Math.Abs(p.At.V + p.Line * LineHeight - (at.V + line * LineHeight)) < LineHeight))
+            {
+                line++;
+            }
+
+            placed.Add((at, line));
+            setShift(line * ShiftPixels);
         }
     }
 

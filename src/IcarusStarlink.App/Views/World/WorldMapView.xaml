@@ -210,12 +210,15 @@
                                                 </TransformGroup>
                                             </StackPanel.RenderTransform>
                                             <Grid Width="{Binding Size}" Height="{Binding Size}">
-                                                <Ellipse Fill="{Binding Fill}" Stroke="#E0FFFFFF" StrokeThickness="1"/>
-                                                <TextBlock Text="{Binding Glyph}" FontSize="9" FontWeight="Bold" Foreground="White"
+                                                <Ellipse Fill="{Binding Fill}" Stroke="#E0101418" StrokeThickness="1.2"/>
+                                                <TextBlock Text="{Binding Glyph}" FontSize="9" FontWeight="Bold" Foreground="{Binding GlyphBrush}"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             </Grid>
                                             <Border Margin="4,0,0,0" Padding="4,0" CornerRadius="3" Background="#C0101418" VerticalAlignment="Center"
                                                     Visibility="{Binding Label, Converter={StaticResource NullToVisibilityConverter}}">
+                                                <Border.RenderTransform>
+                                                    <TranslateTransform Y="{Binding LabelShift}"/>
+                                                </Border.RenderTransform>
                                                 <TextBlock Text="{Binding Label}" FontSize="11" Foreground="White"/>
                                             </Border>
                                         </StackPanel>
@@ -282,6 +285,9 @@
                                                 <Path Data="M8 3.5L11.5 11.5L8 9.8L4.5 11.5Z" Fill="#17110A"/>
                                             </Grid>
                                             <Border Margin="4,0,0,0" Padding="4,0" CornerRadius="3" Background="#C0101418" VerticalAlignment="Center">
+                                                <Border.RenderTransform>
+                                                    <TranslateTransform Y="{Binding LabelShift}"/>
+                                                </Border.RenderTransform>
                                                 <TextBlock Text="{Binding Name}" FontSize="11" Foreground="White"/>
                                             </Border>
                                         </StackPanel>
@@ -327,6 +333,25 @@
 
                         <TextBlock Text="{Binding ZoneHint}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                    Visibility="{Binding ZoneHint, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+                        <!-- The key to what's shown, while nothing is clicked. -->
+                        <StackPanel Margin="0,0,0,18" Visibility="{Binding ZoneHint, Converter={StaticResource NullToVisibilityConverter}}">
+                            <ItemsControl ItemsSource="{Binding Legend}" Focusable="False" Margin="0,0,0,10">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                                            <Grid Width="16" Height="16" Margin="0,0,8,0">
+                                                <Ellipse Fill="{Binding Fill}" Stroke="#E0101418" StrokeThickness="1.2"/>
+                                                <TextBlock Text="{Binding Glyph}" FontSize="9" FontWeight="Bold" Foreground="{Binding GlyphBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Grid>
+                                            <TextBlock Text="{Binding Text}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"
+                                                       Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
 
                         <!-- The clicked feature (a cave, a geyser, a spot). -->
                         <StackPanel Visibility="{Binding SelectedFeature, Converter={StaticResource NullToVisibilityConverter}}" Margin="0,0,0,18">

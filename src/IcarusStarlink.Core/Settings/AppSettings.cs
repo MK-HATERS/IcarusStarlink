@@ -22,6 +22,14 @@ public sealed class AppSettings
     /// </summary>
     public bool RedrawMapsDuringGameUpdate { get; set; }
 
+    /// <summary>Map: what was ticked under Show ("Creatures", "Caves", "Grid" …); null = the first-time choice (creature zones, drop sites, caves).</summary>
+    public List<string>? MapShown { get; set; }
+
+    /// <summary>Map: the cave tier filter ("1" all, "2" tier 2 and up, "3" tier 3 only) and the mission kind picked ("" all).</summary>
+    public string? MapCaveTier { get; set; }
+
+    public string? MapMissionCategory { get; set; }
+
     /// <summary>The Database page: which mods the player has already seen there, so mods added (or updated) since show a New tag.</summary>
     public CatalogSeenState CatalogSeen { get; set; } = new();
     public bool PerformanceTrackingEnabled { get; set; }
