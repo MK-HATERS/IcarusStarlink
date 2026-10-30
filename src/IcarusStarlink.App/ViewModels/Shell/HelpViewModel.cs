@@ -136,6 +136,20 @@ public sealed partial class HelpViewModel : ObservableObject
             Pick a file on the left to see its changes on the right. **History** picks an earlier refresh (about a month is kept). **Refresh game data** reads the game again and compares. If you see "No changes tracked yet," you only have one extraction on record; run **Refresh game data** again after the next game update to get a real comparison.
             """),
 
+        new("Map", """
+            # Map
+
+            Every world the game has, drawn from the game's own files: where creatures spawn, which fish bite where, the biomes, and where dropships land.
+
+            - **The map list** has the open world maps (Olympus, Styx, Prometheus, Elysium), then the outposts, then worlds the game has in its files but doesn't offer yet, tagged **In development** (ARK, for one). Under each name it says what the game uses it for: open world, how many missions, or outpost. An unfinished world shows whatever the game has; its picture may be dark or patchy, or missing.
+            - **Creatures**, **Fishing** and **Biomes**: tick any mix to colour those zones on the map. **Drop sites** shows where dropships can land; zoom in to see each site's landing spots.
+            - **Click** the map to see what's there in each ticked layer: the creatures that spawn (their levels and each one's share), the fish that bite (the zone's fish quality and the chance for each fish), and the biome. Hover to see it in short. **Scroll** zooms, **drag** moves, the buttons on the map zoom and show the whole map again.
+            - **Find a creature or fish** lights up every zone that has it.
+            - A zone an installed mod changes says **Changed by your mods**, with the game's own list under it. UE4SS mods that change spawning while the game runs (MkHaters Wildlife, for one) aren't shown: the map is the game plus your installed data mods.
+
+            Starlink draws the maps once and keeps one copy. **Reload** checks the game's files and draws again only the maps that changed, then says what changed ("Olympus: Conifer Hard: Desert Wolf added"). **Rebuild all maps** deletes them all and draws every one again, changed or not (about half a minute). The page tells you when the game's files changed since the maps were made, and **Update everything** after a game update redraws the changed ones by itself.
+            """),
+
         new("UE4SS mods", """
             # UE4SS mods
 
@@ -379,7 +393,7 @@ public sealed partial class HelpViewModel : ObservableObject
 
             Anywhere in the main window:
 
-            - **Ctrl+1** … **Ctrl+9** — go to the menu's pages in order (Database, Downloads, Library, Editor, Merge & Install, Saves, Server, Weekly Changes, Settings); **Ctrl+0** — Help
+            - **Ctrl+1** … **Ctrl+9** — go to the menu's pages in order (Database, Downloads, Library, Editor, Merge & Install, Saves, Server, Map, Weekly Changes); **Ctrl+0** — Help
             - **Ctrl+F** — jump to the page's search or filter box
 
             The **Theme** button at the bottom of the menu changes the colours: each click goes to the next theme (Icarus, Dark, Light, Custom). **Play**, **Mods**, **UE4SS**, **Game** and **Server** at the top right start the game or open those folders. After a click, Play says **Starting…** until Icarus opens (clicking again does nothing, so the game is never started twice; after 2 minutes with no game it says Play again). While Icarus runs it shows a green dot and **Running**, and a click brings the game's window to the front.

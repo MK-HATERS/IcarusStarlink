@@ -24,10 +24,40 @@ public sealed record WorldMapItemViewModel(WorldMapInfo Map)
     public override string ToString() => $"{Name}, {KindText}{(InDevelopment ? ", in development" : "")}";
 }
 
-/// <summary>A layer the map can show (Creatures, Fishing, Biomes).</summary>
-public sealed record WorldLayerOption(WorldLayerKind Kind)
+/// <summary>A dropship drop site on the map: placed in the map's 1000 x 1000 square, with its landing spots.</summary>
+public sealed class WorldDropSiteViewModel(WorldDropSite site)
 {
-    public string Title => Kind switch
+    public string Name => site.Name;
+
+    public string Label => $"{site.Number} · {site.Name}";
+
+    public double X => site.Centre.U * WorldMapViewModel.MapUnits;
+
+    public double Y => site.Centre.V * WorldMapViewModel.MapUnits;
+
+    public IReadOnlyList<Point> Spots { get; } = [.. site.Spots.Select(s => new Point(s.U * WorldMapViewModel.MapUnits, s.V * WorldMapViewModel.MapUnits))];
+
+    public string ToolTip => $"Drop site {site.Number}: {site.Name}. {site.Spots.Count} landing spots (zoom in to see them).";
+}
+
+/// <summary>A layer the map can show (Creatures, Fishing, Biomes), ticked on or off.</summary>
+public sealed partial class WorldLayerOption(WorldLayerKind kind, bool shown) : ObservableObject
+{
+    public WorldLayerKind Kind { get; } = kind;
+
+    [ObservableProperty]
+    private bool _isShown = shown;
+
+    public string Title => TitleOf(Kind);
+
+    public string ToolTip => Kind switch
+    {
+        WorldLayerKind.Creatures => "Where each kind of creature spawns.",
+        WorldLayerKind.Fishing => "Which fish bite in each stretch of water.",
+        _ => "The map's biomes.",
+    };
+
+    public static string TitleOf(WorldLayerKind kind) => kind switch
     {
         WorldLayerKind.Creatures => "Creatures",
         WorldLayerKind.Fishing => "Fishing",
@@ -50,6 +80,7 @@ public sealed class WorldZoneViewModel
     {
         Name = zone.Name;
         RowName = zone.Row;
+        LayerTitle = kind == WorldLayerKind.Biomes ? "Biome" : WorldLayerOption.TitleOf(kind);
         Color = new SolidColorBrush(System.Windows.Media.Color.FromRgb((byte)(color >> 16), (byte)(color >> 8), (byte)color));
         Color.Freeze();
         Rows = Shares(zone.Entries);
@@ -74,6 +105,9 @@ public sealed class WorldZoneViewModel
     public string Name { get; }
 
     public string RowName { get; }
+
+    /// <summary>Which layer it's from ("Creatures", "Fishing", "Biome").</summary>
+    public string LayerTitle { get; }
 
     public SolidColorBrush Color { get; }
 
@@ -111,12 +145,33 @@ public sealed partial class WorldMapViewModel : ObservableObject
     /// <summary>How see-through the zones are over the map (0-255).</summary>
     private const byte ZoneAlpha = 0x60;
 
+    /// <summary>The map's size in the view (a square this many units across); markers are placed in it.</summary>
+    public const double MapUnits = 1000;
+
+    /// <summary>The picked world's dropship drop sites.</summary>
+    public ObservableCollection<WorldDropSiteViewModel> DropSites { get; } = [];
+
+    /// <summary>Whether the drop sites are drawn on the map.</summary>
+    [ObservableProperty]
+    private bool _showDropSites = true;
+
+    /// <summary>"29 drop sites"; null when the world has none.</summary>
+    public string? DropSitesText => DropSites.Count switch
+    {
+        0 => null,
+        1 => "1 drop site",
+        var n => $"{n} drop sites",
+    };
+
     private readonly WorldMapStore _store;
     private readonly ISettingsService _settings;
     private readonly string _dataFolder;
-    private WorldLayerPixels? _layerPixels;
-    private uint? _hoverColor;
-    private uint? _selectedColor;
+    /// <summary>The picked world's zone images and zones, by layer (those the game has).</summary>
+    private readonly Dictionary<WorldLayerKind, (WorldLayerPixels Pixels, IReadOnlyDictionary<uint, WorldZone> Zones)> _layers = [];
+
+    /// <summary>The zone colour under the mouse / at the clicked spot, per shown layer.</summary>
+    private Dictionary<WorldLayerKind, uint> _hoverColors = [];
+    private Dictionary<WorldLayerKind, uint> _selectedColors = [];
     private bool _loadedOnce;
 
     public WorldMapViewModel(WorldMapStore store, ISettingsService settings, string dataFolder)
@@ -136,9 +191,6 @@ public sealed partial class WorldMapViewModel : ObservableObject
     private WorldMapItemViewModel? _selectedMap;
 
     [ObservableProperty]
-    private WorldLayerOption? _selectedLayer;
-
-    [ObservableProperty]
     private ImageSource? _picture;
 
     [ObservableProperty]
@@ -148,16 +200,19 @@ public sealed partial class WorldMapViewModel : ObservableObject
     private ImageSource? _highlightImage;
 
     [ObservableProperty]
-    private bool _showZones = true;
-
-    [ObservableProperty]
     private string _searchText = "";
 
     [ObservableProperty]
     private string? _searchResult;
 
-    [ObservableProperty]
-    private WorldZoneViewModel? _selectedZone;
+    /// <summary>What's at the clicked spot: one entry per shown layer that has a zone there.</summary>
+    public ObservableCollection<WorldZoneViewModel> SelectedZones { get; } = [];
+
+    /// <summary>Something was clicked and found.</summary>
+    public bool HasSelection => SelectedZones.Count > 0;
+
+    /// <summary>The Drop sites box's tooltip.</summary>
+    public string DropSitesToolTip => $"Where dropships can land: {DropSitesText}, from the game's own list. Zoom in to see each site's landing spots.";
 
     [ObservableProperty]
     private string? _hoverText;
@@ -176,17 +231,14 @@ public sealed partial class WorldMapViewModel : ObservableObject
     [ObservableProperty]
     private string? _mapNote;
 
-    /// <summary>What the side panel says before a zone is picked.</summary>
-    /// <remarks>Null without a layer: the map's note already says it has no zones.</remarks>
-    public string? ZoneHint => SelectedLayer?.Kind switch
-    {
-        WorldLayerKind.Fishing => "Click water on the map to see which fish bite there.",
-        WorldLayerKind.Biomes => "Click the map to see which biome it is.",
-        WorldLayerKind.Creatures => "Click a zone on the map to see which creatures spawn there.",
-        _ => null,
-    };
+    /// <summary>What the side panel says before anything is clicked; null when the map has no zones (its note says so).</summary>
+    public string? ZoneHint => !HasLayers || HasSelection
+        ? null
+        : Layers.Any(l => l.IsShown)
+            ? "Click the map to see what's there: the creatures that spawn, the fish that bite and the biome, for each ticked layer."
+            : "Tick Creatures, Fishing or Biomes above to see the zones.";
 
-    /// <summary>The map has zones to show (the layer picker and search are shown only then).</summary>
+    /// <summary>The map has zones to show (the layer boxes and search are shown only then).</summary>
     public bool HasLayers => Layers.Count > 0;
 
     /// <summary>The page was opened: the first time the maps are listed (and made if they never were); every time, the game's files are checked for changes.</summary>
@@ -355,14 +407,30 @@ public sealed partial class WorldMapViewModel : ObservableObject
 
     private void ShowMap(WorldMapItemViewModel? item)
     {
-        var keepLayer = SelectedLayer?.Kind;
+        // The boxes ticked for the last world stay ticked for the next. First time: creatures only (the
+        // game's fishing zones cover the land too, so together they hide the creature zones).
+        var shown = Layers.Count > 0
+            ? Layers.Where(l => l.IsShown).Select(l => l.Kind).ToHashSet()
+            : [WorldLayerKind.Creatures];
+        foreach (var layer in Layers)
+        {
+            layer.PropertyChanged -= OnLayerTicked;
+        }
+
         Layers.Clear();
+        _layers.Clear();
         Picture = null;
-        SelectedZone = null;
+        DropSites.Clear();
+        foreach (var site in item?.Map.DropSites ?? [])
+        {
+            DropSites.Add(new WorldDropSiteViewModel(site));
+        }
+
+        OnPropertyChanged(nameof(DropSitesText));
         if (item is null)
         {
             MapNote = null;
-            SelectedLayer = null;
+            ShowLayers();
             return;
         }
 
@@ -370,9 +438,12 @@ public sealed partial class WorldMapViewModel : ObservableObject
         Picture = LoadImage(_store.PicturePath(map.Id));
         foreach (var kind in new[] { WorldLayerKind.Creatures, WorldLayerKind.Fishing, WorldLayerKind.Biomes })
         {
-            if (map.Layer(kind) is not null && File.Exists(_store.LayerPath(map.Id, kind)))
+            if (map.Layer(kind) is { } layer && _store.ReadLayer(map.Id, kind) is { } pixels)
             {
-                Layers.Add(new WorldLayerOption(kind));
+                _layers[kind] = (pixels, layer.ZonesByColor);
+                var option = new WorldLayerOption(kind, shown.Contains(kind));
+                option.PropertyChanged += OnLayerTicked;
+                Layers.Add(option);
             }
         }
 
@@ -399,134 +470,200 @@ public sealed partial class WorldMapViewModel : ObservableObject
 
         MapNote = notes.Count > 0 ? string.Join(" ", notes) : null;
         OnPropertyChanged(nameof(HasLayers));
-        SelectedLayer = Layers.FirstOrDefault(l => l.Kind == keepLayer) ?? Layers.FirstOrDefault();
-        if (SelectedLayer is null)
+        ShowLayers();
+    }
+
+    private void OnLayerTicked(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(WorldLayerOption.IsShown))
         {
-            ShowLayer();
+            ShowLayers();
         }
     }
 
-    partial void OnSelectedLayerChanged(WorldLayerOption? value) => ShowLayer();
-
-    private void ShowLayer()
+    /// <summary>Draws the ticked layers again and forgets the click and hover (they were for other layers).</summary>
+    private void ShowLayers()
     {
+        SelectedZones.Clear();
+        OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(ZoneHint));
-        SelectedZone = null;
-        _selectedColor = _hoverColor = null;
+        _selectedColors = [];
+        _hoverColors = [];
         HoverText = null;
-        _layerPixels = SelectedMap is { } map && SelectedLayer is { } layer ? _store.ReadLayer(map.Map.Id, layer.Kind) : null;
-        ZonesImage = _layerPixels is not null ? DrawZones(_layerPixels, CurrentZones()) : null;
+        ZonesImage = DrawZones();
         UpdateHighlight();
     }
 
     partial void OnSearchTextChanged(string value) => UpdateHighlight();
 
-    /// <summary>The current layer's zones by colour; empty when there's no layer.</summary>
-    private IReadOnlyDictionary<uint, WorldZone> CurrentZones() =>
-        SelectedMap?.Map.Layer(SelectedLayer?.Kind ?? WorldLayerKind.Creatures) is { } layer && SelectedLayer is not null
-            ? layer.ZonesByColor
-            : new Dictionary<uint, WorldZone>();
+    /// <summary>The ticked layers, bottom first: biomes under creatures under fishing (fish zones are only on water).</summary>
+    private IEnumerable<(WorldLayerKind Kind, WorldLayerPixels Pixels, IReadOnlyDictionary<uint, WorldZone> Zones)> ShownLayers() =>
+        Layers.Where(l => l.IsShown)
+            .OrderBy(l => l.Kind switch { WorldLayerKind.Biomes => 0, WorldLayerKind.Creatures => 1, _ => 2 })
+            .Where(l => _layers.ContainsKey(l.Kind))
+            .Select(l => (l.Kind, _layers[l.Kind].Pixels, _layers[l.Kind].Zones));
 
-    /// <summary>The zone at a point of the map (0-1 from its left and top), or null.</summary>
-    private (uint Color, WorldZone Zone)? ZoneAt(double x, double y)
+    /// <summary>A layer's pixel colour at a point of the map (0-1 from its left and top).</summary>
+    private static uint ColorAt(WorldLayerPixels pixels, double x, double y) =>
+        pixels.Pixels[Math.Min(pixels.Size - 1, (int)(y * pixels.Size)) * pixels.Size + Math.Min(pixels.Size - 1, (int)(x * pixels.Size))];
+
+    /// <summary>The zone in each ticked layer at a point of the map (0-1), top layer first.</summary>
+    private List<(WorldLayerKind Kind, uint Color, WorldZone Zone)> ZonesAt(double x, double y)
     {
-        if (_layerPixels is not { } layer || x is < 0 or >= 1 || y is < 0 or >= 1)
+        var hits = new List<(WorldLayerKind, uint, WorldZone)>();
+        if (x is < 0 or >= 1 || y is < 0 or >= 1)
         {
-            return null;
+            return hits;
         }
 
-        var color = layer.Pixels[(int)(y * layer.Size) * layer.Size + (int)(x * layer.Size)];
-        return CurrentZones().TryGetValue(color, out var zone) ? (color, zone) : null;
+        foreach (var (kind, pixels, zones) in ShownLayers().Reverse())
+        {
+            var color = ColorAt(pixels, x, y);
+            if (zones.TryGetValue(color, out var zone))
+            {
+                hits.Add((kind, color, zone));
+            }
+        }
+
+        return hits;
     }
 
     /// <summary>The mouse is over this point of the map (0-1); null when it left the map.</summary>
     public void HoverAt(double? x, double? y)
     {
-        var hit = x is { } hx && y is { } hy ? ZoneAt(hx, hy) : null;
-        HoverText = hit is { } h ? HoverLine(h.Zone) : null;
-        if (hit?.Color != _hoverColor)
+        var hits = x is { } hx && y is { } hy ? ZonesAt(hx, hy) : [];
+        HoverText = hits.Count == 0 ? null : string.Join("  ·  ", hits.Select(h => HoverLine(h.Kind, h.Zone)));
+        var colors = hits.ToDictionary(h => h.Kind, h => h.Color);
+        if (!colors.OrderBy(kv => kv.Key).SequenceEqual(_hoverColors.OrderBy(kv => kv.Key)))
         {
-            _hoverColor = hit?.Color;
+            _hoverColors = colors;
             UpdateHighlight();
         }
     }
 
-    /// <summary>A click on the map (0-1): picks the zone there, or clears the pick off the zones.</summary>
+    /// <summary>A click on the map (0-1): what's there in each ticked layer, or nothing off the zones.</summary>
     public void SelectAt(double x, double y)
     {
-        var hit = ZoneAt(x, y);
-        _selectedColor = hit?.Color;
-        SelectedZone = hit is { } h && SelectedLayer is { } layer ? new WorldZoneViewModel(h.Zone, layer.Kind, h.Color) : null;
+        var hits = ZonesAt(x, y);
+        _selectedColors = hits.ToDictionary(h => h.Kind, h => h.Color);
+        SelectedZones.Clear();
+        foreach (var (kind, color, zone) in hits)
+        {
+            SelectedZones.Add(new WorldZoneViewModel(zone, kind, color));
+        }
+
+        OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(ZoneHint));
         UpdateHighlight();
     }
 
-    private static string HoverLine(WorldZone zone)
+    private static string HoverLine(WorldLayerKind kind, WorldZone zone)
     {
+        if (kind == WorldLayerKind.Biomes)
+        {
+            return zone.Name;
+        }
+
         var names = WorldZoneViewModel.Shares(zone.Entries).Select(r => r.Name).Take(3).ToList();
-        return names.Count == 0 ? zone.Name : $"{zone.Name}: {string.Join(", ", names)}{(zone.Entries.Count > 3 ? "…" : "")}";
+        return names.Count == 0 ? zone.Name : $"{zone.Name}: {string.Join(", ", names)}{(names.Count < zone.Entries.Select(e => e.Name).Distinct().Count() ? "…" : "")}";
     }
 
-    /// <summary>Lights up the picked zone, the one under the mouse, and every zone the search finds.</summary>
+    /// <summary>Lights up the clicked zones, those under the mouse, and every zone the search finds, in the ticked layers.</summary>
     private void UpdateHighlight()
     {
-        var zones = CurrentZones();
         var query = SearchText.Trim();
-        var found = query.Length == 0
+        var layers = ShownLayers().ToList();
+        var found = layers.ToDictionary(l => l.Kind, l => query.Length == 0
             ? []
-            : zones.Where(kv => kv.Value.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+            : l.Zones.Where(kv => kv.Value.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
                     || kv.Value.Entries.Any(e => e.Name.Contains(query, StringComparison.OrdinalIgnoreCase)))
-                .Select(kv => kv.Key).ToHashSet();
+                .Select(kv => kv.Key).ToHashSet());
+        var foundCount = found.Values.Sum(f => f.Count);
         SearchResult = query.Length == 0
             ? null
-            : found.Count == 0 ? $"No zone here has \"{query}\"." : found.Count == 1 ? "Found in 1 zone." : $"Found in {found.Count} zones.";
+            : foundCount == 0 ? $"No ticked layer has \"{query}\"." : foundCount == 1 ? "Found in 1 zone." : $"Found in {foundCount} zones.";
 
-        if (_layerPixels is not { } layer || (found.Count == 0 && _selectedColor is null && _hoverColor is null))
+        if (layers.Count == 0 || (foundCount == 0 && _selectedColors.Count == 0 && _hoverColors.Count == 0))
         {
             HighlightImage = null;
             return;
         }
 
-        var size = layer.Size;
+        var size = layers.Max(l => l.Pixels.Size);
         var pixels = new uint[size * size];
-        var selected = _selectedColor;
-        var hover = _hoverColor;
-        for (var i = 0; i < pixels.Length; i++)
+        foreach (var (kind, layer, _) in layers)
         {
-            var color = layer.Pixels[i];
-            // Premultiplied BGRA: the accent orange, stronger for the picked zone.
-            if (color == selected)
+            var selected = _selectedColors.TryGetValue(kind, out var s) ? s : (uint?)null;
+            var hover = _hoverColors.TryGetValue(kind, out var h) ? h : (uint?)null;
+            var hits = found[kind];
+            if (selected is null && hover is null && hits.Count == 0)
             {
-                pixels[i] = 0xB0B05F2A;
+                continue;
             }
-            else if (color == hover)
+
+            for (var y = 0; y < size; y++)
             {
-                pixels[i] = 0x70703C1B;
-            }
-            else if (found.Contains(color))
-            {
-                pixels[i] = 0x90907040;
+                var row = y * layer.Size / size * layer.Size;
+                for (var x = 0; x < size; x++)
+                {
+                    var color = layer.Pixels[row + x * layer.Size / size];
+                    // Premultiplied BGRA: the accent orange, stronger for the clicked zone.
+                    if (color == selected)
+                    {
+                        pixels[y * size + x] = 0xB0B05F2A;
+                    }
+                    else if (color == hover && pixels[y * size + x] == 0)
+                    {
+                        pixels[y * size + x] = 0x70703C1B;
+                    }
+                    else if (hits.Contains(color) && pixels[y * size + x] == 0)
+                    {
+                        pixels[y * size + x] = 0x90907040;
+                    }
+                }
             }
         }
 
         HighlightImage = ToBitmap(pixels, size);
     }
 
-    /// <summary>The zones in the game's own colours, see-through; anything not in a zone stays clear.</summary>
-    private static ImageSource DrawZones(WorldLayerPixels layer, IReadOnlyDictionary<uint, WorldZone> zones)
+    /// <summary>The ticked layers' zones in the game's own colours, see-through, one over another; anything not in a zone stays clear.</summary>
+    private ImageSource? DrawZones()
     {
-        var pixels = new uint[layer.Pixels.Length];
-        for (var i = 0; i < pixels.Length; i++)
+        var layers = ShownLayers().ToList();
+        if (layers.Count == 0)
         {
-            var color = layer.Pixels[i];
-            if (zones.ContainsKey(color))
+            return null;
+        }
+
+        var size = layers.Max(l => l.Pixels.Size);
+        var pixels = new uint[size * size];
+        foreach (var (kind, layer, zones) in layers)
+        {
+            // Biomes cover everything: fainter, so the zones over them still read.
+            var alpha = kind == WorldLayerKind.Biomes ? (uint)0x40 : ZoneAlpha;
+            for (var y = 0; y < size; y++)
             {
-                // Premultiplied BGRA.
-                uint r = (color >> 16 & 0xFF) * ZoneAlpha / 255, g = (color >> 8 & 0xFF) * ZoneAlpha / 255, b = (color & 0xFF) * ZoneAlpha / 255;
-                pixels[i] = (uint)ZoneAlpha << 24 | r << 16 | g << 8 | b;
+                var row = y * layer.Size / size * layer.Size;
+                for (var x = 0; x < size; x++)
+                {
+                    var color = layer.Pixels[row + x * layer.Size / size];
+                    if (!zones.ContainsKey(color))
+                    {
+                        continue;
+                    }
+
+                    // Premultiplied "over": this layer's colour on top of what's below.
+                    var below = pixels[y * size + x];
+                    var keep = 255 - alpha;
+                    uint Channel(int shift) => ((color >> shift & 0xFF) * alpha + (below >> shift & 0xFF) * keep) / 255;
+                    var a = alpha + (below >> 24) * keep / 255;
+                    pixels[y * size + x] = a << 24 | Channel(16) << 16 | Channel(8) << 8 | Channel(0);
+                }
             }
         }
 
-        return ToBitmap(pixels, layer.Size);
+        return ToBitmap(pixels, size);
     }
 
     private static BitmapSource ToBitmap(uint[] pixels, int size)

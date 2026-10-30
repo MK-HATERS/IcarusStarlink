@@ -5,6 +5,11 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d">
 
+    <UserControl.Resources>
+        <!-- 1 / the map's zoom (set as it zooms): markers keep their size on screen. -->
+        <ScaleTransform x:Key="MarkerScale" x:Shared="True"/>
+    </UserControl.Resources>
+
     <Grid Margin="32">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -50,18 +55,27 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
-            <ComboBox DockPanel.Dock="Left" ItemsSource="{Binding Layers}" SelectedItem="{Binding SelectedLayer}" MinWidth="120" Margin="8,0,0,0"
-                      Visibility="{Binding HasLayers, Converter={StaticResource BoolToVisibilityConverter}}"
-                      VerticalAlignment="Center" DisplayMemberPath="Title" AutomationProperties.Name="What the map shows"
-                      ToolTip="Creatures: where each kind spawns. Fishing: which fish bite in each stretch of water. Biomes: the map's biomes."/>
             <Grid DockPanel.Dock="Left" Margin="8,0,0,0" Width="220" VerticalAlignment="Center">
                 <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Find a creature, fish or zone"
                          ToolTip="Lights up every zone with this creature or fish in it."/>
                 <TextBlock Text="Find a creature or fish…" Style="{StaticResource PlaceholderTextStyle}"
                            Visibility="{Binding SearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
             </Grid>
-            <CheckBox DockPanel.Dock="Left" Content="Show zones" IsChecked="{Binding ShowZones}" Margin="12,0,0,0" VerticalAlignment="Center"
-                      ToolTip="Off: only the map picture. The zone you picked and search results still light up."/>
+            <!-- What the map shows: tick any mix. -->
+            <ItemsControl DockPanel.Dock="Left" ItemsSource="{Binding Layers}" Margin="4,0,0,0" VerticalAlignment="Center" Focusable="False"
+                          Visibility="{Binding HasLayers, Converter={StaticResource BoolToVisibilityConverter}}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <CheckBox Content="{Binding Title}" IsChecked="{Binding IsShown}" ToolTip="{Binding ToolTip}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <CheckBox DockPanel.Dock="Left" Content="Drop sites" IsChecked="{Binding ShowDropSites}" Margin="8,0,0,0" VerticalAlignment="Center"
+                      Visibility="{Binding DropSitesText, Converter={StaticResource NullToVisibilityConverter}}"
+                      ToolTip="{Binding DropSitesToolTip}"/>
             <Button DockPanel.Dock="Right" Command="{Binding RebuildAllCommand}" Margin="8,0,0,0" VerticalAlignment="Center"
                     Content="Rebuild all maps" AutomationProperties.Name="Rebuild all maps"
                     ToolTip="Deletes every map Starlink made and draws them all again from the game's files, even if nothing changed. Takes about half a minute."/>
@@ -117,9 +131,74 @@
                                 </TransformGroup>
                             </Grid.RenderTransform>
                             <Image Source="{Binding Picture}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
-                            <Image Source="{Binding ZonesImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor"
-                                   Visibility="{Binding ShowZones, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            <Image Source="{Binding ZonesImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
                             <Image Source="{Binding HighlightImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+
+                            <!-- Drop sites. Each marker is scaled by MarkerScale (1 / the map's zoom) around its own
+                                 point, so it stays the same size on screen. The landing spots show once zoomed in. -->
+                            <ItemsControl x:Name="LandingSpots" ItemsSource="{Binding DropSites}" Visibility="Collapsed" IsHitTestVisible="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><Canvas/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <ItemsControl ItemsSource="{Binding Spots}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><Canvas/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemContainerStyle>
+                                                <Style TargetType="ContentPresenter">
+                                                    <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                                    <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                                </Style>
+                                            </ItemsControl.ItemContainerStyle>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Ellipse Width="7" Height="7" Fill="White" Stroke="#17110A" StrokeThickness="1">
+                                                        <Ellipse.RenderTransform>
+                                                            <TransformGroup>
+                                                                <TranslateTransform X="-3.5" Y="-3.5"/>
+                                                                <StaticResource ResourceKey="MarkerScale"/>
+                                                            </TransformGroup>
+                                                        </Ellipse.RenderTransform>
+                                                    </Ellipse>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <ItemsControl ItemsSource="{Binding DropSites}"
+                                          Visibility="{Binding ShowDropSites, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><Canvas/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="ContentPresenter">
+                                        <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                        <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" ToolTip="{Binding ToolTip}" AutomationProperties.Name="{Binding ToolTip}">
+                                            <StackPanel.RenderTransform>
+                                                <TransformGroup>
+                                                    <TranslateTransform X="-8" Y="-8"/>
+                                                    <StaticResource ResourceKey="MarkerScale"/>
+                                                </TransformGroup>
+                                            </StackPanel.RenderTransform>
+                                            <Grid Width="16" Height="16">
+                                                <Ellipse Fill="{DynamicResource AccentBrush}" Stroke="#17110A" StrokeThickness="1.5"/>
+                                                <Path Data="M8 3.5L11.5 11.5L8 9.8L4.5 11.5Z" Fill="#17110A"/>
+                                            </Grid>
+                                            <Border Margin="4,0,0,0" Padding="4,0" CornerRadius="3" Background="#C0101418" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}" FontSize="11" Foreground="White"/>
+                                            </Border>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </Grid>
                     </Canvas>
 
@@ -158,25 +237,30 @@
                                    Visibility="{Binding MapNote, Converter={StaticResource NullToVisibilityConverter}}"/>
 
                         <TextBlock Text="{Binding ZoneHint}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                   Visibility="{Binding SelectedZone, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                   Visibility="{Binding ZoneHint, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-                        <StackPanel Visibility="{Binding SelectedZone, Converter={StaticResource NullToVisibilityConverter}}">
+                        <!-- What's at the clicked spot: a section per ticked layer that has a zone there. -->
+                        <ItemsControl ItemsSource="{Binding SelectedZones}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                        <StackPanel Margin="0,0,0,18">
+                            <TextBlock Text="{Binding LayerTitle}" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
                             <StackPanel Orientation="Horizontal">
-                                <Border Width="12" Height="12" CornerRadius="3" Background="{Binding SelectedZone.Color}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBlock Text="{Binding SelectedZone.Name}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <Border Width="12" Height="12" CornerRadius="3" Background="{Binding Color}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
                             </StackPanel>
-                            <TextBlock Text="{Binding SelectedZone.RowName}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}" Margin="20,2,0,0"/>
+                            <TextBlock Text="{Binding RowName}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}" Margin="20,2,0,0"/>
                             <Border Style="{StaticResource BetaTagStyle}" HorizontalAlignment="Left" Margin="0,8,0,0"
                                     BorderBrush="{DynamicResource InfoBrush}" Background="Transparent" TextElement.Foreground="{DynamicResource InfoBrush}"
                                     ToolTip="An installed mod changes this zone: the list below is as installed."
-                                    Visibility="{Binding SelectedZone.ChangedByMods, Converter={StaticResource BoolToVisibilityConverter}, FallbackValue=Collapsed}">
+                                    Visibility="{Binding ChangedByMods, Converter={StaticResource BoolToVisibilityConverter}}">
                                 <TextBlock Text="Changed by your mods"/>
                             </Border>
-                            <TextBlock Text="{Binding SelectedZone.Details}" Margin="0,8,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                       Visibility="{Binding SelectedZone.Details, Converter={StaticResource NullToVisibilityConverter}}"/>
-                            <TextBlock Text="{Binding SelectedZone.ListTitle}" Margin="0,12,0,4" Style="{StaticResource FieldLabelStyle}"
-                                       Visibility="{Binding SelectedZone.ListTitle, Converter={StaticResource NullToVisibilityConverter}}"/>
-                            <ItemsControl ItemsSource="{Binding SelectedZone.Rows}">
+                            <TextBlock Text="{Binding Details}" Margin="0,8,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                       Visibility="{Binding Details, Converter={StaticResource NullToVisibilityConverter}}"/>
+                            <TextBlock Text="{Binding ListTitle}" Margin="0,12,0,4" Style="{StaticResource FieldLabelStyle}"
+                                       Visibility="{Binding ListTitle, Converter={StaticResource NullToVisibilityConverter}}"/>
+                            <ItemsControl ItemsSource="{Binding Rows}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Margin="0,3">
@@ -193,10 +277,13 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                            <TextBlock Text="{Binding SelectedZone.GameText}" TextWrapping="Wrap" Margin="0,12,0,0" FontSize="12"
+                            <TextBlock Text="{Binding GameText}" TextWrapping="Wrap" Margin="0,12,0,0" FontSize="12"
                                        Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                       Visibility="{Binding SelectedZone.GameText, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                       Visibility="{Binding GameText, Converter={StaticResource NullToVisibilityConverter}}"/>
                         </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                 </ScrollViewer>
             </Border>

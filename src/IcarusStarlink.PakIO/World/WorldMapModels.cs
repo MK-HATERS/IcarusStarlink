@@ -30,6 +30,19 @@ public sealed record WorldZone(
 /// <param name="ZonesByColor">Zone by the colour that marks it on the zone image (0xRRGGBB).</param>
 public sealed record WorldLayer(WorldLayerKind Kind, string? HeatmapAssetPath, IReadOnlyDictionary<uint, WorldZone> ZonesByColor);
 
+/// <summary>A point on the map, 0-1 from its left and top.</summary>
+public readonly record struct WorldMapPoint(double U, double V);
+
+/// <summary>
+/// A dropship drop site (D_WorldData DropGroups): its name ("Desert Steps" from "1_DesertSteps"),
+/// its number in the game's list, and the landing spots in it.
+/// </summary>
+public sealed record WorldDropSite(int Number, string Name, IReadOnlyList<WorldMapPoint> Spots)
+{
+    /// <summary>The middle of its landing spots.</summary>
+    public WorldMapPoint Centre => new(Spots.Average(s => s.U), Spots.Average(s => s.V));
+}
+
 /// <summary>One tile of a map's picture: x/y as the game names it (_x3_y5) and its Content-relative asset path.</summary>
 public sealed record WorldTile(int X, int Y, string AssetPath);
 
@@ -44,8 +57,11 @@ public sealed record WorldTile(int X, int Y, string AssetPath);
 public sealed record WorldMapInfo(
     string Id, string Name, bool InDevelopment,
     IReadOnlyList<WorldTile> PictureTiles, IReadOnlyList<WorldTile> HeightTiles, IReadOnlyList<WorldLayer> Layers,
-    bool OpenWorld = false, int Missions = 0, bool Outpost = false)
+    bool OpenWorld = false, int Missions = 0, bool Outpost = false, IReadOnlyList<WorldDropSite>? Drops = null)
 {
+    /// <summary>Where dropships land (D_WorldData DropGroups); empty when the game lists none.</summary>
+    public IReadOnlyList<WorldDropSite> DropSites => Drops ?? [];
+
     public WorldLayer? Layer(WorldLayerKind kind) => Layers.FirstOrDefault(l => l.Kind == kind);
 
     /// <summary>What it's played as: "Open world · 80 missions", "Outpost", "Missions (3)"; empty when no prospect uses it.</summary>

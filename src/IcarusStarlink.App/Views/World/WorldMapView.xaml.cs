@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using IcarusStarlink.App.ViewModels;
 
 namespace IcarusStarlink.App.Views;
@@ -50,6 +51,26 @@ public partial class WorldMapView : UserControl
         {
             Fit();
         }
+        else if (e.PropertyName == nameof(WorldMapViewModel.ShowDropSites))
+        {
+            UpdateMarkers();
+        }
+    }
+
+    /// <summary>The zoom at which each drop site's landing spots show (times the fit).</summary>
+    private const double SpotsFromZoomOfFit = 3;
+
+    /// <summary>Markers keep their size on screen (scaled by 1 / zoom); landing spots show once zoomed in.</summary>
+    private void UpdateMarkers()
+    {
+        if (Resources["MarkerScale"] is ScaleTransform markerScale && MapScale.ScaleX > 0)
+        {
+            markerScale.ScaleX = markerScale.ScaleY = 1 / MapScale.ScaleX;
+        }
+
+        LandingSpots.Visibility = _viewModel?.ShowDropSites == true && MapScale.ScaleX >= _fitScale * SpotsFromZoomOfFit
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void OnViewportSizeChanged(object sender, SizeChangedEventArgs e) => Fit();
@@ -67,6 +88,7 @@ public partial class WorldMapView : UserControl
         MapScale.ScaleX = MapScale.ScaleY = _fitScale;
         MapOffset.X = (width - MapSize * _fitScale) / 2;
         MapOffset.Y = (height - MapSize * _fitScale) / 2;
+        UpdateMarkers();
     }
 
     /// <summary>Zooms by <paramref name="factor"/> keeping the point <paramref name="around"/> (in the viewport) where it is.</summary>
@@ -77,6 +99,7 @@ public partial class WorldMapView : UserControl
         MapOffset.X = around.X - (around.X - MapOffset.X) * factor;
         MapOffset.Y = around.Y - (around.Y - MapOffset.Y) * factor;
         MapScale.ScaleX = MapScale.ScaleY = scale;
+        UpdateMarkers();
     }
 
     private Point Centre => new(MapViewport.ActualWidth / 2, MapViewport.ActualHeight / 2);

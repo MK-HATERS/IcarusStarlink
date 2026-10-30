@@ -83,11 +83,81 @@ public static partial class WorldMapCatalog
 
             var (openWorld, missions, outpost) = prospects.GetValueOrDefault(id);
             maps.Add(new WorldMapInfo(id, name, terrain is null || unreleased || pictureTiles.Count == 0, pictureTiles, heightTiles, layers,
-                openWorld, missions, outpost));
+                openWorld, missions, outpost, DropSites(worlds, world)));
         }
 
         return maps;
     }
+
+    /// <summary>
+    /// D_WorldData DropGroups placed on the map. A world position goes to the map as
+    /// u = (X - left) / width, v = (Y - top) / height, the edges from GridBounds' cells (checked on
+    /// Olympus: every drop site lands in the biome its name says, e.g. 14_SnowBorder on arctic).
+    /// </summary>
+    private static List<WorldDropSite> DropSites(WorldTable worlds, JsonObject world)
+    {
+        if (Extent(worlds.Get(world, "GridBounds")) is not { } extent || worlds.Get(world, "DropGroups") is not JsonObject groups)
+        {
+            return [];
+        }
+
+        var sites = new List<WorldDropSite>();
+        foreach (var (key, value) in groups)
+        {
+            if (value is not JsonObject group || group["Locations"] is not JsonArray locations)
+            {
+                continue;
+            }
+
+            var spots = locations.OfType<JsonObject>()
+                .Select(l => (X: Number(l["X"]), Y: Number(l["Y"])))
+                .Where(l => l.X is not null && l.Y is not null)
+                .Select(l => new WorldMapPoint((l.X!.Value - extent.MinX) / extent.Width, (l.Y!.Value - extent.MinY) / extent.Height))
+                .Where(p => p.U is >= 0 and <= 1 && p.V is >= 0 and <= 1)
+                .ToList();
+            if (spots.Count == 0)
+            {
+                continue;
+            }
+
+            var groupName = group["GroupName"] is JsonValue g && g.TryGetValue<string>(out var s) ? s : key;
+            var number = int.TryParse(key, out var n) ? n : 0;
+            sites.Add(new WorldDropSite(number, DropSiteName(groupName), spots));
+        }
+
+        return [.. sites.OrderBy(s => s.Number)];
+    }
+
+    /// <summary>The map's edges in world units, from its GridBounds cells (each an Origin and a BoxExtent).</summary>
+    private static (double MinX, double MinY, double Width, double Height)? Extent(JsonNode? gridBounds)
+    {
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        foreach (var cell in gridBounds as JsonArray ?? [])
+        {
+            if (cell is JsonObject c && c["Origin"] is JsonObject o && c["BoxExtent"] is JsonObject e
+                && Number(o["X"]) is { } x && Number(o["Y"]) is { } y && Number(e["X"]) is { } ex && Number(e["Y"]) is { } ey)
+            {
+                minX = Math.Min(minX, x - ex);
+                maxX = Math.Max(maxX, x + ex);
+                minY = Math.Min(minY, y - ey);
+                maxY = Math.Max(maxY, y + ey);
+            }
+        }
+
+        return maxX > minX && maxY > minY ? (minX, minY, maxX - minX, maxY - minY) : null;
+    }
+
+    /// <summary>"1_DesertSteps" → "Desert Steps", "25_BW3" → "BW3": the number in front left off, words split.</summary>
+    internal static string DropSiteName(string groupName)
+    {
+        var underscore = groupName.IndexOf('_');
+        var name = underscore > 0 && groupName[..underscore].All(char.IsDigit) ? groupName[(underscore + 1)..] : groupName;
+        return SplitWords().Replace(name, " ").Replace('_', ' ').Trim();
+    }
+
+    /// <summary>A lower-case letter followed by an upper-case one ("DesertSteps").</summary>
+    [GeneratedRegex("(?<=[a-z])(?=[A-Z])")]
+    private static partial Regex SplitWords();
 
     /// <summary>
     /// What each terrain is played as, from D_ProspectList's prospects on it (disabled ones left out):
@@ -254,12 +324,12 @@ public static partial class WorldMapCatalog
     /// <summary>"Deer_Conifer_Large" → "Deer Conifer Large".</summary>
     internal static string Humanize(string row) => row.Replace('_', ' ').Trim();
 
-    /// <summary>"OLY_Conifer_Medium_Crocs" → "Conifer Medium Crocs": the map's own short tag in front is left off.</summary>
+    /// <summary>"OLY_Conifer_Medium_Crocs" → "Conifer Medium Crocs", "OLY_CentralArctic" → "Central Arctic": the map's own short tag in front is left off.</summary>
     internal static string ZoneName(string row)
     {
         var underscore = row.IndexOf('_');
         var tag = underscore > 0 ? row[..underscore] : "";
-        return Humanize(tag.Length is >= 2 and <= 5 && tag.All(char.IsUpper) ? row[(underscore + 1)..] : row);
+        return SplitWords().Replace(Humanize(tag.Length is >= 2 and <= 5 && tag.All(char.IsUpper) ? row[(underscore + 1)..] : row), " ");
     }
 
     private static byte[]? ReadFile(string path)

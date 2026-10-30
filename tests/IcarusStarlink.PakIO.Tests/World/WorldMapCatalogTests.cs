@@ -185,6 +185,36 @@ public sealed class WorldMapCatalogTests
     }
 
     [Fact]
+    public void DropSites_ArePlacedOnTheMap_FromTheGridsEdges()
+    {
+        var game = GameTables();
+        // Two cells side by side: the map spans X -200..200, Y -100..100.
+        game["World/D_WorldData.json"] = Table(null, Row("""
+            {"Name":"Terrain_016",
+             "GridBounds":[{"Origin":{"X":-100,"Y":0},"BoxExtent":{"X":100,"Y":100}},{"Origin":{"X":100,"Y":0},"BoxExtent":{"X":100,"Y":100}}],
+             "DropGroups":{
+               "1":{"GroupName":"1_DesertSteps","Locations":[{"X":-200,"Y":-100},{"X":200,"Y":100}]},
+               "25":{"GroupName":"25_BW3","Locations":[{"X":0,"Y":50}]},
+               "9":{"GroupName":"9_OffTheMap","Locations":[{"X":900,"Y":0}]}}}
+            """));
+
+        var sites = Read(game).Single().DropSites;
+
+        Assert.Equal([1, 25], sites.Select(s => s.Number));
+        Assert.Equal("Desert Steps", sites[0].Name);
+        Assert.Equal([new WorldMapPoint(0, 0), new WorldMapPoint(1, 1)], sites[0].Spots);
+        Assert.Equal(new WorldMapPoint(0.5, 0.5), sites[0].Centre);
+        Assert.Equal(new WorldMapPoint(0.5, 0.75), Assert.Single(sites[1].Spots));
+    }
+
+    [Theory]
+    [InlineData("1_DesertSteps", "Desert Steps")]
+    [InlineData("20_OasisHotdrop", "Oasis Hotdrop")]
+    [InlineData("25_BW3", "BW3")]
+    [InlineData("Stranded", "Stranded")]
+    public void DropSiteNames_AreReadable(string group, string name) => Assert.Equal(name, WorldMapCatalog.DropSiteName(group));
+
+    [Fact]
     public void NoWorldData_NoMaps()
     {
         var game = GameTables();
@@ -198,5 +228,6 @@ public sealed class WorldMapCatalogTests
     [InlineData("STYX_Swamp", "Swamp")]
     [InlineData("Outpost_Forest", "Outpost Forest")]
     [InlineData("Test_Zone", "Test Zone")]
+    [InlineData("OLY_CentralArctic", "Central Arctic")]
     public void ZoneNames_LeaveOffTheMapsShortTag(string row, string name) => Assert.Equal(name, WorldMapCatalog.ZoneName(row));
 }
