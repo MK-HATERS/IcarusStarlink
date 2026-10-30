@@ -215,6 +215,40 @@ public sealed partial class LocalServerViewModelTests
     }
 
     [Fact]
+    public void Save_ServerRewroteIniWithOnlyItsOwnKeys_DirtyForm_SavesWithoutAsking()
+    {
+        // The server rewrites the whole file as it runs: a new LastProspectName and its own number
+        // format ("6" → "6.000000"). None of that is a setting the form edits, so no question.
+        var (vm, _, dialogs) = BuildWithIni();
+        vm.ResumeProspect = false;
+        HandEditIni("MaxPlayers=6.000000\r\nAdminPassword=old\r\nLastProspectName=Test Olympus\r\n");
+
+        vm.SaveSettingsCommand.Execute(null);
+
+        Assert.Empty(dialogs.Messages);
+        var onDisk = IniOnDisk().Read();
+        Assert.False(onDisk.ResumeProspect);
+        Assert.Equal("Test Olympus", onDisk.LastProspectName);
+        Assert.Equal("Test Olympus", vm.LastProspectName);
+    }
+
+    [Fact]
+    public void ResumeProspect_UnsetInTheFile_ShowsOn_AndIsSavedAsTrueOrFalse()
+    {
+        // A blank value fails the game's own import ("import failed for ResumeProspect"), so the
+        // server falls back to resuming while the three-state box looked off.
+        var (vm, _, _) = BuildWithIni();
+        Assert.True(vm.ResumeProspect);
+
+        vm.SaveSettingsCommand.Execute(null);
+        Assert.Equal("True", IniOnDisk().GetRaw("ResumeProspect"));
+
+        vm.ResumeProspect = false;
+        vm.SaveSettingsCommand.Execute(null);
+        Assert.Equal("False", IniOnDisk().GetRaw("ResumeProspect"));
+    }
+
+    [Fact]
     public void Save_IniUnchanged_DirtyForm_SavesWithoutAsking()
     {
         var (vm, _, dialogs) = BuildWithIni();

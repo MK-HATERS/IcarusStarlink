@@ -143,7 +143,8 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Equal("friends", written.JoinPassword);
         Assert.Equal(4, written.MaxPlayers);
         Assert.Equal(-1, written.ShutdownIfEmptyFor);
-        Assert.Null(written.ResumeProspect);
+        // A blank ResumeProspect fails the game's import: unset is written as the game's default.
+        Assert.True(written.ResumeProspect);
         Assert.Equal("Saved.", vm.StatusMessage);
     }
 

@@ -686,8 +686,8 @@
                                     </DockPanel>
                                 </Expander.Header>
                                 <StackPanel>
-                                    <CheckBox Content="Resume the last prospect on start" IsChecked="{Binding ResumeProspect}" IsThreeState="True" Margin="0,0,0,4"
-                                              ToolTip="A dash means: not set, the game's own default applies"/>
+                                    <CheckBox Content="Resume the last prospect on start" IsChecked="{Binding ResumeProspect}" Margin="0,0,0,4"
+                                              ToolTip="On: the server opens the last prospect it ran when it starts. Off: it starts in the lobby (unless 'Load this prospect' is set)."/>
                                     <TextBlock FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="20,0,0,6">
                                         <Run Text="Last prospect: "/><Run Text="{Binding LastProspectName, Mode=OneWay, TargetNullValue='(none yet)'}"/>
                                     </TextBlock>

@@ -184,7 +184,10 @@ public sealed partial class LocalServerViewModel
         CreateProspect = s.CreateProspect ?? "";
         AllowNonAdminsToLaunchProspects = s.AllowNonAdminsToLaunchProspects;
         AllowNonAdminsToDeleteProspects = s.AllowNonAdminsToDeleteProspects;
-        ResumeProspect = s.ResumeProspect;
+        // A plain on/off box: unset means the game's default (on), and a blank value in the file
+        // fails the game's import ("import failed for ResumeProspect") so the box was read as off
+        // while the server still resumed. Shown as on, written as True/False from then on.
+        ResumeProspect = s.ResumeProspect ?? true;
         SaveGameOnExit = s.SaveGameOnExit;
         FiberFoliageRespawn = s.FiberFoliageRespawn;
         LargeStonesRespawn = s.LargeStonesRespawn;
@@ -412,7 +415,7 @@ public sealed partial class LocalServerViewModel
             CreateProspect = Blank(CreateProspect),
             AllowNonAdminsToLaunchProspects = AllowNonAdminsToLaunchProspects,
             AllowNonAdminsToDeleteProspects = AllowNonAdminsToDeleteProspects,
-            ResumeProspect = ResumeProspect,
+            ResumeProspect = ResumeProspect ?? true,
             SaveGameOnExit = SaveGameOnExit,
             FiberFoliageRespawn = FiberFoliageRespawn,
             LargeStonesRespawn = LargeStonesRespawn,
@@ -490,11 +493,35 @@ public sealed partial class LocalServerViewModel
     /// <summary>The form has ini settings typed in that aren't in the file yet.</summary>
     internal bool HasUnsavedIniEdits => _iniFormSnapshot is not null && _iniFormSnapshot != FormIniSnapshot();
 
+    /// <summary>The settings the form edits, as the ini held them when the form last read or wrote it.</summary>
+    private string? _iniSettingsKey;
+
+    /// <summary>
+    /// The settings the form edits, parsed from the file: LastProspectName (the server's) and the
+    /// session name (the profile's) are left out, and numbers compare by value, so the server
+    /// rewriting the file as it runs ("30" → "30.000000", a new last prospect) is no change.
+    /// </summary>
+    internal static string IniSettingsKey(DedicatedServerSettings s) => string.Join("\u001f",
+        s.JoinPassword, s.AdminPassword, s.MaxPlayers, s.ShutdownIfNotJoinedFor, s.ShutdownIfEmptyFor, s.GameSaveFrequency, s.LoadProspect, s.CreateProspect,
+        s.AllowNonAdminsToLaunchProspects, s.AllowNonAdminsToDeleteProspects, s.ResumeProspect ?? true, s.SaveGameOnExit, s.FiberFoliageRespawn, s.LargeStonesRespawn);
+
     /// <summary>The form now matches the ini at this path (just read or just written); null forgets it (the file couldn't be read).</summary>
     private void RememberIniOnDisk(string? path)
     {
         _iniStamp = path is null ? null : StampIni(path);
         _iniFormSnapshot = path is null ? null : FormIniSnapshot();
+        _iniSettingsKey = null;
+        if (path is not null)
+        {
+            try
+            {
+                _iniSettingsKey = IniSettingsKey(ServerSettingsIni.Load(path).Read());
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Locked right now: the next change on disk is then treated as a real change.
+            }
+        }
     }
 
     /// <summary>
@@ -533,6 +560,15 @@ public sealed partial class LocalServerViewModel
             // The same refusal as an ini unreadable at select: writing now could replace edits we can't see.
             ValidationMessage = "ServerSettings.ini was changed outside Starlink and can't be read right now, so nothing was saved: it would have been written over without a look. Close whatever has the file open, then try again.";
             return IniReconcile.Cancelled;
+        }
+
+        if (_iniSettingsKey is not null && _iniSettingsKey == IniSettingsKey(onDisk))
+        {
+            // Only what the server writes itself changed (last prospect, number format): nothing to
+            // ask about. Take the new last prospect and the new stamp, keep the form's edits.
+            LastProspectName = onDisk.LastProspectName;
+            _iniStamp = now;
+            return IniReconcile.Unchanged;
         }
 
         if (!HasUnsavedIniEdits)
