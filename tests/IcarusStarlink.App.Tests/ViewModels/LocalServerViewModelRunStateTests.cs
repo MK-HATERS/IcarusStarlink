@@ -190,13 +190,14 @@ public sealed partial class LocalServerViewModelTests
         vm.AddExistingServerCommand.Execute(null);
         var mods = DedicatedServerLayout.PakModsFolder(_install);
         Directory.CreateDirectory(mods);
-        File.WriteAllText(Path.Combine(mods, "ISL-Merged_P.pak"), "old pak");
+        // Installed while ArcFission Library was on; it's off on this server now, so the plain name.
+        File.WriteAllText(Path.Combine(mods, "zz_zz_ISL-Merged_9999_P.pak"), "old pak");
         vm.RefreshMergedPak();
 
         await vm.InstallMergedPakCommand.ExecuteAsync(null);
 
-        Assert.True(File.Exists(Path.Combine(mods, Path.GetFileName(MergedPakPath))));
-        Assert.False(File.Exists(Path.Combine(mods, "ISL-Merged_P.pak")));
+        Assert.True(File.Exists(Path.Combine(mods, "ISL-Merged_P.pak")));
+        Assert.False(File.Exists(Path.Combine(mods, "zz_zz_ISL-Merged_9999_P.pak")));
         var moved = Assert.Single(Directory.GetFiles(Path.Combine(vm.BackupsFolderPath, "removed-paks")));
         Assert.Equal("old pak", File.ReadAllText(moved));
     }

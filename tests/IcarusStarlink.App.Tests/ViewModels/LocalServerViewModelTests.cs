@@ -611,14 +611,15 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Contains("Stop the server", vm.StatusMessage);
         Assert.Empty(vm.ServerPaks);
 
-        // The merged pak under its old name is replaced, not left loading beside the new one.
+        // The merged pak under its other name is replaced, not left loading beside the new one. No
+        // ArcFission Library on this server: the merge goes in under the plain name.
         Directory.CreateDirectory(DedicatedServerLayout.PakModsFolder(_install));
-        File.WriteAllBytes(Path.Combine(DedicatedServerLayout.PakModsFolder(_install), "ISL-Merged_P.pak"), [9]);
+        File.WriteAllBytes(Path.Combine(DedicatedServerLayout.PakModsFolder(_install), "zz_zz_ISL-Merged_9999_P.pak"), [9]);
         processes.Running = null;
         vm.Tick();
         vm.InstallMergedPakCommand.Execute(null);
 
-        Assert.Equal(["zz_zz_ISL-Merged_9999_P.pak"], vm.ServerPaks.Select(p => p.FileName));
+        Assert.Equal(["ISL-Merged_P.pak"], vm.ServerPaks.Select(p => p.FileName));
         Assert.True(File.Exists(Path.Combine(DedicatedServerLayout.PakModsFolder(_install), "ISL-Merged.txt")));
     }
 

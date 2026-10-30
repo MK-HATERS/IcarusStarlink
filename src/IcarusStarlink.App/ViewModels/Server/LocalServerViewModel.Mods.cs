@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
+using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Server;
 using IcarusStarlink.Core.Ue4ss;
 
@@ -86,7 +87,8 @@ public sealed partial class LocalServerViewModel
         }
 
         var built = File.GetLastWriteTime(_mergedPakPath!);
-        var serverCopy = SelectedProfile is { } p ? Path.Combine(DedicatedServerLayout.PakModsFolder(p.InstallFolder), Path.GetFileName(_mergedPakPath!)) : null;
+        // The server's copy goes by the name its own ArcFission Library state picks (zz_zz_… only while it's on there).
+        var serverCopy = SelectedProfile is { } p ? ServerMergedPakPath(p) : null;
         if (serverCopy is null || !File.Exists(serverCopy))
         {
             MergedPakSummary = $"Your merged pak ({built:g}) isn't on the server yet.";
@@ -229,6 +231,11 @@ public sealed partial class LocalServerViewModel
         return true;
     }
 
+    /// <summary>Where this server's merged pak sits: the name its own ArcFission Library state picks.</summary>
+    private static string ServerMergedPakPath(DedicatedServerProfile p) => Path.Combine(
+        DedicatedServerLayout.PakModsFolder(p.InstallFolder),
+        PakIO.InstallManifestNames.InstalledMergedPakFileName(Path.Combine(p.InstallFolder, "Icarus", "Content")));
+
     [RelayCommand(CanExecute = nameof(CanInstallMergedPak))]
     private async Task InstallMergedPakAsync()
     {
@@ -249,9 +256,11 @@ public sealed partial class LocalServerViewModel
         var serverContent = Path.Combine(p.InstallFolder, "Icarus", "Content");
         var oldArcFission = PakIO.InstallManifestNames.OlderArcFissionDataPaks(serverContent);
         var arcFissionActive = PakIO.InstallManifestNames.IsArcFissionLibraryActive(serverContent);
+        // zz_zz_…_9999 only while the SERVER's ArcFission Library is on (its data pak must be
+        // outranked); the merged pak under any other name is replaced by InstallPak.
+        var targetName = MergedPakNames.For(arcFissionActive);
         var others = ServerModFiles.ListPaks(p.InstallFolder)
-            .Where(f => !string.Equals(f.FileName, Path.GetFileName(_mergedPakPath), StringComparison.OrdinalIgnoreCase))
-            .Where(f => !ServerModFiles.LegacyMergedPakFileNames.Contains(f.FileName, StringComparer.OrdinalIgnoreCase))
+            .Where(f => !MergedPakNames.IsMergedPak(f.FileName))
             .Where(f => !(arcFissionActive && PakIO.InstallManifestNames.IsArcFissionDataPak(f.FileName)))
             .Select(f => f.FileName)
             .ToList();
@@ -280,7 +289,7 @@ public sealed partial class LocalServerViewModel
             var backups = ServerBackupsFolder(p);
             await OffUiThread(() =>
             {
-                ServerModFiles.InstallPak(_mergedPakPath!, p.InstallFolder, PakIO.InstallManifestNames.PakManifest, backups);
+                ServerModFiles.InstallPak(_mergedPakPath!, p.InstallFolder, PakIO.InstallManifestNames.PakManifest, backups, targetName);
                 // Moved like every pak taken off a server (never deleted); Clean up backups trims them.
                 foreach (var old in oldArcFission)
                 {
@@ -295,7 +304,7 @@ public sealed partial class LocalServerViewModel
                     }
                 }
             });
-            StatusMessage = $"Installed {Path.GetFileName(_mergedPakPath)} on '{p.Name}'. It loads on the next start."
+            StatusMessage = $"Installed {targetName} on '{p.Name}'. It loads on the next start."
                 + (oldArcFission.Count > 0 ? $" {oldArcFission.Count} older ArcFission data cop{(oldArcFission.Count == 1 ? "y" : "ies")} moved into its backups." : "");
             _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
         }

@@ -26,7 +26,8 @@ public class InstallServiceTests : IDisposable
         File.WriteAllText(_stagedManifestPath, "Includes the following mods:\nMod A");
     }
 
-    private string TargetPakPath => Path.Combine(_fakeContentPath, "Paks", "mods", "zz_zz_ISL-Merged_9999_P.pak");
+    /// <summary>The fake game has no ArcFission Library, so the merge goes in under the plain name.</summary>
+    private string TargetPakPath => Path.Combine(_fakeContentPath, "Paks", "mods", "ISL-Merged_P.pak");
     private string TargetManifestPath => Path.Combine(_fakeContentPath, "Paks", "mods", "ISL-Merged.txt");
 
     [Fact]
@@ -104,7 +105,7 @@ public class InstallServiceTests : IDisposable
         }
 
         // Backed up: the initial pak, then v1, v2, v3 (each replaced by the next install); the newest three stay.
-        var backups = Directory.GetFiles(_backupDirectory, "zz_zz_ISL-Merged_9999_P_*.pak").Select(File.ReadAllText).Order().ToList();
+        var backups = Directory.GetFiles(_backupDirectory, "ISL-Merged_P_*.pak").Select(File.ReadAllText).Order().ToList();
         Assert.Equal(["staged pak v1 bytes", "staged pak v2 bytes", "staged pak v3 bytes"], backups);
     }
 
@@ -195,6 +196,38 @@ public class InstallServiceTests : IDisposable
         Assert.False(File.Exists(oldMerge));
     }
 
+    /// <summary>Turns ArcFission Library on in the fake game's UE4SS (a folder named ArcFissionLibrary with enabled.txt).</summary>
+    private void TurnOnArcFissionLibrary()
+    {
+        var library = Path.Combine(Path.GetDirectoryName(_fakeContentPath.TrimEnd('\\', '/'))!, "Binaries", "Win64", "ue4ss", "Mods", "ArcFissionLibrary");
+        Directory.CreateDirectory(library);
+        File.WriteAllText(Path.Combine(library, "enabled.txt"), "");
+    }
+
+    /// <summary>
+    /// zz_zz_…_9999 only while ArcFission Library is on (its data pak holds whole tables the merge
+    /// must outrank); the plain name otherwise. Switching either way leaves exactly one merged pak:
+    /// the copy under the other name is backed up and cleared.
+    /// </summary>
+    [Fact]
+    public async Task InstallAsync_NamesTheMergeByWhetherArcFissionLibraryIsOn_AndClearsTheOtherName()
+    {
+        var modsDirectory = Path.Combine(_fakeContentPath, "Paks", "mods");
+        var plain = Path.Combine(modsDirectory, "ISL-Merged_P.pak");
+        var arcFissionName = Path.Combine(modsDirectory, "zz_zz_ISL-Merged_9999_P.pak");
+
+        var first = await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+        Assert.Equal(plain, first.InstalledPakPath);
+        Assert.False(File.Exists(arcFissionName));
+
+        TurnOnArcFissionLibrary();
+        var second = await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+        Assert.Equal(arcFissionName, second.InstalledPakPath);
+        Assert.False(File.Exists(plain));
+        Assert.Single(Directory.GetFiles(_backupDirectory, "ISL-Merged_P_*.pak"));
+        Assert.Equal(["ISL-Merged.txt", "zz_zz_ISL-Merged_9999_P.pak"], Directory.GetFiles(modsDirectory).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+    }
+
     [Fact]
     public void NewestArcFissionDataPak_IsTheHighestNumber_AndOnlyArcFissionsFilesCount()
     {
@@ -243,7 +276,7 @@ public class InstallServiceTests : IDisposable
 
         Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(result.InstalledPakPath));
         Assert.Equal("old pak bytes", await File.ReadAllTextAsync(result.BackupPakPath!));
-        Assert.Single(Directory.GetFiles(_backupDirectory, "zz_zz_ISL-Merged_9999_P_*.pak"));
+        Assert.Single(Directory.GetFiles(_backupDirectory, "ISL-Merged_P_*.pak"));
         Assert.Single(Directory.GetFiles(_backupDirectory, "ISL-Merged_*.txt"));
         Assert.Contains("Mod A", await File.ReadAllTextAsync(TargetManifestPath));
     }
@@ -277,7 +310,7 @@ public class InstallServiceTests : IDisposable
         Assert.True(removed);
         Assert.False(File.Exists(TargetPakPath));
         Assert.False(File.Exists(TargetManifestPath));
-        Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(Directory.GetFiles(_backupDirectory, "zz_zz_ISL-Merged_9999_P_*.pak").Single()));
+        Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(Directory.GetFiles(_backupDirectory, "ISL-Merged_P_*.pak").Single()));
     }
 
     [Fact]
@@ -285,14 +318,15 @@ public class InstallServiceTests : IDisposable
     {
         var modsDirectory = Path.Combine(_fakeContentPath, "Paks", "mods");
         Directory.CreateDirectory(modsDirectory);
-        var legacyPakPath = Path.Combine(modsDirectory, "ISL-Merged_P.pak");
+        // The merge under its other name (installed while ArcFission Library was on) goes too.
+        var legacyPakPath = Path.Combine(modsDirectory, "zz_zz_ISL-Merged_9999_P.pak");
         await File.WriteAllTextAsync(legacyPakPath, "old merged pak");
 
         var removed = await _service.RemoveInstalledPakAsync("zz_zz_ISL-Merged_9999_P.pak", _fakeContentPath, _backupDirectory);
 
         Assert.True(removed);
         Assert.False(File.Exists(legacyPakPath));
-        Assert.Equal("old merged pak", await File.ReadAllTextAsync(Directory.GetFiles(_backupDirectory, "ISL-Merged_P_*.pak").Single()));
+        Assert.Equal("old merged pak", await File.ReadAllTextAsync(Directory.GetFiles(_backupDirectory, "zz_zz_ISL-Merged_9999_P_*.pak").Single()));
     }
 
     [Fact]
@@ -445,7 +479,7 @@ public class InstallServiceTests : IDisposable
     }
 
     private List<string> PakBackupContents() =>
-        Directory.GetFiles(_backupDirectory, "zz_zz_ISL-Merged_9999_P_*.pak").Select(File.ReadAllText).Order().ToList();
+        Directory.GetFiles(_backupDirectory, "ISL-Merged_P_*.pak").Select(File.ReadAllText).Order().ToList();
 
     /// <summary>More than FolderBackup's own 5 by one name: the per-name trim mustn't cut below the setting.</summary>
     [Fact]
@@ -529,7 +563,7 @@ public class InstallServiceTests : IDisposable
         Directory.CreateDirectory(modsDirectory);
         await File.WriteAllTextAsync(TargetPakPath, "a round's pak");
         await File.WriteAllTextAsync(TargetManifestPath, "Includes the following mods:\nRound");
-        await File.WriteAllTextAsync(Path.Combine(modsDirectory, "ISL-Merged_P.pak"), "old merged pak");
+        await File.WriteAllTextAsync(Path.Combine(modsDirectory, "zz_zz_ISL-Merged_9999_P.pak"), "old merged pak");
 
         Assert.True(await _service.RemoveInstalledPakAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory, backUpWhatsThere: false));
 
@@ -537,7 +571,7 @@ public class InstallServiceTests : IDisposable
         Assert.False(File.Exists(TargetManifestPath));
         Assert.Empty(PakBackupContents());
         Assert.Empty(Directory.GetFiles(_backupDirectory, "ISL-Merged_*.txt"));
-        Assert.Equal("old merged pak", await File.ReadAllTextAsync(Directory.GetFiles(_backupDirectory, "ISL-Merged_P_*.pak").Single()));
+        Assert.Equal("old merged pak", await File.ReadAllTextAsync(Directory.GetFiles(_backupDirectory, "zz_zz_ISL-Merged_9999_P_*.pak").Single()));
     }
 
     /// <summary>

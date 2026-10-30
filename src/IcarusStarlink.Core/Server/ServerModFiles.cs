@@ -1,4 +1,5 @@
 using IcarusStarlink.Core.IO;
+using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Ue4ss;
 
 namespace IcarusStarlink.Core.Server;
@@ -21,23 +22,22 @@ public static class ServerModFiles
             : [];
     }
 
-    /// <summary>The merged pak's earlier file name(s) (see PakIO's InstallManifestNames; Core can't reference PakIO).</summary>
-    public static IReadOnlyList<string> LegacyMergedPakFileNames { get; } = ["ISL-Merged_P.pak", "ISL-Merged_9999_P.pak"];
-
     /// <summary>
     /// Copies a merged pak (and its sibling ISL-Merged.txt manifest, when present) into the server's
-    /// mods folder, replacing an older copy of the same file. The merged pak under an earlier name
-    /// is taken off the server too: moved into the removed-paks folder of <paramref name="backupsFolder"/> like
+    /// mods folder as <paramref name="targetFileName"/> (the source's own name when null), replacing
+    /// an older copy. The merged pak under any other of its names (MergedPakNames.All) is taken off
+    /// the server too: moved into the removed-paks folder of <paramref name="backupsFolder"/> like
     /// RemovePak does, or deleted when no backups folder is given.
     /// </summary>
-    public static void InstallPak(string sourcePakPath, string installFolder, string? manifestFileName, string? backupsFolder = null)
+    public static void InstallPak(string sourcePakPath, string installFolder, string? manifestFileName, string? backupsFolder = null, string? targetFileName = null)
     {
         var target = DedicatedServerLayout.PakModsFolder(installFolder);
         Directory.CreateDirectory(target);
-        File.Copy(sourcePakPath, Path.Combine(target, Path.GetFileName(sourcePakPath)), overwrite: true);
+        var targetName = targetFileName ?? Path.GetFileName(sourcePakPath);
+        File.Copy(sourcePakPath, Path.Combine(target, targetName), overwrite: true);
 
-        // This app's merged pak under its earlier name: replaced by the one just copied.
-        foreach (var legacy in LegacyMergedPakFileNames.Where(n => !string.Equals(n, Path.GetFileName(sourcePakPath), StringComparison.OrdinalIgnoreCase)))
+        // This app's merged pak under another name: replaced by the one just copied.
+        foreach (var legacy in MergedPakNames.All.Where(n => !string.Equals(n, targetName, StringComparison.OrdinalIgnoreCase)))
         {
             var old = Path.Combine(target, legacy);
             if (!File.Exists(old))

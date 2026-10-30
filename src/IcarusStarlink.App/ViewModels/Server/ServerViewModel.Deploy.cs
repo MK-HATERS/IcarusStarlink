@@ -52,7 +52,13 @@ public sealed partial class ServerViewModel
         IsBusy = true;
         try
         {
-            var toUpload = new List<string> { Path.GetFileName(_outputPakPath) };
+            // The remote UE4SS folder can't be read here, but ArcFission Library writes its data pak
+            // into this mods folder: one there means the library runs on that server, so the merge
+            // goes up as zz_zz_…_9999 to outrank it; otherwise under the plain name.
+            var remoteFiles = await _connectedClient.ListDirectoryAsync(RemoteModsPath);
+            var pakName = IcarusStarlink.Core.Library.MergedPakNames.For(
+                remoteFiles.Any(e => !e.IsDirectory && IcarusStarlink.PakIO.InstallManifestNames.IsArcFissionDataPak(e.Name)));
+            var toUpload = new List<string> { pakName };
             if (File.Exists(_pakManifestPath))
             {
                 toUpload.Add(Path.GetFileName(_pakManifestPath));
@@ -60,7 +66,7 @@ public sealed partial class ServerViewModel
 
             // ArcFission Library's own data pak stays: the server's library writes it again anyway.
             // A leftover upload from an earlier attempt that broke off is replaced, not listed.
-            var existing = (await _connectedClient.ListDirectoryAsync(RemoteModsPath))
+            var existing = remoteFiles
                 .Where(e => !e.IsDirectory && !IcarusStarlink.PakIO.InstallManifestNames.IsArcFissionDataPak(e.Name))
                 .Where(e => !toUpload.Any(name => string.Equals(e.Name, UploadingName(name), StringComparison.OrdinalIgnoreCase)))
                 .ToList();
@@ -108,7 +114,7 @@ public sealed partial class ServerViewModel
 
             var localFor = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                [Path.GetFileName(_outputPakPath)] = _outputPakPath,
+                [pakName] = _outputPakPath,
             };
             if (File.Exists(_pakManifestPath))
             {

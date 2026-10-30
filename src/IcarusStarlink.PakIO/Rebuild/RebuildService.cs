@@ -390,14 +390,14 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
     }
 
     /// <summary>
-    /// The merged pak built under an earlier name (InstallManifestNames.LegacyMergedPakFileNames)
+    /// The merged pak built under another of its names (InstallManifestNames.AllMergedPakFileNames)
     /// would otherwise sit next to the new one forever, ~130 MB each. Only those exact names go.
     /// </summary>
     private static void DeleteLegacyMergedPaks(string outputPakPath)
     {
         var outputDirectory = Path.GetDirectoryName(outputPakPath)!;
         var outputName = Path.GetFileName(outputPakPath);
-        foreach (var legacyName in InstallManifestNames.LegacyMergedPakFileNames
+        foreach (var legacyName in InstallManifestNames.AllMergedPakFileNames
                      .Where(n => !n.Equals(outputName, StringComparison.OrdinalIgnoreCase)))
         {
             try

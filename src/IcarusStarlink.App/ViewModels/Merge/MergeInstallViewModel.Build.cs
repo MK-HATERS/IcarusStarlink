@@ -505,8 +505,8 @@ public sealed partial class MergeInstallViewModel
 
     private void ImportBuiltPakIntoLibrary(string profileName)
     {
-        // The built pack under the merged pak's earlier name is replaced too.
-        foreach (var legacy in InstallManifestNames.LegacyMergedPakFileNames.Select(Path.GetFileNameWithoutExtension))
+        // The built pack under the merged pak's other names is replaced too.
+        foreach (var legacy in InstallManifestNames.AllMergedPakFileNames.Select(Path.GetFileNameWithoutExtension))
         {
             if (_libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, legacy, StringComparison.OrdinalIgnoreCase)) is { IsOpaquePak: true } old
                 && old.MergedPackModNames is not null)

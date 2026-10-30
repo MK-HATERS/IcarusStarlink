@@ -41,7 +41,10 @@ public sealed class InstallService(ISettingsService? settings = null) : IInstall
         var modsDirectory = Path.Combine(icarusContentPath, "Paks", "mods");
         Directory.CreateDirectory(modsDirectory);
 
-        var targetPakFileName = Path.GetFileName(stagedPakPath);
+        // Not the staged file's name: zz_zz_…_9999 only while ArcFission Library is on in this game
+        // (its data pak must be outranked), the plain name otherwise. A copy under the other name is
+        // "anything else" below: backed up and cleared.
+        var targetPakFileName = InstallManifestNames.InstalledMergedPakFileName(icarusContentPath);
 
         // Content\Paks\mods is meant to hold exactly one active merged pak — RebuildService itself
         // already folds every queued mod's own prebuilt/opaque paks into this SAME staged pak
@@ -153,7 +156,8 @@ public sealed class InstallService(ISettingsService? settings = null) : IInstall
         CancellationToken cancellationToken = default, bool backUpWhatsThere = true) => Task.Run(() =>
     {
         var modsDirectory = Path.Combine(icarusContentPath, "Paks", "mods");
-        var targetPakPath = Path.Combine(modsDirectory, Path.GetFileName(stagedPakFileName));
+        // The name Install writes in this game now (what a Find the broken mod round wrote).
+        var targetPakPath = Path.Combine(modsDirectory, InstallManifestNames.InstalledMergedPakFileName(icarusContentPath));
         var targetManifestPath = Path.Combine(modsDirectory, InstallManifestNames.PakManifest);
 
         var removedAnything = false;
@@ -212,7 +216,7 @@ public sealed class InstallService(ISettingsService? settings = null) : IInstall
 
         var modsDirectory = Path.Combine(icarusContentPath, "Paks", "mods");
         Directory.CreateDirectory(modsDirectory);
-        var targetPakPath = Path.Combine(modsDirectory, Path.GetFileName(stagedPakFileName));
+        var targetPakPath = Path.Combine(modsDirectory, InstallManifestNames.InstalledMergedPakFileName(icarusContentPath));
         var targetManifestPath = Path.Combine(modsDirectory, InstallManifestNames.PakManifest);
 
         // What's installed now is backed up first, so the restore itself can be undone.

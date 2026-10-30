@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Server;
 using IcarusStarlink.Core.Ue4ss;
 
@@ -21,27 +22,27 @@ public static class InstallManifestNames
     public const string PakManifest = "ISL-Merged.txt";
 
     /// <summary>
-    /// The merged pak's file name, made to load after every other pak in the mods folder by both
-    /// rules the game uses: paks of equal priority load in name order (hence the "ZZ_" mods use;
-    /// lowercase "zz_zz_" sorts after "ZZ_ArcFission_…" and other "ZZ_"/"zz_" mods, whether case counts or not), and a
-    /// "…_&lt;n&gt;_P.pak" ranks by n (Unreal's patch-chunk order, which ArcFission Library relies on).
-    /// ArcFission Library's own ZZ_ArcFission_Data_&lt;n&gt;_P.pak copies whole tables from the
-    /// game's data, so the merge has to load after it (its rows are folded into the merge).
+    /// The name the merge is BUILT under (Staged_Build). Where it's installed it takes the name
+    /// InstalledMergedPakFileName picks for that mods folder (MergedPakNames: zz_zz_…_9999 only
+    /// while ArcFission Library is on there, which it has to outrank).
     /// </summary>
-    public const string MergedPakFileName = "zz_zz_ISL-Merged_9999_P.pak";
+    public const string MergedPakFileName = MergedPakNames.ArcFissionName;
 
-    /// <summary>The merged pak's earlier name(s), cleared wherever the merged pak is installed.</summary>
-    public static readonly IReadOnlyList<string> LegacyMergedPakFileNames = ["ISL-Merged_P.pak", "ISL-Merged_9999_P.pak"];
+    /// <summary>Names only older versions used, cleared wherever the merged pak is installed.</summary>
+    public static IReadOnlyList<string> LegacyMergedPakFileNames => MergedPakNames.LegacyNames;
 
     /// <summary>
-    /// The merged pak's current name, then its earlier ones: everywhere that looks for "a merged pak
-    /// this app installed" (Install, Remove, Restore, the snapshots, backup cleanup, the Library's
-    /// "is this our own pack") — each used to build this list by hand.
+    /// Every name the merged pak goes by: everywhere that looks for "a merged pak this app
+    /// installed" (Install, Remove, Restore, the snapshots, backup cleanup, the Library's "is this
+    /// our own pack").
     /// </summary>
-    public static readonly IReadOnlyList<string> AllMergedPakFileNames = [MergedPakFileName, .. LegacyMergedPakFileNames];
+    public static IReadOnlyList<string> AllMergedPakFileNames => MergedPakNames.All;
 
-    /// <summary>Whether a file name (with its .pak) is the merged pak under its current or an earlier name.</summary>
-    public static bool IsMergedPakFile(string fileName) => AllMergedPakFileNames.Contains(fileName, StringComparer.OrdinalIgnoreCase);
+    /// <summary>Whether a file name (with its .pak) is the merged pak under any of its names.</summary>
+    public static bool IsMergedPakFile(string fileName) => MergedPakNames.IsMergedPak(fileName);
+
+    /// <summary>The name the merged pak is installed under in this game's (or server's) Content folder: zz_zz_…_9999 only while ArcFission Library is on there.</summary>
+    public static string InstalledMergedPakFileName(string icarusContentPath) => MergedPakNames.For(IsArcFissionLibraryActive(icarusContentPath));
 
     private static readonly Regex ArcFissionDataPak = new(@"^ZZ_ArcFission_Data_(\d+)_P\.pak$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 

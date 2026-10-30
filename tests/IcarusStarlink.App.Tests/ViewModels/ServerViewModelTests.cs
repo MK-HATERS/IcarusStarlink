@@ -70,8 +70,9 @@ public sealed class ServerViewModelTests
             var lastUpload = ftp.Operations.FindLastIndex(o => o.StartsWith("upload ", StringComparison.Ordinal));
             Assert.True(lastUpload < firstDelete, string.Join("\n", ftp.Operations));
             Assert.All(ftp.Operations.Where(o => o.StartsWith("upload ", StringComparison.Ordinal)), o => Assert.EndsWith(".uploading", o));
+            // No ArcFission data pak on the server: the plain name, and the old name's copy is gone.
             Assert.Equal(
-                [Mods + "ISL-Merged.txt", Mods + "ISL-Merged_9999_P.pak"],
+                [Mods + "ISL-Merged.txt", Mods + "ISL-Merged_P.pak"],
                 ftp.Files.OrderBy(f => f, StringComparer.Ordinal));
             Assert.Contains("Installed the merged pak", vm.ConnectionStatusMessage);
         }
@@ -85,7 +86,7 @@ public sealed class ServerViewModelTests
     [Fact]
     public async Task InstallPakToServer_UploadFails_LeavesTheOldPakAlone()
     {
-        var ftp = new RecordingFtpClient("IMM_Merged_Mod_P.pak") { FailUploadOf = "ISL-Merged_9999_P.pak" };
+        var ftp = new RecordingFtpClient("IMM_Merged_Mod_P.pak") { FailUploadOf = "ISL-Merged_P.pak" };
         var (vm, folder) = await ConnectedWithBuiltPakAsync(ftp);
         try
         {
@@ -93,7 +94,7 @@ public sealed class ServerViewModelTests
 
             Assert.Contains(Mods + "IMM_Merged_Mod_P.pak", ftp.Files);
             Assert.DoesNotContain(ftp.Operations, o => o.StartsWith("delete ", StringComparison.Ordinal));
-            Assert.DoesNotContain(Mods + "ISL-Merged_9999_P.pak", ftp.Files);
+            Assert.DoesNotContain(Mods + "ISL-Merged_P.pak", ftp.Files);
             Assert.Contains("failed", vm.ConnectionStatusMessage);
         }
         finally
@@ -113,7 +114,27 @@ public sealed class ServerViewModelTests
             await vm.InstallPakToServerCommand.ExecuteAsync(null);
 
             Assert.Equal(
-                [Mods + "ISL-Merged.txt", Mods + "ISL-Merged_9999_P.pak"],
+                [Mods + "ISL-Merged.txt", Mods + "ISL-Merged_P.pak"],
+                ftp.Files.OrderBy(f => f, StringComparer.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>ArcFission Library's data pak on the server means the library runs there: the merge goes up as zz_zz_…_9999 to outrank it, the data pak stays, and the plain-named copy goes.</summary>
+    [Fact]
+    public async Task InstallPakToServer_ArcFissionDataPakOnTheServer_UploadsUnderTheNameThatOutranksIt()
+    {
+        var ftp = new RecordingFtpClient("ZZ_ArcFission_Data_4_P.pak", "ISL-Merged_P.pak");
+        var (vm, folder) = await ConnectedWithBuiltPakAsync(ftp);
+        try
+        {
+            await vm.InstallPakToServerCommand.ExecuteAsync(null);
+
+            Assert.Equal(
+                [Mods + "ISL-Merged.txt", Mods + "ZZ_ArcFission_Data_4_P.pak", Mods + "zz_zz_ISL-Merged_9999_P.pak"],
                 ftp.Files.OrderBy(f => f, StringComparer.Ordinal));
         }
         finally
@@ -661,7 +682,7 @@ public sealed class ServerViewModelTests
         try
         {
             File.WriteAllText(Path.Combine(folder, "ISL-Merged_9999_P.pak"), "pak");
-            var ftp = new RecordingFtpClient("ISL-Merged_9999_P.pak");
+            var ftp = new RecordingFtpClient("ISL-Merged_P.pak");
             var site = MakeSite(Guid.NewGuid());
             site.SupportsDelete = false;
             var dialogs = new FakeDialogService(confirmResult: true);
@@ -675,7 +696,7 @@ public sealed class ServerViewModelTests
             Assert.DoesNotContain(dialogs.Messages, m => m.Contains("will remain"));
             Assert.Contains("Installed the merged pak", vm.ConnectionStatusMessage);
             Assert.DoesNotContain("couldn't remove", vm.ConnectionStatusMessage);
-            Assert.Contains(Mods + "ISL-Merged_9999_P.pak", ftp.Files);
+            Assert.Contains(Mods + "ISL-Merged_P.pak", ftp.Files);
         }
         finally
         {
