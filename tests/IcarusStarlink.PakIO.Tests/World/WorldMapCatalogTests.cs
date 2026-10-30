@@ -214,6 +214,65 @@ public sealed class WorldMapCatalogTests
     [InlineData("Stranded", "Stranded")]
     public void DropSiteNames_AreReadable(string group, string name) => Assert.Equal(name, WorldMapCatalog.DropSiteName(group));
 
+    /// <summary>Reads with the mods' tables given as raw text (any shape a mod can ship).</summary>
+    private static IReadOnlyList<WorldMapInfo> ReadWithRawMods(Dictionary<string, JsonObject> game, Dictionary<string, string> mods) =>
+        WorldMapCatalog.Read(new WorldTableSource(
+            path => game.TryGetValue(path, out var t) ? Encoding.UTF8.GetBytes(t.ToJsonString()) : null,
+            path => mods.TryGetValue(path, out var t) ? Encoding.UTF8.GetBytes(t) : null));
+
+    [Fact]
+    public void AModsTableWithAKeyTwice_IsLeftOut_NotTheWholeMap()
+    {
+        // Parses fine, but reading MinimapData threw ArgumentException out of Read: no maps at all.
+        var maps = ReadWithRawMods(GameTables(), new()
+        {
+            ["World/D_WorldData.json"] = """{"Rows":[{"Name":"Terrain_016","MinimapData":{"MapTextures":[],"MapTextures":[]}}]}""",
+        });
+
+        Assert.Equal(["Terrain_016", "Terrain_022", "Outpost_011"], maps.Select(m => m.Id));
+        Assert.Equal(2, maps[0].PictureTiles.Count);
+    }
+
+    [Fact]
+    public void AModsProspectWithANumberForItsTerrain_DoesntStopTheMap()
+    {
+        var maps = ReadWithRawMods(GameTables(), new()
+        {
+            ["Prospects/D_ProspectList.json"] = """{"Rows":[{"Name":"Tier1_Forest_Range","Terrain":{"RowName":16},"DropName":"POTSHOT"}]}""",
+        });
+
+        Assert.Equal(3, maps.Count);
+    }
+
+    [Fact]
+    public void TilesWithHugeOrOddNumbers_AreLeftOut()
+    {
+        // _x99999999999 threw OverflowException out of Read; _x500 asked for a 256000 px canvas.
+        var maps = ReadWithRawMods(GameTables(), new()
+        {
+            ["World/D_WorldData.json"] = """
+                {"Rows":[{"Name":"Terrain_016","MinimapData":{"MapTextures":[
+                  "/Game/PROC/MapTextures/Terrain_016/VisualMapTex_T016_x0_y0.VisualMapTex_T016_x0_y0",
+                  "/Game/PROC/MapTextures/Terrain_016/VisualMapTex_T016_x99999999999_y0.VisualMapTex_T016_x99999999999_y0",
+                  "/Game/PROC/MapTextures/Terrain_016/VisualMapTex_T016_x500_y1.VisualMapTex_T016_x500_y1"]}}]}
+                """,
+        });
+
+        Assert.Equal([(0, 0)], maps[0].PictureTiles.Select(t => (t.X, t.Y)));
+    }
+
+    [Theory]
+    [InlineData(403200, 403200, 16, 16)]
+    [InlineData(1e300, 403200, 0, 0)] // a mod's huge GridBounds: no grid, not billions of lines
+    [InlineData(403200, 1e12, 0, 0)]
+    [InlineData(100, 100, 0, 0)]
+    public void TheGrid_IsOnlyWhatTheGameCanName(double halfWidth, double halfHeight, int columns, int rows)
+    {
+        var map = new WorldMapInfo("T", "T", false, [], [], [], Extent: new WorldExtent(-halfWidth, -halfHeight, halfWidth * 2, halfHeight * 2));
+
+        Assert.Equal((columns, rows), map.GridSize);
+    }
+
     [Fact]
     public void NoWorldData_NoMaps()
     {

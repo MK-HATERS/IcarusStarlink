@@ -32,7 +32,8 @@ public static partial class WorldMissionNames
         var prospects = source.Table("Prospects/D_ProspectList.json");
         foreach (var (row, data) in prospects?.Rows ?? [])
         {
-            var onThisWorld = prospects!.Get(data, "Terrain") is JsonObject t && t["RowName"]?.GetValue<string>() is { } r
+            // TryGetValue, not GetValue: a mod's row with a number or object there would throw out of the whole map read.
+            var onThisWorld = prospects!.Get(data, "Terrain") is JsonObject t && t["RowName"] is JsonValue v && v.TryGetValue<string>(out var r)
                 && string.Equals(r, terrain, StringComparison.OrdinalIgnoreCase);
             if (!onThisWorld || WorldMapCatalog.TextOf(prospects.Get(data, "DropName")) is not { Length: > 0 } name)
             {
