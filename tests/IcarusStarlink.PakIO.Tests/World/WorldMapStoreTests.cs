@@ -26,10 +26,23 @@ public sealed class WorldMapStoreTests : IDisposable
 
         public List<string> Drawn { get; } = [];
 
+        /// <summary>Worlds whose drawing throws (a mod's odd tiles, a locked pak).</summary>
+        public HashSet<string> Broken { get; } = [];
+
+        /// <summary>The picture is the world's id as bytes, so a test can tell whose picture a file is.</summary>
+        public bool PictureIsId { get; init; }
+
         public (byte[]? Jpeg, WorldPictureSource Source) RenderPicture(WorldMapInfo map)
         {
             Drawn.Add(map.Id);
-            return map.PictureTiles.Count > 0 ? ([1, 2, 3], WorldPictureSource.Picture) : (null, WorldPictureSource.None);
+            if (Broken.Contains(map.Id))
+            {
+                throw new IOException("The pak is locked.");
+            }
+
+            return map.PictureTiles.Count > 0
+                ? (PictureIsId ? System.Text.Encoding.UTF8.GetBytes(map.Id) : [1, 2, 3], WorldPictureSource.Picture)
+                : (null, WorldPictureSource.None);
         }
 
         public WorldLayerPixels? ReadLayer(string heatmapAssetPath) => new(2, [0x00FF90, 0x00FF90, 0, 0]);
@@ -59,6 +72,47 @@ public sealed class WorldMapStoreTests : IDisposable
         Assert.True(File.Exists(store.PicturePath("Terrain_016")));
         Assert.Equal([0x00FF90u, 0x00FF90, 0, 0], store.ReadLayer("Terrain_017", WorldLayerKind.Creatures)!.Pixels);
         Assert.Equal(WorldPictureSource.Picture, store.PictureSources()["Terrain_016"]);
+    }
+
+    [Fact]
+    public void AMapThatCantBeDrawn_DoesntStopTheOthers_AndIsTriedAgainNextTime()
+    {
+        var renderer = new FakeRenderer();
+        renderer.Broken.Add("Terrain_016");
+        var store = new WorldMapStore(_root, () => [Map("Terrain_016", "Olympus", Wolf), Map("Terrain_017", "Styx", Wolf)], renderer);
+
+        // Rebuild all deletes everything first: one broken world mustn't leave the rest undrawn and no index.
+        var result = store.Reload(everything: true);
+
+        Assert.Equal(1, result.Redrawn);
+        Assert.Contains("Couldn't draw Olympus (The pak is locked.)", result.Summary);
+        Assert.True(File.Exists(store.PicturePath("Terrain_017")));
+        Assert.False(store.PictureSources().ContainsKey("Terrain_016"));
+        Assert.Equal(WorldPictureSource.Picture, store.PictureSources()["Terrain_017"]);
+        Assert.True(store.Check().OutOfDate);
+
+        renderer.Broken.Clear();
+        renderer.Drawn.Clear();
+        var again = store.Reload(everything: false);
+
+        Assert.Equal(["Terrain_016"], renderer.Drawn);
+        Assert.Equal(1, again.Redrawn);
+        Assert.False(store.Check().OutOfDate);
+    }
+
+    [Fact]
+    public void WorldsWhoseIdsLookAlikeAsFolders_KeepTheirOwnPictures()
+    {
+        var renderer = new FakeRenderer { PictureIsId = true };
+        var store = new WorldMapStore(_root, () => [Map("Mod.World", "A", Wolf), Map("Mod_World", "B", Wolf)], renderer);
+
+        store.Reload(everything: false);
+
+        Assert.NotEqual(store.PicturePath("Mod.World"), store.PicturePath("Mod_World"));
+        Assert.Equal("Mod.World", System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(store.PicturePath("Mod.World"))));
+        Assert.Equal("Mod_World", System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(store.PicturePath("Mod_World"))));
+        // A plain row name keeps its plain folder.
+        Assert.Equal(Path.Combine(_root, "Mod_World", "picture.jpg"), store.PicturePath("Mod_World"));
     }
 
     [Fact]

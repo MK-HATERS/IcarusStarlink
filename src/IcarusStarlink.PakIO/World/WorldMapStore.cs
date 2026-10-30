@@ -97,13 +97,26 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
         var stamps = maps.ToDictionary(m => m.Id, renderer.Stamp, StringComparer.OrdinalIgnoreCase);
         var index = new WorldMapIndex();
         var redrawn = 0;
+        var failed = new List<string>();
         foreach (var map in maps)
         {
             var entry = old?.Maps.GetValueOrDefault(map.Id);
             if (entry is null || entry.Stamp != stamps[map.Id] || !IsDrawn(map, old!))
             {
                 progress?.Report($"Drawing {map.Name} and reading its caves and spots ({redrawn + 1} of up to {maps.Count}; a big map takes about a minute)…");
-                entry = Draw(map, stamps[map.Id]);
+                try
+                {
+                    entry = Draw(map, stamps[map.Id]);
+                }
+                catch (Exception ex)
+                {
+                    // One world that can't be drawn (a mod's odd tiles, a locked pak) mustn't stop the
+                    // others or leave the index unsaved: it's left out, so the next Reload tries it again.
+                    TryDelete(Path.Combine(Root, Safe(map.Id)));
+                    failed.Add($"{map.Name} ({ex.Message})");
+                    continue;
+                }
+
                 redrawn++;
             }
 
@@ -136,6 +149,11 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
             summary = changes.Count > 0
                 ? "Changed: " + Join(changes) + "." + (maps.Count - changes.Count > 0 ? $" {Count(maps.Count - changes.Count)} unchanged." : "")
                 : maps.Count == 1 ? "Nothing changed: the map is up to date." : $"Nothing changed: all {Count(maps.Count)} are up to date.";
+        }
+
+        if (failed.Count > 0)
+        {
+            summary += $" Couldn't draw {Join(failed)}: Reload tries again.";
         }
 
         return new WorldMapReloadResult(summary, redrawn, maps);
@@ -256,8 +274,18 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
     private static string Join(IReadOnlyList<string> items) =>
         items.Count <= 3 ? string.Join("; ", items) : string.Join("; ", items.Take(3)) + $"; and {items.Count - 3} more";
 
-    /// <summary>A world id as a folder name (ids are plain row names; anything else is replaced).</summary>
-    private static string Safe(string id) => string.Concat(id.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
+    /// <summary>
+    /// A world id as a folder name. Plain row names stay as they are; anything else has its odd
+    /// characters replaced and a short hash of the id added, so "A.B" and "A_B" (a mod's rows) never
+    /// share a folder and delete each other's pictures.
+    /// </summary>
+    private static string Safe(string id)
+    {
+        var plain = string.Concat(id.Select(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
+        return plain == id && plain.Length > 0
+            ? plain
+            : plain + "_" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(id.ToUpperInvariant())))[..8];
+    }
 
     private IEnumerable<string> SafeDirectories()
     {
@@ -284,8 +312,9 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
         }
     }
 
+    /// <summary>Written whole or not at all: a half-written index would read as "never made" and redraw every map.</summary>
     private void SaveIndex(WorldMapIndex index) =>
-        File.WriteAllText(Path.Combine(Root, IndexFile), JsonSerializer.Serialize(index, JsonOptions));
+        IcarusStarlink.Core.IO.AtomicFile.WriteAllText(Path.Combine(Root, IndexFile), JsonSerializer.Serialize(index, JsonOptions));
 
     private static void TryDelete(string folder)
     {
