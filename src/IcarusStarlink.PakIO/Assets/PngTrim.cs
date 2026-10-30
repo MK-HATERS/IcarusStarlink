@@ -48,7 +48,7 @@ public static class PngTrim
                 return png;
             }
 
-            // A square around the visible part, padded, kept inside the picture where it can be.
+            // A padded square centred on the visible part; any of it past the picture's edge stays see-through.
             var side = Math.Max(right - left + 1, bottom - top + 1);
             side += 2 * side * paddingPercent / 100;
             if (side >= Math.Max(bitmap.Width, bitmap.Height))

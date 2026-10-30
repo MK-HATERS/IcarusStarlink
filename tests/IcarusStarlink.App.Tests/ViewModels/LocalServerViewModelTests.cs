@@ -477,7 +477,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Regression (seen in the running app, 2026-10-30): adding the first server left Check for
+    /// Regression (seen in the running app): adding the first server left Check for
     /// update and Update greyed out, because picking a server didn't tell them to look again.
     /// </summary>
     [Fact]

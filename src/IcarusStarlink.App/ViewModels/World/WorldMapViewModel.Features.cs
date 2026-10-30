@@ -47,7 +47,7 @@ public sealed record WorldLegendItem(string Glyph, Brush Fill, Brush GlyphBrush,
 /// <summary>A grid label: a column letter along the top or a row number down the left.</summary>
 public sealed record WorldGridLabel(string Text, double X, double Y);
 
-/// <summary>A choice in a filter list ("Tier 2 and up", "Objective · Base Location (103)").</summary>
+/// <summary>A choice in a filter list ("Tier 2 and 3", "Mission objective spots: base location (103)").</summary>
 public sealed record WorldFilterOption(string Key, string Title)
 {
     public override string ToString() => Title;
@@ -84,7 +84,7 @@ public sealed partial class WorldMapViewModel
 
     private (string Category, string Spot) Mission(WorldFeature f) => _missions.TryGetValue(f, out var m) ? m : (f.Category ?? "Other quest spots", f.Name);
 
-    /// <summary>The ticked features' markers.</summary>
+    /// <summary>The ticked features' markers, and any place the search found.</summary>
     public ObservableCollection<WorldFeatureMarkerViewModel> Markers { get; } = [];
 
     [ObservableProperty]
@@ -125,7 +125,7 @@ public sealed partial class WorldMapViewModel
     [ObservableProperty]
     private WorldFilterOption? _caveTier;
 
-    /// <summary>What the mission box says when this world has no mission spots; null while it has some.</summary>
+    /// <summary>What the mission list beside Missions says when this world has no mission spots; null while it has some.</summary>
     public string? MissionPlaceholder => MissionCategories.Count == 0 ? "No mission spots on this map" : null;
 
     /// <summary>Mission spot categories on this world, with counts; the first is all of them.</summary>
@@ -148,7 +148,7 @@ public sealed partial class WorldMapViewModel
     [ObservableProperty]
     private WorldFeatureDetailsViewModel? _selectedFeature;
 
-    /// <summary>The ticked layers' and features' counts, for the boxes' tooltips: "143 caves (10 tier 3)".</summary>
+    /// <summary>The feature boxes' tooltips: what each shows and how many this world has.</summary>
     public string CavesText => Count(WorldFeatureKind.Cave, WorldFeatureKind.BigCave) is var n and > 0
         ? $"{n} caves: tier by cave worms (1: up to 3, 2: 4-6, 3: 7 or more; more worms usually means a better cave). Hand-made big caves are orange."
         : "No caves read for this world.";
@@ -450,7 +450,7 @@ public sealed partial class WorldMapViewModel
     /// <summary>The map should show this point, this much of the map across (0-1). The view does the zooming.</summary>
     public event Action<WorldMapPoint, double>? ZoomRequested;
 
-    /// <summary>Enter in the search: zoom to what it found (a grid square, or all the places and zones found).</summary>
+    /// <summary>Enter in the search: zoom to what it found (a grid square, or all the places found; zones aren't zoomed to).</summary>
     public void ZoomToSearch()
     {
         var points = _found.Select(f => f.At).ToList();
@@ -514,7 +514,7 @@ public sealed partial class WorldMapViewModel
             _ => 2,
         }))
         {
-            // A place the search found shows whatever its box and filters say.
+            // A place the search found shows even when its box is unticked or a filter leaves it out.
             var found = _found.Contains(f);
             var shown = found || f.Kind switch
             {

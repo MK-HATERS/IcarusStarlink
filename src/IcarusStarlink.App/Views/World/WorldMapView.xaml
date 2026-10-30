@@ -36,7 +36,7 @@
                        ToolTip="What the game uses this world for: open world, missions (prospects), or an outpost. From the game's prospect list."/>
         </StackPanel>
 
-        <!-- Map, layer, search, Reload / Rebuild all. A DockPanel so the status wraps beside the buttons. -->
+        <!-- Map picker, search, Reload / Rebuild all, Redraw during Update everything. A DockPanel so the search result fills the space between. -->
         <DockPanel Grid.Row="1" Margin="0,10,0,0" LastChildFill="True">
             <Grid DockPanel.Dock="Left" VerticalAlignment="Center">
             <ComboBox ItemsSource="{Binding Maps}" SelectedItem="{Binding SelectedMap}" MinWidth="210"
@@ -150,7 +150,7 @@
 
             <GridSplitter Grid.Column="1" Style="{StaticResource VerticalPaneSplitterStyle}" AutomationProperties.Name="Resize the zone panel"/>
 
-            <!-- The map: scroll to zoom, drag to move, click a zone. -->
+            <!-- The map: scroll to zoom, drag to move, click a marker or a zone. -->
             <Border x:Name="MapViewport" Grid.Column="0" ClipToBounds="True" CornerRadius="6" BorderThickness="1"
                     BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource PanelBackgroundBrush}"
                     MouseWheel="OnMapWheel" MouseLeftButtonDown="OnMapMouseDown" MouseLeftButtonUp="OnMapMouseUp"
@@ -340,13 +340,13 @@
                         <TextBlock Text="{Binding HoverText}" FontSize="12"/>
                     </Border>
 
-                    <!-- The map has nothing to show (no picture and no zones), or isn't made yet. -->
+                    <!-- No picture: the game has none for this world, or the map isn't made yet. -->
                     <TextBlock Text="No map picture for this world in the game files yet." Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
                                Visibility="{Binding Picture, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                 </Grid>
             </Border>
 
-            <!-- The picked zone. -->
+            <!-- Side panel: the map's note, the hint, the clicked marker or zones, and the key. -->
             <Border Grid.Column="2" CornerRadius="6" BorderThickness="1" Padding="14"
                     BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource PanelBackgroundBrush}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">

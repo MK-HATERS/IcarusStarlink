@@ -315,8 +315,6 @@
                                 </Style>
                             </Grid.Resources>
 
-                            <!-- Automation: open by default (it's what the Overview is for); the header
-                                 says which options are on, so it can be folded away once set. -->
                             <!-- Now: one plain sentence for what the server is doing. -->
                             <Border Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,12" Padding="12,8" CornerRadius="6"
                                     Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
@@ -326,6 +324,8 @@
                                 </DockPanel>
                             </Border>
 
+                            <!-- Automation: open by default (it's what the Overview is for); the header
+                                 says which options are on, so it can be folded away once set. -->
                             <Expander Grid.Row="1" Grid.Column="0" VerticalAlignment="Top" IsExpanded="True" AutomationProperties.Name="Automation">
                                 <Expander.Header>
                                     <DockPanel LastChildFill="True">
@@ -436,7 +436,7 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
 
-                                <!-- The newest few of the Log tab's Events list. -->
+                                <!-- The newest few of the Log tab's Events list, without the "Mod pak loaded" lines. -->
                                 <StackPanel Margin="0,0,0,14" Visibility="{Binding HasRecentEvents, Converter={StaticResource BoolToVisibilityConverter}}">
                                     <TextBlock Text="RECENT EVENTS" Style="{StaticResource ServerSectionLabelStyle}"/>
                                     <ItemsControl ItemsSource="{Binding RecentEvents}" AutomationProperties.Name="Recent events">

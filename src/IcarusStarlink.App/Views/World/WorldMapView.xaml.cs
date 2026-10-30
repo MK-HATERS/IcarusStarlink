@@ -9,9 +9,10 @@ using IcarusStarlink.PakIO.World;
 namespace IcarusStarlink.App.Views;
 
 /// <summary>
-/// The Map page. The map is a 1000 x 1000 square (picture, zones, highlight stacked) moved and
-/// scaled inside the viewport: scroll zooms around the mouse, a drag moves it, a click without a
-/// drag picks the zone there. Where the mouse is goes to the view model as 0-1 across the map.
+/// The Map page. The map is a 1000 x 1000 square (picture, then zones, highlight, water, grid,
+/// markers and drop sites stacked over it) moved and scaled inside the viewport: scroll zooms around
+/// the mouse, a drag moves it, a click without a drag picks the marker or zones there. Where the
+/// mouse is goes to the view model as 0-1 across the map.
 /// </summary>
 public partial class WorldMapView : UserControl
 {
@@ -88,7 +89,7 @@ public partial class WorldMapView : UserControl
         }
     }
 
-    /// <summary>Another world: show all of it.</summary>
+    /// <summary>Another world: show all of it. Drop sites ticked or unticked: their landing spots follow.</summary>
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(WorldMapViewModel.SelectedMap))
@@ -104,7 +105,7 @@ public partial class WorldMapView : UserControl
     /// <summary>The zoom at which each drop site's landing spots show (times the fit).</summary>
     private const double SpotsFromZoomOfFit = 3;
 
-    /// <summary>Markers keep their size on screen (scaled by 1 / zoom); landing spots show once zoomed in.</summary>
+    /// <summary>Markers and the grid's lines keep their size on screen (scaled by 1 / zoom); landing spots show once zoomed in.</summary>
     private void UpdateMarkers()
     {
         if (Resources["MarkerScale"] is ScaleTransform markerScale && MapScale.ScaleX > 0)
@@ -181,7 +182,7 @@ public partial class WorldMapView : UserControl
 
     private void OnMapMouseDown(object sender, MouseButtonEventArgs e)
     {
-        // Clicks on the zoom buttons are theirs.
+        // Clicks on the buttons over the map (zoom, Map only) are theirs.
         if (e.OriginalSource is DependencyObject source && FindButton(source))
         {
             return;

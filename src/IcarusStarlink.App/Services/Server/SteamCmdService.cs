@@ -80,8 +80,7 @@ public sealed class SteamCmdService(HttpClient httpClient, Core.Settings.ISettin
 
         // Read from each source whole, not from the de-duplicated lines: app info repeats lines on
         // purpose ("public" is a depot manifest before it is a branch, two branches can share a
-        // build id), and dropping the repeats lost the branch, so no update was ever found (the
-        // user's report, 2026-10-30: server on build 25621760 while Steam listed 26313077).
+        // build id), and dropping the repeats lost the branch, so no update was ever found.
         var stdout = new StringBuilder();
         var log = new StringBuilder();
         await RunAsync(exe, SteamCmd.BuildAppInfoArguments(), _ => { }, cancellationToken,

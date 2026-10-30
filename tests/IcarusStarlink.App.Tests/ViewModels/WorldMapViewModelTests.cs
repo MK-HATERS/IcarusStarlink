@@ -5,7 +5,10 @@ using IcarusStarlink.PakIO.World;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
 
-/// <summary>The Map page's names that would sit on each other, and the boxes ticked surviving a restart.</summary>
+/// <summary>
+/// The Map page: names that would sit on each other, the boxes ticked surviving a restart, Map only,
+/// identical mission spots, and Reload / check timing with Update everything.
+/// </summary>
 public sealed class WorldMapViewModelTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"IcarusStarlink.Tests.{Guid.NewGuid():N}");

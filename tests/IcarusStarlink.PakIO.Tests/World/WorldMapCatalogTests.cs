@@ -16,7 +16,7 @@ public sealed class WorldMapCatalogTests
 
     private static JsonObject Row(string json) => (JsonObject)JsonNode.Parse(json)!;
 
-    /// <summary>Olympus with its picture, a creature zone, a fish zone and a biome; ARK with nothing but its tiles.</summary>
+    /// <summary>Olympus with its picture, a creature zone, a fish zone and a biome; ARK with nothing but its tiles; a "[DNT]" outpost.</summary>
     private static Dictionary<string, JsonObject> GameTables() => new()
     {
         ["World/D_WorldData.json"] = Table(null,

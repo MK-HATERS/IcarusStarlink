@@ -185,8 +185,7 @@ public class MainViewModelTests
     }
 
     /// <summary>
-    /// The user's ask (2026-10-30): Play could be clicked again and again, asking Steam to start the
-    /// game each time. A click shows Starting… and further clicks do nothing until the game shows up
+    /// Play could be clicked again and again, asking Steam to start the game each time. A click shows Starting… and further clicks do nothing until the game shows up
     /// (then Running, and a click brings it forward) or 2 minutes pass (then Play again).
     /// </summary>
     [Fact]

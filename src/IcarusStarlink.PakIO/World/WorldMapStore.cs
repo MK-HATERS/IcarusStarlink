@@ -11,10 +11,10 @@ public sealed record WorldMapCheckResult(bool OutOfDate, string Summary);
 
 /// <summary>
 /// The drawn maps, kept in one folder (Cache\World): &lt;world id&gt;\picture.jpg and one
-/// &lt;layer&gt;.png per zone image, plus index.json with what each was made from (where the game
-/// keeps its files, and every zone's contents). One copy only: a map that changed is deleted and
-/// drawn again, a world the game dropped is deleted. Reload redraws only what changed; Rebuild
-/// all deletes everything and draws every map again.
+/// &lt;layer&gt;.png per zone image and features.json (caves, geysers, spots, water), plus index.json
+/// with what each was made from (where the game keeps its files, and every zone's contents). One
+/// copy only: a map that changed is deleted and drawn again, a world the game dropped is deleted.
+/// Reload redraws only what changed; Rebuild all deletes everything and draws every map again.
 /// </summary>
 public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>> readCatalog, IWorldMapRenderer renderer)
 {
@@ -82,7 +82,11 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
             : new WorldMapCheckResult(true, "The game's files changed since these maps were made: " + Join(changes.Count > 0 ? changes : [.. missing.Select(m => $"{m.Name}: not made yet")]) + ".");
     }
 
-    /// <summary>Draws the maps whose files changed (all of them when <paramref name="everything"/>), deletes worlds the game dropped, and says what changed.</summary>
+    /// <summary>
+    /// Draws the maps whose files changed or aren't drawn (all of them when <paramref name="everything"/>),
+    /// deletes worlds the game dropped, and says what changed. A world that fails to draw is left out
+    /// of the index (named in the summary), so the next Reload tries it again.
+    /// </summary>
     public WorldMapReloadResult Reload(bool everything, IProgress<string>? progress = null)
     {
         var maps = readCatalog();
@@ -111,7 +115,7 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
                 catch (Exception ex)
                 {
                     // One world that can't be drawn (a mod's odd tiles, a locked pak) mustn't stop the
-                    // others or leave the index unsaved: it's left out, so the next Reload tries it again.
+                    // others or leave the index unsaved.
                     TryDelete(Path.Combine(Root, Safe(map.Id)));
                     failed.Add($"{map.Name} ({ex.Message})");
                     continue;
@@ -270,7 +274,7 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
 
     private static string Count(int maps) => maps == 1 ? "1 map" : $"{maps} maps";
 
-    /// <summary>The first three changes, then "and N more".</summary>
+    /// <summary>The first three items, then "and N more".</summary>
     private static string Join(IReadOnlyList<string> items) =>
         items.Count <= 3 ? string.Join("; ", items) : string.Join("; ", items.Take(3)) + $"; and {items.Count - 3} more";
 

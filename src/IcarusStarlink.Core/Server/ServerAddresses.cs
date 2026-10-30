@@ -34,7 +34,7 @@ public static partial class ServerAddresses
     /// <summary>The service asked for this PC's public address, only on "Show my public IP". It answers with the bare IPv4 address as plain text.</summary>
     public const string PublicIpServiceUrl = "https://api.ipify.org";
 
-    /// <summary>Longest reply read from the public IP service: an IPv4 address is at most 15 characters.</summary>
+    /// <summary>Most characters read from the public IP service's reply. An IPv4 address is at most 15; the rest is room for spaces and line breaks around it.</summary>
     public const int MaxPublicIpReplyLength = 64;
 
     /// <summary>
@@ -51,10 +51,10 @@ public static partial class ServerAddresses
     ];
 
     /// <summary>
-    /// This PC's address on the home network: an IPv4 address of an adapter that is up, wired or
-    /// wireless (not loopback or a tunnel), has a default gateway, and isn't virtual or a VPN.
-    /// A private address (192.168.x.x, 10.x.x.x, 172.16-31.x.x) beats any other; wired beats
-    /// wireless; otherwise the first in Windows' order. Self-assigned 169.254.x.x addresses never
+    /// This PC's address on the home network: an IPv4 address of an adapter that is up, isn't
+    /// loopback or a tunnel, has a default gateway, and isn't virtual or a VPN. A private address
+    /// (192.168.x.x, 10.x.x.x, 172.16-31.x.x) beats any other; then wired beats wireless beats
+    /// any other kind; otherwise the first in Windows' order. Self-assigned 169.254.x.x addresses never
     /// count. Null when no adapter qualifies.
     /// </summary>
     public static string? PickLanAddress(IEnumerable<NetworkAdapterInfo> adapters)

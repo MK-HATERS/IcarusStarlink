@@ -51,7 +51,7 @@ public interface IGameUpdateSteps
 
     Task<GameUpdateStepResult> RefreshGameDataAsync();
 
-    /// <summary>The Map page's Reload: redraws only the maps the update changed. Never fails the run (Skipped with why).</summary>
+    /// <summary>The Map page's Reload (when its Redraw during Update everything box is ticked): redraws only the maps the update changed. Never fails the run (Skipped with why).</summary>
     Task<GameUpdateStepResult> RedrawMapsAsync() => Task.FromResult(new GameUpdateStepResult(GameUpdateStepState.Skipped, ""));
 
     Task CheckModsAsync();

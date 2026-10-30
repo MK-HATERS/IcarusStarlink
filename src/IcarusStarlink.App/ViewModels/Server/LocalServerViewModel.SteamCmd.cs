@@ -40,7 +40,7 @@ public sealed partial class LocalServerViewModel
     /// <summary>Cancels the SteamCMD run in progress (Cancel in the SteamCMD box); a new one per run.</summary>
     private CancellationTokenSource? _steamCmdCancel;
 
-    /// <param name="action">What the run is for, the SteamCMD card's title ("Updating 'My server'").</param>
+    /// <param name="action">What the run is for, the start of the SteamCMD box's title ("Updating 'My server'").</param>
     /// <param name="profileId">The server it acts on; null for SteamCMD itself or a server not in the list yet.</param>
     private CancellationToken BeginSteamCmdRun(string action, Guid? profileId)
     {
@@ -58,7 +58,7 @@ public sealed partial class LocalServerViewModel
 
     partial void OnSteamCmdStatusChanged(string? value) => OnPropertyChanged(nameof(NowLine));
 
-    /// <summary>The SteamCMD card's title: what the run is for ("Updating 'My server'", "Installing a new server").</summary>
+    /// <summary>What the run is for, the start of the SteamCMD box's title ("Updating 'My server'", "Installing a new server").</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SteamCmdTitle))]
     private string _steamCmdAction = "SteamCMD";
@@ -442,8 +442,8 @@ public sealed partial class LocalServerViewModel
     /// <summary>
     /// A check adds no lines to the SteamCMD box, so the box closes after it (its answer is the
     /// build line and the status line). When the box still holds an earlier install or update's
-    /// output, the returned action puts that run's title back: the check used to leave "Checking
-    /// … · finished" over the update's lines, "finished" even when the check failed.
+    /// output, the returned action puts that run's title back, so the check's own title
+    /// ("Checking … · finished") never sits over the update's lines.
     /// </summary>
     private Action KeepSteamCmdBoxTitle()
     {
@@ -462,10 +462,10 @@ public sealed partial class LocalServerViewModel
     private TaskCompletionSource? _steamCmdFree;
 
     /// <summary>
-    /// Waits for the SteamCMD run in progress to end. Each run takes over the box, its Cancel and
-    /// the busy flag, so two at once (an hourly check of one server starting while the owner's
-    /// Update of another stopped it first) ended each other's busy state and Cancel stopped the
-    /// wrong one. The caller starts its run straight after this, with no await in between.
+    /// Waits for the SteamCMD run in progress to end, so only one runs at a time. Each run takes
+    /// over the box, its Cancel and the busy flag: two at once (an hourly check during the owner's
+    /// Update) would end each other's busy state, and Cancel would stop the wrong one. The caller
+    /// starts its run straight after this, with no await in between.
     /// </summary>
     private async Task WaitForSteamCmdAsync()
     {
@@ -518,8 +518,8 @@ public sealed partial class LocalServerViewModel
                 token => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, line => OnSteamCmdLineFor(profile.Id, line), token));
             if (result.Success)
             {
-                // The newer build the hourly check found is in now: without this, automation
-                // stopped the server again once it was empty, to install what it already had.
+                // Clears the pending update the hourly check found: otherwise automation would stop
+                // the server again once it was empty, to install the build it already has.
                 GetWatch(profile).Automation.NoteUpdateFinished();
             }
 

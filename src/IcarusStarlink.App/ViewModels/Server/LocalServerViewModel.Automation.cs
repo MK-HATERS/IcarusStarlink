@@ -486,7 +486,8 @@ public sealed partial class LocalServerViewModel
         SteamCmdStatus = "asking Steam for the latest build…";
         IsSteamCmdBusy = true;
         // A check takes seconds. One that hangs would keep SteamCMD busy for good, and every beat
-        // skips while it is: crash and daily restarts of every server would stop without a word.
+        // skips while it is, so crash and daily restarts of every server would stop. It gives up
+        // after UpdateCheckTimeout instead and says so in Recent events.
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(UpdateCheckTimeout);
         try
@@ -498,7 +499,7 @@ public sealed partial class LocalServerViewModel
                     || (installedBranch is not null && !string.Equals(installedBranch, SteamCmd.NormalizeBranch(p.Branch), StringComparison.OrdinalIgnoreCase)));
             watch.Automation.NoteUpdateCheck(Clock(), available);
 
-            // Looked at after the answer: the owner may have picked another server meanwhile.
+            // Looked at after the answer: the owner may have picked another server or branch meanwhile.
             if (SelectedProfile?.Id == p.Id && string.Equals(SteamCmd.NormalizeBranch(Branch), SteamCmd.NormalizeBranch(p.Branch), StringComparison.Ordinal))
             {
                 LatestBuildId = latest;

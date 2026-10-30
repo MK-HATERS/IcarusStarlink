@@ -142,9 +142,9 @@ public sealed class WorldZoneViewModel
 
 /// <summary>
 /// The Map page: every world the game has (unfinished ones tagged "In development"), its picture,
-/// and where creatures spawn, fish bite and the biomes lie, read from the game's own files. The
-/// drawn maps are kept in Cache\World (WorldMapStore); Reload redraws what changed, Rebuild all
-/// redraws everything.
+/// where creatures spawn, fish bite and the biomes lie, and what's placed on it (drop sites, caves,
+/// geysers, spots, water; the Features partial), read from the game's own files. The drawn maps are
+/// kept in Cache\World (WorldMapStore); Reload redraws what changed, Rebuild all redraws everything.
 /// </summary>
 public sealed partial class WorldMapViewModel : ObservableObject
 {
@@ -270,9 +270,9 @@ public sealed partial class WorldMapViewModel : ObservableObject
     private Task RebuildAllAsync() => RunReloadAsync(everything: true);
 
     /// <summary>
-    /// Update everything's step: Reload, but only when the maps were made before (making them all
-    /// the first time takes about half a minute; that waits until the Map page is opened). Says
-    /// whether anything was redrawn, and what changed.
+    /// Update everything's step: Reload, but only when Redraw during Update everything is ticked and
+    /// the maps were made before (making them all the first time takes minutes; that waits until the
+    /// Map page is opened). Says whether the reload ran (false: why not), and what changed.
     /// </summary>
     public async Task<(bool Redrawn, string Message)> ReloadForGameUpdateAsync()
     {
@@ -450,9 +450,9 @@ public sealed partial class WorldMapViewModel : ObservableObject
 
     private void ShowMap(WorldMapItemViewModel? item)
     {
-        // The boxes ticked for the last world stay ticked for the next; the first world gets what was
-        // ticked last time (first time ever: creatures only, as the game's fishing zones cover the land too
-        // and together they hide the creature zones).
+        // The zone boxes ticked for the last world stay ticked for the next; the first world gets what
+        // was ticked last time (first time ever: creatures only, as the game's fishing zones cover the
+        // land too and together they hide the creature zones).
         var saved = SavedChoices();
         var shown = Layers.Count > 0
             ? Layers.Where(l => l.IsShown).Select(l => l.Kind).ToHashSet()
@@ -548,7 +548,7 @@ public sealed partial class WorldMapViewModel : ObservableObject
         UpdateHighlight();
     }
 
-    /// <summary>The ticked layers, bottom first: biomes under creatures under fishing (fish zones are only on water).</summary>
+    /// <summary>The ticked layers, bottom first: biomes under creatures under fishing.</summary>
     private IEnumerable<(WorldLayerKind Kind, WorldLayerPixels Pixels, IReadOnlyDictionary<uint, WorldZone> Zones)> ShownLayers() =>
         Layers.Where(l => l.IsShown)
             .OrderBy(l => l.Kind switch { WorldLayerKind.Biomes => 0, WorldLayerKind.Creatures => 1, _ => 2 })

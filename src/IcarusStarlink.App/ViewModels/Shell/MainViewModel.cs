@@ -346,7 +346,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// Ctrl+1 … Ctrl+9: the menu's first nine pages in order. Ctrl+0 (10) is always Help, whatever
-    /// its place in the menu (the Map page pushed it to 11th). False when there's no such page.
+    /// its place in the menu (it is past tenth). False when there's no such page.
     /// </summary>
     public bool GoToPageNumber(int number)
     {

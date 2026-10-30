@@ -21,10 +21,10 @@ public sealed class SteamCmdServiceTests : IDisposable
     }
 
     /// <summary>
-    /// The user's report (2026-10-30): Check for update never found one (server on build 25621760,
-    /// Steam listing 26313077). SteamCMD's real app_info_print for the Icarus server names "public"
-    /// and "experimental" as depot manifests before the branches list, and the run's de-duplication
-    /// of repeated lines dropped them from the branches list, so no branch had a build.
+    /// Regression: Check for update never found one. SteamCMD's real app_info_print for the Icarus
+    /// server names "public" and "experimental" as depot manifests before the branches list, and
+    /// the run's de-duplication of repeated lines dropped them from the branches list, so no
+    /// branch had a build.
     /// </summary>
     [Theory]
     [InlineData("public", 26313077)]

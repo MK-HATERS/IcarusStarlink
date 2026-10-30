@@ -17,8 +17,7 @@ public enum GamePlayState
 }
 
 /// <summary>
-/// The header's Play button (the user's ask, 2026-10-30: "can we get an image change on play like
-/// its running … because i could keep clicking it and it could prolly launch the game again").
+/// The header's Play button, so repeated clicks never start the game twice.
 /// A click starts Icarus through Steam and shows Starting… until the game's process appears (or 2
 /// minutes pass with nothing); while it runs the button says Running and a click brings the game
 /// to the front instead of asking Steam again.
@@ -115,17 +114,18 @@ public sealed partial class MainViewModel
         }
     }
 
-    /// <summary>The window's dispatcher, where the watch timer must live. Tests swap it.</summary>
+    /// <summary>The UI thread's dispatcher (Application.Current.Dispatcher), where the watch timer must live. Tests swap it.</summary>
     internal Func<Dispatcher?> UiDispatcher { get; set; } = () => System.Windows.Application.Current?.Dispatcher;
 
     /// <summary>The dispatcher the game watch ticks on (null before StartGameWatch).</summary>
     internal Dispatcher? GameWatchDispatcher => _gameWatch?.Dispatcher;
 
     /// <summary>
-    /// Watches for the game every 3 seconds while Starlink is open. App.OnStartup calls this from
-    /// its background startup thread (before the window shows), so the timer is put on the
-    /// window's dispatcher: one made on the calling thread never ticks, and the button stayed on
-    /// whatever the first look saw (Starting… forever, or Running after the game closed).
+    /// Watches for the game every 3 seconds while Starlink is open. App.OnStartup calls this on
+    /// its background startup thread, before the main window shows, so the timer is put on the
+    /// UI thread's dispatcher (UiDispatcher): a timer made on the startup thread never ticks, and
+    /// the button would stay on whatever the first look saw (Starting… forever, or Running after
+    /// the game closed).
     /// </summary>
     public void StartGameWatch()
     {

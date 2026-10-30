@@ -7,7 +7,7 @@ using IcarusStarlink.Core.Server;
 namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>
-/// "The server tab needs some love": the SteamCMD card under the status card, the Connect card
+/// The Local server tab: the SteamCMD box under the status card, the Connect card
 /// (the address to share for Direct Connect), and the Overview's Now / Coming up / Recent events.
 /// The network and the clipboard are fakes: nothing goes online and the real clipboard is untouched.
 /// </summary>
@@ -22,9 +22,9 @@ public sealed partial class LocalServerViewModelTests
 
     private const string CleanExitLine = "[2026.08.12-18.00.00:000][  1]LogExit: Exiting.";
 
-    // ---- 1. The SteamCMD card ----
+    // ---- 1. The SteamCMD box ----
 
-    /// <summary>A first install has no server selected yet: the card still shows, titled with what it does and the phase.</summary>
+    /// <summary>A first install has no server selected yet: the box still shows, titled with what it does and the phase.</summary>
     [Fact]
     public async Task SteamCmdCard_InstallingANewServer_ShowsWithNoServerSelected_WithThePhaseInItsTitle()
     {
@@ -351,7 +351,7 @@ public sealed partial class LocalServerViewModelTests
         Assert.Empty(processes.Started);
     }
 
-    // ---- 3. Coming up ----
+    // ---- 4. Coming up ----
 
     [Fact]
     public void ComingUp_ShowsALineForEachOptionThatIsOn()
@@ -374,7 +374,7 @@ public sealed partial class LocalServerViewModelTests
         ], vm.NextUp);
     }
 
-    // ---- 3. Recent events ----
+    // ---- 5. Recent events ----
 
     /// <summary>Newest first, at most eight, without the start-up's "Mod pak loaded" lines; the Log tab keeps them all.</summary>
     [Fact]
@@ -439,7 +439,7 @@ public sealed partial class LocalServerViewModelTests
         Assert.Contains(vm.RecentEvents, e => e.Contains("Backup made: "));
     }
 
-    // ---- Review 2026-10-30: Check for update and the hourly auto-update ----
+    // ---- Check for update and the hourly auto-update ----
 
     /// <summary>
     /// Check for update doesn't lock the server list. A check on a public server that finished
@@ -507,7 +507,7 @@ public sealed partial class LocalServerViewModelTests
     /// <summary>
     /// A SteamCMD that hangs on the hourly check (it can, at login) kept SteamCMD "busy" for good,
     /// and every beat skips while it is: crash restarts and daily restarts of every server
-    /// stopped without a word. The check gives up after UpdateCheckTimeout.
+    /// stopped without a word. The check gives up after UpdateCheckTimeout and says so in Recent events.
     /// </summary>
     [Fact]
     public async Task AutoUpdate_AHungCheck_GivesUp_AndAutomationCarriesOn()

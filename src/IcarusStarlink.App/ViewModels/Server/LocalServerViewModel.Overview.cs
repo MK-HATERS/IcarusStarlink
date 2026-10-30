@@ -5,7 +5,7 @@ using IcarusStarlink.Core.Server;
 
 namespace IcarusStarlink.App.ViewModels;
 
-/// <summary>The Overview tab's tiles for the selected server: players, world, uptime, memory, build, backups, and what automation does next.</summary>
+/// <summary>The Overview tab for the selected server: the tiles (players, world, uptime, memory, build, backups), the Now line, what automation does next, and Recent events.</summary>
 public sealed partial class LocalServerViewModel
 {
     // ---- Overview tiles (selected server) ----

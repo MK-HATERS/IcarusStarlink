@@ -15,8 +15,8 @@ namespace IcarusStarlink.PakIO.World;
 /// level (geysers, Great Hunt dens, quest markers incl. world boss spots, deep ore and exotic spots)
 /// and its generated levels (caves with their entrances and cave worm spawners, fishing volumes,
 /// lakes, rivers). An actor's position is its root component's RelativeLocation, composed up its
-/// AttachParent chain. Uses its own pak reader for the read, 8 levels at a time (about 100 s for a
-/// big map), and lets it go after.
+/// AttachParent chain. Uses its own pak reader for the read, 8 levels at a time (about a minute for
+/// a big map: Olympus took 63-66 s), and lets it go after.
 /// </summary>
 public static partial class WorldFeatureReader
 {
@@ -25,7 +25,10 @@ public static partial class WorldFeatureReader
     /// <summary>A cave's worm spawner within this many units (60 m) of the cave belongs to it.</summary>
     private const double SpawnerReach = 6000;
 
-    /// <summary>The features of one world, or None when its levels can't be read.</summary>
+    /// <summary>
+    /// The features of one world; None when it has no extent or level files, or the paks folder is
+    /// missing. A level that can't be read leaves out only what's in it.
+    /// </summary>
     public static WorldFeatures Read(string paksFolder, WorldMapInfo map)
     {
         if (map.Extent is not { } extent || map.Levels.Count == 0 || !Directory.Exists(paksFolder))
@@ -123,8 +126,9 @@ public static partial class WorldFeatureReader
         var spawners = found.Where(f => f.Class == "BP_IcarusCaveAISpawner_C" && f.Worms is not null).ToList();
         var entrances = found.Where(f => f.Class.StartsWith("BP_CaveEntrance_", StringComparison.Ordinal) || f.Class == "CaveEntrance_C").ToList();
 
-        // A cave's spawner and entrance are its own actors: the nearest within reach of the cave (a big
-        // cave: of any of its entrances, and further, as its middle can be far from them).
+        // A cave's spawner and entrance are their own actors: the nearest within reach of the cave
+        // belongs to it (a big cave: of the cave or any of its entrances, with 3x the reach, as its
+        // middle can be far from them; an entrance's style is looked for 3x as far for every cave).
         (int Min, int Max)? WormsNear(IReadOnlyList<FVector> points, double reach) =>
             spawners.Select(s => (s.Worms, Distance: points.Min(p => Distance(s.At, p)))).Where(s => s.Distance < reach)
                 .OrderBy(s => s.Distance).Select(s => s.Worms).FirstOrDefault();
@@ -267,7 +271,7 @@ public static partial class WorldFeatureReader
         return string.Join(" · ", parts.Take(2).Select(SplitWords));
     }
 
-    /// <summary>A mission spot's name: the rest of its tag ("Horde · Spawn Location"), else its category.</summary>
+    /// <summary>A mission spot's name: its tag after the first two parts ("Horde · Spawn Location"), else the tag's last part, else the actor's name.</summary>
     private static string MissionName(string? tag, string exportName)
     {
         var parts = tag?.Split('.') ?? [];

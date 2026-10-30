@@ -4,7 +4,8 @@ namespace IcarusStarlink.PakIO.Tests.World;
 
 /// <summary>
 /// The kept copy of the drawn maps: made once, redrawn only when the game's files change, deleted
-/// when the game drops a world, all redrawn by Rebuild all, and a one-line summary of what changed.
+/// when the game drops a world, all redrawn by Rebuild all, one that can't be drawn left for the next
+/// Reload, look-alike ids kept in their own folders, and a one-line summary of what changed.
 /// </summary>
 public sealed class WorldMapStoreTests : IDisposable
 {

@@ -12,7 +12,7 @@ namespace IcarusStarlink.PakIO.World;
 /// </summary>
 public static partial class WorldMissionNames
 {
-    /// <summary>The names to match against, for one world: "region|type", "hunt|code|letter", "npc|who", "bw|n" → the mission's name(s).</summary>
+    /// <summary>The names to match against, for one world: "region|area|type", "hunt|code|letter", "npc|who", "bw|n" → the mission's name(s).</summary>
     public static IReadOnlyDictionary<string, string> Read(WorldTableSource source, string terrain)
     {
         var names = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
