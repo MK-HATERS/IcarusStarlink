@@ -16,6 +16,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -61,24 +62,11 @@
                 <TextBlock Text="Find a creature or fish…" Style="{StaticResource PlaceholderTextStyle}"
                            Visibility="{Binding SearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
             </Grid>
-            <!-- What the map shows: tick any mix. -->
-            <ItemsControl DockPanel.Dock="Left" ItemsSource="{Binding Layers}" Margin="4,0,0,0" VerticalAlignment="Center" Focusable="False"
-                          Visibility="{Binding HasLayers, Converter={StaticResource BoolToVisibilityConverter}}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <CheckBox Content="{Binding Title}" IsChecked="{Binding IsShown}" ToolTip="{Binding ToolTip}" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <CheckBox DockPanel.Dock="Left" Content="Drop sites" IsChecked="{Binding ShowDropSites}" Margin="8,0,0,0" VerticalAlignment="Center"
-                      Visibility="{Binding DropSitesText, Converter={StaticResource NullToVisibilityConverter}}"
-                      ToolTip="{Binding DropSitesToolTip}"/>
+            <CheckBox DockPanel.Dock="Right" Content="Redraw during Update everything" IsChecked="{Binding RedrawDuringUpdate}" Margin="12,0,0,0" VerticalAlignment="Center"
+                      ToolTip="On: after a game update, Update everything also redraws the maps whose game files changed (a big map takes about a minute). Off: this page says which maps are out of date and Reload is left to you."/>
             <Button DockPanel.Dock="Right" Command="{Binding RebuildAllCommand}" Margin="8,0,0,0" VerticalAlignment="Center"
                     Content="Rebuild all maps" AutomationProperties.Name="Rebuild all maps"
-                    ToolTip="Deletes every map Starlink made and draws them all again from the game's files, even if nothing changed. Takes about half a minute."/>
+                    ToolTip="Deletes every map Starlink made and draws them all again from the game's files, even if nothing changed. Reads every world's caves and spots too, so it takes several minutes."/>
             <Button DockPanel.Dock="Right" Command="{Binding ReloadCommand}" Margin="16,0,0,0" VerticalAlignment="Center"
                     AutomationProperties.Name="Reload the maps"
                     ToolTip="Checks the game's map files and zones and draws again only the maps that changed (after a game update, or a mod or file changed).">
@@ -91,12 +79,49 @@
                        Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
         </DockPanel>
 
+        <!-- What the map shows: tick any mix. Zones first, then what's placed on the world. -->
+        <WrapPanel Grid.Row="2" Margin="0,8,0,0">
+            <TextBlock Text="Show" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+            <ItemsControl ItemsSource="{Binding Layers}" VerticalAlignment="Center" Focusable="False"
+                          Visibility="{Binding HasLayers, Converter={StaticResource BoolToVisibilityConverter}}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <CheckBox Content="{Binding Title}" IsChecked="{Binding IsShown}" ToolTip="{Binding ToolTip}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <CheckBox Content="Drop sites" IsChecked="{Binding ShowDropSites}" Margin="8,0,0,0" VerticalAlignment="Center"
+                      Visibility="{Binding DropSitesText, Converter={StaticResource NullToVisibilityConverter}}"
+                      ToolTip="{Binding DropSitesToolTip}"/>
+            <CheckBox Content="Grid" IsChecked="{Binding ShowGrid}" Margin="8,0,0,0" VerticalAlignment="Center"
+                      ToolTip="The in-game map grid: letters across, numbers down (A1 top left)."/>
+            <StackPanel Orientation="Horizontal" Visibility="{Binding HasFeatures, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Rectangle Width="1" Height="18" Fill="{DynamicResource BorderBrush}" Margin="12,0,4,0" VerticalAlignment="Center"/>
+                <CheckBox Content="Caves" IsChecked="{Binding ShowCaves}" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="{Binding CavesText}"/>
+                <ComboBox ItemsSource="{Binding CaveTierOptions}" SelectedItem="{Binding CaveTier}" Margin="6,0,0,0" MinWidth="110" VerticalAlignment="Center"
+                          IsEnabled="{Binding ShowCaves}" AutomationProperties.Name="Which caves to show" ToolTip="Tier by cave worms: 1 up to 3, 2 for 4-6, 3 for 7 or more."/>
+                <CheckBox Content="Geysers" IsChecked="{Binding ShowGeysers}" Margin="12,0,0,0" VerticalAlignment="Center" ToolTip="{Binding GeysersText}"/>
+                <CheckBox Content="Dens &amp; bosses" IsChecked="{Binding ShowDensAndBosses}" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="{Binding DensText}"/>
+                <CheckBox Content="Deep ore spots" IsChecked="{Binding ShowDeepOre}" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="{Binding DeepOreText}"/>
+                <CheckBox Content="Exotic spots" IsChecked="{Binding ShowExotic}" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="{Binding ExoticText}"/>
+                <CheckBox Content="Lakes &amp; rivers" IsChecked="{Binding ShowWater}" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="{Binding WaterText}"/>
+                <CheckBox Content="Fishing spots" IsChecked="{Binding ShowFishingSpots}" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="{Binding FishingSpotsText}"/>
+                <CheckBox Content="Missions" IsChecked="{Binding ShowMissions}" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="{Binding MissionsText}"/>
+                <ComboBox ItemsSource="{Binding MissionCategories}" SelectedItem="{Binding MissionCategory}" Margin="6,0,0,0" MinWidth="200" MaxWidth="320"
+                          VerticalAlignment="Center" IsEnabled="{Binding ShowMissions}" AutomationProperties.Name="Which mission spots to show"
+                          ToolTip="Mission and quest spots by kind, from their tags in the game's level."/>
+            </StackPanel>
+        </WrapPanel>
+
         <!-- What Reload / Rebuild all did, or what they're doing. -->
-        <TextBlock Grid.Row="2" Text="{Binding StatusMessage}" Style="{StaticResource PageBodyTextStyle}" Margin="0,10,0,0" TextWrapping="Wrap"
+        <TextBlock Grid.Row="3" Text="{Binding StatusMessage}" Style="{StaticResource PageBodyTextStyle}" Margin="0,10,0,0" TextWrapping="Wrap"
                    Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
         <!-- The game's files changed since the maps were made. -->
-        <Border Grid.Row="3" Margin="0,10,0,0" Padding="12,8" CornerRadius="6" BorderThickness="1"
+        <Border Grid.Row="4" Margin="0,10,0,0" Padding="12,8" CornerRadius="6" BorderThickness="1"
                 BorderBrush="{DynamicResource WarningBrush}" Background="{DynamicResource WarningSoftBrush}"
                 Visibility="{Binding OutOfDateMessage, Converter={StaticResource NullToVisibilityConverter}}">
             <DockPanel>
@@ -106,7 +131,7 @@
             </DockPanel>
         </Border>
 
-        <Grid Grid.Row="4" Margin="0,12,0,0">
+        <Grid Grid.Row="5" Margin="0,12,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="320"/>
                 <ColumnDefinition Width="16"/>
@@ -133,6 +158,70 @@
                             <Image Source="{Binding Picture}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
                             <Image Source="{Binding ZonesImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
                             <Image Source="{Binding HighlightImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+
+                            <!-- Lakes and rivers, and the in-game grid (its lines keep 1 pixel at any zoom: set in code). -->
+                            <Canvas IsHitTestVisible="False">
+                                <Path Data="{Binding WaterGeometry}" Fill="#805FA8FF" Stroke="#C05FA8FF" StrokeThickness="0.4"/>
+                                <Path x:Name="GridPath" Data="{Binding GridGeometry}" Stroke="#B0FFFFFF" StrokeThickness="1"/>
+                            </Canvas>
+                            <ItemsControl ItemsSource="{Binding GridLabels}" IsHitTestVisible="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><Canvas/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="ContentPresenter">
+                                        <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                        <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#B0101418" CornerRadius="2" Padding="3,0">
+                                            <Border.RenderTransform>
+                                                <TransformGroup>
+                                                    <TranslateTransform X="2" Y="2"/>
+                                                    <StaticResource ResourceKey="MarkerScale"/>
+                                                </TransformGroup>
+                                            </Border.RenderTransform>
+                                            <TextBlock Text="{Binding Text}" FontSize="11" Foreground="White"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- Caves, geysers, dens, spots: click one for its facts. -->
+                            <ItemsControl ItemsSource="{Binding Markers}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><Canvas/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="ContentPresenter">
+                                        <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                        <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" ToolTip="{Binding ToolTip}" Cursor="Hand" Background="Transparent">
+                                            <StackPanel.RenderTransform>
+                                                <TransformGroup>
+                                                    <TranslateTransform X="{Binding Offset}" Y="{Binding Offset}"/>
+                                                    <StaticResource ResourceKey="MarkerScale"/>
+                                                </TransformGroup>
+                                            </StackPanel.RenderTransform>
+                                            <Grid Width="{Binding Size}" Height="{Binding Size}">
+                                                <Ellipse Fill="{Binding Fill}" Stroke="#E0FFFFFF" StrokeThickness="1"/>
+                                                <TextBlock Text="{Binding Glyph}" FontSize="9" FontWeight="Bold" Foreground="White"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Grid>
+                                            <Border Margin="4,0,0,0" Padding="4,0" CornerRadius="3" Background="#C0101418" VerticalAlignment="Center"
+                                                    Visibility="{Binding Label, Converter={StaticResource NullToVisibilityConverter}}">
+                                                <TextBlock Text="{Binding Label}" FontSize="11" Foreground="White"/>
+                                            </Border>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
 
                             <!-- Drop sites. Each marker is scaled by MarkerScale (1 / the map's zoom) around its own
                                  point, so it stays the same size on screen. The landing spots show once zoomed in. -->
@@ -238,6 +327,19 @@
 
                         <TextBlock Text="{Binding ZoneHint}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                    Visibility="{Binding ZoneHint, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+                        <!-- The clicked feature (a cave, a geyser, a spot). -->
+                        <StackPanel Visibility="{Binding SelectedFeature, Converter={StaticResource NullToVisibilityConverter}}" Margin="0,0,0,18">
+                            <TextBlock Text="{Binding SelectedFeature.Title}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding SelectedFeature.Subtitle}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,2,0,0"/>
+                            <ItemsControl ItemsSource="{Binding SelectedFeature.Lines}" Margin="0,8,0,0" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
 
                         <!-- What's at the clicked spot: a section per ticked layer that has a zone there. -->
                         <ItemsControl ItemsSource="{Binding SelectedZones}" Focusable="False">

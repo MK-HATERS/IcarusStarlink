@@ -15,6 +15,13 @@ public sealed class AppSettings
     /// <summary>Settings › Appearance › Size of text and controls: every window drawn this many times bigger (1.0 = normal, 1.5 = half again as big, for 4K screens).</summary>
     public double UiScale { get; set; } = 1.0;
 
+    /// <summary>
+    /// Map › Redraw the maps during Update everything: after a game update, Update everything also
+    /// redraws the maps whose game files changed (each big map about a minute). Off: the Map page
+    /// says when they're out of date and its Reload is left to the user.
+    /// </summary>
+    public bool RedrawMapsDuringGameUpdate { get; set; }
+
     /// <summary>The Database page: which mods the player has already seen there, so mods added (or updated) since show a New tag.</summary>
     public CatalogSeenState CatalogSeen { get; set; } = new();
     public bool PerformanceTrackingEnabled { get; set; }

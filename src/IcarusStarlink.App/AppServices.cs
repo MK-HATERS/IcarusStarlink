@@ -389,7 +389,7 @@ internal static class AppServices
             return new IcarusStarlink.PakIO.World.WorldMapStore(
                 Path.Combine(appDataDirectory, "Cache", "World"),
                 () => IcarusStarlink.PakIO.World.WorldMapCatalog.Read(dataFolder, settings.Current.IcarusContentPath),
-                new IcarusStarlink.PakIO.World.WorldMapRenderer(sp.GetRequiredService<IBaseGameContentProvider>()));
+                new IcarusStarlink.PakIO.World.WorldMapRenderer(sp.GetRequiredService<IBaseGameContentProvider>(), () => settings.Current.IcarusContentPath));
         });
         services.AddSingleton(sp => new WorldMapViewModel(
             sp.GetRequiredService<IcarusStarlink.PakIO.World.WorldMapStore>(), sp.GetRequiredService<ISettingsService>(), Path.Combine(appDataDirectory, "Data")));

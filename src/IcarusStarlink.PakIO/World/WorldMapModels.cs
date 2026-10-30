@@ -57,8 +57,30 @@ public sealed record WorldTile(int X, int Y, string AssetPath);
 public sealed record WorldMapInfo(
     string Id, string Name, bool InDevelopment,
     IReadOnlyList<WorldTile> PictureTiles, IReadOnlyList<WorldTile> HeightTiles, IReadOnlyList<WorldLayer> Layers,
-    bool OpenWorld = false, int Missions = 0, bool Outpost = false, IReadOnlyList<WorldDropSite>? Drops = null)
+    bool OpenWorld = false, int Missions = 0, bool Outpost = false, IReadOnlyList<WorldDropSite>? Drops = null,
+    WorldExtent? Extent = null, IReadOnlyList<string>? LevelFiles = null,
+    IReadOnlyDictionary<string, IReadOnlyList<WorldZoneEntry>>? CaveOreChances = null)
 {
+    /// <summary>
+    /// The ores a cave can have by its entrance style (CF, DC, AC), from D_VoxelDistributionRegion's
+    /// Conifer/Desert/Arctic_Caves_1 rows (weights); empty when the game lists none for a style.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<WorldZoneEntry>> CaveOres => CaveOreChances ?? new Dictionary<string, IReadOnlyList<WorldZoneEntry>>();
+
+    /// <summary>
+    /// The level files its placed features are read from (D_WorldData MainLevel + GeneratedLevels),
+    /// Content-relative ("Maps/Terrain_016_OLY/Terrain_016.umap").
+    /// </summary>
+    public IReadOnlyList<string> Levels => LevelFiles ?? [];
+
+    /// <summary>The in-game grid's square, in world units (proven: every "OLY_I7"-style exotic spot id matches it).</summary>
+    public const double GridSquare = 50400;
+
+    /// <summary>The grid's squares across and down (16 x 16 on Olympus); 0 without an extent.</summary>
+    public (int Columns, int Rows) GridSize => Extent is { } e
+        ? ((int)Math.Round(e.Width / GridSquare), (int)Math.Round(e.Height / GridSquare))
+        : (0, 0);
+
     /// <summary>Where dropships land (D_WorldData DropGroups); empty when the game lists none.</summary>
     public IReadOnlyList<WorldDropSite> DropSites => Drops ?? [];
 

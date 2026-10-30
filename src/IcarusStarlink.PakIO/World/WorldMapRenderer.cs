@@ -58,6 +58,9 @@ public interface IWorldMapRenderer
 
     /// <summary>One line naming where every file the map is drawn from sits in the paks: changes when a game update replaces any of them.</summary>
     string Stamp(WorldMapInfo map);
+
+    /// <summary>What's placed on the world (caves, geysers, spots, water), read from its level files; None when they can't be read.</summary>
+    WorldFeatures ReadFeatures(WorldMapInfo map) => WorldFeatures.None;
 }
 
 /// <summary>
@@ -77,8 +80,12 @@ public static class WorldTilePlacement
     public static (int X, int Y) SourcePixel(int u, int v, int tileSize) => (v, tileSize - 1 - u);
 }
 
-public sealed class WorldMapRenderer(IBaseGameContentProvider game) : IWorldMapRenderer
+/// <param name="contentPath">The game's Content folder (for its own pak reader for the level files); null when it isn't set.</param>
+public sealed class WorldMapRenderer(IBaseGameContentProvider game, Func<string?>? contentPath = null) : IWorldMapRenderer
 {
+    public WorldFeatures ReadFeatures(WorldMapInfo map) =>
+        contentPath?.Invoke() is { Length: > 0 } content ? WorldFeatureReader.Read(Path.Combine(content, "Paks"), map) : WorldFeatures.None;
+
     /// <summary>A map picture is never drawn larger than this per side (Olympus: 8 tiles of 512 = 4096).</summary>
     private const int MaxPictureSize = 4096;
 
@@ -133,6 +140,7 @@ public sealed class WorldMapRenderer(IBaseGameContentProvider game) : IWorldMapR
     {
         var files = map.PictureTiles.Concat(map.HeightTiles).Select(t => t.AssetPath)
             .Concat(map.Layers.Select(l => l.HeatmapAssetPath).OfType<string>())
+            .Concat(map.Levels)
             .Order(StringComparer.OrdinalIgnoreCase);
         var text = string.Join("\n", files.Select(f => $"{f}={game.FileStamp(f)}"));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..32];

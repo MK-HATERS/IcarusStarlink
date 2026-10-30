@@ -31,6 +31,22 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
 
     public string LayerPath(string mapId, WorldLayerKind kind) => Path.Combine(Root, Safe(mapId), kind + ".png");
 
+    private const string FeaturesFile = "features.json";
+
+    /// <summary>What's placed on the world (caves, geysers, spots, water) as read when it was drawn; None when it hasn't been.</summary>
+    public WorldFeatures ReadFeatures(string mapId)
+    {
+        try
+        {
+            var path = Path.Combine(Root, Safe(mapId), FeaturesFile);
+            return File.Exists(path) ? JsonSerializer.Deserialize<WorldFeatures>(File.ReadAllText(path)) ?? WorldFeatures.None : WorldFeatures.None;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return WorldFeatures.None;
+        }
+    }
+
     /// <summary>The world's zone image as drawn, or null when it hasn't been (or can't be read).</summary>
     public WorldLayerPixels? ReadLayer(string mapId, WorldLayerKind kind)
     {
@@ -86,7 +102,7 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
             var entry = old?.Maps.GetValueOrDefault(map.Id);
             if (entry is null || entry.Stamp != stamps[map.Id] || !IsDrawn(map, old!))
             {
-                progress?.Report($"Drawing {map.Name}…");
+                progress?.Report($"Drawing {map.Name} and reading its caves and spots ({redrawn + 1} of up to {maps.Count}; a big map takes about a minute)…");
                 entry = Draw(map, stamps[map.Id]);
                 redrawn++;
             }
@@ -146,12 +162,16 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
             }
         }
 
+        var features = renderer.ReadFeatures(map);
+        File.WriteAllText(Path.Combine(folder, FeaturesFile), JsonSerializer.Serialize(features));
+
         return new WorldMapIndexEntry { Stamp = stamp, Picture = source, Layers = layers };
     }
 
     private bool IsDrawn(WorldMapInfo map, WorldMapIndex index) =>
         index.Maps.GetValueOrDefault(map.Id) is { } entry
         && (entry.Picture == WorldPictureSource.None || File.Exists(PicturePath(map.Id)))
+        && File.Exists(Path.Combine(Root, Safe(map.Id), FeaturesFile))
         && entry.Layers.All(kind => File.Exists(LayerPath(map.Id, kind)));
 
     /// <summary>

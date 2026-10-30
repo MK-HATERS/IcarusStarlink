@@ -231,7 +231,7 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
 
             var withoutExtension = path[..path.LastIndexOf('.')];
             var parts = new List<string>();
-            foreach (var extension in new[] { ".uasset", ".uexp", ".ubulk" })
+            foreach (var extension in new[] { ".uasset", ".umap", ".uexp", ".ubulk" })
             {
                 if (mounted.ContentPathIndex.TryGetValue(withoutExtension + extension, out var key))
                 {

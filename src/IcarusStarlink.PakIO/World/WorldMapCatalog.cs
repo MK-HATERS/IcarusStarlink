@@ -46,6 +46,7 @@ public static partial class WorldMapCatalog
         var terrains = source.Table("Prospects/D_Terrains.json");
         var names = new WorldNames(source);
         var prospects = ProspectsByTerrain(source);
+        var caveOres = CaveOres(source);
         var maps = new List<WorldMapInfo>();
         foreach (var (id, world) in worlds.Rows)
         {
@@ -82,12 +83,48 @@ public static partial class WorldMapCatalog
             }
 
             var (openWorld, missions, outpost) = prospects.GetValueOrDefault(id);
+            var extent = Extent(worlds.Get(world, "GridBounds")) is { } e ? new WorldExtent(e.MinX, e.MinY, e.Width, e.Height) : null;
+            List<string> levels = [.. new[] { worlds.Get(world, "MainLevel") }.Concat(worlds.Get(world, "GeneratedLevels") as JsonArray ?? [])
+                .Select(n => AssetPath(n)?.Replace(".uasset", ".umap")).OfType<string>()];
             maps.Add(new WorldMapInfo(id, name, terrain is null || unreleased || pictureTiles.Count == 0, pictureTiles, heightTiles, layers,
-                openWorld, missions, outpost, DropSites(worlds, world)));
+                openWorld, missions, outpost, DropSites(worlds, world), extent, levels, caveOres));
         }
 
         return maps;
     }
+
+    /// <summary>A cave entrance's style code → the D_VoxelDistributionRegion row of the ores its caves can have.</summary>
+    private static readonly Dictionary<string, string> CaveOreRows = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["CF"] = "Conifer_Caves_1",
+        ["DC"] = "Desert_Caves_1",
+        ["AC"] = "Arctic_Caves_1",
+    };
+
+    /// <summary>The ores each cave style can have, by weight ("Metal_Normal" → "Metal").</summary>
+    private static Dictionary<string, IReadOnlyList<WorldZoneEntry>> CaveOres(WorldTableSource source)
+    {
+        var ores = new Dictionary<string, IReadOnlyList<WorldZoneEntry>>(StringComparer.OrdinalIgnoreCase);
+        var regions = source.Table("World/D_VoxelDistributionRegion.json");
+        foreach (var (style, rowName) in CaveOreRows)
+        {
+            if (regions?.Row(rowName) is not { } row || regions.Get(row, "VoxelDistribution") is not JsonObject distribution)
+            {
+                continue;
+            }
+
+            ores[style] = [.. distribution
+                .Select(kv => (Row: RowNameInKey().Match(kv.Key) is { Success: true } m ? m.Groups[1].Value : kv.Key, Weight: Number(kv.Value) ?? 0))
+                .Where(e => e.Weight > 0)
+                .Select(e => new WorldZoneEntry(e.Row, Humanize(e.Row.Split('_')[0]), e.Weight))];
+        }
+
+        return ores;
+    }
+
+    /// <summary>A map key naming a row: (RowName="Metal_Normal",DataTableName="D_VoxelSetupData").</summary>
+    [GeneratedRegex("RowName=\"([^\"]*)\"")]
+    private static partial Regex RowNameInKey();
 
     /// <summary>
     /// D_WorldData DropGroups placed on the map. A world position goes to the map as
@@ -112,7 +149,7 @@ public static partial class WorldMapCatalog
             var spots = locations.OfType<JsonObject>()
                 .Select(l => (X: Number(l["X"]), Y: Number(l["Y"])))
                 .Where(l => l.X is not null && l.Y is not null)
-                .Select(l => new WorldMapPoint((l.X!.Value - extent.MinX) / extent.Width, (l.Y!.Value - extent.MinY) / extent.Height))
+                .Select(l => new WorldExtent(extent.MinX, extent.MinY, extent.Width, extent.Height).ToMap(l.X!.Value, l.Y!.Value))
                 .Where(p => p.U is >= 0 and <= 1 && p.V is >= 0 and <= 1)
                 .ToList();
             if (spots.Count == 0)

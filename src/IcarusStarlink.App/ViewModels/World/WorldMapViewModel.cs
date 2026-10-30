@@ -232,7 +232,7 @@ public sealed partial class WorldMapViewModel : ObservableObject
     private string? _mapNote;
 
     /// <summary>What the side panel says before anything is clicked; null when the map has no zones (its note says so).</summary>
-    public string? ZoneHint => !HasLayers || HasSelection
+    public string? ZoneHint => !HasLayers || HasSelection || SelectedFeature is not null
         ? null
         : Layers.Any(l => l.IsShown)
             ? "Click the map to see what's there: the creatures that spawn, the fish that bite and the biome, for each ticked layer."
@@ -272,6 +272,11 @@ public sealed partial class WorldMapViewModel : ObservableObject
         if (Problem() is { } problem)
         {
             return (false, problem);
+        }
+
+        if (!_settings.Current.RedrawMapsDuringGameUpdate)
+        {
+            return (false, "Left for you: the Map page says which maps changed, and Reload redraws them (or tick Redraw during Update everything on the Map page).");
         }
 
         if (_store.PictureSources().Count == 0)
@@ -427,10 +432,12 @@ public sealed partial class WorldMapViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(DropSitesText));
+        SelectedFeature = null;
         if (item is null)
         {
             MapNote = null;
             ShowLayers();
+            ShowFeatures(null);
             return;
         }
 
@@ -471,6 +478,7 @@ public sealed partial class WorldMapViewModel : ObservableObject
         MapNote = notes.Count > 0 ? string.Join(" ", notes) : null;
         OnPropertyChanged(nameof(HasLayers));
         ShowLayers();
+        ShowFeatures(map);
     }
 
     private void OnLayerTicked(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -545,6 +553,7 @@ public sealed partial class WorldMapViewModel : ObservableObject
     public void SelectAt(double x, double y)
     {
         var hits = ZonesAt(x, y);
+        SelectedFeature = null;
         _selectedColors = hits.ToDictionary(h => h.Kind, h => h.Color);
         SelectedZones.Clear();
         foreach (var (kind, color, zone) in hits)

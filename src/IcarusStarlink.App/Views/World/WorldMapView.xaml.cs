@@ -66,6 +66,7 @@ public partial class WorldMapView : UserControl
         if (Resources["MarkerScale"] is ScaleTransform markerScale && MapScale.ScaleX > 0)
         {
             markerScale.ScaleX = markerScale.ScaleY = 1 / MapScale.ScaleX;
+            GridPath.StrokeThickness = 1 / MapScale.ScaleX;
         }
 
         LandingSpots.Visibility = _viewModel?.ShowDropSites == true && MapScale.ScaleX >= _fitScale * SpotsFromZoomOfFit
@@ -140,7 +141,18 @@ public partial class WorldMapView : UserControl
 
         MapViewport.ReleaseMouseCapture();
         _dragStart = null;
-        if (!_dragged && MapPoint(e) is { } point)
+        if (_dragged)
+        {
+            return;
+        }
+
+        // A marker (cave, geyser, spot) under the mouse: its facts; anywhere else: the zones there.
+        var marker = (MapViewport.InputHitTest(e.GetPosition(MapViewport)) as FrameworkElement)?.DataContext as WorldFeatureMarkerViewModel;
+        if (marker is not null)
+        {
+            _viewModel?.SelectFeature(marker.Feature);
+        }
+        else if (MapPoint(e) is { } point)
         {
             _viewModel?.SelectAt(point.X, point.Y);
         }
