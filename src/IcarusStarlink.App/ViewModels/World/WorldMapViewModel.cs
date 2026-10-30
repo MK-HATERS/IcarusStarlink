@@ -340,24 +340,35 @@ public sealed partial class WorldMapViewModel : ObservableObject
         await CheckAsync();
     }
 
-    private async Task CheckAsync()
+    internal async Task CheckAsync()
     {
         if (Problem() is not null)
         {
             return;
         }
 
+        var reloadsBefore = _reloadsStarted;
+        WorldMapCheckResult? check;
         try
         {
-            var check = await Task.Run(_store.Check);
-            OutOfDateMessage = check.OutOfDate ? check.Summary : null;
+            check = await Task.Run(_store.Check);
         }
         catch (Exception)
         {
             // Only the out-of-date bar: if the check can't run, the bar just doesn't show.
-            OutOfDateMessage = null;
+            check = null;
+        }
+
+        // A Reload that started while this check ran redraws what it would report (and clears the bar
+        // when done): its answer is out of date already, so it's dropped rather than shown after it.
+        if (_reloadsStarted == reloadsBefore && !IsBusy)
+        {
+            OutOfDateMessage = check is { OutOfDate: true } ? check.Summary : null;
         }
     }
+
+    /// <summary>Reloads started so far: a check that finishes after one started keeps its answer to itself.</summary>
+    private int _reloadsStarted;
 
     /// <returns>Whether the reload ran to the end (false: StatusMessage says why).</returns>
     private async Task<bool> RunReloadAsync(bool everything)
@@ -368,6 +379,7 @@ public sealed partial class WorldMapViewModel : ObservableObject
             return false;
         }
 
+        _reloadsStarted++;
         IsBusy = true;
         try
         {

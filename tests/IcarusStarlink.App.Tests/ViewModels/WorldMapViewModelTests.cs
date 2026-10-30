@@ -152,6 +152,57 @@ public sealed class WorldMapViewModelTests : IDisposable
         Assert.Contains("D_WorldData.json is locked.", message);
     }
 
+    /// <summary>Its first stamp (the check's) waits until the test lets it go; later ones (the reload's) don't.</summary>
+    private sealed class HeldCheckRenderer : IWorldMapRenderer
+    {
+        private int _stamps;
+
+        public string StampNow { get; set; } = "1";
+
+        public bool HoldFirst { get; set; }
+
+        public ManualResetEventSlim Release { get; } = new(false);
+
+        public ManualResetEventSlim Holding { get; } = new(false);
+
+        public (byte[]? Jpeg, WorldPictureSource Source) RenderPicture(WorldMapInfo map) => (null, WorldPictureSource.None);
+
+        public WorldLayerPixels? ReadLayer(string heatmapAssetPath) => null;
+
+        public string Stamp(WorldMapInfo map)
+        {
+            if (HoldFirst && Interlocked.Increment(ref _stamps) == 1)
+            {
+                Holding.Set();
+                Release.Wait(TimeSpan.FromSeconds(10));
+            }
+
+            return StampNow;
+        }
+    }
+
+    /// <summary>Regression: a check that finished after a Reload had started put the "out of date" bar back up over the redrawn maps.</summary>
+    [Fact]
+    public async Task ACheckThatFinishesAfterAReloadStarted_DoesntPutTheBarBack()
+    {
+        var settings = new Settings { Current = { IcarusContentPath = Path.Combine(_root, "Content") } };
+        Directory.CreateDirectory(Path.Combine(_root, "Data", "World"));
+        var renderer = new HeldCheckRenderer();
+        var store = new WorldMapStore(Path.Combine(_root, "World"), () => [new WorldMapInfo("Terrain_016", "Olympus", false, [], [], [])], renderer);
+        store.Reload(everything: false);
+        var vm = new WorldMapViewModel(store, settings, Path.Combine(_root, "Data"));
+        renderer.StampNow = "2"; // a game update moved the map's files
+        renderer.HoldFirst = true;
+
+        var check = Task.Run(vm.CheckAsync);
+        Assert.True(renderer.Holding.Wait(TimeSpan.FromSeconds(10)), "the check never asked for a stamp");
+        await vm.ReloadCommand.ExecuteAsync(null);
+        renderer.Release.Set();
+        await check;
+
+        Assert.Null(vm.OutOfDateMessage);
+    }
+
     [Fact]
     public void PuttingTheChoicesBack_SavesNothing()
     {
