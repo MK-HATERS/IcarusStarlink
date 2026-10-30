@@ -1,9 +1,9 @@
 namespace IcarusStarlink.Core;
 
 /// <summary>
-/// The app's exe names. It was IcarusStarlink.App.exe until 3.0; that name now ships as a small
-/// launcher for IcarusStarlink.exe (IcarusStarlink.Bridge) until the app has moved the user's
-/// shortcuts and nxm:// links over and removed it (ExeRenameMigration).
+/// The app's exe names. It was IcarusStarlink.App.exe until 3.0; from 3.0 to 4.1 that name shipped
+/// as a small launcher for IcarusStarlink.exe. Installs that still have one keep it until the app
+/// has moved the user's shortcuts and nxm:// links over and removed it (ExeRenameMigration).
 /// </summary>
 public static class StarlinkExe
 {

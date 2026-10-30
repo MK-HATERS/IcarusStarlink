@@ -20,7 +20,7 @@ UE4SS **Lua** facts live in the Hook Scout repo's `icarus-facts` skill (path in 
 | `src/IcarusStarlink.Core` | Models + contracts, no IO: `Library/`, `Ue4ss/`, `Server/` (ini, SteamCMD, automation, firewall, logs), `Nexus/`, `Settings/AppSettings.cs` |
 | `src/IcarusStarlink.Storage` | Folder/JSON stores: `Library/FolderLibraryRepository.cs`, `Ue4ss/Ue4ssModRepository.cs`, pending downloads, profiles, saves, FTP, credentials |
 | `src/IcarusStarlink.Catalog` | HTTP clients: Nexus, GitHub (cached), Daedalus/Jimk72 catalogs, UE4SS releases, app update (`release.json`) |
-| `src/IcarusStarlink.Updater` / `.Bridge` | Self-updater (trimmed single file); `IcarusStarlink.App.exe` net48 launcher kept for pre-3.0 updaters |
+| `src/IcarusStarlink.Updater` | Self-updater (trimmed single file). The old-name `IcarusStarlink.App.exe` launcher was dropped in 4.1; `StarlinkExe.OldFileName` / `ExeRenameMigration` still handle installs that have one |
 | `src/ThirdParty/UeSaveGame` | Vendored (Apache) save-blob reader. **Don't edit** (csproj-only changes); a hook refuses it |
 | `tests/<Project>.Tests` | xUnit, ~2,950 tests. App VM tests build a `Harness`/`TestHarness` per test (Grep `class TestHarness` in `LibraryViewModelTests.cs`, `class Harness` in `DownloadsViewModelTests.cs`) |
 | `tools/WinTools` | UI Automation CLI for the running app (`/run-app`). `tools/GameRowHistory` builds the row-history resource (`/game-data`) |

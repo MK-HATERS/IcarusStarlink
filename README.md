@@ -24,7 +24,7 @@ below.*
 2. Extract the zip anywhere — it unpacks into a single `IcarusStarlink` folder. It's a
    self-contained, portable build, so nothing else needs to be installed separately (no .NET
    runtime download required).
-3. Run `IcarusStarlink.exe` from that folder (before 3.0 it was `IcarusStarlink.App.exe`; that name is now a small launcher that Starlink offers to remove once your shortcuts point at the new one). First launch sets itself up: it finds your
+3. Run `IcarusStarlink.exe` from that folder (before 3.0 it was `IcarusStarlink.App.exe`; if an older install still has that file, Starlink offers to remove it once your shortcuts point at the new one). First launch sets itself up: it finds your
    Icarus install through Steam (or asks you to browse to it), installs UnrealPak, and offers to
    extract the game's data. Everything it set lives in **Settings** if you ever need to change
    it — see [Getting started](#faq--troubleshooting) below if anything's unclear.
