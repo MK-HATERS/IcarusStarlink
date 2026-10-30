@@ -241,6 +241,8 @@ public sealed partial class SavesViewModel : ObservableObject
     private void OnGameDataRefreshed()
     {
         _gameNames.Invalidate();
+        // A game update can change a picture at the same path: decode them again from now on.
+        _iconCache.Clear();
         _gameContentStale = true;
         WorldSettings.InvalidateDefinitions();
         if (SelectedSlot is null)

@@ -453,9 +453,10 @@
                                     <!-- Resolved lazily off the base game's own extracted pak content (see
                                          IBaseGameIconDecoder) — collapsed entirely until (if ever) it
                                          resolves, so a row never shows an empty placeholder box. -->
-                                    <Border DockPanel.Dock="Left" Width="36" Height="36" Margin="0,0,10,0" Background="{StaticResource SaveIconTileBrush}" CornerRadius="5"
+                                    <!-- Bigger than the item tiles: a creature picture, cut to the creature (PngTrim). -->
+                                    <Border DockPanel.Dock="Left" Width="52" Height="52" Margin="0,0,10,0" Background="{StaticResource SaveIconTileBrush}" CornerRadius="6"
                                             Visibility="{Binding Icon, Converter={StaticResource NullToVisibilityConverter}}">
-                                        <Image Source="{Binding Icon}" Stretch="Uniform" Margin="3"/>
+                                        <Image Source="{Binding Icon}" Stretch="Uniform" Margin="2" RenderOptions.BitmapScalingMode="HighQuality"/>
                                     </Border>
                                     <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
                                         <TextBlock FontSize="12.5" TextTrimming="CharacterEllipsis">

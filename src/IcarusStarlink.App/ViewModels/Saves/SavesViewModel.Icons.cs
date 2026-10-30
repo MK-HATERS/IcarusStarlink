@@ -39,20 +39,21 @@ public sealed partial class SavesViewModel
     /// </summary>
     private void QueueIconResolution()
     {
-        var requests = new List<(string? IconPath, Action<BitmapImage> SetIcon)>();
+        var requests = new List<(string? IconPath, bool Trim, Action<BitmapImage> SetIcon)>();
         foreach (var item in MetaInventoryItems)
         {
-            requests.Add((item.IconPath, bitmap => item.Icon = bitmap));
+            requests.Add((item.IconPath, false, bitmap => item.Icon = bitmap));
         }
 
         foreach (var mount in Mounts)
         {
-            requests.Add((mount.IconPath, bitmap => mount.Icon = bitmap));
+            requests.Add((mount.IconPath, false, bitmap => mount.Icon = bitmap));
         }
 
+        // Bestiary pictures are mostly empty around a small creature: cut to the creature (PngTrim).
         foreach (var creature in BestiaryEntries)
         {
-            requests.Add((creature.ImagePath, bitmap => creature.Icon = bitmap));
+            requests.Add((creature.ImagePath, true, bitmap => creature.Icon = bitmap));
         }
 
         _pendingIconLoad = LoadIconsAsync(requests, _iconLoadGeneration);
@@ -71,9 +72,9 @@ public sealed partial class SavesViewModel
     /// trail on in the background for a while after a slot loads; that's real but bounded (no UI
     /// thread time, one background thread, nothing blocks on it) rather than a correctness problem.
     /// </summary>
-    private async Task LoadIconsAsync(IReadOnlyList<(string? IconPath, Action<BitmapImage> SetIcon)> requests, int generation)
+    private async Task LoadIconsAsync(IReadOnlyList<(string? IconPath, bool Trim, Action<BitmapImage> SetIcon)> requests, int generation)
     {
-        foreach (var (iconPath, setIcon) in requests)
+        foreach (var (iconPath, trim, setIcon) in requests)
         {
             if (generation != _iconLoadGeneration)
             {
@@ -85,11 +86,13 @@ public sealed partial class SavesViewModel
                 continue;
             }
 
-            if (!_iconCache.TryGetValue(iconPath, out var bitmap))
+            var cacheKey = trim ? "trimmed:" + iconPath : iconPath;
+            if (!_iconCache.TryGetValue(cacheKey, out var bitmap))
             {
-                var pngBytes = await Task.Run(() => _baseGameIconDecoder.TryDecodeIconToPng(iconPath));
+                var pngBytes = await Task.Run(() =>
+                    _baseGameIconDecoder.TryDecodeIconToPng(iconPath) is { } png ? (trim ? PngTrim.TrimTransparentBorder(png) : png) : null);
                 bitmap = pngBytes is null ? null : TryDecodeImage(pngBytes);
-                _iconCache[iconPath] = bitmap;
+                _iconCache[cacheKey] = bitmap;
             }
 
             if (generation != _iconLoadGeneration)
