@@ -480,6 +480,8 @@ public sealed partial class LocalServerViewModel
             return null;
         }
 
+        await WaitForSteamCmdAsync();
+        var box = KeepSteamCmdBoxTitle();
         var token = BeginSteamCmdRun($"Checking '{p.Name}' for an update", p.Id);
         SteamCmdStatus = "asking Steam for the latest build…";
         IsSteamCmdBusy = true;
@@ -518,6 +520,7 @@ public sealed partial class LocalServerViewModel
         {
             IsSteamCmdBusy = false;
             SteamCmdStatus = null;
+            box();
         }
     }
 
