@@ -159,7 +159,9 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasProfile), nameof(HasNoProfile))]
-    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand), nameof(SaveSettingsCommand), nameof(RemoveProfileCommand))]
+    // Check for update and Update need a server too: without them here, adding the first server left both greyed out.
+    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand), nameof(SaveSettingsCommand), nameof(RemoveProfileCommand),
+        nameof(CheckForUpdateCommand), nameof(UpdateServerCommand))]
     private DedicatedServerProfile? _selectedProfile;
 
     public bool HasProfile => SelectedProfile is not null;

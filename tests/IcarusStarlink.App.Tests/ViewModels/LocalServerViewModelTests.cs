@@ -476,6 +476,26 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.False(updateSeen.LastOrDefault(true), "Update wasn't greyed out while the server starts or stops");
     }
 
+    /// <summary>
+    /// Regression (seen in the running app, 2026-10-30): adding the first server left Check for
+    /// update and Update greyed out, because picking a server didn't tell them to look again.
+    /// </summary>
+    [Fact]
+    public void AddingTheFirstServer_EnablesCheckForUpdateAndUpdate()
+    {
+        WriteManifest(buildId: 1);
+        var (vm, _, _, _) = Build(pick: _install);
+        var checkSeen = new List<bool>();
+        vm.CheckForUpdateCommand.CanExecuteChanged += (_, _) => checkSeen.Add(vm.CheckForUpdateCommand.CanExecute(null));
+        var updateSeen = new List<bool>();
+        vm.UpdateServerCommand.CanExecuteChanged += (_, _) => updateSeen.Add(vm.UpdateServerCommand.CanExecute(null));
+
+        vm.AddExistingServerCommand.Execute(null);
+
+        Assert.True(checkSeen.LastOrDefault(false), "Check for update wasn't told it can run once a server was added");
+        Assert.True(updateSeen.LastOrDefault(false), "Update wasn't told it can run once a server was added");
+    }
+
     /// <summary>The user's first install: no server in the list yet, so no Log tab — the SteamCMD box itself must show the output and keep it after the run until dismissed.</summary>
     [Fact]
     public async Task InstallNewServer_ShowsSteamCmdOutputInItsOwnBoxWithNoServerListed()
