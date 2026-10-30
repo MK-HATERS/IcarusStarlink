@@ -43,10 +43,15 @@ public sealed partial class LocalServerViewModel
         public int MissingBeats { get; set; }
         public DateTime? MinimizeUntil { get; set; }
         public bool Minimizing { get; set; }
-        public string? LastAutomationEvent { get; set; }
 
         /// <summary>Automation is stopping, updating or starting this server right now.</summary>
         public bool AutomationBusy { get; set; }
+
+        /// <summary>What automation is doing while AutomationBusy, for the Overview's Now line ("restarting it after a crash").</summary>
+        public string? AutomationDoing { get; set; }
+
+        /// <summary>An automation beat has looked at this server at least once (so a run seen after that is a start, not one already going when Starlink opened).</summary>
+        public bool Observed { get; set; }
     }
 
     /// <summary>The watch whose log, players and events the panels show (the selected server's, once its first read is in).</summary>

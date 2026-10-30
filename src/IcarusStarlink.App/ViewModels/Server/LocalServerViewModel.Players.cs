@@ -37,6 +37,7 @@ public sealed partial class LocalServerViewModel
             Events.Add(line);
         }
 
+        RefreshRecentEvents();
         RefreshOnlinePlayers(watch);
     }
 
@@ -66,6 +67,8 @@ public sealed partial class LocalServerViewModel
             {
                 Events.RemoveAt(Events.Count - 1);
             }
+
+            RefreshRecentEvents();
         }
     }
 

@@ -25,6 +25,19 @@ public enum AutomationActionKind
     DailyBackup,
 }
 
+/// <summary>How a server's last run ended, as automation saw it.</summary>
+public enum ServerStopKind
+{
+    /// <summary>A clean exit in its log, or a stop the app made on purpose (daily restart, update).</summary>
+    Clean,
+
+    /// <summary>The owner stopped it (Stop, or Update while it ran).</summary>
+    ByOwner,
+
+    /// <summary>The process went away without a clean exit and nobody asked it to.</summary>
+    Crash,
+}
+
 public sealed record AutomationAction(AutomationActionKind Kind, string Reason)
 {
     public static readonly AutomationAction None = new(AutomationActionKind.None, "");
@@ -172,12 +185,40 @@ public sealed class ServerAutomation
         return AutomationAction.None;
     }
 
+    /// <summary>When the last run this saw ended (the beat that noticed it), and how; null until it has seen one end.</summary>
+    public DateTime? LastStoppedAt { get; private set; }
+
+    public ServerStopKind LastStopKind { get; private set; }
+
+    /// <summary>Crash restarts made in the CrashWindow before nowLocal (MaxCrashRestarts are allowed).</summary>
+    public int CrashRestartsInWindow(DateTime nowLocal) => _crashRestarts.Count(t => nowLocal - t <= CrashWindow);
+
+    /// <summary>The next daily restart slot still to come (today's if it is ahead and not handled yet, else tomorrow's); null when the daily restart is off or its time isn't one.</summary>
+    public DateTime? NextDailyRestart(DedicatedServerProfile profile, DateTime nowLocal)
+    {
+        if (!profile.DailyRestartEnabled || !TryParseDailyTime(profile.DailyRestartTime, out var time))
+        {
+            return null;
+        }
+
+        var today = DateOnly.FromDateTime(nowLocal).ToDateTime(time);
+        return nowLocal < today && !(_lastDailySlotHandled >= today) ? today : today.AddDays(1);
+    }
+
+    /// <summary>When the hourly update check is next due (it only runs while the server runs); null before the first one, which comes on the next beat that sees it running.</summary>
+    public DateTime? NextUpdateCheck => LastUpdateCheck + UpdateCheckInterval;
+
+    /// <summary>When the next daily backup is due (it only runs while the server runs); null when none was made yet, so it is due on the next beat that sees it running.</summary>
+    public DateTime? NextDailyBackup => LastDailyBackup + DailyBackupInterval;
+
     private AutomationAction OnStopped(DedicatedServerProfile profile, ServerObservation now)
     {
         var intended = now.CleanExitLogged
             || _intendedStopOfUnknownProcess
             || (_lastProcessId is { } pid && _intendedStops.Remove(pid));
         _intendedStopOfUnknownProcess = false;
+        LastStoppedAt = now.NowLocal;
+        LastStopKind = StoppedByOwner ? ServerStopKind.ByOwner : intended ? ServerStopKind.Clean : ServerStopKind.Crash;
         if (intended || StoppedByOwner || !profile.AutoRestartOnCrash || GaveUp)
         {
             return AutomationAction.None;
@@ -272,9 +313,13 @@ public sealed class ServerAutomation
             {
                 lines.Add($"Daily restart is waiting for {playersOnline} player(s) to leave. It goes ahead anyway at {until:HH:mm}.");
             }
-            else
+            else if (WaitingForEmptyUntil(profile, nowLocal) is { } goesAt)
             {
-                lines.Add($"Daily restart at {time:HH\\:mm}{(profile.UpdateOnRestart ? ", with an update check" : "")}.");
+                lines.Add($"Daily restart is due now: it goes ahead as soon as the server is empty, or at {goesAt:HH:mm} at the latest.");
+            }
+            else if (NextDailyRestart(profile, nowLocal) is { } next)
+            {
+                lines.Add($"Next daily restart {DayWord(next, nowLocal)} at {next:HH:mm}{(profile.UpdateOnRestart ? ", with an update check" : "")}.");
             }
         }
 
@@ -282,23 +327,26 @@ public sealed class ServerAutomation
         {
             lines.Add(UpdatePending
                 ? "A newer build is out. It installs as soon as nobody is online."
-                : LastUpdateCheck is { } last
-                    ? $"Next update check at {last + UpdateCheckInterval:HH:mm}."
-                    : "Checks for an update shortly.");
+                : NextUpdateCheck is { } check && check > nowLocal
+                    ? $"Next update check at {check:HH:mm} (only while it runs)."
+                    : "Checks for an update as soon as it runs.");
         }
 
         if (profile.DailyBackup)
         {
-            lines.Add(LastDailyBackup is { } backedUp && nowLocal - backedUp < DailyBackupInterval
-                ? $"Next daily backup around {backedUp + DailyBackupInterval:ddd HH:mm}, while it runs."
-                : "Backs up its worlds shortly (daily backup), while it runs.");
+            lines.Add(NextDailyBackup is { } backup && backup > nowLocal
+                ? $"Next daily backup {DayWord(backup, nowLocal)} around {backup:HH:mm} (only while it runs)."
+                : "Backs up its worlds as soon as it runs (daily backup).");
         }
 
         if (profile.AutoRestartOnCrash)
         {
+            var used = CrashRestartsInWindow(nowLocal);
             lines.Add(GaveUp
                 ? $"Crash restarts are paused after {MaxCrashRestarts + 1} crashes in {CrashWindow.TotalMinutes:0} minutes. Start it to re-arm them."
-                : $"Restarts after a crash, up to {MaxCrashRestarts} times in {CrashWindow.TotalMinutes:0} minutes.");
+                : used > 0
+                    ? $"Restarts after a crash: {used} of {MaxCrashRestarts} restarts used in the last {CrashWindow.TotalMinutes:0} minutes."
+                    : $"Restarts after a crash, up to {MaxCrashRestarts} times in {CrashWindow.TotalMinutes:0} minutes.");
         }
 
         if (lines.Count == 0)
@@ -308,6 +356,12 @@ public sealed class ServerAutomation
 
         return lines;
     }
+
+    /// <summary>"today", "tomorrow" or the day's name, for a time after nowLocal.</summary>
+    private static string DayWord(DateTime when, DateTime nowLocal) =>
+        when.Date == nowLocal.Date ? "today"
+        : when.Date == nowLocal.Date.AddDays(1) ? "tomorrow"
+        : "on " + when.ToString("dddd", CultureInfo.InvariantCulture);
 
     public static bool TryParseDailyTime(string? text, out TimeOnly time) =>
         TimeOnly.TryParseExact((text ?? "").Trim(), ["H:mm", "HH:mm"], CultureInfo.InvariantCulture, DateTimeStyles.None, out time);

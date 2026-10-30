@@ -74,21 +74,137 @@ public sealed partial class LocalServerViewModel
         var saveFrequency = double.TryParse(GameSaveFrequencyText, NumberStyles.Float, CultureInfo.InvariantCulture, out var f) ? f : (double?)null;
         SaveOnExitWarning = ServerShutdownNotes.AutomationWarning(p, new DedicatedServerSettings { SaveGameOnExit = SaveGameOnExit, GameSaveFrequency = saveFrequency });
 
+        // Coming up: ServerAutomation's own state (what it waits for, when it next looks), for the options that are on.
+        // What automation last did is in Recent events, with everything else that happened.
         var watch = _watches.GetValueOrDefault(p.Id);
         var players = watch?.Events.Online.Count ?? OnlinePlayers.Count;
         var lines = (watch?.Automation ?? new ServerAutomation()).DescribeUpcoming(p, Clock(), players).ToList();
-        if (watch?.LastAutomationEvent is { } last)
+        Replace(NextUp, lines);
+        RefreshRecentEvents();
+        OnPropertyChanged(nameof(NowLine));
+    }
+
+    private static void Replace(ObservableCollection<string> target, IReadOnlyList<string> lines)
+    {
+        if (target.SequenceEqual(lines))
         {
-            lines.Add($"Last: {last}");
+            return;
         }
 
-        if (!NextUp.SequenceEqual(lines))
+        target.Clear();
+        foreach (var line in lines)
         {
-            NextUp.Clear();
-            foreach (var line in lines)
-            {
-                NextUp.Add(line);
-            }
+            target.Add(line);
         }
     }
+
+    // ---- Recent events: the newest few of the Log tab's Events list ----
+
+    public const int MaxRecentEvents = 8;
+
+    /// <summary>The newest MaxRecentEvents of the Events list (newest first, local time), without the start-up's "Mod pak loaded" lines.</summary>
+    public ObservableCollection<string> RecentEvents { get; } = [];
+
+    public bool HasRecentEvents => RecentEvents.Count > 0;
+
+    private void RefreshRecentEvents()
+    {
+        Replace(RecentEvents, Events.Where(e => !e.Contains(ServerLogEvents.ModPakMountedText, StringComparison.Ordinal)).Take(MaxRecentEvents).ToList());
+        OnPropertyChanged(nameof(HasRecentEvents));
+    }
+
+    // ---- Now: one plain sentence for what the server is doing ----
+
+    /// <summary>How long after its start a server with a world to load is still called "starting".</summary>
+    private static readonly TimeSpan WorldLoadGrace = TimeSpan.FromMinutes(3);
+
+    /// <summary>"Running · world 'Olympus' · 2 players · up 3h 12m", "Updating with SteamCMD (downloading 40%)", "Stopped · last stopped cleanly at 14:02".</summary>
+    public string NowLine
+    {
+        get
+        {
+            if (SelectedProfile is not { } p)
+            {
+                return "";
+            }
+
+            var watch = _watches.GetValueOrDefault(p.Id);
+            if (IsSteamCmdBusy && _steamCmdFor == p.Id)
+            {
+                return _steamCmdDownloads
+                    ? $"Updating with SteamCMD ({SteamCmdStatus ?? "starting"})"
+                    : "Asking Steam whether a newer server build is out…";
+            }
+
+            if (watch is { AutomationBusy: true })
+            {
+                return $"Automation: {watch.AutomationDoing ?? "restarting it"}…";
+            }
+
+            if (IsBusy && _busyWith == "UPDATING")
+            {
+                return "Updating: backing up its worlds and settings, then SteamCMD downloads the new build…";
+            }
+
+            if (IsBusy && Running is null)
+            {
+                return "Starting… (waiting for the server to open)";
+            }
+
+            if (IsBusy)
+            {
+                return "Stopping… (waiting up to 60 seconds for it to close)";
+            }
+
+            var automation = watch?.Automation;
+            if (Running is { } r)
+            {
+                var up = DateTime.Now - r.StartTime;
+                var prospect = watch?.Events.CurrentProspect ?? CurrentProspect;
+                if (prospect is null && up < WorldLoadGrace && ExpectsAWorld())
+                {
+                    return "Starting… (loading the world)";
+                }
+
+                var players = watch?.Events.Online.Count ?? OnlinePlayers.Count;
+                var parts = new List<string>
+                {
+                    "Running",
+                    prospect is null ? "in the lobby" : $"world '{prospect}'",
+                    players switch { 0 => "nobody online", 1 => "1 player", _ => $"{players} players" },
+                    $"up {FormatUptime(up)}",
+                };
+                if (automation is { LastStopKind: ServerStopKind.Crash, LastStoppedAt: { } crashed }
+                    && r.StartTime >= crashed.AddMinutes(-1) && Clock() - crashed < TimeSpan.FromDays(1))
+                {
+                    parts.Add($"restarted after a crash at {At(crashed)}");
+                }
+
+                return string.Join(" · ", parts);
+            }
+
+            if (automation?.LastStoppedAt is not { } stopped)
+            {
+                return "Stopped";
+            }
+
+            return automation.LastStopKind switch
+            {
+                ServerStopKind.ByOwner => $"Stopped · you stopped it at {At(stopped)}",
+                ServerStopKind.Clean => $"Stopped · last stopped cleanly at {At(stopped)}",
+                _ when automation.GaveUp => $"Stopped · it crashed at {At(stopped)}, too often to keep restarting it. Check the Log tab, then Start it.",
+                _ when !p.AutoRestartOnCrash => $"Stopped · it crashed at {At(stopped)} ('Restart it if it crashes' is off)",
+                _ => $"Stopped · it crashed at {At(stopped)}; starting it again",
+            };
+        }
+    }
+
+    /// <summary>The server loads a world on start (rather than waiting in the lobby): resume the last one, or load / create one.</summary>
+    private bool ExpectsAWorld() =>
+        (ResumeProspect != false && !string.IsNullOrWhiteSpace(LastProspectName))
+        || !string.IsNullOrWhiteSpace(LoadProspect) || !string.IsNullOrWhiteSpace(CreateProspect);
+
+    /// <summary>"14:02" today, "29 Oct 14:02" another day.</summary>
+    private string At(DateTime local) =>
+        local.Date == Clock().Date ? local.ToString("HH:mm", CultureInfo.CurrentCulture) : local.ToString("d MMM HH:mm", CultureInfo.CurrentCulture);
 }
