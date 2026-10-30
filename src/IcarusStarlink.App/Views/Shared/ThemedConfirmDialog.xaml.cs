@@ -56,6 +56,16 @@ public partial class ThemedConfirmDialog : Window
         return dialog._result == true;
     }
 
+    /// <summary>Two answers with the caller's words on the buttons: true = the first, false = the second, Escape or the window's ✕.</summary>
+    public static bool ShowWithWords(Window? owner, string message, string title, ThemedConfirmSeverity severity, string yesText, string noText)
+    {
+        var dialog = new ThemedConfirmDialog(owner, message, title, severity);
+        dialog.YesButton.Content = yesText;
+        dialog.NoButton.Content = noText;
+        dialog.ShowDialog();
+        return dialog._result == true;
+    }
+
     /// <summary>
     /// Three answers (the mod editor's "Save / Don't save / Cancel" on close): true = the first
     /// button, false = the second, null = Cancel, Escape or the window's ✕.

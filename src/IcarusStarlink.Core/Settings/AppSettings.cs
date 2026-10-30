@@ -92,9 +92,6 @@ public sealed class AppSettings
     /// </summary>
     public string? LastSeenAppVersion { get; set; }
 
-    /// <summary>The user answered No to "Endorse Icarus Starlink on Nexus?" after an update: never asked again.</summary>
-    public bool StarlinkEndorsePromptDeclined { get; set; }
-
     /// <summary>The Merge &amp; Install profile last in use, selected again on the next start.</summary>
     public string? LastMergeProfileName { get; set; }
 

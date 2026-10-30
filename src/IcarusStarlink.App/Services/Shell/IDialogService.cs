@@ -34,6 +34,9 @@ public interface IDialogService
     /// </summary>
     bool? ConfirmWithCancel(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText) => null;
 
+    /// <summary>A plain two-button confirm with the caller's words on the buttons: true = <paramref name="yesText"/>. The default answers no.</summary>
+    bool ConfirmWithWords(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText) => false;
+
     /// <summary>
     /// Same three-outcome shape RenameModDialog itself has (see its own doc comment for what
     /// resetValue null vs a real string means): Cancelled true means the caller does nothing at

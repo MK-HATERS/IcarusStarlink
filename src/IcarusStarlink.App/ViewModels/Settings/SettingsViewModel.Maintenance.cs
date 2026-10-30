@@ -625,15 +625,14 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>
-    /// Right after an update (behind What's new): asks once whether to endorse Starlink on Nexus,
-    /// and endorses on Yes. Silent when there's no Nexus key, the account already endorsed it, the
-    /// account is Starlink's own uploader (Nexus refuses that), the user said No before, or Nexus
-    /// can't be reached. No is remembered and never sent to Nexus.
+    /// Right after every update (behind What's new): asks whether to endorse Starlink on Nexus, and
+    /// endorses on Yes. Silent when there's no Nexus key, the account already endorsed it, the
+    /// account is Starlink's own uploader (Nexus refuses that), or Nexus can't be reached. "Not this
+    /// time" is never sent to Nexus and never remembered: the next update asks again (user's call).
     /// </summary>
     private async Task OfferToEndorseStarlinkAsync()
     {
-        var settings = _settingsService.Current;
-        if (settings.StarlinkEndorsePromptDeclined || App.IsClosing || _credentialStore.Read(CredentialTargets.NexusApiKey) is not { } apiKey)
+        if (App.IsClosing || _credentialStore.Read(CredentialTargets.NexusApiKey) is not { } apiKey)
         {
             return;
         }
@@ -655,14 +654,15 @@ public sealed partial class SettingsViewModel
                 return;
             }
 
-            var yes = _dialogService.Confirm(
-                "Starlink just updated. If it's useful to you, would you endorse it on Nexus? It's one click and helps other players find it.\n\n" +
-                "Yes: Starlink endorses it from your Nexus account now.\nNo: you won't be asked again.",
-                "Endorse Icarus Starlink?", ThemedConfirmSeverity.Information);
+            var yes = _dialogService.ConfirmWithWords(
+                $"You're now on Starlink v{InstalledAppVersion}. Fresh fixes, new tools, and still free: no ads, no paywall, no catch.\n\n" +
+                "Starlink is built by one modder in their spare time. An endorsement is the single biggest thing you can do to keep it growing: " +
+                "it lifts Starlink up the Nexus lists so more players find it, and every one tells me the late nights were worth it.\n\n" +
+                "One click, right here. Starlink sends it from your Nexus account; no browser needed.",
+                "Enjoying Icarus Starlink?", ThemedConfirmSeverity.Information,
+                "Endorse Starlink", "Not this time");
             if (!yes)
             {
-                settings.StarlinkEndorsePromptDeclined = true;
-                _settingsService.Save();
                 return;
             }
 

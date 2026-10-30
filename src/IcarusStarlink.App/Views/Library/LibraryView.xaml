@@ -21,19 +21,47 @@
         <sys:Double x:Key="Ue4ssFillWidth">0</sys:Double>
 
         <!-- A row's endorse thumb. Says what a click does; once endorsed, says so instead of
-             "Endorsed on Nexus — click to endorse". -->
+             "Endorsed on Nexus — click to endorse". It sits outside the faint row buttons: faint
+             like them until the row is hovered, but an endorsed thumb always shows at full strength. -->
         <Style x:Key="LibraryEndorseButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
             <Setter Property="Width" Value="24"/>
             <Setter Property="Height" Value="24"/>
             <Setter Property="Padding" Value="0"/>
+            <Setter Property="Opacity" Value="0.45"/>
             <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
             <Setter Property="ToolTip" Value="Endorse this mod on Nexus"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsEndorsed}" Value="True">
                     <Setter Property="ToolTip" Value="You've endorsed this mod on Nexus"/>
+                    <Setter Property="Opacity" Value="1"/>
                 </DataTrigger>
                 <DataTrigger Binding="{Binding EndorsementStatusDisplay}" Value="Not endorsing">
                     <Setter Property="ToolTip" Value="You chose not to endorse this mod — click to endorse it on Nexus after all"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- The thumb inside the endorse button: an outline, filled green with a soft glow once endorsed. -->
+        <Style x:Key="LibraryEndorseThumbStyle" TargetType="Path">
+            <Setter Property="Data" Value="{StaticResource IconThumbsUp}"/>
+            <Setter Property="StrokeThickness" Value="1.2"/>
+            <Setter Property="StrokeLineJoin" Value="Round"/>
+            <Setter Property="Width" Value="13"/>
+            <Setter Property="Height" Value="13"/>
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="Stroke" Value="{DynamicResource SecondaryForegroundBrush}"/>
+            <Setter Property="Fill" Value="Transparent"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsEndorsed}" Value="True">
+                    <Setter Property="Width" Value="15"/>
+                    <Setter Property="Height" Value="15"/>
+                    <Setter Property="Fill" Value="{DynamicResource SuccessBrush}"/>
+                    <Setter Property="Stroke" Value="{DynamicResource SuccessBrush}"/>
+                    <Setter Property="Effect">
+                        <Setter.Value>
+                            <DropShadowEffect Color="#4ADE80" BlurRadius="9" ShadowDepth="0" Opacity="0.85"/>
+                        </Setter.Value>
+                    </Setter>
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -283,26 +311,14 @@
                            Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="8,0,0,0" Visibility="{Binding DataContext.ShowLatestColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
                 <!-- The same buttons on every row: endorse (Nexus mods), edit config (when it has one), more. -->
-                <StackPanel x:Name="RowActions" Grid.Column="9" Orientation="Horizontal" HorizontalAlignment="Right" Opacity="0.45">
-                    <Button Style="{StaticResource LibraryEndorseButtonStyle}"
-                            Command="{Binding DataContext.EndorseUe4ssModCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
-                            Visibility="{Binding ShowEndorseThumb, Converter={StaticResource BoolToHiddenConverter}}"
-                            AutomationProperties.Name="Endorse on Nexus">
-                        <Path Data="{StaticResource IconThumbsUp}" StrokeThickness="1.2" StrokeLineJoin="Round" Width="13" Height="13" Stretch="Uniform">
-                            <Path.Style>
-                                <Style TargetType="Path">
-                                    <Setter Property="Stroke" Value="{DynamicResource SecondaryForegroundBrush}"/>
-                                    <Setter Property="Fill" Value="Transparent"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsEndorsed}" Value="True">
-                                            <Setter Property="Fill" Value="{DynamicResource SuccessBrush}"/>
-                                            <Setter Property="Stroke" Value="{DynamicResource SuccessBrush}"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Path.Style>
-                        </Path>
-                    </Button>
+                <StackPanel Grid.Column="9" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="EndorseThumb" Style="{StaticResource LibraryEndorseButtonStyle}"
+                        Command="{Binding DataContext.EndorseUe4ssModCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                        Visibility="{Binding ShowEndorseThumb, Converter={StaticResource BoolToHiddenConverter}}"
+                        AutomationProperties.Name="Endorse on Nexus">
+                    <Path Style="{StaticResource LibraryEndorseThumbStyle}"/>
+                </Button>
+                <StackPanel x:Name="RowActions" Orientation="Horizontal" Opacity="0.45">
                     <Button Style="{StaticResource IconButtonStyle}" Width="24" Height="24" Padding="0" ToolTip="{Binding EditConfigTooltip}" AutomationProperties.Name="Edit config"
                             Command="{Binding DataContext.EditUe4ssModConfigCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
                             Visibility="{Binding HasConfig, Converter={StaticResource BoolToHiddenConverter}}">
@@ -323,15 +339,18 @@
                         </StackPanel>
                     </Button>
                 </StackPanel>
+                </StackPanel>
             </Grid>
             <DataTemplate.Triggers>
                 <!-- The row buttons sit faint until the row is hovered or selected (so every row looks
                      the same and nothing jumps in); the link pill shows while either half is hovered. -->
                 <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
                     <Setter TargetName="RowActions" Property="Opacity" Value="1"/>
+                    <Setter TargetName="EndorseThumb" Property="Opacity" Value="1"/>
                 </Trigger>
                 <DataTrigger Binding="{Binding IsSelectedForBulk}" Value="True">
                     <Setter TargetName="RowActions" Property="Opacity" Value="1"/>
+                    <Setter TargetName="EndorseThumb" Property="Opacity" Value="1"/>
                 </DataTrigger>
                 <!-- The pill takes no room until it shows: kept in the layout while invisible, it
                      squeezed the names of every linked mod to nothing on a narrower window. -->
@@ -623,26 +642,14 @@
 
                 <!-- The same buttons on every row: endorse (Nexus mods), favourite, edit, more. Pin,
                      delete and the rest are in more / right-click. -->
-                <StackPanel x:Name="RowActions" Grid.Column="12" Orientation="Horizontal" HorizontalAlignment="Right" Opacity="0.45">
-                    <Button Style="{StaticResource LibraryEndorseButtonStyle}"
-                            Command="{Binding EndorseCommand}"
-                            Visibility="{Binding ShowEndorseThumb, Converter={StaticResource BoolToHiddenConverter}}"
-                            AutomationProperties.Name="Endorse on Nexus">
-                        <Path Data="{StaticResource IconThumbsUp}" StrokeThickness="1.2" StrokeLineJoin="Round" Width="13" Height="13" Stretch="Uniform">
-                            <Path.Style>
-                                <Style TargetType="Path">
-                                    <Setter Property="Stroke" Value="{DynamicResource SecondaryForegroundBrush}"/>
-                                    <Setter Property="Fill" Value="Transparent"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsEndorsed}" Value="True">
-                                            <Setter Property="Fill" Value="{DynamicResource SuccessBrush}"/>
-                                            <Setter Property="Stroke" Value="{DynamicResource SuccessBrush}"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Path.Style>
-                        </Path>
-                    </Button>
+                <StackPanel Grid.Column="12" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="EndorseThumb" Style="{StaticResource LibraryEndorseButtonStyle}"
+                        Command="{Binding EndorseCommand}"
+                        Visibility="{Binding ShowEndorseThumb, Converter={StaticResource BoolToHiddenConverter}}"
+                        AutomationProperties.Name="Endorse on Nexus">
+                    <Path Style="{StaticResource LibraryEndorseThumbStyle}"/>
+                </Button>
+                <StackPanel x:Name="RowActions" Orientation="Horizontal" Opacity="0.45">
                     <ToggleButton IsChecked="{Binding IsFavorite}" Style="{StaticResource IconToggleButtonStyle}"
                                   ToolTip="Favourite — the ★ Favourites filter above shows just these" AutomationProperties.Name="Toggle favourite">
                         <Path Data="{StaticResource IconStar}" Width="12" Height="12" Stretch="Uniform">
@@ -674,15 +681,18 @@
                         </StackPanel>
                     </Button>
                 </StackPanel>
+                </StackPanel>
             </Grid>
             <DataTemplate.Triggers>
                 <!-- The row buttons sit faint until the row is hovered or selected (so every row looks
                      the same and nothing jumps in); the link pill shows while either half is hovered. -->
                 <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
                     <Setter TargetName="RowActions" Property="Opacity" Value="1"/>
+                    <Setter TargetName="EndorseThumb" Property="Opacity" Value="1"/>
                 </Trigger>
                 <DataTrigger Binding="{Binding IsSelectedForBulk}" Value="True">
                     <Setter TargetName="RowActions" Property="Opacity" Value="1"/>
+                    <Setter TargetName="EndorseThumb" Property="Opacity" Value="1"/>
                 </DataTrigger>
                 <!-- The pill takes no room until it shows: kept in the layout while invisible, it
                      squeezed the names of every linked mod to nothing on a narrower window. -->
