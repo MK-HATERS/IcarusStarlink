@@ -182,6 +182,94 @@ public class MainViewModelTests
         }
     }
 
+    /// <summary>
+    /// The user's ask (2026-10-30): Play could be clicked again and again, asking Steam to start the
+    /// game each time. A click shows Starting… and further clicks do nothing until the game shows up
+    /// (then Running, and a click brings it forward) or 2 minutes pass (then Play again).
+    /// </summary>
+    [Fact]
+    public void Play_StartsOnce_ThenStarting_ThenRunning_AndBackToPlayWhenTheGameCloses()
+    {
+        var game = new FakeGameProcess();
+        var now = new DateTime(2026, 10, 30, 12, 0, 0, DateTimeKind.Utc);
+        var opened = new List<string>();
+        var focused = 0;
+        var vm = new MainViewModel(new FakeServiceProvider(), new FakeThemeService(), new FakeSettingsService(new AppSettings()),
+            new ActivityPanelViewModel(new FakeActivityLog()), game, () => now, opened.Add, () => { focused++; return true; });
+        try
+        {
+            Assert.Equal("Play", vm.PlayButtonText);
+
+            vm.LaunchGameCommand.Execute(null);
+            vm.LaunchGameCommand.Execute(null);
+            vm.LaunchGameCommand.Execute(null);
+            Assert.Equal(["steam://run/1149460"], opened);
+            Assert.Equal(GamePlayState.Starting, vm.GamePlayState);
+            Assert.Equal("Starting…", vm.PlayButtonText);
+
+            now += TimeSpan.FromSeconds(30);
+            vm.ApplyGameRunning(false);
+            Assert.True(vm.IsGameStarting); // still waiting for Steam
+
+            vm.ApplyGameRunning(true);
+            Assert.True(vm.IsGameRunning);
+            Assert.Equal("Running", vm.PlayButtonText);
+
+            game.Running = true;
+            vm.LaunchGameCommand.Execute(null);
+            Assert.Single(opened); // not asked again
+            Assert.Equal(1, focused);
+
+            game.Running = false;
+            vm.ApplyGameRunning(false);
+            Assert.Equal(GamePlayState.Ready, vm.GamePlayState);
+            Assert.Equal("Play", vm.PlayButtonText);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Steam never started the game (an update, a question, a closed Steam): Play comes back after 2 minutes.</summary>
+    [Fact]
+    public void Play_StartingTimesOut_AndAGameAlreadyRunningIsNotStartedAgain()
+    {
+        var game = new FakeGameProcess();
+        var now = new DateTime(2026, 10, 30, 12, 0, 0, DateTimeKind.Utc);
+        var opened = new List<string>();
+        var vm = new MainViewModel(new FakeServiceProvider(), new FakeThemeService(), new FakeSettingsService(new AppSettings()),
+            new ActivityPanelViewModel(new FakeActivityLog()), game, () => now, opened.Add, () => true);
+        try
+        {
+            vm.LaunchGameCommand.Execute(null);
+            now += MainViewModel.StartingTimeout;
+            vm.ApplyGameRunning(false);
+            Assert.Equal(GamePlayState.Ready, vm.GamePlayState);
+
+            vm.LaunchGameCommand.Execute(null);
+            Assert.Equal(2, opened.Count); // a fresh try is allowed after the timeout
+
+            vm.ApplyGameRunning(false);
+            now += MainViewModel.StartingTimeout;
+            vm.ApplyGameRunning(false);
+            game.Running = true; // started outside Starlink, before the watch noticed
+            vm.LaunchGameCommand.Execute(null);
+            Assert.Equal(2, opened.Count);
+            Assert.True(vm.IsGameRunning);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    private sealed class FakeGameProcess : IGameProcessChecker
+    {
+        public bool Running { get; set; }
+        public bool IsRunning() => Running;
+    }
+
     private sealed class FakeThemeService : IThemeService
     {
         public string? Applied { get; private set; }

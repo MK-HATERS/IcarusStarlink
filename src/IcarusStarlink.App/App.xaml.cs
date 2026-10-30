@@ -213,6 +213,7 @@ public partial class App : Application
             splash.UpdateStatus("Loading library…");
             var mainViewModel = _host.Services.GetRequiredService<MainViewModel>();
             mainViewModel.SelectDefaultPage();
+            mainViewModel.StartGameWatch();
 
             // A short floor, not a fixed delay: for the "dozens of mods" library size this is
             // designed around, the work above finishes in well under this (confirmed live —

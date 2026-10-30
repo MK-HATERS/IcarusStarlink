@@ -143,11 +143,47 @@
                      folder are greyed out (MainViewModel.CanOpenGameFolders) until the game folder is
                      set; Play and Mods work with no setup. Each folder has its own sign. -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Play / Starting… / Running (MainViewModel.Play.cs): never asks Steam twice;
+                         while the game runs a click brings its window to the front. -->
                     <Button Command="{Binding LaunchGameCommand}" Style="{StaticResource HeaderLinkButtonStyle}"
-                            ToolTip="Start Icarus" AutomationProperties.Name="Launch game">
+                            ToolTip="{Binding PlayButtonToolTip}" AutomationProperties.Name="{Binding PlayButtonText}">
                         <StackPanel Orientation="Horizontal">
-                            <Path Data="{StaticResource IconPlay}" Fill="{DynamicResource SuccessBrush}" Style="{StaticResource HeaderLinkIconStyle}"/>
-                            <TextBlock Text="Play" VerticalAlignment="Center"/>
+                            <Grid Width="15" Height="15" Margin="0,0,6,0" VerticalAlignment="Center">
+                                <Path Data="{StaticResource IconPlay}" Fill="{DynamicResource SuccessBrush}" Margin="0">
+                                    <Path.Style>
+                                        <Style TargetType="Path" BasedOn="{StaticResource HeaderLinkIconStyle}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsGameRunning}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsGameStarting}" Value="True">
+                                                    <Setter Property="Opacity" Value="0.45"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Path.Style>
+                                </Path>
+                                <!-- Running: a green dot with a soft ring. -->
+                                <Ellipse Width="15" Height="15" Fill="{DynamicResource SuccessSoftBrush}"
+                                         Visibility="{Binding IsGameRunning, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <Ellipse Width="8" Height="8" Fill="{DynamicResource SuccessBrush}"
+                                         Visibility="{Binding IsGameRunning, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            </Grid>
+                            <TextBlock Text="{Binding PlayButtonText}" VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsGameRunning}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsGameStarting}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding OpenModFolderCommand}" Style="{StaticResource HeaderLinkButtonStyle}"

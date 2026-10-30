@@ -86,12 +86,14 @@ public sealed partial class MainViewModel : ObservableObject
     [CommunityToolkit.Mvvm.Input.RelayCommand]
     private void ToggleNav() => IsNavCollapsed = !IsNavCollapsed;
 
-    public MainViewModel(IServiceProvider serviceProvider, IThemeService themeService, ISettingsService settingsService, ActivityPanelViewModel activityPanel)
+    public MainViewModel(IServiceProvider serviceProvider, IThemeService themeService, ISettingsService settingsService, ActivityPanelViewModel activityPanel,
+        IGameProcessChecker? gameProcess = null, Func<DateTime>? clock = null, Action<string>? openUrl = null, Func<bool>? focusGame = null)
     {
         _serviceProvider = serviceProvider;
         _themeService = themeService;
         _settingsService = settingsService;
         ActivityPanel = activityPanel;
+        UseGameSeams(gameProcess, clock, openUrl, focusGame);
 
         // Matches the real app's top-level nav: Profiles lives inside Merge & Install (a
         // profile is "saved merge list + options + UE4SS set", not an independent page), UE4SS
@@ -233,10 +235,6 @@ public sealed partial class MainViewModel : ObservableObject
 
         SelectedNavItem = NavItems.First(item => item.Id == "server");
     }
-
-    /// <summary>Steam's own URI launch, not the exe directly — respects whatever launch options/overlay the user already has configured in Steam, the same way clicking Play in the Steam library itself does. 1149460 is Icarus's real App ID, already used by SteamInstallLocator elsewhere in this app.</summary>
-    [RelayCommand]
-    private void LaunchGame() => UrlOpener.TryOpen("steam://run/1149460");
 
     /// <summary>
     /// Defaults to Library, not NavItems[0] (the first nav item is Database). Only sets it if
