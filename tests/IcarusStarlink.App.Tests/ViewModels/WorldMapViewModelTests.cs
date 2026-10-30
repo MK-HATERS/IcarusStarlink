@@ -89,6 +89,34 @@ public sealed class WorldMapViewModelTests : IDisposable
         Assert.Contains("Creatures", settings.Current.MapShown!);
     }
 
+    /// <summary>Regression (seen in the app): two identical mission spots on one world threw while the map was shown, leaving the page half-drawn.</summary>
+    [Fact]
+    public void TwoIdenticalMissionSpots_DontStopTheMapShowing()
+    {
+        var spot = new WorldFeature(WorldFeatureKind.MissionSpot, "Foresty", new(0.45, 0.85)) { Category = "Objective · Foresty" };
+        var map = new WorldMapInfo("Terrain_016", "Olympus", false, [], [], []);
+        var store = new WorldMapStore(Path.Combine(_root, "World"), () => [map], new FeaturesRenderer(new WorldFeatures([spot, spot with { }], [])));
+        store.Reload(everything: false);
+        var vm = new WorldMapViewModel(store, new Settings(), Path.Combine(_root, "Data"));
+        vm.ShowMissions = true;
+
+        vm.SelectedMap = new WorldMapItemViewModel(map);
+
+        Assert.Equal(2, vm.Markers.Count);
+        Assert.Equal("Mission objective spots: foresty (2)", vm.MissionCategories[1].Title);
+    }
+
+    private sealed class FeaturesRenderer(WorldFeatures features) : IWorldMapRenderer
+    {
+        public (byte[]? Jpeg, WorldPictureSource Source) RenderPicture(WorldMapInfo map) => (null, WorldPictureSource.None);
+
+        public WorldLayerPixels? ReadLayer(string heatmapAssetPath) => null;
+
+        public string Stamp(WorldMapInfo map) => "1";
+
+        public WorldFeatures ReadFeatures(WorldMapInfo map) => features;
+    }
+
     [Fact]
     public void PuttingTheChoicesBack_SavesNothing()
     {

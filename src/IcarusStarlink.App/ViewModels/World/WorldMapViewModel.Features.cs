@@ -17,6 +17,9 @@ public sealed partial class WorldFeatureMarkerViewModel(WorldFeature feature, st
     [ObservableProperty]
     private double _labelShift;
 
+    /// <summary>The search found it: drawn with a ring.</summary>
+    public bool IsFound { get; init; }
+
     public WorldFeature Feature { get; } = feature;
 
     public double X => Feature.At.U * WorldMapViewModel.MapUnits;
@@ -76,6 +79,11 @@ public sealed partial class WorldMapViewModel
 
     private WorldFeatures _features = WorldFeatures.None;
 
+    /// <summary>Each mission spot in plain words (its mission's name, or what kind of spot it is), worked out once per world.</summary>
+    private Dictionary<WorldFeature, (string Category, string Spot)> _missions = [];
+
+    private (string Category, string Spot) Mission(WorldFeature f) => _missions.TryGetValue(f, out var m) ? m : (f.Category ?? "Other quest spots", f.Name);
+
     /// <summary>The ticked features' markers.</summary>
     public ObservableCollection<WorldFeatureMarkerViewModel> Markers { get; } = [];
 
@@ -116,6 +124,9 @@ public sealed partial class WorldMapViewModel
 
     [ObservableProperty]
     private WorldFilterOption? _caveTier;
+
+    /// <summary>What the mission box says when this world has no mission spots; null while it has some.</summary>
+    public string? MissionPlaceholder => MissionCategories.Count == 0 ? "No mission spots on this map" : null;
 
     /// <summary>Mission spot categories on this world, with counts; the first is all of them.</summary>
     public ObservableCollection<WorldFilterOption> MissionCategories { get; } = [];
@@ -189,10 +200,20 @@ public sealed partial class WorldMapViewModel
         _listingCategories = true;
         MissionCategories.Clear();
         var missions = _features.Features.Where(f => f.Kind == WorldFeatureKind.MissionSpot).ToList();
+        var names = map?.MissionNames ?? new Dictionary<string, string>();
+        // By the object, not its value: two spots with the same tag at the same place are equal records
+        // (a world had two), and a value-keyed dictionary threw on the second.
+        _missions = new Dictionary<WorldFeature, (string, string)>(ReferenceEqualityComparer.Instance);
+        foreach (var f in missions)
+        {
+            _missions[f] = WorldMissionNames.Describe(f.Category, f.Name, names);
+        }
         if (missions.Count > 0)
         {
             MissionCategories.Add(new WorldFilterOption("", $"All kinds ({missions.Count})"));
-            foreach (var group in missions.GroupBy(f => f.Category ?? "Other").OrderByDescending(g => g.Count()).ThenBy(g => g.Key))
+            // Named missions first (A-Z), then the spots shared by many missions and the other groups.
+            foreach (var group in missions.GroupBy(f => _missions[f].Category)
+                .OrderBy(g => g.Key.Contains(" spots", StringComparison.Ordinal) ? 1 : 0).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
             {
                 MissionCategories.Add(new WorldFilterOption(group.Key, $"{group.Key} ({group.Count()})"));
             }
@@ -200,6 +221,7 @@ public sealed partial class WorldMapViewModel
 
         MissionCategory = MissionCategories.FirstOrDefault(c => c.Key == keep) ?? MissionCategories.FirstOrDefault();
         _listingCategories = false;
+        OnPropertyChanged(nameof(MissionPlaceholder));
 
         foreach (var name in new[]
         {
@@ -212,10 +234,41 @@ public sealed partial class WorldMapViewModel
 
         DrawWater();
         DrawGrid(map);
-        RebuildMarkers();
+        // The search is looked for again on this world (FindPlaces redraws the markers).
+        FindPlaces();
     }
 
-    partial void OnSelectedFeatureChanged(WorldFeatureDetailsViewModel? value) => OnPropertyChanged(nameof(ZoneHint));
+    partial void OnSelectedFeatureChanged(WorldFeatureDetailsViewModel? value)
+    {
+        OnPropertyChanged(nameof(ZoneHint));
+        OnPropertyChanged(nameof(HasAnySelection));
+    }
+
+    /// <summary>HasAnySelection follows HasSelection, wherever that's announced.</summary>
+    protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        if (e.PropertyName == nameof(HasSelection))
+        {
+            base.OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs(nameof(HasAnySelection)));
+        }
+    }
+
+    /// <summary>A spot or a marker is picked (the Clear button shows then).</summary>
+    public bool HasAnySelection => HasSelection || SelectedFeature is not null;
+
+    /// <summary>Clear (or Esc): nothing picked, the side panel back to its hint.</summary>
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
+    public void ClearSelection()
+    {
+        SelectedFeature = null;
+        SelectedZones.Clear();
+        _selectedColors = [];
+        OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(HasAnySelection));
+        OnPropertyChanged(nameof(ZoneHint));
+        UpdateHighlight();
+    }
 
     partial void OnShowCavesChanged(bool value) => Changed(RebuildMarkers);
     partial void OnShowGeysersChanged(bool value) => Changed(RebuildMarkers);
@@ -319,6 +372,126 @@ public sealed partial class WorldMapViewModel
         _settings.Save();
     }
 
+    /// <summary>Places the search finds (whatever is ticked: they're shown either way, with a ring).</summary>
+    private HashSet<WorldFeature> _found = [];
+
+    /// <summary>
+    /// What a place is called, for the search: its name, kind, mission name, cave tier ("tier 3"),
+    /// style ("desert cave") and grid square.
+    /// </summary>
+    private string PlaceWords(WorldFeature f)
+    {
+        var words = new List<string> { f.Name, f.Category ?? "", f.Kind switch
+        {
+            WorldFeatureKind.OilGeyser or WorldFeatureKind.EnzymeGeyser => "geyser",
+            WorldFeatureKind.HuntDen => "den great hunt",
+            WorldFeatureKind.BossSpawn => "world boss",
+            WorldFeatureKind.FishingSpot => "fishing",
+            WorldFeatureKind.ExoticSpot => "exotic",
+            WorldFeatureKind.DeepOreSpot or WorldFeatureKind.DeepOreDeposit => "deep ore",
+            _ => "",
+        } };
+        if (f.Kind is WorldFeatureKind.Cave or WorldFeatureKind.BigCave)
+        {
+            words.Add(CaveLine(f));
+            words.Add($"{StyleName(f.Style)} cave");
+        }
+
+        if (f.Kind == WorldFeatureKind.MissionSpot)
+        {
+            words.Add(MissionLine(f));
+            words.Add("mission");
+        }
+
+        return string.Join(" ", words);
+    }
+
+    /// <summary>The search typed: places matching it (two letters or more), or a grid square ("I7") to go to.</summary>
+    private void FindPlaces()
+    {
+        var query = Query();
+        _found = query.Length < 2 || GridSquareAt(query) is not null
+            ? []
+            : [.. _features.Features.Where(f => PlaceWords(f).Contains(query, StringComparison.OrdinalIgnoreCase))];
+        RebuildMarkers();
+        if (GridSquareAt(query) is { } square)
+        {
+            ZoomRequested?.Invoke(square, 1.5 / Math.Max(1, SelectedMap?.Map.GridSize.Columns ?? 1));
+        }
+    }
+
+    private string Query() => SearchText.Trim();
+
+    /// <summary>The middle of a grid square typed as "I7" (letter across, number down); null when it isn't one on this map.</summary>
+    private WorldMapPoint? GridSquareAt(string text)
+    {
+        var (columns, rows) = SelectedMap?.Map.GridSize ?? (0, 0);
+        if (text.Length is < 2 or > 3 || !char.IsLetter(text[0]) || !int.TryParse(text[1..], out var row))
+        {
+            return null;
+        }
+
+        var column = char.ToUpperInvariant(text[0]) - 'A';
+        return column >= 0 && column < columns && row >= 1 && row <= rows
+            ? new WorldMapPoint((column + 0.5) / columns, (row - 0.5) / rows)
+            : null;
+    }
+
+    /// <summary>The map should show this point, this much of the map across (0-1). The view does the zooming.</summary>
+    public event Action<WorldMapPoint, double>? ZoomRequested;
+
+    /// <summary>Enter in the search: zoom to what it found (a grid square, or all the places and zones found).</summary>
+    public void ZoomToSearch()
+    {
+        var points = _found.Select(f => f.At).ToList();
+        if (GridSquareAt(Query()) is { } square)
+        {
+            points.Add(square);
+        }
+
+        if (points.Count == 0)
+        {
+            return;
+        }
+
+        var (minU, maxU, minV, maxV) = (points.Min(p => p.U), points.Max(p => p.U), points.Min(p => p.V), points.Max(p => p.V));
+        ZoomRequested?.Invoke(new WorldMapPoint((minU + maxU) / 2, (minV + maxV) / 2), Math.Max(0.08, Math.Max(maxU - minU, maxV - minV) * 1.3));
+    }
+
+    /// <summary>The clicked place, for Zoom to it and Copy.</summary>
+    private WorldFeature? _picked;
+
+    /// <summary>Zoom to it: the clicked place in the middle, close up.</summary>
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private void ZoomToPicked()
+    {
+        if (_picked is { } f)
+        {
+            ZoomRequested?.Invoke(f.At, 0.08);
+        }
+    }
+
+    /// <summary>Copy: "Olympus D10: Tier 3 cave · 6-10 cave worms", to paste to friends.</summary>
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private void CopyPicked()
+    {
+        if (_picked is not { } f || SelectedFeature is not { } details)
+        {
+            return;
+        }
+
+        var text = $"{SelectedMap?.Name} {GridSquare(f.At)}: {details.Title}";
+        try
+        {
+            Clipboard.SetText(text);
+            StatusMessage = $"Copied: {text}";
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            StatusMessage = "Couldn't copy: another program is using the clipboard. Try again.";
+        }
+    }
+
     private void RebuildMarkers()
     {
         Markers.Clear();
@@ -331,29 +504,40 @@ public sealed partial class WorldMapViewModel
             _ => 2,
         }))
         {
-            var marker = f.Kind switch
+            // A place the search found shows whatever its box and filters say.
+            var found = _found.Contains(f);
+            var shown = found || f.Kind switch
             {
-                WorldFeatureKind.Cave when ShowCaves && (f.Tier ?? 1) >= minTier =>
-                    new WorldFeatureMarkerViewModel(f, f.Tier?.ToString() ?? "C", TierBrushes[(f.Tier ?? 1) - 1], 14, null, CaveLine(f)),
-                WorldFeatureKind.BigCave when ShowCaves && (f.Tier ?? 1) >= minTier =>
-                    new WorldFeatureMarkerViewModel(f, "B", BigCaveBrush, 18, f.Entrances is { Count: > 1 } e ? $"Big cave · {e.Count} entrances" : "Big cave", CaveLine(f)),
-                WorldFeatureKind.OilGeyser when ShowGeysers => new WorldFeatureMarkerViewModel(f, "O", OilBrush, 13, null, "Oil geyser"),
-                WorldFeatureKind.EnzymeGeyser when ShowGeysers => new WorldFeatureMarkerViewModel(f, "E", EnzymeBrush, 13, null, $"Enzyme geyser{(f.Category is { } c ? $" ({c})" : "")}"),
-                WorldFeatureKind.HuntDen when ShowDensAndBosses => new WorldFeatureMarkerViewModel(f, "D", DenBrush, 18, f.Name, f.Name),
-                WorldFeatureKind.BossSpawn when ShowDensAndBosses => new WorldFeatureMarkerViewModel(f, "W", BossBrush, 13, null, f.Name),
-                WorldFeatureKind.DeepOreSpot when ShowDeepOre => new WorldFeatureMarkerViewModel(f, "", OreBrush, 8, null, f.Name),
-                WorldFeatureKind.DeepOreDeposit when ShowDeepOre => new WorldFeatureMarkerViewModel(f, "D", OreBrush, 14, null, f.Name),
-                WorldFeatureKind.ExoticSpot when ShowExotic => new WorldFeatureMarkerViewModel(f, "X", ExoticBrush, 11, null, f.Category is { } k ? $"{f.Name} ({k})" : f.Name),
-                WorldFeatureKind.FishingSpot when ShowFishingSpots => new WorldFeatureMarkerViewModel(f, "F", FishBrush, 12, null, f.Name),
-                WorldFeatureKind.MissionSpot when ShowMissions && (string.IsNullOrEmpty(MissionCategory?.Key) || f.Category == MissionCategory.Key) =>
-                    new WorldFeatureMarkerViewModel(f, "M", MissionBrush, 12, null, $"{f.Category}: {f.Name}", DarkGlyph),
-                _ => null,
+                WorldFeatureKind.Cave or WorldFeatureKind.BigCave => ShowCaves && (f.Tier ?? 1) >= minTier,
+                WorldFeatureKind.OilGeyser or WorldFeatureKind.EnzymeGeyser => ShowGeysers,
+                WorldFeatureKind.HuntDen or WorldFeatureKind.BossSpawn => ShowDensAndBosses,
+                WorldFeatureKind.DeepOreSpot or WorldFeatureKind.DeepOreDeposit => ShowDeepOre,
+                WorldFeatureKind.ExoticSpot => ShowExotic,
+                WorldFeatureKind.FishingSpot => ShowFishingSpots,
+                WorldFeatureKind.MissionSpot => ShowMissions && (string.IsNullOrEmpty(MissionCategory?.Key) || Mission(f).Category == MissionCategory.Key),
+                _ => false,
+            };
+            if (!shown)
+            {
+                continue;
+            }
+
+            var (glyph, fill, size, label, tip, glyphBrush) = f.Kind switch
+            {
+                WorldFeatureKind.Cave => (f.Tier?.ToString() ?? "C", TierBrushes[(f.Tier ?? 1) - 1], 14d, (string?)null, CaveLine(f), (Brush?)null),
+                WorldFeatureKind.BigCave => ("B", BigCaveBrush, 18d, f.Entrances is { Count: > 1 } e ? $"Big cave · {e.Count} entrances" : "Big cave", CaveLine(f), null),
+                WorldFeatureKind.OilGeyser => ("O", OilBrush, 13d, null, "Oil geyser", null),
+                WorldFeatureKind.EnzymeGeyser => ("E", EnzymeBrush, 13d, null, $"Enzyme geyser{(f.Category is { } c ? $" ({c})" : "")}", null),
+                WorldFeatureKind.HuntDen => ("D", DenBrush, 18d, f.Name, f.Name, null),
+                WorldFeatureKind.BossSpawn => ("W", BossBrush, 13d, null, f.Name, null),
+                WorldFeatureKind.DeepOreSpot => ("", OreBrush, 8d, null, f.Name, null),
+                WorldFeatureKind.DeepOreDeposit => ("D", OreBrush, 14d, null, f.Name, null),
+                WorldFeatureKind.ExoticSpot => ("X", ExoticBrush, 11d, null, f.Category is { } k ? $"{f.Name} ({k})" : f.Name, null),
+                WorldFeatureKind.FishingSpot => ("F", FishBrush, 12d, null, f.Name, null),
+                _ => ("M", MissionBrush, 12d, null, MissionLine(f), DarkGlyph),
             };
 
-            if (marker is not null)
-            {
-                Markers.Add(marker);
-            }
+            Markers.Add(new WorldFeatureMarkerViewModel(f, glyph, fill, found ? size + 4 : size, label, tip, glyphBrush) { IsFound = found });
         }
 
         SpreadAllLabels();
@@ -364,9 +548,14 @@ public sealed partial class WorldMapViewModel
 
     private static readonly Brush DropSiteBrush = Frozen("#FF8A3D");
 
+    /// <summary>Said under Key when no marker is shown; null while some are.</summary>
+    public string? LegendEmptyText => Legend.Count == 0 ? "empty" : null;
+
     private void BuildLegend()
     {
         Legend.Clear();
+        Legend.CollectionChanged -= OnLegendChanged;
+        Legend.CollectionChanged += OnLegendChanged;
         var shown = Markers.Select(m => m.Feature.Kind).ToHashSet();
         if (ShowDropSites && DropSites.Count > 0)
         {
@@ -400,6 +589,8 @@ public sealed partial class WorldMapViewModel
         Add(WorldFeatureKind.MissionSpot, "M", MissionBrush, "Mission spot", DarkGlyph);
     }
 
+    private void OnLegendChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) => OnPropertyChanged(nameof(LegendEmptyText));
+
     /// <summary>The shown drop sites' and markers' names, spread so none sits on another.</summary>
     private void SpreadAllLabels()
     {
@@ -430,6 +621,13 @@ public sealed partial class WorldMapViewModel
             placed.Add((at, line));
             setShift(line * ShiftPixels);
         }
+    }
+
+    /// <summary>"POTSHOT (Forest range) · Bear · Popup".</summary>
+    private string MissionLine(WorldFeature f)
+    {
+        var (category, spot) = Mission(f);
+        return spot.Length > 0 ? $"{category} · {spot}" : category;
     }
 
     private static string CaveLine(WorldFeature cave)
@@ -510,8 +708,16 @@ public sealed partial class WorldMapViewModel
                 lines.Add("One of the spots this world boss can appear.");
                 break;
             case WorldFeatureKind.MissionSpot:
-                lines.Add($"{feature.Category}.");
-                lines.Add("A spot missions and quests of this kind use.");
+                var (category, spot) = Mission(feature);
+                title = category;
+                if (spot.Length > 0)
+                {
+                    lines.Add($"Spot: {spot}.");
+                }
+
+                lines.Add(category.Contains(" spots", StringComparison.Ordinal)
+                    ? "A spot missions and quests use (the game's tag doesn't name one mission)."
+                    : "A spot this mission uses (matched from the spot's tag to the game's mission list).");
                 break;
         }
 
@@ -520,6 +726,7 @@ public sealed partial class WorldMapViewModel
             lines.Add($"Biome: {biome}.");
         }
 
+        _picked = feature;
         SelectedFeature = new WorldFeatureDetailsViewModel(title, subtitle, lines);
     }
 

@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             mc:Ignorable="d">
+             mc:Ignorable="d" PreviewKeyDown="OnPreviewKeyDown">
 
     <UserControl.Resources>
         <!-- 1 / the map's zoom (set as it zooms): markers keep their size on screen. -->
@@ -38,7 +38,8 @@
 
         <!-- Map, layer, search, Reload / Rebuild all. A DockPanel so the status wraps beside the buttons. -->
         <DockPanel Grid.Row="1" Margin="0,10,0,0" LastChildFill="True">
-            <ComboBox DockPanel.Dock="Left" ItemsSource="{Binding Maps}" SelectedItem="{Binding SelectedMap}" MinWidth="210"
+            <Grid DockPanel.Dock="Left" VerticalAlignment="Center">
+            <ComboBox ItemsSource="{Binding Maps}" SelectedItem="{Binding SelectedMap}" MinWidth="210"
                       VerticalAlignment="Center" AutomationProperties.Name="Which map to show"
                       ToolTip="Every world the game has, outposts too. Worlds the game doesn't offer yet are tagged In development.">
                 <ComboBox.ItemTemplate>
@@ -56,10 +57,15 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
+            <!-- Said while no map is picked (none yet, still reading, or none chosen). -->
+            <TextBlock Text="{Binding MapPickerPlaceholder}" Style="{StaticResource PlaceholderTextStyle}" IsHitTestVisible="False"
+                       Visibility="{Binding MapPickerPlaceholder, Converter={StaticResource NullToVisibilityConverter}}"/>
+            </Grid>
             <Grid DockPanel.Dock="Left" Margin="8,0,0,0" Width="220" VerticalAlignment="Center">
-                <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Find a creature, fish or zone"
-                         ToolTip="Lights up every zone with this creature or fish in it."/>
-                <TextBlock Text="Find a creature or fish…" Style="{StaticResource PlaceholderTextStyle}"
+                <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Find a creature, fish, place or grid square"
+                         KeyDown="OnSearchKeyDown"
+                         ToolTip="Lights up every zone with this creature or fish, and every place that matches (&quot;tier 3&quot;, &quot;geyser&quot;, a mission's name). A grid square (&quot;I7&quot;) goes there. Enter zooms to what's found."/>
+                <TextBlock Text="Find a creature, fish, place or square…" Style="{StaticResource PlaceholderTextStyle}"
                            Visibility="{Binding SearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
             </Grid>
             <CheckBox DockPanel.Dock="Right" Content="Redraw during Update everything" IsChecked="{Binding RedrawDuringUpdate}" Margin="12,0,0,0" VerticalAlignment="Center"
@@ -110,9 +116,13 @@
                 <CheckBox Content="Lakes &amp; rivers" IsChecked="{Binding ShowWater}" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="{Binding WaterText}"/>
                 <CheckBox Content="Fishing spots" IsChecked="{Binding ShowFishingSpots}" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="{Binding FishingSpotsText}"/>
                 <CheckBox Content="Missions" IsChecked="{Binding ShowMissions}" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="{Binding MissionsText}"/>
-                <ComboBox ItemsSource="{Binding MissionCategories}" SelectedItem="{Binding MissionCategory}" Margin="6,0,0,0" MinWidth="200" MaxWidth="320"
-                          VerticalAlignment="Center" IsEnabled="{Binding ShowMissions}" AutomationProperties.Name="Which mission spots to show"
-                          ToolTip="Mission and quest spots by kind, from their tags in the game's level."/>
+                <Grid Margin="6,0,0,0" VerticalAlignment="Center">
+                    <ComboBox ItemsSource="{Binding MissionCategories}" SelectedItem="{Binding MissionCategory}" MinWidth="200" MaxWidth="320"
+                              VerticalAlignment="Center" IsEnabled="{Binding ShowMissions}" AutomationProperties.Name="Which mission spots to show"
+                              ToolTip="Mission and quest spots by mission (their names as in the game), or spots many missions share."/>
+                    <TextBlock Text="{Binding MissionPlaceholder}" Style="{StaticResource PlaceholderTextStyle}" IsHitTestVisible="False"
+                               Visibility="{Binding MissionPlaceholder, Converter={StaticResource NullToVisibilityConverter}}"/>
+                </Grid>
             </StackPanel>
         </WrapPanel>
 
@@ -210,6 +220,8 @@
                                                 </TransformGroup>
                                             </StackPanel.RenderTransform>
                                             <Grid Width="{Binding Size}" Height="{Binding Size}">
+                                                <Ellipse Margin="-4" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2.5"
+                                                         Visibility="{Binding IsFound, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                 <Ellipse Fill="{Binding Fill}" Stroke="#E0101418" StrokeThickness="1.2"/>
                                                 <TextBlock Text="{Binding Glyph}" FontSize="9" FontWeight="Bold" Foreground="{Binding GlyphBrush}"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -334,29 +346,22 @@
                         <TextBlock Text="{Binding ZoneHint}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                    Visibility="{Binding ZoneHint, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-                        <!-- The key to what's shown, while nothing is clicked. -->
-                        <StackPanel Margin="0,0,0,18" Visibility="{Binding ZoneHint, Converter={StaticResource NullToVisibilityConverter}}">
-                            <ItemsControl ItemsSource="{Binding Legend}" Focusable="False" Margin="0,0,0,10">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Orientation="Horizontal" Margin="0,2">
-                                            <Grid Width="16" Height="16" Margin="0,0,8,0">
-                                                <Ellipse Fill="{Binding Fill}" Stroke="#E0101418" StrokeThickness="1.2"/>
-                                                <TextBlock Text="{Binding Glyph}" FontSize="9" FontWeight="Bold" Foreground="{Binding GlyphBrush}"
-                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            </Grid>
-                                            <TextBlock Text="{Binding Text}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"
-                                                       Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </StackPanel>
+                        <!-- Back to nothing picked (Esc does the same). -->
+                        <Button Content="Clear" Command="{Binding ClearSelectionCommand}" HorizontalAlignment="Right" Margin="0,0,0,8"
+                                ToolTip="Clears what you clicked (or press Esc)." AutomationProperties.Name="Clear the selection"
+                                Visibility="{Binding HasAnySelection, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
                         <!-- The clicked feature (a cave, a geyser, a spot). -->
                         <StackPanel Visibility="{Binding SelectedFeature, Converter={StaticResource NullToVisibilityConverter}}" Margin="0,0,0,18">
                             <TextBlock Text="{Binding SelectedFeature.Title}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
                             <TextBlock Text="{Binding SelectedFeature.Subtitle}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,2,0,0"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button Content="Zoom to it" Command="{Binding ZoomToPickedCommand}" Margin="0,0,6,0"
+                                        ToolTip="Puts it in the middle of the map, close up." AutomationProperties.Name="Zoom to it"/>
+                                <Button Content="Copy" Command="{Binding CopyPickedCommand}"
+                                        ToolTip="Copies the map, grid square and what it is (&quot;Olympus D10: Tier 3 cave · 6-10 cave worms&quot;), to paste to friends."
+                                        AutomationProperties.Name="Copy where it is"/>
+                            </StackPanel>
                             <ItemsControl ItemsSource="{Binding SelectedFeature.Lines}" Margin="0,8,0,0" Focusable="False">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
@@ -411,6 +416,27 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+
+                        <!-- The key to the markers shown: always there, under whatever is picked. -->
+                        <Rectangle Height="1" Fill="{DynamicResource BorderBrush}" Margin="0,6,0,10"/>
+                        <TextBlock Text="Key" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
+                        <ItemsControl ItemsSource="{Binding Legend}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="0,2">
+                                        <Grid Width="16" Height="16" Margin="0,0,8,0">
+                                            <Ellipse Fill="{Binding Fill}" Stroke="#E0101418" StrokeThickness="1.2"/>
+                                            <TextBlock Text="{Binding Glyph}" FontSize="9" FontWeight="Bold" Foreground="{Binding GlyphBrush}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Grid>
+                                        <TextBlock Text="{Binding Text}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="Tick something under Show to see it on the map." FontSize="12" Foreground="{DynamicResource FaintForegroundBrush}"
+                                   Visibility="{Binding LegendEmptyText, Converter={StaticResource NullToVisibilityConverter}}"/>
                     </StackPanel>
                 </ScrollViewer>
             </Border>

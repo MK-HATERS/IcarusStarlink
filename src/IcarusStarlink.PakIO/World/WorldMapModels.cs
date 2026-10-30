@@ -59,8 +59,12 @@ public sealed record WorldMapInfo(
     IReadOnlyList<WorldTile> PictureTiles, IReadOnlyList<WorldTile> HeightTiles, IReadOnlyList<WorldLayer> Layers,
     bool OpenWorld = false, int Missions = 0, bool Outpost = false, IReadOnlyList<WorldDropSite>? Drops = null,
     WorldExtent? Extent = null, IReadOnlyList<string>? LevelFiles = null,
-    IReadOnlyDictionary<string, IReadOnlyList<WorldZoneEntry>>? CaveOreChances = null)
+    IReadOnlyDictionary<string, IReadOnlyList<WorldZoneEntry>>? CaveOreChances = null,
+    IReadOnlyDictionary<string, string>? MissionNameLookup = null)
 {
+    /// <summary>This world's mission names to match spots against (WorldMissionNames.Read).</summary>
+    public IReadOnlyDictionary<string, string> MissionNames => MissionNameLookup ?? new Dictionary<string, string>();
+
     /// <summary>
     /// The ores a cave can have by its entrance style (CF, DC, AC), from D_VoxelDistributionRegion's
     /// Conifer/Desert/Arctic_Caves_1 rows (weights); empty when the game lists none for a style.

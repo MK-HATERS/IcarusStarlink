@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.PakIO.World;
 
 namespace IcarusStarlink.App.Views;
 
@@ -37,10 +38,53 @@ public partial class WorldMapView : UserControl
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         }
 
+        if (_viewModel is not null)
+        {
+            _viewModel.ZoomRequested -= OnZoomRequested;
+        }
+
         _viewModel = DataContext as WorldMapViewModel;
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            _viewModel.ZoomRequested += OnZoomRequested;
+        }
+    }
+
+    /// <summary>The view model wants this point (0-1) in the middle, with this much of the map across the view.</summary>
+    private void OnZoomRequested(WorldMapPoint at, double span)
+    {
+        var width = MapViewport.ActualWidth;
+        var height = MapViewport.ActualHeight;
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        var scale = Math.Clamp(Math.Min(width, height) / (Math.Clamp(span, 0.01, 1) * MapSize), _fitScale * MinZoomOfFit, _fitScale * MaxZoomOfFit);
+        MapScale.ScaleX = MapScale.ScaleY = scale;
+        MapOffset.X = width / 2 - at.U * MapSize * scale;
+        MapOffset.Y = height / 2 - at.V * MapSize * scale;
+        UpdateMarkers();
+    }
+
+    /// <summary>Enter in the search box: zoom to what it found.</summary>
+    private void OnSearchKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            _viewModel?.ZoomToSearch();
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>Esc: nothing picked any more.</summary>
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && _viewModel?.HasAnySelection == true)
+        {
+            _viewModel.ClearSelection();
+            e.Handled = true;
         }
     }
 
@@ -74,7 +118,25 @@ public partial class WorldMapView : UserControl
             : Visibility.Collapsed;
     }
 
-    private void OnViewportSizeChanged(object sender, SizeChangedEventArgs e) => Fit();
+    /// <summary>
+    /// The map's area changed size (the window, or a status line appearing above it): showing the
+    /// whole map, it's fitted again; zoomed in, the same spot stays in the middle (re-fitting here
+    /// undid Zoom to it as soon as Copy's message appeared).
+    /// </summary>
+    private void OnViewportSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var wasFitted = Math.Abs(MapScale.ScaleX - _fitScale) < _fitScale * 0.01 || e.PreviousSize.Width <= 0 || e.PreviousSize.Height <= 0;
+        if (wasFitted)
+        {
+            Fit();
+            return;
+        }
+
+        _fitScale = Math.Min(e.NewSize.Width, e.NewSize.Height) / MapSize;
+        MapOffset.X += (e.NewSize.Width - e.PreviousSize.Width) / 2;
+        MapOffset.Y += (e.NewSize.Height - e.PreviousSize.Height) / 2;
+        UpdateMarkers();
+    }
 
     private void Fit()
     {

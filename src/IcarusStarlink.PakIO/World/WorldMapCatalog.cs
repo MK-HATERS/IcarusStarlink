@@ -87,7 +87,7 @@ public static partial class WorldMapCatalog
             List<string> levels = [.. new[] { worlds.Get(world, "MainLevel") }.Concat(worlds.Get(world, "GeneratedLevels") as JsonArray ?? [])
                 .Select(n => AssetPath(n)?.Replace(".uasset", ".umap")).OfType<string>()];
             maps.Add(new WorldMapInfo(id, name, terrain is null || unreleased || pictureTiles.Count == 0, pictureTiles, heightTiles, layers,
-                openWorld, missions, outpost, DropSites(worlds, world), extent, levels, caveOres));
+                openWorld, missions, outpost, DropSites(worlds, world), extent, levels, caveOres, WorldMissionNames.Read(source, id)));
         }
 
         return maps;

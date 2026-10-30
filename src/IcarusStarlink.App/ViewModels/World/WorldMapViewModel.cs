@@ -325,8 +325,10 @@ public sealed partial class WorldMapViewModel : ObservableObject
             _loadedOnce = true;
             StatusMessage = "";
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            // Started without anyone awaiting it (OnPageShown): anything not caught here left the page
+            // half-drawn with "Reading the game's maps…" for good. Say what went wrong instead.
             StatusMessage = $"Couldn't read the maps: {ex.Message}";
         }
         finally
@@ -349,8 +351,9 @@ public sealed partial class WorldMapViewModel : ObservableObject
             var check = await Task.Run(_store.Check);
             OutOfDateMessage = check.OutOfDate ? check.Summary : null;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception)
         {
+            // Only the out-of-date bar: if the check can't run, the bar just doesn't show.
             OutOfDateMessage = null;
         }
     }
@@ -374,8 +377,9 @@ public sealed partial class WorldMapViewModel : ObservableObject
             OutOfDateMessage = null;
             StatusMessage = result.Summary;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            // Not awaited by anyone either (a button, the page opening): say what went wrong.
             StatusMessage = $"Couldn't make the maps: {ex.Message}";
         }
         finally
@@ -415,7 +419,18 @@ public sealed partial class WorldMapViewModel : ObservableObject
         }
     }
 
-    partial void OnSelectedMapChanged(WorldMapItemViewModel? value) => ShowMap(value);
+    partial void OnSelectedMapChanged(WorldMapItemViewModel? value)
+    {
+        OnPropertyChanged(nameof(MapPickerPlaceholder));
+        ShowMap(value);
+    }
+
+    /// <summary>What the map picker says while it's empty; null once a map is picked.</summary>
+    public string? MapPickerPlaceholder => SelectedMap is not null
+        ? null
+        : IsBusy ? "Reading the maps…" : Maps.Count == 0 ? "No maps yet: click Reload" : "Pick a map…";
+
+    partial void OnIsBusyChanged(bool value) => OnPropertyChanged(nameof(MapPickerPlaceholder));
 
     private void ShowMap(WorldMapItemViewModel? item)
     {
@@ -511,7 +526,11 @@ public sealed partial class WorldMapViewModel : ObservableObject
         UpdateHighlight();
     }
 
-    partial void OnSearchTextChanged(string value) => UpdateHighlight();
+    partial void OnSearchTextChanged(string value)
+    {
+        FindPlaces();
+        UpdateHighlight();
+    }
 
     /// <summary>The ticked layers, bottom first: biomes under creatures under fishing (fish zones are only on water).</summary>
     private IEnumerable<(WorldLayerKind Kind, WorldLayerPixels Pixels, IReadOnlyDictionary<uint, WorldZone> Zones)> ShownLayers() =>
@@ -597,9 +616,26 @@ public sealed partial class WorldMapViewModel : ObservableObject
                     || kv.Value.Entries.Any(e => e.Name.Contains(query, StringComparison.OrdinalIgnoreCase)))
                 .Select(kv => kv.Key).ToHashSet());
         var foundCount = found.Values.Sum(f => f.Count);
-        SearchResult = query.Length == 0
-            ? null
-            : foundCount == 0 ? $"No ticked layer has \"{query}\"." : foundCount == 1 ? "Found in 1 zone." : $"Found in {foundCount} zones.";
+        var places = _found.Count;
+        if (query.Length == 0)
+        {
+            SearchResult = null;
+        }
+        else if (GridSquareAt(query) is not null)
+        {
+            SearchResult = $"Grid {query.ToUpperInvariant()}";
+        }
+        else if (foundCount == 0 && places == 0)
+        {
+            SearchResult = $"Nothing here has \"{query}\" (zones: only ticked layers).";
+        }
+        else
+        {
+            var what = string.Join(" and ", new[] { Count(foundCount, "zone"), Count(places, "place") }.OfType<string>());
+            SearchResult = $"Found in {what}." + (places > 0 ? " Enter zooms to them." : "");
+        }
+
+        static string? Count(int n, string what) => n switch { 0 => null, 1 => $"1 {what}", _ => $"{n} {what}s" };
 
         if (layers.Count == 0 || (foundCount == 0 && _selectedColors.Count == 0 && _hoverColors.Count == 0))
         {
