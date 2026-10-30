@@ -592,6 +592,7 @@ public sealed partial class SettingsViewModel
                 && !string.Equals(settings.LastSeenAppVersion, InstalledAppVersion, StringComparison.OrdinalIgnoreCase))
             {
                 await StartupPrompts.ShowAsync(() => new WhatsNewWindow(release.Version, release.ReleaseNotes) { Owner = Application.Current.MainWindow });
+                await OfferToEndorseStarlinkAsync();
             }
 
             if (!string.Equals(settings.LastSeenAppVersion, InstalledAppVersion, StringComparison.OrdinalIgnoreCase))
@@ -620,6 +621,58 @@ public sealed partial class SettingsViewModel
         if (result)
         {
             await InstallAppUpdateAsync();
+        }
+    }
+
+    /// <summary>
+    /// Right after an update (behind What's new): asks once whether to endorse Starlink on Nexus,
+    /// and endorses on Yes. Silent when there's no Nexus key, the account already endorsed it, the
+    /// account is Starlink's own uploader (Nexus refuses that), the user said No before, or Nexus
+    /// can't be reached. No is remembered and never sent to Nexus.
+    /// </summary>
+    private async Task OfferToEndorseStarlinkAsync()
+    {
+        var settings = _settingsService.Current;
+        if (settings.StarlinkEndorsePromptDeclined || App.IsClosing || _credentialStore.Read(CredentialTargets.NexusApiKey) is not { } apiKey)
+        {
+            return;
+        }
+
+        try
+        {
+            var endorsements = await _nexusApiClient.GetEndorsementsAsync(apiKey);
+            if (endorsements.Any(e => e.ModId == NexusAppUpdates.StarlinkModId
+                    && string.Equals(e.DomainName, NxmHandlerCommand.IcarusDomain, StringComparison.OrdinalIgnoreCase)
+                    && e.Status == Catalog.Nexus.NexusEndorsementStatus.Endorsed))
+            {
+                return;
+            }
+
+            var user = await _nexusApiClient.ValidateKeyAsync(apiKey);
+            var page = (await _nexusApiClient.GetModsByIdAsync(apiKey, NxmHandlerCommand.IcarusDomain, [NexusAppUpdates.StarlinkModId])).FirstOrDefault();
+            if (user is null || page is null || page.UploaderMemberId == user.UserId || App.IsClosing)
+            {
+                return;
+            }
+
+            var yes = _dialogService.Confirm(
+                "Starlink just updated. If it's useful to you, would you endorse it on Nexus? It's one click and helps other players find it.\n\n" +
+                "Yes: Starlink endorses it from your Nexus account now.\nNo: you won't be asked again.",
+                "Endorse Icarus Starlink?", ThemedConfirmSeverity.Information);
+            if (!yes)
+            {
+                settings.StarlinkEndorsePromptDeclined = true;
+                _settingsService.Save();
+                return;
+            }
+
+            // Nexus wants a version its page really has: the page's own, not this build's (not uploaded there yet, maybe).
+            await _nexusApiClient.SetEndorsementAsync(apiKey, NxmHandlerCommand.IcarusDomain, NexusAppUpdates.StarlinkModId, page.Version, endorse: true);
+            _activityLog.Log("Endorsed Icarus Starlink on Nexus. Thank you!", ActivityEntryKind.Success);
+        }
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or InvalidOperationException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            // Best-effort: a thank-you prompt must never turn a good update into an error.
         }
     }
 }
