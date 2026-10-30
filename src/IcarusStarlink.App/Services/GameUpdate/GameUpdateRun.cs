@@ -6,6 +6,7 @@ public enum GameUpdateStep
     Snapshot,
     Fingerprints,
     RefreshGameData,
+    Maps,
     CheckMods,
     FixSure,
     CheckUpdates,
@@ -49,6 +50,9 @@ public interface IGameUpdateSteps
     Task RecordGameFingerprintsAsync();
 
     Task<GameUpdateStepResult> RefreshGameDataAsync();
+
+    /// <summary>The Map page's Reload: redraws only the maps the update changed. Never fails the run (Skipped with why).</summary>
+    Task<GameUpdateStepResult> RedrawMapsAsync() => Task.FromResult(new GameUpdateStepResult(GameUpdateStepState.Skipped, ""));
 
     Task CheckModsAsync();
 
@@ -100,6 +104,7 @@ public static class GameUpdateOrchestrator
         GameUpdateStep.Snapshot => "Save your setup as it is now (to roll back to)",
         GameUpdateStep.Fingerprints => "Note the game files mods replace",
         GameUpdateStep.RefreshGameData => "Refresh game data",
+        GameUpdateStep.Maps => "Redraw the maps that changed",
         GameUpdateStep.CheckMods => "Check every mod against the new game",
         GameUpdateStep.FixSure => "Fix sure problems",
         GameUpdateStep.CheckUpdates => "Check for mod updates",
@@ -150,6 +155,12 @@ public static class GameUpdateOrchestrator
             }
 
             Report(GameUpdateStepState.Done, refreshed.Message);
+
+            // The maps are only for looking at: a map that can't be drawn never stops the run.
+            current = GameUpdateStep.Maps;
+            Report(GameUpdateStepState.Running);
+            var maps = await steps.RedrawMapsAsync();
+            Report(maps.State == GameUpdateStepState.Failed ? GameUpdateStepState.Skipped : maps.State, maps.Message);
 
             current = GameUpdateStep.CheckMods;
             Report(GameUpdateStepState.Running);

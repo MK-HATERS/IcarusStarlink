@@ -48,6 +48,13 @@ public interface IBaseGameContentProvider
     IReadOnlyDictionary<string, byte[]>? TryReadPackageFiles(string assetPath) => null;
 
     /// <summary>
+    /// Where the game keeps this package's files (pak, place in it, size, for its .uasset, .uexp and
+    /// .ubulk): changes when a game update replaces the package, read without reading the files.
+    /// Null when the game doesn't have it or its content can't be read.
+    /// </summary>
+    string? FileStamp(string assetPath) => null;
+
+    /// <summary>
     /// Same lookup as TryLoadExport, but runs <paramref name="project"/> under the SAME lock that
     /// protects the load itself — required for any consumer that reads a lazily-resolved
     /// cross-package reference off the export (CueUassetMaterialDecoder's GetParams call resolving

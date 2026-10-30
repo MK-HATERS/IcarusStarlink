@@ -96,6 +96,12 @@
         <EllipseGeometry Center="12,12" RadiusX="3.8" RadiusY="9"/>
         <LineGeometry StartPoint="3,12" EndPoint="21,12"/>
     </GeometryGroup>
+    <!-- A folded map: three panels. -->
+    <GeometryGroup x:Key="NavIconMap">
+        <PathGeometry Figures="M3 6L9 4L15 6L21 4L21 18L15 20L9 18L3 20Z"/>
+        <LineGeometry StartPoint="9,4" EndPoint="9,18"/>
+        <LineGeometry StartPoint="15,6" EndPoint="15,20"/>
+    </GeometryGroup>
     <GeometryGroup x:Key="NavIconClock">
         <EllipseGeometry Center="12,12" RadiusX="9" RadiusY="9"/>
         <PathGeometry Figures="M12 7L12 12L15.5 14"/>

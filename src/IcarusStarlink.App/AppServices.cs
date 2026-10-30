@@ -247,7 +247,8 @@ internal static class AppServices
             sp.GetRequiredService<IGameProcessChecker>(),
             sp.GetRequiredService<IDialogService>(),
             sp.GetRequiredService<IActivityLog>(),
-            Path.Combine(appDataDirectory, "Backups")));
+            Path.Combine(appDataDirectory, "Backups"),
+            sp.GetRequiredService<WorldMapViewModel>));
         // One fix service for the whole app: every writer of a mod's .EXMOD takes its lock.
         services.AddSingleton(sp => IcarusStarlink.App.Services.ModFixService.Registered(new ModFixService(
             sp.GetRequiredService<ILibraryRepository>(),
@@ -379,6 +380,19 @@ internal static class AppServices
         services.AddSingleton<IGameDataFreshness>(sp => new GameDataFreshness(
             sp.GetRequiredService<IUnrealPakService>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<SettingsViewModel>));
         services.AddSingleton<WeeklyChangesViewModel>();
+        // The Map page: worlds and zones read from the extracted tables and Paks\mods, pictures and
+        // zone images drawn from the game's paks into one kept copy (Cache\World).
+        services.AddSingleton(sp =>
+        {
+            var settings = sp.GetRequiredService<ISettingsService>();
+            var dataFolder = Path.Combine(appDataDirectory, "Data");
+            return new IcarusStarlink.PakIO.World.WorldMapStore(
+                Path.Combine(appDataDirectory, "Cache", "World"),
+                () => IcarusStarlink.PakIO.World.WorldMapCatalog.Read(dataFolder, settings.Current.IcarusContentPath),
+                new IcarusStarlink.PakIO.World.WorldMapRenderer(sp.GetRequiredService<IBaseGameContentProvider>()));
+        });
+        services.AddSingleton(sp => new WorldMapViewModel(
+            sp.GetRequiredService<IcarusStarlink.PakIO.World.WorldMapStore>(), sp.GetRequiredService<ISettingsService>(), Path.Combine(appDataDirectory, "Data")));
         services.AddSingleton(sp => new DatabaseViewModel(sp.GetRequiredService<NexusCatalogViewModel>(), sp.GetRequiredService<LibraryViewModel>()));
         services.AddSingleton(sp => new GameEditorViewModel(sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data"), sp.GetRequiredService<IActivityLog>()));
         services.AddSingleton(sp => new ServerViewModel(

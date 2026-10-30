@@ -18,7 +18,7 @@ public sealed class GameUpdateCoordinator(
     Func<LibraryViewModel> library, Func<MergeInstallViewModel> mergeInstall, Func<SettingsViewModel> settingsViewModel,
     ISettingsService settingsService, IUe4ssModStateService ue4ssModStateService, LastKnownGoodStore snapshots,
     GameUpdateDetector detector, IGameProcessChecker gameProcessChecker, IDialogService dialogService, IActivityLog activityLog,
-    string backupDirectory) : IGameUpdateSteps, IGameUpdateReviewActions
+    string backupDirectory, Func<WorldMapViewModel>? worldMap = null) : IGameUpdateSteps, IGameUpdateReviewActions
 {
     private GameUpdateWindow? _window;
 
@@ -191,6 +191,17 @@ public sealed class GameUpdateCoordinator(
         return settingsService.Current.LastDataFolderUpdatedAt != before
             ? GameUpdateStepResult.Done(settings.DataFolderStatusMessage ?? "")
             : GameUpdateStepResult.Failed(settings.DataFolderStatusMessage ?? "Refresh game data didn't finish.");
+    }
+
+    public async Task<GameUpdateStepResult> RedrawMapsAsync()
+    {
+        if (worldMap is null)
+        {
+            return new GameUpdateStepResult(GameUpdateStepState.Skipped, "");
+        }
+
+        var (redrawn, message) = await worldMap().ReloadForGameUpdateAsync();
+        return new GameUpdateStepResult(redrawn ? GameUpdateStepState.Done : GameUpdateStepState.Skipped, message);
     }
 
     public async Task CheckModsAsync()

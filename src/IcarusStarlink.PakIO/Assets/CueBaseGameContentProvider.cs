@@ -220,6 +220,31 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
         }
     }
 
+    public string? FileStamp(string assetPath) =>
+        UnderLock(mounted =>
+        {
+            var path = assetPath.Replace('\\', '/').TrimStart('/');
+            if (!mounted.ContentPathIndex.ContainsKey(path))
+            {
+                return null;
+            }
+
+            var withoutExtension = path[..path.LastIndexOf('.')];
+            var parts = new List<string>();
+            foreach (var extension in new[] { ".uasset", ".uexp", ".ubulk" })
+            {
+                if (mounted.ContentPathIndex.TryGetValue(withoutExtension + extension, out var key))
+                {
+                    var file = mounted.Provider.Files[key];
+                    parts.Add(file is CUE4Parse.UE4.Pak.Objects.FPakEntry entry
+                        ? $"{extension}:{entry.Vfs.Name}:{entry.Offset}:{entry.Size}"
+                        : $"{extension}:{file.Size}");
+                }
+            }
+
+            return string.Join(";", parts);
+        });
+
     public bool? HasPackage(string packagePath) => GetOrMountProvider() is { } mounted ? PackageKey(mounted, packagePath) is not null : null;
 
     public IReadOnlyDictionary<string, string>? Objects(string packagePath) =>

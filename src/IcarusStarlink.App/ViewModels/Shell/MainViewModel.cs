@@ -120,6 +120,8 @@ public sealed partial class MainViewModel : ObservableObject
             new NavItem("saves", "Saves", typeof(SavesViewModel), "Game"),
             // FTP file management for a rented server's mods folder plus the Local server tab.
             new NavItem("server", "Server", typeof(ServerViewModel), "Game"),
+            // Every world's map with its creature, fishing and biome zones, read from the game's files.
+            new NavItem("map", "Map", typeof(WorldMapViewModel), "Game"),
             new NavItem("weekly-changes", "Weekly Changes", typeof(WeeklyChangesViewModel), "Game"),
             new NavItem("settings", "Settings", typeof(SettingsViewModel)),
             new NavItem("help", "Help", typeof(HelpViewModel)),
@@ -284,6 +286,12 @@ public sealed partial class MainViewModel : ObservableObject
         if (CurrentPage is SavesViewModel saves)
         {
             saves.OnPageShown();
+        }
+
+        // A game update or a changed mod may have changed the maps since they were last shown.
+        if (CurrentPage is WorldMapViewModel map)
+        {
+            map.OnPageShown();
         }
 
         // Installs and fixes since it was last shown made new backups.

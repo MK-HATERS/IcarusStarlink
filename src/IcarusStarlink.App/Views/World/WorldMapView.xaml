@@ -1,0 +1,205 @@
+<UserControl x:Class="IcarusStarlink.App.Views.WorldMapView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d">
+
+    <Grid Margin="32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Title, with the picked world's name and its In development tag beside it. -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal">
+            <TextBlock Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
+            <TextBlock Text="{Binding SelectedMap.Name, StringFormat='· {0}'}" Style="{StaticResource PageHeaderStyle}" Margin="10,0,0,0"
+                       Foreground="{DynamicResource SecondaryForegroundBrush}"
+                       Visibility="{Binding SelectedMap, Converter={StaticResource NullToVisibilityConverter}}"/>
+            <Border Style="{StaticResource BetaTagStyle}" Margin="12,0,0,0"
+                    ToolTip="The game has this world in its files but doesn't offer it yet: its map may be unfinished or change."
+                    Visibility="{Binding SelectedMap.InDevelopment, Converter={StaticResource BoolToVisibilityConverter}, FallbackValue=Collapsed}">
+                <TextBlock Text="In development" FontSize="12"/>
+            </Border>
+            <TextBlock Text="{Binding SelectedMap.KindText}" VerticalAlignment="Center" Margin="14,4,0,0" FontSize="14"
+                       Foreground="{DynamicResource SecondaryForegroundBrush}"
+                       ToolTip="What the game uses this world for: open world, missions (prospects), or an outpost. From the game's prospect list."/>
+        </StackPanel>
+
+        <!-- Map, layer, search, Reload / Rebuild all. A DockPanel so the status wraps beside the buttons. -->
+        <DockPanel Grid.Row="1" Margin="0,10,0,0" LastChildFill="True">
+            <ComboBox DockPanel.Dock="Left" ItemsSource="{Binding Maps}" SelectedItem="{Binding SelectedMap}" MinWidth="210"
+                      VerticalAlignment="Center" AutomationProperties.Name="Which map to show"
+                      ToolTip="Every world the game has, outposts too. Worlds the game doesn't offer yet are tagged In development.">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                                <Border Style="{StaticResource BetaTagStyle}" ToolTip="{x:Null}"
+                                        Visibility="{Binding InDevelopment, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="In development"/>
+                                </Border>
+                            </StackPanel>
+                            <TextBlock Text="{Binding KindText}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <ComboBox DockPanel.Dock="Left" ItemsSource="{Binding Layers}" SelectedItem="{Binding SelectedLayer}" MinWidth="120" Margin="8,0,0,0"
+                      Visibility="{Binding HasLayers, Converter={StaticResource BoolToVisibilityConverter}}"
+                      VerticalAlignment="Center" DisplayMemberPath="Title" AutomationProperties.Name="What the map shows"
+                      ToolTip="Creatures: where each kind spawns. Fishing: which fish bite in each stretch of water. Biomes: the map's biomes."/>
+            <Grid DockPanel.Dock="Left" Margin="8,0,0,0" Width="220" VerticalAlignment="Center">
+                <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Find a creature, fish or zone"
+                         ToolTip="Lights up every zone with this creature or fish in it."/>
+                <TextBlock Text="Find a creature or fish…" Style="{StaticResource PlaceholderTextStyle}"
+                           Visibility="{Binding SearchText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+            </Grid>
+            <CheckBox DockPanel.Dock="Left" Content="Show zones" IsChecked="{Binding ShowZones}" Margin="12,0,0,0" VerticalAlignment="Center"
+                      ToolTip="Off: only the map picture. The zone you picked and search results still light up."/>
+            <Button DockPanel.Dock="Right" Command="{Binding RebuildAllCommand}" Margin="8,0,0,0" VerticalAlignment="Center"
+                    Content="Rebuild all maps" AutomationProperties.Name="Rebuild all maps"
+                    ToolTip="Deletes every map Starlink made and draws them all again from the game's files, even if nothing changed. Takes about half a minute."/>
+            <Button DockPanel.Dock="Right" Command="{Binding ReloadCommand}" Margin="16,0,0,0" VerticalAlignment="Center"
+                    AutomationProperties.Name="Reload the maps"
+                    ToolTip="Checks the game's map files and zones and draws again only the maps that changed (after a game update, or a mod or file changed).">
+                <StackPanel Orientation="Horizontal">
+                    <Path Data="{StaticResource IconRefreshArrow}" Fill="{DynamicResource ForegroundBrush}" Width="11" Height="11" Stretch="Uniform" Margin="0,0,6,0"/>
+                    <TextBlock Text="Reload" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+            <TextBlock Text="{Binding SearchResult}" VerticalAlignment="Center" Margin="12,0,0,0" TextTrimming="CharacterEllipsis"
+                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+        </DockPanel>
+
+        <!-- What Reload / Rebuild all did, or what they're doing. -->
+        <TextBlock Grid.Row="2" Text="{Binding StatusMessage}" Style="{StaticResource PageBodyTextStyle}" Margin="0,10,0,0" TextWrapping="Wrap"
+                   Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+        <!-- The game's files changed since the maps were made. -->
+        <Border Grid.Row="3" Margin="0,10,0,0" Padding="12,8" CornerRadius="6" BorderThickness="1"
+                BorderBrush="{DynamicResource WarningBrush}" Background="{DynamicResource WarningSoftBrush}"
+                Visibility="{Binding OutOfDateMessage, Converter={StaticResource NullToVisibilityConverter}}">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Reload" Command="{Binding ReloadCommand}" Margin="12,0,0,0" VerticalAlignment="Center"
+                        AutomationProperties.Name="Reload the changed maps"/>
+                <TextBlock Text="{Binding OutOfDateMessage}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Row="4" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="320"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="320" MinWidth="220"/>
+            </Grid.ColumnDefinitions>
+
+            <GridSplitter Grid.Column="1" Style="{StaticResource VerticalPaneSplitterStyle}" AutomationProperties.Name="Resize the zone panel"/>
+
+            <!-- The map: scroll to zoom, drag to move, click a zone. -->
+            <Border x:Name="MapViewport" Grid.Column="0" ClipToBounds="True" CornerRadius="6" BorderThickness="1"
+                    BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource PanelBackgroundBrush}"
+                    MouseWheel="OnMapWheel" MouseLeftButtonDown="OnMapMouseDown" MouseLeftButtonUp="OnMapMouseUp"
+                    MouseMove="OnMapMouseMove" MouseLeave="OnMapMouseLeave" SizeChanged="OnViewportSizeChanged"
+                    AutomationProperties.Name="Map">
+                <Grid>
+                    <Canvas>
+                        <Grid x:Name="MapLayer" Width="1000" Height="1000" RenderTransformOrigin="0,0">
+                            <Grid.RenderTransform>
+                                <TransformGroup>
+                                    <ScaleTransform x:Name="MapScale"/>
+                                    <TranslateTransform x:Name="MapOffset"/>
+                                </TransformGroup>
+                            </Grid.RenderTransform>
+                            <Image Source="{Binding Picture}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
+                            <Image Source="{Binding ZonesImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor"
+                                   Visibility="{Binding ShowZones, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            <Image Source="{Binding HighlightImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                        </Grid>
+                    </Canvas>
+
+                    <!-- Zoom buttons. -->
+                    <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8">
+                        <Button Width="32" Height="32" Padding="0" Click="OnZoomIn" AutomationProperties.Name="Zoom in" ToolTip="Zoom in (or scroll up over the map)">
+                            <Path Data="M12 5L12 19 M5 12L19 12" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="2" Width="14" Height="14" Stretch="Uniform"/>
+                        </Button>
+                        <Button Width="32" Height="32" Padding="0" Margin="0,6,0,0" Click="OnZoomOut" AutomationProperties.Name="Zoom out" ToolTip="Zoom out (or scroll down over the map)">
+                            <Path Data="M5 12L19 12" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="2" Width="14" Height="2" Stretch="Fill"/>
+                        </Button>
+                        <Button Width="32" Height="32" Padding="0" Margin="0,6,0,0" Click="OnZoomFit" AutomationProperties.Name="Fit the map" ToolTip="Show the whole map">
+                            <Path Data="M4 9L4 4L9 4 M15 4L20 4L20 9 M20 15L20 20L15 20 M9 20L4 20L4 15" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="2" Width="14" Height="14" Stretch="Uniform"/>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- What's under the mouse. -->
+                    <Border x:Name="HoverTip" HorizontalAlignment="Left" VerticalAlignment="Top" Padding="8,4" CornerRadius="4" IsHitTestVisible="False"
+                            Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                            Visibility="{Binding HoverText, Converter={StaticResource NullToVisibilityConverter}}">
+                        <TextBlock Text="{Binding HoverText}" FontSize="12"/>
+                    </Border>
+
+                    <!-- The map has nothing to show (no picture and no zones), or isn't made yet. -->
+                    <TextBlock Text="No map picture for this world in the game files yet." Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
+                               Visibility="{Binding Picture, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                </Grid>
+            </Border>
+
+            <!-- The picked zone. -->
+            <Border Grid.Column="2" CornerRadius="6" BorderThickness="1" Padding="14"
+                    BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource PanelBackgroundBrush}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="{Binding MapNote}" TextWrapping="Wrap" Margin="0,0,0,12" Foreground="{DynamicResource WarningBrush}"
+                                   Visibility="{Binding MapNote, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+                        <TextBlock Text="{Binding ZoneHint}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   Visibility="{Binding SelectedZone, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+
+                        <StackPanel Visibility="{Binding SelectedZone, Converter={StaticResource NullToVisibilityConverter}}">
+                            <StackPanel Orientation="Horizontal">
+                                <Border Width="12" Height="12" CornerRadius="3" Background="{Binding SelectedZone.Color}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Text="{Binding SelectedZone.Name}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding SelectedZone.RowName}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}" Margin="20,2,0,0"/>
+                            <Border Style="{StaticResource BetaTagStyle}" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                    BorderBrush="{DynamicResource InfoBrush}" Background="Transparent" TextElement.Foreground="{DynamicResource InfoBrush}"
+                                    ToolTip="An installed mod changes this zone: the list below is as installed."
+                                    Visibility="{Binding SelectedZone.ChangedByMods, Converter={StaticResource BoolToVisibilityConverter}, FallbackValue=Collapsed}">
+                                <TextBlock Text="Changed by your mods"/>
+                            </Border>
+                            <TextBlock Text="{Binding SelectedZone.Details}" Margin="0,8,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                       Visibility="{Binding SelectedZone.Details, Converter={StaticResource NullToVisibilityConverter}}"/>
+                            <TextBlock Text="{Binding SelectedZone.ListTitle}" Margin="0,12,0,4" Style="{StaticResource FieldLabelStyle}"
+                                       Visibility="{Binding SelectedZone.ListTitle, Converter={StaticResource NullToVisibilityConverter}}"/>
+                            <ItemsControl ItemsSource="{Binding SelectedZone.Rows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,3">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="130"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="44"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
+                                            <ProgressBar Grid.Column="1" Value="{Binding Percent, Mode=OneWay}" Maximum="100" Height="8" Margin="6,0" VerticalAlignment="Center"
+                                                         IsTabStop="False" AutomationProperties.Name="{Binding PercentText}"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding PercentText}" HorizontalAlignment="Right" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="{Binding SelectedZone.GameText}" TextWrapping="Wrap" Margin="0,12,0,0" FontSize="12"
+                                       Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                       Visibility="{Binding SelectedZone.GameText, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

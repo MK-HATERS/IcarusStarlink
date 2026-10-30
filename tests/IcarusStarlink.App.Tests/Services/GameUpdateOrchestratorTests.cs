@@ -39,6 +39,14 @@ public sealed class GameUpdateOrchestratorTests
             return Task.FromResult(Refresh);
         }
 
+        public GameUpdateStepResult Maps { get; set; } = GameUpdateStepResult.Done();
+
+        public Task<GameUpdateStepResult> RedrawMapsAsync()
+        {
+            Calls.Add("maps");
+            return Task.FromResult(Maps);
+        }
+
         public Task CheckModsAsync()
         {
             Calls.Add("check");
@@ -84,7 +92,7 @@ public sealed class GameUpdateOrchestratorTests
 
         var result = await GameUpdateOrchestrator.RunAsync(steps, progress.Add);
 
-        Assert.Equal(["snapshot", "fingerprints", "refresh", "check", "fix", "updates", "rebuild", "running?", "install"], steps.Calls);
+        Assert.Equal(["snapshot", "fingerprints", "refresh", "maps", "check", "fix", "updates", "rebuild", "running?", "install"], steps.Calls);
         Assert.True(result.Completed);
         Assert.True(result.Installed);
         Assert.NotNull(result.Snapshot);
@@ -117,13 +125,26 @@ public sealed class GameUpdateOrchestratorTests
     }
 
     [Fact]
+    public async Task MapsThatCantBeDrawn_DontStopTheRun()
+    {
+        var steps = new FakeSteps { Maps = GameUpdateStepResult.Failed("The game's paks can't be read.") };
+        var progress = new List<GameUpdateProgress>();
+
+        var result = await GameUpdateOrchestrator.RunAsync(steps, progress.Add);
+
+        Assert.True(result.Completed);
+        Assert.Contains("install", steps.Calls);
+        Assert.Contains(progress, p => p.Step == GameUpdateStep.Maps && p.State == GameUpdateStepState.Skipped && p.Text == "The game's paks can't be read.");
+    }
+
+    [Fact]
     public async Task AStepThatThrows_StopsTheRunToo()
     {
         var steps = new FakeSteps { CheckThrows = true };
 
         var result = await GameUpdateOrchestrator.RunAsync(steps);
 
-        Assert.Equal(["snapshot", "fingerprints", "refresh", "check"], steps.Calls);
+        Assert.Equal(["snapshot", "fingerprints", "refresh", "maps", "check"], steps.Calls);
         Assert.Equal(GameUpdateStep.CheckMods, result.FailedStep);
         Assert.Contains("A mod folder is locked.", result.Message);
     }
