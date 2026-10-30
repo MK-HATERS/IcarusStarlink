@@ -260,7 +260,7 @@ public sealed partial class HelpViewModel : ObservableObject
             **Local server**: run an Icarus dedicated server on this PC.
 
             - **Install new server…** downloads one with SteamCMD (**Install SteamCMD**, or **Use my SteamCMD…**); **Add existing server…** adopts one you already have. Each server is its own profile.
-            - **Start**, **Stop**, **Restart**, **Check for update**, **Update**.
+            - **Start**, **Stop**, **Restart**, **Check for update**, **Update**. Check for update asks Steam (through SteamCMD) for the newest build on the server's branch; the line beside it says "up to date" or "update available (build …)".
             - Tiles show players, world, uptime, memory, build and last backup. **Overview**: **Automation** (restart if it crashes, a daily restart, update on restart, update automatically, a daily backup, start with Starlink, start minimized; its header lists what's on) and the folding **Windows firewall** section (its header says whether every port is open). Drag the gap next to the server list to widen it.
             - **Log** (follow, hide noise, filter; players online and events beside it, with a drag handle between). **Settings** in folding sections: **Server** (names, max players, passwords), **Branch & ports**, **World**, then **Lobby** and **Advanced** (bind IP, Saved folder suffix, log file name, the command line) folded; **Save settings** stays under the list.
             - **Create a new world on start**: pick the world from the game's own list (open worlds, outposts, missions), a difficulty, Hardcore, and a world name (an outpost needs one). Set it back to **Don't create one** after the first start, or every restart makes a fresh world. Without extracted game data it's a text box taking the server's own "[ProspectType] [Difficulty 1-4] [Hardcore True/False] [SaveName]".
@@ -379,7 +379,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Ctrl+1** … **Ctrl+9** — go to the menu's pages in order (Database, Downloads, Library, Editor, Merge & Install, Saves, Server, Weekly Changes, Settings); **Ctrl+0** — Help
             - **Ctrl+F** — jump to the page's search or filter box
 
-            The **Theme** button at the bottom of the menu changes the colours: each click goes to the next theme (Icarus, Dark, Light, Custom). **Play**, **Mods**, **UE4SS**, **Game** and **Server** at the top right start the game or open those folders.
+            The **Theme** button at the bottom of the menu changes the colours: each click goes to the next theme (Icarus, Dark, Light, Custom). **Play**, **Mods**, **UE4SS**, **Game** and **Server** at the top right start the game or open those folders. After a click, Play says **Starting…** until Icarus opens (clicking again does nothing, so the game is never started twice; after 2 minutes with no game it says Play again). While Icarus runs it shows a green dot and **Running**, and a click brings the game's window to the front.
 
             Inside the mod editor window:
 
