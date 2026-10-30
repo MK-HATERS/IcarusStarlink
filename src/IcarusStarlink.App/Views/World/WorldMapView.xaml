@@ -154,7 +154,7 @@
             <Border x:Name="MapViewport" Grid.Column="0" ClipToBounds="True" CornerRadius="6" BorderThickness="1"
                     BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource PanelBackgroundBrush}"
                     MouseWheel="OnMapWheel" MouseLeftButtonDown="OnMapMouseDown" MouseLeftButtonUp="OnMapMouseUp"
-                    MouseMove="OnMapMouseMove" MouseLeave="OnMapMouseLeave" SizeChanged="OnViewportSizeChanged"
+                    MouseMove="OnMapMouseMove" MouseLeave="OnMapMouseLeave" SizeChanged="OnViewportSizeChanged" LostMouseCapture="OnMapLostMouseCapture"
                     AutomationProperties.Name="Map">
                 <Grid>
                     <Canvas>

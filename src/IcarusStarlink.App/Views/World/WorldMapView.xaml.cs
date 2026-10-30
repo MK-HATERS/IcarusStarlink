@@ -249,6 +249,9 @@ public partial class WorldMapView : UserControl
 
     private void OnMapMouseLeave(object sender, MouseEventArgs e) => _viewModel?.HoverAt(null, null);
 
+    /// <summary>The mouse was taken away mid-drag (Alt+Tab, a dialog): the drag ends, rather than following the mouse until the next click.</summary>
+    private void OnMapLostMouseCapture(object sender, MouseEventArgs e) => _dragStart = null;
+
     /// <summary>Where the mouse is on the map, 0-1 from its left and top; null off the map.</summary>
     private Point? MapPoint(MouseEventArgs e)
     {
