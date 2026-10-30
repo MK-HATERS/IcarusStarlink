@@ -118,6 +118,21 @@ public sealed class WorldMapViewModelTests : IDisposable
     }
 
     [Fact]
+    public void MapOnly_HidesTheOverlays_AndClicksPickNothing()
+    {
+        var vm = Build(new Settings());
+
+        vm.PictureOnly = true;
+        vm.SelectAt(0.5, 0.5);
+        vm.HoverAt(0.5, 0.5);
+
+        Assert.False(vm.ShowOverlays);
+        Assert.False(vm.HasAnySelection);
+        Assert.Null(vm.HoverText);
+        Assert.True(vm.ShowCaves); // what was ticked stays
+    }
+
+    [Fact]
     public void PuttingTheChoicesBack_SavesNothing()
     {
         var settings = new Settings { Current = { MapShown = ["Grid"] } };

@@ -166,8 +166,11 @@
                                 </TransformGroup>
                             </Grid.RenderTransform>
                             <Image Source="{Binding Picture}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
-                            <Image Source="{Binding ZonesImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
-                            <Image Source="{Binding HighlightImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                            <!-- Everything drawn over the picture; Map only hides it all at once. -->
+                            <Grid Visibility="{Binding ShowOverlays, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <!-- Smoothed, so zone edges aren't blocky up close (clicks read the stored image, not this). -->
+                            <Image Source="{Binding ZonesImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
+                            <Image Source="{Binding HighlightImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
 
                             <!-- Lakes and rivers, and the in-game grid (its lines keep 1 pixel at any zoom: set in code). -->
                             <Canvas IsHitTestVisible="False">
@@ -306,10 +309,11 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+                            </Grid>
                         </Grid>
                     </Canvas>
 
-                    <!-- Zoom buttons. -->
+                    <!-- Zoom buttons, and Map only. -->
                     <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8">
                         <Button Width="32" Height="32" Padding="0" Click="OnZoomIn" AutomationProperties.Name="Zoom in" ToolTip="Zoom in (or scroll up over the map)">
                             <Path Data="M12 5L12 19 M5 12L19 12" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="2" Width="14" Height="14" Stretch="Uniform"/>
@@ -320,6 +324,13 @@
                         <Button Width="32" Height="32" Padding="0" Margin="0,6,0,0" Click="OnZoomFit" AutomationProperties.Name="Fit the map" ToolTip="Show the whole map">
                             <Path Data="M4 9L4 4L9 4 M15 4L20 4L20 9 M20 15L20 20L15 20 M9 20L4 20L4 15" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="2" Width="14" Height="14" Stretch="Uniform"/>
                         </Button>
+                        <!-- Map only: an eye; on, everything over the picture is hidden. -->
+                        <ToggleButton Width="32" Height="32" Padding="0" Margin="0,14,0,0" IsChecked="{Binding PictureOnly}"
+                                      AutomationProperties.Name="Map only"
+                                      ToolTip="Map only: hides the zones, markers, names, grid and water to see the bare map. Click again to bring them back (what you ticked stays).">
+                            <Path Data="M2 12C5 7 8.5 5 12 5C15.5 5 19 7 22 12C19 17 15.5 19 12 19C8.5 19 5 17 2 12Z M12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9Z"
+                                  Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8" Width="16" Height="16" Stretch="Uniform"/>
+                        </ToggleButton>
                     </StackPanel>
 
                     <!-- What's under the mouse. -->

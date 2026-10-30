@@ -567,7 +567,8 @@ public sealed partial class WorldMapViewModel : ObservableObject
     /// <summary>The mouse is over this point of the map (0-1); null when it left the map.</summary>
     public void HoverAt(double? x, double? y)
     {
-        var hits = x is { } hx && y is { } hy ? ZonesAt(hx, hy) : [];
+        // Map only: nothing over the picture, so nothing to say on hover either.
+        var hits = x is { } hx && y is { } hy && !PictureOnly ? ZonesAt(hx, hy) : [];
         HoverText = hits.Count == 0 ? null : string.Join("  ·  ", hits.Select(h => HoverLine(h.Kind, h.Zone)));
         var colors = hits.ToDictionary(h => h.Kind, h => h.Color);
         if (!colors.OrderBy(kv => kv.Key).SequenceEqual(_hoverColors.OrderBy(kv => kv.Key)))
@@ -580,6 +581,11 @@ public sealed partial class WorldMapViewModel : ObservableObject
     /// <summary>A click on the map (0-1): what's there in each ticked layer, or nothing off the zones.</summary>
     public void SelectAt(double x, double y)
     {
+        if (PictureOnly)
+        {
+            return;
+        }
+
         var hits = ZonesAt(x, y);
         SelectedFeature = null;
         _selectedColors = hits.ToDictionary(h => h.Kind, h => h.Color);

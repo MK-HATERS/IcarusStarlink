@@ -254,6 +254,16 @@ public sealed partial class WorldMapViewModel
         }
     }
 
+    /// <summary>Map only: everything drawn over the picture hidden at once (zones, markers, names, grid, water); what's ticked stays as it is.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowOverlays))]
+    private bool _pictureOnly;
+
+    /// <summary>The opposite of Map only, for the overlays' visibility.</summary>
+    public bool ShowOverlays => !PictureOnly;
+
+    partial void OnPictureOnlyChanged(bool value) => HoverText = null;
+
     /// <summary>A spot or a marker is picked (the Clear button shows then).</summary>
     public bool HasAnySelection => HasSelection || SelectedFeature is not null;
 
