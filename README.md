@@ -98,7 +98,8 @@ settings; importing one downloads what you lack, and a server host can export, a
 independently re-reads the pak it just built to confirm nothing staged for packing went missing.
 Conflicts can be decided per line: pick the winning mod for each conflicting field, and the
 profile remembers it. The queue and your last merge are kept across restarts. Everything installs
-as one merged pak (`zz_zz_ISL-Merged_9999_P.pak`, named so it loads after other paks). ArcFission
+as one merged pak, `ISL-Merged_P.pak` (`zz_zz_ISL-Merged_9999_P.pak` while ArcFission Library is
+on, so it loads after that library's pak; a server goes by its own ArcFission Library). ArcFission
 mods (Wireless Power, Lumber Yard…) have their rows read straight from the mods' own `rows.lua` and
 merged at low priority, so they're in the merge before the game has ever run with them; ArcFission
 Library's own runtime data pak stays and loads before the merge, so the two don't override each other.
