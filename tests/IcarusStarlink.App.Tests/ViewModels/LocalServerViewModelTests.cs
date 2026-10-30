@@ -1298,7 +1298,16 @@ public sealed partial class LocalServerViewModelTests : IDisposable
             return new SteamCmdResult(true, "ok");
         }
 
-        public Task<int?> GetLatestBuildIdAsync(string branch, CancellationToken cancellationToken = default) => Task.FromResult(LatestBuild);
+        /// <summary>Set to answer a check some other way (one that waits, or never ends until cancelled).</summary>
+        public Func<CancellationToken, Task<int?>>? CheckHook { get; set; }
+
+        public int Checks { get; private set; }
+
+        public Task<int?> GetLatestBuildIdAsync(string branch, CancellationToken cancellationToken = default)
+        {
+            Checks++;
+            return CheckHook is { } hook ? hook(cancellationToken) : Task.FromResult(LatestBuild);
+        }
     }
 
     private sealed class FakeSettings : ISettingsService

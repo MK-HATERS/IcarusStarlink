@@ -34,6 +34,9 @@ public sealed partial class LocalServerViewModel
     /// <summary>Gap between "is it up yet" checks after a start. Tests set it to zero.</summary>
     internal TimeSpan StartPollDelay { get; set; } = TimeSpan.FromMilliseconds(500);
 
+    /// <summary>How long automation's update check waits for SteamCMD before giving up (it normally takes seconds). Tests shorten it.</summary>
+    internal TimeSpan UpdateCheckTimeout { get; set; } = TimeSpan.FromMinutes(5);
+
     // ---- Automation settings (saved straight into the profile, no Save button) ----
 
     [ObservableProperty, NotifyPropertyChangedFor(nameof(AutomationSummary))] private bool _autoRestartOnCrash;
@@ -477,19 +480,24 @@ public sealed partial class LocalServerViewModel
             return null;
         }
 
-        var selected = SelectedProfile?.Id == p.Id;
         var token = BeginSteamCmdRun($"Checking '{p.Name}' for an update", p.Id);
         SteamCmdStatus = "asking Steam for the latest build…";
         IsSteamCmdBusy = true;
+        // A check takes seconds. One that hangs would keep SteamCMD busy for good, and every beat
+        // skips while it is: crash and daily restarts of every server would stop without a word.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(UpdateCheckTimeout);
         try
         {
-            var latest = await _steamCmd.GetLatestBuildIdAsync(SteamCmd.NormalizeBranch(p.Branch), token);
+            var latest = await _steamCmd.GetLatestBuildIdAsync(SteamCmd.NormalizeBranch(p.Branch), timeout.Token);
             var (installedBuild, installedBranch) = ReadManifest(p);
             var available = latest is not null
                 && (installedBuild != latest
                     || (installedBranch is not null && !string.Equals(installedBranch, SteamCmd.NormalizeBranch(p.Branch), StringComparison.OrdinalIgnoreCase)));
             watch.Automation.NoteUpdateCheck(Clock(), available);
-            if (selected)
+
+            // Looked at after the answer: the owner may have picked another server meanwhile.
+            if (SelectedProfile?.Id == p.Id && string.Equals(SteamCmd.NormalizeBranch(Branch), SteamCmd.NormalizeBranch(p.Branch), StringComparison.Ordinal))
             {
                 LatestBuildId = latest;
             }
@@ -499,7 +507,11 @@ public sealed partial class LocalServerViewModel
         catch (Exception ex)
         {
             watch.Automation.NoteUpdateCheck(Clock(), updateAvailable: false);
-            _activityLog.Log($"Couldn't check '{p.Name}' for an update: {ex.Message}", ActivityEntryKind.Warning);
+            var why = ex is OperationCanceledException && !token.IsCancellationRequested
+                ? $"SteamCMD didn't answer within {UpdateCheckTimeout.TotalMinutes:0} minutes"
+                : ex is OperationCanceledException ? "cancelled" : ex.Message;
+            _activityLog.Log($"Couldn't check '{p.Name}' for an update: {why}", ActivityEntryKind.Warning);
+            RecordEventLine(watch, $"{Clock():HH:mm}  Couldn't check for an update ({why}). It tries again in an hour.");
             return null;
         }
         finally

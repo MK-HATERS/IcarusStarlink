@@ -401,12 +401,23 @@ public sealed partial class LocalServerViewModel
 
         ReadInstalledBuild();
         SteamCmdStatus = "asking Steam for the latest build…";
-        var token = BeginSteamCmdRun($"Checking '{SelectedProfile?.Name}' for an update", SelectedProfile?.Id);
+        var checkedId = SelectedProfile?.Id;
+        var checkedBranch = SteamCmd.NormalizeBranch(Branch);
+        var token = BeginSteamCmdRun($"Checking '{SelectedProfile?.Name}' for an update", checkedId);
         IsSteamCmdBusy = true;
         try
         {
-            LatestBuildId = await _steamCmd.GetLatestBuildIdAsync(Branch, token);
+            var latest = await _steamCmd.GetLatestBuildIdAsync(checkedBranch, token);
             SteamCmdStatus = null;
+
+            // The server list isn't locked during a check: the answer belongs to the server (and
+            // branch) asked about, never to one picked meanwhile.
+            if (SelectedProfile?.Id != checkedId || SteamCmd.NormalizeBranch(Branch) != checkedBranch)
+            {
+                return;
+            }
+
+            LatestBuildId = latest;
             StatusMessage = LatestBuildId is null ? "Steam didn't list a build for that branch — try again in a moment." : BuildSummary;
         }
         catch (OperationCanceledException)
@@ -465,6 +476,13 @@ public sealed partial class LocalServerViewModel
             var backup = await TryBackupAsync(profile, "before-update");
             var result = await RunSteamCmdAsync($"Updating '{profile.Name}'", profile.Id,
                 token => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, line => OnSteamCmdLineFor(profile.Id, line), token));
+            if (result.Success)
+            {
+                // The newer build the hourly check found is in now: without this, automation
+                // stopped the server again once it was empty, to install what it already had.
+                GetWatch(profile).Automation.NoteUpdateFinished();
+            }
+
             if (SelectedProfile?.Id == profile.Id)
             {
                 ReadInstalledBuild();
