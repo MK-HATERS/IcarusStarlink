@@ -344,15 +344,21 @@ public sealed partial class MainViewModel : ObservableObject
         _settingsService.Save();
     }
 
-    /// <summary>Ctrl+1 … Ctrl+9 (Ctrl+0 = 10): the menu's pages in order. False when there's no such page.</summary>
+    /// <summary>
+    /// Ctrl+1 … Ctrl+9: the menu's first nine pages in order. Ctrl+0 (10) is always Help, whatever
+    /// its place in the menu (the Map page pushed it to 11th). False when there's no such page.
+    /// </summary>
     public bool GoToPageNumber(int number)
     {
-        if (number < 1 || number > NavItems.Count)
+        var item = number == 10
+            ? NavItems.FirstOrDefault(i => i.Id == "help")
+            : number is >= 1 and <= 9 && number <= NavItems.Count ? NavItems[number - 1] : null;
+        if (item is null)
         {
             return false;
         }
 
-        SelectedNavItem = NavItems[number - 1];
+        SelectedNavItem = item;
         return true;
     }
 }

@@ -162,7 +162,7 @@ public class MainViewModelTests
         }
     }
 
-    /// <summary>Ctrl+1 … Ctrl+9 (Ctrl+0 = the tenth) go to the menu's pages in order; a number past the last does nothing.</summary>
+    /// <summary>Ctrl+1 … Ctrl+9 go to the menu's first nine pages in order; Ctrl+0 is always Help (regression: the Map page pushed Help to 11th and Ctrl+0 opened Settings).</summary>
     [Fact]
     public void GoToPageNumber_GoesToThatMenuEntry()
     {
@@ -173,8 +173,10 @@ public class MainViewModelTests
             Assert.Equal(vm.NavItems[0], vm.SelectedNavItem);
             Assert.True(vm.GoToPageNumber(3));
             Assert.Equal(vm.NavItems[2], vm.SelectedNavItem);
-            Assert.False(vm.GoToPageNumber(vm.NavItems.Count + 1));
+            Assert.False(vm.GoToPageNumber(11));
             Assert.Equal(vm.NavItems[2], vm.SelectedNavItem);
+            Assert.True(vm.GoToPageNumber(10));
+            Assert.Equal("help", vm.SelectedNavItem!.Id);
         }
         finally
         {
