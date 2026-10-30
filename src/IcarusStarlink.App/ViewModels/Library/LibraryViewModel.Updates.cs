@@ -291,6 +291,37 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
+    /// The UE4SS row's Update pill: the same as a Nexus data mod's Get update. A download of this
+    /// mod already waiting on the Downloads page (never activated, or its folder since removed) is
+    /// pointed at; otherwise the mod's card opens on the Nexus page, whose Download pulls the new file.
+    /// </summary>
+    [RelayCommand]
+    private void GetUe4ssUpdate(Ue4ssModRowViewModel? row)
+    {
+        if (row?.NexusModId is not { } nexusModId)
+        {
+            return;
+        }
+
+        var ue4ssNames = new Ue4ssInstalledNames(_ue4ssModRepository, _settingsService).All().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var hasUnclaimedDownload = _pendingDownloadStore.Entries
+            .Where(e => e.ModId == nexusModId)
+            .Any(e => e.AllActivatedItems.Count == 0
+                || e.AllActivatedItems.Any(activated => activated.Kind == PendingDownloadActivationKind.Library
+                    ? !_repository.GetAll().Any(le => string.Equals(le.FolderName, activated.FolderName, StringComparison.OrdinalIgnoreCase))
+                    : !ue4ssNames.Contains(activated.FolderName)));
+        if (hasUnclaimedDownload)
+        {
+            Ue4ssStatusMessage = "A downloaded file for this mod is already on the Downloads page — Activate or Reinstall it there (or re-download from Nexus if it's older than the update).";
+            return;
+        }
+
+        _nexusCatalogViewModel().SearchText = nexusModId.ToString(CultureInfo.InvariantCulture);
+        WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("nexus"));
+        Ue4ssStatusMessage = "Found the mod's card on the Nexus page — use its Download button to pull the update through this app.";
+    }
+
+    /// <summary>
     /// "See what the author changed" — compares this mod's most recent backup (its previous
     /// version, whether that backup came from an update or a manual Create mod backup) against
     /// what's installed now. Read-only: nothing is restored, moved, or written.
@@ -427,7 +458,35 @@ public sealed partial class LibraryViewModel
     /// same as CheckModsAgainstCurrentDataAsync already is.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
-    private async Task CheckEndorsements()
+    private Task CheckEndorsements() => SyncEndorsementsAsync(quiet: false);
+
+    /// <summary>The automatic endorsement sync has run this session (it runs once, the first time the Library is shown with a Nexus key).</summary>
+    private bool _endorsementsSynced;
+
+    /// <summary>
+    /// The Library was shown: the first time this session (with a Nexus key), every row's thumb is
+    /// filled in from Nexus without a click, so mods endorsed on the website show green. Quiet: no
+    /// result line, and a failure just leaves the thumbs as they were.
+    /// </summary>
+    private void SyncEndorsementsOnce()
+    {
+        if (_endorsementsSynced || IsCheckingEndorsements || _credentialStore.Read(CredentialTargets.NexusApiKey) is null)
+        {
+            return;
+        }
+
+        _endorsementsSynced = true;
+        _ = SyncEndorsementsAsync(quiet: true);
+    }
+
+    /// <summary>
+    /// Stamps every Nexus-linked row (data and UE4SS) with this account's endorsement, and marks the
+    /// mods this account uploaded itself (no thumb: Nexus refuses an author's own endorsement).
+    /// Three calls whatever the Library's size: the account (for its member id), the whole
+    /// endorsement history, and the linked mods' uploaders in one by-ID query.
+    /// </summary>
+    /// <param name="quiet">The automatic sync: no result or error line (Check endorsements shows both).</param>
+    private async Task SyncEndorsementsAsync(bool quiet)
     {
         if (IsCheckingEndorsements)
         {
@@ -438,14 +497,22 @@ public sealed partial class LibraryViewModel
         var nexusLinkedLua = Ue4ssMods.Where(r => r.HasNexusLink && !r.IsBuiltIn).ToList();
         if (nexusLinkedItems.Count == 0 && nexusLinkedLua.Count == 0)
         {
-            EndorsementCheckStatusMessage = "No Library mods are linked to a Nexus mod ID yet.";
+            if (!quiet)
+            {
+                EndorsementCheckStatusMessage = "No Library mods are linked to a Nexus mod ID yet.";
+            }
+
             return;
         }
 
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
         if (apiKey is null)
         {
-            EndorsementCheckStatusMessage = "Sign in with your Nexus API key in Settings first.";
+            if (!quiet)
+            {
+                EndorsementCheckStatusMessage = "Sign in with your Nexus API key in Settings first.";
+            }
+
             return;
         }
 
@@ -456,12 +523,20 @@ public sealed partial class LibraryViewModel
             var statusByModId = endorsements
                 .Where(e => string.Equals(e.DomainName, NxmHandlerCommand.IcarusDomain, StringComparison.OrdinalIgnoreCase))
                 .ToDictionary(e => e.ModId, e => e.Status);
+            var ownModIds = await FindOwnNexusModsAsync(apiKey,
+                [.. nexusLinkedItems.Select(i => i.NexusModId!.Value).Concat(nexusLinkedLua.Select(r => r.NexusModId!.Value))]);
 
             var notEndorsedCount = 0;
+            var ownCount = 0;
             foreach (var item in nexusLinkedItems)
             {
+                item.IsOwnNexusMod = ownModIds.Contains(item.NexusModId!.Value);
                 item.EndorsementStatus = statusByModId.GetValueOrDefault(item.NexusModId!.Value, NexusEndorsementStatus.Undecided);
-                if (item.EndorsementStatus != NexusEndorsementStatus.Endorsed)
+                if (item.IsOwnNexusMod)
+                {
+                    ownCount++;
+                }
+                else if (item.EndorsementStatus != NexusEndorsementStatus.Endorsed)
                 {
                     notEndorsedCount++;
                 }
@@ -469,25 +544,59 @@ public sealed partial class LibraryViewModel
 
             foreach (var row in nexusLinkedLua)
             {
+                row.IsOwnNexusMod = ownModIds.Contains(row.NexusModId!.Value);
                 row.EndorsementStatus = statusByModId.GetValueOrDefault(row.NexusModId!.Value, NexusEndorsementStatus.Undecided);
-                if (!row.IsEndorsed)
+                if (row.IsOwnNexusMod)
+                {
+                    ownCount++;
+                }
+                else if (!row.IsEndorsed)
                 {
                     notEndorsedCount++;
                 }
             }
 
-            var linkedCount = nexusLinkedItems.Count + nexusLinkedLua.Count;
-            EndorsementCheckStatusMessage = notEndorsedCount == 0
-                ? $"All {linkedCount} Nexus-linked mod(s) are endorsed."
-                : $"{notEndorsedCount} of {linkedCount} Nexus-linked mod(s) aren't endorsed yet.";
+            if (!quiet)
+            {
+                var othersCount = nexusLinkedItems.Count + nexusLinkedLua.Count - ownCount;
+                var own = ownCount == 0 ? "" : $" {ownCount} {(ownCount == 1 ? "is" : "are")} your own upload{(ownCount == 1 ? "" : "s")} (you can't endorse those).";
+                EndorsementCheckStatusMessage = (othersCount == 0
+                        ? "Every Nexus-linked mod here is your own upload."
+                        : notEndorsedCount == 0
+                            ? $"All {othersCount} Nexus-linked mod(s) are endorsed."
+                            : $"{notEndorsedCount} of {othersCount} Nexus-linked mod(s) aren't endorsed yet.")
+                    + (othersCount == 0 ? "" : own);
+            }
         }
         catch (Exception ex)
         {
-            EndorsementCheckStatusMessage = $"Couldn't check endorsements: {ex.Message}";
+            if (!quiet)
+            {
+                EndorsementCheckStatusMessage = $"Couldn't check endorsements: {ex.Message}";
+            }
         }
         finally
         {
             IsCheckingEndorsements = false;
+        }
+    }
+
+    /// <summary>The mods among <paramref name="modIds"/> that this account uploaded; empty when either lookup fails (the thumbs then simply show).</summary>
+    private async Task<HashSet<int>> FindOwnNexusModsAsync(string apiKey, IReadOnlyList<int> modIds)
+    {
+        try
+        {
+            if (await _nexusApiClient.ValidateKeyAsync(apiKey) is not { UserId: > 0 } user)
+            {
+                return [];
+            }
+
+            var mods = await _nexusApiClient.GetModsByIdAsync(apiKey, NxmHandlerCommand.IcarusDomain, modIds);
+            return [.. mods.Where(m => m.UploaderMemberId == user.UserId).Select(m => m.ModId)];
+        }
+        catch (Exception ex) when (ex is System.Net.Http.HttpRequestException or InvalidOperationException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            return [];
         }
     }
 

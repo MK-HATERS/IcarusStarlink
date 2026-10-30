@@ -177,7 +177,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
     /// <summary>v2 GraphQL counterpart to ToModInfo(ModInfoResponseDto) above — same HTML-decoding treatment, different (camelCase) DTO shape.</summary>
     private static NexusModInfo ToModInfo(GraphModDto dto) => new(
         dto.ModId, WebUtility.HtmlDecode(dto.Name), dto.Author, WebUtility.HtmlDecode(dto.Summary), dto.Version, dto.PictureUrl,
-        dto.CreatedAt, dto.UpdatedAt);
+        dto.CreatedAt, dto.UpdatedAt, dto.Uploader?.MemberId);
 
     public async Task<IReadOnlyList<NexusModFile>> GetModFilesAsync(
         string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
@@ -416,7 +416,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         // already stores. Both checked live against the real endpoint on 2026-10-23.
         var payload = new Dictionary<string, object?>
         {
-            ["query"] = "query ById($ids: [CompositeDomainWithIdInput!]!) { legacyModsByDomain(ids: $ids) { nodes { modId name version summary pictureUrl author createdAt updatedAt } } }",
+            ["query"] = "query ById($ids: [CompositeDomainWithIdInput!]!) { legacyModsByDomain(ids: $ids) { nodes { modId name version summary pictureUrl author createdAt updatedAt uploader { memberId } } } }",
             ["variables"] = new Dictionary<string, object?>
             {
                 ["ids"] = modIds.Distinct().Select(id => new Dictionary<string, object?> { ["gameDomain"] = gameDomain, ["modId"] = id }).ToList(),
@@ -597,5 +597,14 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
         [JsonPropertyName("updatedAt")]
         public DateTimeOffset? UpdatedAt { get; init; }
+
+        [JsonPropertyName("uploader")]
+        public GraphUserDto? Uploader { get; init; }
+    }
+
+    private sealed class GraphUserDto
+    {
+        [JsonPropertyName("memberId")]
+        public int? MemberId { get; init; }
     }
 }

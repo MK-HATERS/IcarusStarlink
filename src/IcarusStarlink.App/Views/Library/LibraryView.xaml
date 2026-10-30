@@ -265,12 +265,18 @@
                 <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0" Visibility="{Binding DataContext.ShowStatusColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Ellipse Style="{StaticResource ModStatusDotStyle}"/>
                     <TextBlock Text="{Binding InstallStatus}" FontSize="12" VerticalAlignment="Center" ToolTip="{Binding InstallStatusDetail}" Style="{StaticResource ModStatusTextStyle}"/>
-                    <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" Background="{DynamicResource AccentBrush}"
-                            Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Button Style="{StaticResource PillButtonStyle}" Background="{DynamicResource AccentBrush}" Margin="6,0,0,0"
+                            Command="{Binding DataContext.GetUe4ssUpdateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding}"
+                            Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
+                            AutomationProperties.Name="Get update">
+                        <Button.ToolTip>
+                            <TextBlock Text="{Binding LatestVersion, StringFormat='Update available: v{0} — click to get it from Nexus'}"/>
+                        </Button.ToolTip>
                         <TextBlock FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}">
                             <Run Text="Update v"/><Run Text="{Binding LatestVersion, Mode=OneWay}"/>
                         </TextBlock>
-                    </Border>
+                    </Button>
                 </StackPanel>
 
                 <TextBlock Grid.Column="7" Text="{Binding LatestVersion}" VerticalAlignment="Center" FontSize="12"
@@ -280,7 +286,7 @@
                 <StackPanel x:Name="RowActions" Grid.Column="9" Orientation="Horizontal" HorizontalAlignment="Right" Opacity="0.45">
                     <Button Style="{StaticResource LibraryEndorseButtonStyle}"
                             Command="{Binding DataContext.EndorseUe4ssModCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
-                            Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToHiddenConverter}}"
+                            Visibility="{Binding ShowEndorseThumb, Converter={StaticResource BoolToHiddenConverter}}"
                             AutomationProperties.Name="Endorse on Nexus">
                         <Path Data="{StaticResource IconThumbsUp}" StrokeThickness="1.2" StrokeLineJoin="Round" Width="13" Height="13" Stretch="Uniform">
                             <Path.Style>
@@ -620,7 +626,7 @@
                 <StackPanel x:Name="RowActions" Grid.Column="12" Orientation="Horizontal" HorizontalAlignment="Right" Opacity="0.45">
                     <Button Style="{StaticResource LibraryEndorseButtonStyle}"
                             Command="{Binding EndorseCommand}"
-                            Visibility="{Binding HasNexusLink, Converter={StaticResource BoolToHiddenConverter}}"
+                            Visibility="{Binding ShowEndorseThumb, Converter={StaticResource BoolToHiddenConverter}}"
                             AutomationProperties.Name="Endorse on Nexus">
                         <Path Data="{StaticResource IconThumbsUp}" StrokeThickness="1.2" StrokeLineJoin="Round" Width="13" Height="13" Stretch="Uniform">
                             <Path.Style>

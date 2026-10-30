@@ -165,6 +165,14 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     public bool IsEndorsed => EndorsementStatus == NexusEndorsementStatus.Endorsed;
 
+    /// <summary>The signed-in Nexus account uploaded this mod: Nexus refuses an author's own endorsement, so no thumb. Same as LibraryItemViewModel.IsOwnNexusMod.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowEndorseThumb))]
+    private bool _isOwnNexusMod;
+
+    /// <summary>The row's endorse thumb: a Nexus mod someone else made.</summary>
+    public bool ShowEndorseThumb => HasNexusLink && !IsOwnNexusMod;
+
     public string EndorsementStatusDisplay => EndorsementStatus switch
     {
         NexusEndorsementStatus.Endorsed => "Endorsed",

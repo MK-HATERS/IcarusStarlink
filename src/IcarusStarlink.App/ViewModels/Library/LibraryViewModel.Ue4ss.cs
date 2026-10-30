@@ -96,6 +96,7 @@ public sealed partial class LibraryViewModel
                     row.LatestVersion = previous.LatestVersion;
                     row.LatestNexusFileId = previous.LatestNexusFileId;
                     row.EndorsementStatus = previous.EndorsementStatus;
+                    row.IsOwnNexusMod = previous.IsOwnNexusMod;
                 }
 
                 if (selectedNames.Contains(row.Name))
@@ -620,7 +621,7 @@ public sealed partial class LibraryViewModel
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task EndorseUe4ssMod(Ue4ssModRowViewModel? row)
     {
-        if (row?.NexusModId is not { } modId || row.IsEndorsed)
+        if (row?.NexusModId is not { } modId || row.IsEndorsed || row.IsOwnNexusMod)
         {
             return;
         }

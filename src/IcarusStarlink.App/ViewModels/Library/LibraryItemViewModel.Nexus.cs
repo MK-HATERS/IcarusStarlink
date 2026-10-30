@@ -49,6 +49,15 @@ public sealed partial class LibraryItemViewModel
     [ObservableProperty]
     private bool _isEndorsing;
 
+    /// <summary>The signed-in Nexus account uploaded this mod: Nexus refuses an author's own endorsement, so no thumb and no Endorse.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowEndorseThumb))]
+    [NotifyCanExecuteChangedFor(nameof(EndorseCommand), nameof(AbstainCommand))]
+    private bool _isOwnNexusMod;
+
+    /// <summary>The row's endorse thumb: a Nexus mod someone else made.</summary>
+    public bool ShowEndorseThumb => HasNexusLink && !IsOwnNexusMod;
+
     partial void OnEndorsementStatusChanged(NexusEndorsementStatus? value)
     {
         OnPropertyChanged(nameof(EndorsementStatusDisplay));
@@ -66,12 +75,12 @@ public sealed partial class LibraryItemViewModel
     [RelayCommand(CanExecute = nameof(CanEndorse), FlowExceptionsToTaskScheduler = true)]
     private Task Endorse() => SetEndorsementAsync(endorse: true);
 
-    private bool CanEndorse() => HasNexusLink && !IsEndorsing && EndorsementStatus != NexusEndorsementStatus.Endorsed;
+    private bool CanEndorse() => ShowEndorseThumb && !IsEndorsing && EndorsementStatus != NexusEndorsementStatus.Endorsed;
 
     [RelayCommand(CanExecute = nameof(CanAbstain), FlowExceptionsToTaskScheduler = true)]
     private Task Abstain() => SetEndorsementAsync(endorse: false);
 
-    private bool CanAbstain() => HasNexusLink && !IsEndorsing && EndorsementStatus != NexusEndorsementStatus.Abstained;
+    private bool CanAbstain() => ShowEndorseThumb && !IsEndorsing && EndorsementStatus != NexusEndorsementStatus.Abstained;
 
     /// <summary>
     /// A real write to this account's Nexus endorsement for this mod. Fetches the mod's own

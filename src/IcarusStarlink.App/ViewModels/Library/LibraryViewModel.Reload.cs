@@ -209,6 +209,8 @@ public sealed partial class LibraryViewModel
             _fileRisksStale = false;
             _ = RefreshFileRisksAsync();
         }
+
+        SyncEndorsementsOnce();
     }
 
     /// <summary>A row was added since the last risk pass (set in GetOrCreateItem).</summary>

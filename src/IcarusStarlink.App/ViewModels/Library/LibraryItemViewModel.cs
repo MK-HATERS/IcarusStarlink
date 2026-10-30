@@ -541,6 +541,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         Source = entry.Source;
         NexusModId = entry.NexusModId;
         OnPropertyChanged(nameof(HasNexusLink));
+        OnPropertyChanged(nameof(ShowEndorseThumb));
         OnPropertyChanged(nameof(NexusLinkActionLabel));
         // Their CanExecute needs a Nexus link: linking a mod must enable them, not only show them.
         EndorseCommand.NotifyCanExecuteChanged();

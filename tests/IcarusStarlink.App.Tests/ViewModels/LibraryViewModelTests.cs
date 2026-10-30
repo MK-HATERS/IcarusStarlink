@@ -1312,6 +1312,41 @@ public sealed class LibraryViewModelTests
     }
 
     [Fact]
+    public async Task OnPageShown_WithANexusKey_SyncsEndorsements_AndHidesTheThumbOnTheUsersOwnUploads()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("Theirs").NexusModId = 6;
+        harness.AddMod("Mine").NexusModId = 5;
+        harness.CredentialStore.ApiKey = "key";
+        harness.NexusApiClient.User = new NexusUserInfo(77, "MkHaters", false, false, "", "");
+        harness.NexusApiClient.Endorsements = [new NexusEndorsement(6, "icarus", NexusEndorsementStatus.Endorsed)];
+        harness.NexusApiClient.ModsById.Add(new NexusModInfo(5, "Mine", "MkHaters", null, "1.0", null, UploaderMemberId: 77));
+        harness.NexusApiClient.ModsById.Add(new NexusModInfo(6, "Theirs", "Someone", null, "1.0", null, UploaderMemberId: 12));
+        var vm = harness.Build();
+        var theirs = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Theirs");
+        var mine = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Mine");
+
+        // No click: the page being shown fills the thumbs in.
+        vm.OnPageShown();
+        await WaitUntilAsync(() => theirs.IsEndorsed && mine.IsOwnNexusMod);
+
+        Assert.True(theirs.ShowEndorseThumb);
+        Assert.False(mine.ShowEndorseThumb);
+        Assert.False(mine.EndorseCommand.CanExecute(null));
+        Assert.Null(vm.EndorsementCheckStatusMessage);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var i = 0; i < 200 && !condition(); i++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(condition());
+    }
+
+    [Fact]
     public void RefreshCommand_RepositoryRefreshThrows_ReportsFailureWithoutRebuilding()
     {
         var harness = new TestHarness();
@@ -2646,8 +2681,19 @@ public sealed class LibraryViewModelTests
 
     private sealed class FakeNexusApiClient : INexusApiClient
     {
+        /// <summary>The signed-in account (Validate); null throws, as the tests that never sign in expect.</summary>
+        public NexusUserInfo? User { get; set; }
+
+        /// <summary>The account's endorsement history; null throws.</summary>
+        public List<NexusEndorsement>? Endorsements { get; set; }
+
+        /// <summary>Mods by ID, with their uploader (the endorsement sync's own-mod check).</summary>
+        public List<NexusModInfo> ModsById { get; } = [];
+
         public Task<NexusUserInfo?> ValidateKeyAsync(string apiKey, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+            User is not null ? Task.FromResult<NexusUserInfo?>(User) : throw new NotSupportedException("Not exercised by these tests.");
+        public Task<IReadOnlyList<NexusModInfo>> GetModsByIdAsync(string? apiKey, string gameDomain, IReadOnlyList<int> modIds, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<NexusModInfo>>([.. ModsById.Where(m => modIds.Contains(m.ModId))]);
         public Task<IReadOnlyList<NexusDownloadLink>> GetDownloadLinksAsync(
             string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
@@ -2670,7 +2716,7 @@ public sealed class LibraryViewModelTests
         public Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetChangelogsAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
         public Task<IReadOnlyList<NexusEndorsement>> GetEndorsementsAsync(string apiKey, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+            Endorsements is not null ? Task.FromResult<IReadOnlyList<NexusEndorsement>>(Endorsements) : throw new NotSupportedException("Not exercised by these tests.");
         public Task<NexusEndorsementStatus> SetEndorsementAsync(
             string apiKey, string gameDomain, int modId, string modVersion, bool endorse, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
