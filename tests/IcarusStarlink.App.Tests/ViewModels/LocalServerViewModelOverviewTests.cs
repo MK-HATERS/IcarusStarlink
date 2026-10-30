@@ -439,6 +439,155 @@ public sealed partial class LocalServerViewModelTests
         Assert.Contains(vm.RecentEvents, e => e.Contains("Backup made: "));
     }
 
+    // ---- Review 2026-10-30: Check for update and the hourly auto-update ----
+
+    /// <summary>
+    /// Check for update doesn't lock the server list. A check on a public server that finished
+    /// after the owner picked an experimental one put the public build on it: "update available
+    /// (build …)" for a build of the other branch.
+    /// </summary>
+    [Fact]
+    public async Task CheckForUpdate_ThatFinishesAfterAnotherServerIsPicked_LeavesThatServerAlone()
+    {
+        WriteManifest(buildId: 1);
+        var other = Path.Combine(_root, "Experimental Server");
+        File.WriteAllText(Path.Combine(Directory.CreateDirectory(other).FullName, "IcarusServer.exe"), "");
+        var manifest = DedicatedServerLayout.AppManifestPath(other);
+        Directory.CreateDirectory(Path.GetDirectoryName(manifest)!);
+        File.WriteAllText(manifest, "\"AppState\"\n{\n\t\"buildid\"\t\t\"7\"\n\t\"UserConfig\"\n\t{\n\t\t\"BetaKey\"\t\t\"experimental\"\n\t}\n}\n");
+        var store = new FakeStore();
+        store.Profiles.Add(new DedicatedServerProfile { Name = "Public", InstallFolder = _install });
+        store.Profiles.Add(new DedicatedServerProfile { Name = "Experimental", InstallFolder = other, Branch = "experimental" });
+        var answer = new TaskCompletionSource<int?>();
+        SteamCmd.CheckHook = _ => answer.Task;
+        var (vm, _, _, _) = Build(existingStore: store);
+        Assert.Equal("Public", vm.SelectedProfile?.Name);
+
+        var check = vm.CheckForUpdateCommand.ExecuteAsync(null);
+        vm.SelectedProfile = vm.Profiles.Single(p => p.Name == "Experimental");
+        answer.SetResult(2);
+        await check;
+
+        Assert.Null(vm.LatestBuildId);
+        Assert.Equal("Build 7 · experimental", vm.BuildSummary);
+    }
+
+    /// <summary>
+    /// The hourly check found a newer build while players were on; the owner then pressed Update
+    /// and started the server again. Automation still had "a newer build is out" and, once the
+    /// server was empty, stopped it and ran SteamCMD again for the build it already had.
+    /// </summary>
+    [Fact]
+    public async Task AutoUpdate_AfterTheOwnerUpdatedByHand_DoesNotStopTheServerToUpdateAgain()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.LatestBuild = 2;
+        var (vm, _, processes, _) = BuildWithServer();
+        vm.AutoUpdate = true;
+        var now = DateTime.Today.AddHours(12);
+        vm.Clock = () => now;
+        WriteLog(JoinLine);
+        processes.Running = new RunningServer(9, DateTime.Now);
+        vm.Tick();
+        await vm.RunAutomationBeatAsync(); // the hourly check: newer build, but someone is on
+        Assert.Contains(vm.NextUp, l => l.Contains("installs as soon as nobody is online"));
+
+        await vm.UpdateServerCommand.ExecuteAsync(null); // the owner updates by hand (stops 9)
+        await SeeItStopAsync(vm, processes);
+        Assert.Empty(vm.OnlinePlayers);
+        processes.Running = new RunningServer(10, DateTime.Now); // and starts it again
+        now = now.AddMinutes(5);
+        await vm.RunAutomationBeatAsync();
+        await vm.RunAutomationBeatAsync();
+
+        Assert.Single(SteamCmd.Installs);
+        Assert.Equal([9], processes.Stopped);
+    }
+
+    /// <summary>
+    /// A SteamCMD that hangs on the hourly check (it can, at login) kept SteamCMD "busy" for good,
+    /// and every beat skips while it is: crash restarts and daily restarts of every server
+    /// stopped without a word. The check gives up after UpdateCheckTimeout.
+    /// </summary>
+    [Fact]
+    public async Task AutoUpdate_AHungCheck_GivesUp_AndAutomationCarriesOn()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.CheckHook = async token =>
+        {
+            await Task.Delay(Timeout.Infinite, token);
+            return 2;
+        };
+        var (vm, _, processes, _) = BuildWithServer();
+        vm.AutoUpdate = true;
+        vm.UpdateCheckTimeout = TimeSpan.FromMilliseconds(50);
+        processes.Running = new RunningServer(9, DateTime.Now);
+
+        var beat = vm.RunAutomationBeatAsync();
+        Assert.Same(beat, await Task.WhenAny(beat, Task.Delay(TimeSpan.FromSeconds(10))));
+
+        Assert.False(vm.IsSteamCmdBusy);
+        Assert.Null(vm.LatestBuildId);
+        Assert.Contains(vm.RecentEvents, e => e.Contains("Couldn't check for an update"));
+    }
+
+    /// <summary>
+    /// Update on one server stops it first (up to 60 seconds); an hourly check of another server
+    /// could start in that gap. The update then ran alongside it: the check's end cleared "SteamCMD
+    /// busy" mid-update (buttons back, Cancel greyed out) and Cancel stopped the wrong run. The
+    /// update now waits for the check.
+    /// </summary>
+    [Fact]
+    public async Task Update_WhileAnotherServersHourlyCheckRuns_WaitsForIt()
+    {
+        WriteManifest(buildId: 1);
+        var other = Path.Combine(_root, "Second Server");
+        File.WriteAllText(Path.Combine(Directory.CreateDirectory(other).FullName, "IcarusServer.exe"), "");
+        var store = new FakeStore();
+        store.Profiles.Add(new DedicatedServerProfile { Name = "First", InstallFolder = _install });
+        store.Profiles.Add(new DedicatedServerProfile { Name = "Second", InstallFolder = other, AutoUpdate = true, AutoRestartOnCrash = false });
+        var (vm, _, processes, _) = Build(existingStore: store);
+        processes.RunningFor = p => p.Name == "First" ? new RunningServer(9, DateTime.Now) : new RunningServer(20, DateTime.Now);
+        vm.Tick();
+        var answer = new TaskCompletionSource<int?>();
+        SteamCmd.CheckHook = _ => answer.Task;
+        Task? beat = null;
+        processes.DuringStop = () => beat = vm.RunAutomationBeatAsync(); // the second server's hourly check starts
+
+        var update = vm.UpdateServerCommand.ExecuteAsync(null);
+
+        Assert.NotNull(beat);
+        Assert.Equal(1, SteamCmd.Checks);
+        Assert.Empty(SteamCmd.Installs); // waiting for the check
+        Assert.True(vm.IsSteamCmdBusy);
+
+        answer.SetResult(1);
+        await beat!;
+        await update;
+
+        Assert.Single(SteamCmd.Installs);
+        Assert.False(vm.IsSteamCmdBusy);
+    }
+
+    /// <summary>A check leaves the SteamCMD box (still showing an update's output) titled as that update was.</summary>
+    [Fact]
+    public async Task CheckForUpdate_AfterAnUpdate_KeepsTheUpdatesTitleOnTheBox()
+    {
+        WriteManifest(buildId: 1);
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        SteamCmd.FailWith = "ERROR! Failed to install app '2089300' (Disk write failure)";
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+        Assert.Equal("Updating 'Icarus Dedicated Server' · failed", vm.SteamCmdTitle);
+
+        SteamCmd.CheckHook = _ => throw new InvalidOperationException("SteamCMD isn't set up");
+        await vm.CheckForUpdateCommand.ExecuteAsync(null);
+
+        Assert.True(vm.ShowSteamCmdPanel);
+        Assert.Equal("Updating 'Icarus Dedicated Server' · failed", vm.SteamCmdTitle);
+        Assert.Contains("Couldn't check for an update", vm.StatusMessage);
+    }
+
     private void AppendLogOrWrite(string line)
     {
         if (File.Exists(LogPath))

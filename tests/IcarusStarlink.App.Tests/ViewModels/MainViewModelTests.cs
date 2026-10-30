@@ -266,6 +266,31 @@ public class MainViewModelTests
         }
     }
 
+    /// <summary>
+    /// Regression: App.OnStartup starts the game watch from its background startup thread, and the
+    /// timer was made on that thread, where no dispatcher ever runs: it never ticked, so Play kept
+    /// whatever the first look saw (Starting… for good, or Running after the game closed).
+    /// </summary>
+    [Fact]
+    public async Task GameWatch_StartedOffTheWindowThread_TicksOnTheWindowsDispatcher()
+    {
+        var vm = new MainViewModel(new FakeServiceProvider(), new FakeThemeService(), new FakeSettingsService(new AppSettings()),
+            new ActivityPanelViewModel(new FakeActivityLog()), new FakeGameProcess(), () => DateTime.UtcNow, _ => { }, () => true);
+        try
+        {
+            var window = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            vm.UiDispatcher = () => window;
+
+            await Task.Run(vm.StartGameWatch);
+
+            Assert.Same(window, vm.GameWatchDispatcher);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     private sealed class FakeGameProcess : IGameProcessChecker
     {
         public bool Running { get; set; }

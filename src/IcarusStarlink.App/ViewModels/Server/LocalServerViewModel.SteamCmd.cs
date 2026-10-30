@@ -399,14 +399,27 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        await WaitForSteamCmdAsync();
         ReadInstalledBuild();
         SteamCmdStatus = "asking Steam for the latest build…";
-        var token = BeginSteamCmdRun($"Checking '{SelectedProfile?.Name}' for an update", SelectedProfile?.Id);
+        var checkedId = SelectedProfile?.Id;
+        var checkedBranch = SteamCmd.NormalizeBranch(Branch);
+        var box = KeepSteamCmdBoxTitle();
+        var token = BeginSteamCmdRun($"Checking '{SelectedProfile?.Name}' for an update", checkedId);
         IsSteamCmdBusy = true;
         try
         {
-            LatestBuildId = await _steamCmd.GetLatestBuildIdAsync(Branch, token);
+            var latest = await _steamCmd.GetLatestBuildIdAsync(checkedBranch, token);
             SteamCmdStatus = null;
+
+            // The server list isn't locked during a check: the answer belongs to the server (and
+            // branch) asked about, never to one picked meanwhile.
+            if (SelectedProfile?.Id != checkedId || SteamCmd.NormalizeBranch(Branch) != checkedBranch)
+            {
+                return;
+            }
+
+            LatestBuildId = latest;
             StatusMessage = LatestBuildId is null ? "Steam didn't list a build for that branch — try again in a moment." : BuildSummary;
         }
         catch (OperationCanceledException)
@@ -422,6 +435,44 @@ public sealed partial class LocalServerViewModel
         finally
         {
             IsSteamCmdBusy = false;
+            box();
+        }
+    }
+
+    /// <summary>
+    /// A check adds no lines to the SteamCMD box, so the box closes after it (its answer is the
+    /// build line and the status line). When the box still holds an earlier install or update's
+    /// output, the returned action puts that run's title back: the check used to leave "Checking
+    /// … · finished" over the update's lines, "finished" even when the check failed.
+    /// </summary>
+    private Action KeepSteamCmdBoxTitle()
+    {
+        var (action, outcome) = (SteamCmdAction, SteamCmdOutcome);
+        return () =>
+        {
+            if (SteamCmdOutput.Count > 0)
+            {
+                SteamCmdAction = action;
+                SteamCmdOutcome = outcome;
+            }
+        };
+    }
+
+    /// <summary>Completed when SteamCMD goes idle; null while nobody waits.</summary>
+    private TaskCompletionSource? _steamCmdFree;
+
+    /// <summary>
+    /// Waits for the SteamCMD run in progress to end. Each run takes over the box, its Cancel and
+    /// the busy flag, so two at once (an hourly check of one server starting while the owner's
+    /// Update of another stopped it first) ended each other's busy state and Cancel stopped the
+    /// wrong one. The caller starts its run straight after this, with no await in between.
+    /// </summary>
+    private async Task WaitForSteamCmdAsync()
+    {
+        while (IsSteamCmdBusy)
+        {
+            _steamCmdFree ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await _steamCmdFree.Task;
         }
     }
 
@@ -465,6 +516,13 @@ public sealed partial class LocalServerViewModel
             var backup = await TryBackupAsync(profile, "before-update");
             var result = await RunSteamCmdAsync($"Updating '{profile.Name}'", profile.Id,
                 token => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, line => OnSteamCmdLineFor(profile.Id, line), token));
+            if (result.Success)
+            {
+                // The newer build the hourly check found is in now: without this, automation
+                // stopped the server again once it was empty, to install what it already had.
+                GetWatch(profile).Automation.NoteUpdateFinished();
+            }
+
             if (SelectedProfile?.Id == profile.Id)
             {
                 ReadInstalledBuild();
@@ -501,6 +559,12 @@ public sealed partial class LocalServerViewModel
 
     partial void OnIsSteamCmdBusyChanged(bool value)
     {
+        if (!value && _steamCmdFree is { } free)
+        {
+            _steamCmdFree = null;
+            free.TrySetResult();
+        }
+
         OnPropertyChanged(nameof(ShowSteamCmdPanel));
         OnPropertyChanged(nameof(IsSteamCmdIdle));
         OnPropertyChanged(nameof(SteamCmdTitle));
@@ -523,6 +587,7 @@ public sealed partial class LocalServerViewModel
 
     private async Task<SteamCmdResultView> RunSteamCmdAsync(string action, Guid? profileId, Func<CancellationToken, Task<Services.SteamCmdResult>> run)
     {
+        await WaitForSteamCmdAsync();
         StartSteamCmdOutput();
         var token = BeginSteamCmdRun(action, profileId);
         _steamCmdDownloads = true;

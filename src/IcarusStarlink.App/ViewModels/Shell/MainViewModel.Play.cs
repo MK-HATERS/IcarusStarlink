@@ -115,7 +115,18 @@ public sealed partial class MainViewModel
         }
     }
 
-    /// <summary>Watches for the game every 3 seconds while Starlink is open (App.OnStartup, after the window shows).</summary>
+    /// <summary>The window's dispatcher, where the watch timer must live. Tests swap it.</summary>
+    internal Func<Dispatcher?> UiDispatcher { get; set; } = () => System.Windows.Application.Current?.Dispatcher;
+
+    /// <summary>The dispatcher the game watch ticks on (null before StartGameWatch).</summary>
+    internal Dispatcher? GameWatchDispatcher => _gameWatch?.Dispatcher;
+
+    /// <summary>
+    /// Watches for the game every 3 seconds while Starlink is open. App.OnStartup calls this from
+    /// its background startup thread (before the window shows), so the timer is put on the
+    /// window's dispatcher: one made on the calling thread never ticks, and the button stayed on
+    /// whatever the first look saw (Starting… forever, or Running after the game closed).
+    /// </summary>
     public void StartGameWatch()
     {
         if (_gameProcess is null || _gameWatch is not null)
@@ -123,7 +134,7 @@ public sealed partial class MainViewModel
             return;
         }
 
-        _gameWatch = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _gameWatch = new DispatcherTimer(DispatcherPriority.Normal, UiDispatcher() ?? Dispatcher.CurrentDispatcher) { Interval = TimeSpan.FromSeconds(3) };
         var checking = false;
         _gameWatch.Tick += async (_, _) =>
         {
