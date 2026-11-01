@@ -195,6 +195,7 @@ public sealed partial class WorldMapViewModel
     private void ShowFeatures(WorldMapInfo? map)
     {
         _features = map is null ? WorldFeatures.None : _store.ReadFeatures(map.Id);
+        _placeWords.Clear();
 
         var keep = _settings.Current.MapMissionCategory ?? MissionCategory?.Key;
         _listingCategories = true;
@@ -383,7 +384,13 @@ public sealed partial class WorldMapViewModel
     }
 
     /// <summary>Places the search finds (whatever is ticked: they're shown either way, with a ring).</summary>
-    private HashSet<WorldFeature> _found = [];
+    private HashSet<WorldFeature> _found = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>The world _found was worked out for.</summary>
+    private WorldFeatures? _foundForFeatures;
+
+    /// <summary>Each place's search words on this world, made once (they were rebuilt for every place on every search).</summary>
+    private Dictionary<WorldFeature, string> _placeWords = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>
     /// What a place is called, for the search: its name, kind, mission name, cave tier ("tier 3"),
@@ -420,10 +427,31 @@ public sealed partial class WorldMapViewModel
     private void FindPlaces()
     {
         var query = Query();
-        _found = query.Length < 2 || GridSquareAt(query) is not null
-            ? []
-            : [.. _features.Features.Where(f => PlaceWords(f).Contains(query, StringComparison.OrdinalIgnoreCase))];
-        RebuildMarkers();
+        var found = new HashSet<WorldFeature>(ReferenceEqualityComparer.Instance);
+        if (query.Length >= 2 && GridSquareAt(query) is null)
+        {
+            foreach (var f in _features.Features)
+            {
+                if (!_placeWords.TryGetValue(f, out var words))
+                {
+                    _placeWords[f] = words = PlaceWords(f);
+                }
+
+                if (words.Contains(query, StringComparison.OrdinalIgnoreCase))
+                {
+                    found.Add(f);
+                }
+            }
+        }
+
+        // The markers are only drawn again when what the search finds changed (a new world always does).
+        if (!found.SetEquals(_found) || _foundForFeatures != _features)
+        {
+            _found = found;
+            _foundForFeatures = _features;
+            RebuildMarkers();
+        }
+
         if (GridSquareAt(query) is { } square)
         {
             ZoomRequested?.Invoke(square, 1.5 / Math.Max(1, SelectedMap?.Map.GridSize.Columns ?? 1));

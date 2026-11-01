@@ -206,6 +206,31 @@ public sealed class WorldMapViewModelTests : IDisposable
         Assert.Null(vm.OutOfDateMessage);
     }
 
+    /// <summary>
+    /// Regression (typing in the search lagged): a search that finds the same places as the last one
+    /// leaves the markers as they are instead of drawing them all again; identical spots are both found.
+    /// </summary>
+    [Fact]
+    public void ASearchThatFindsTheSamePlaces_KeepsTheMarkers()
+    {
+        var deep = new WorldFeature(WorldFeatureKind.Cave, "Cave", new(0.2, 0.2)) { WormsMin = 6, WormsMax = 10 };
+        var map = new WorldMapInfo("Terrain_016", "Olympus", false, [], [], []);
+        var store = new WorldMapStore(Path.Combine(_root, "World"), () => [map],
+            new FeaturesRenderer(new WorldFeatures([deep, deep with { }, new WorldFeature(WorldFeatureKind.OilGeyser, "Oil geyser", new(0.5, 0.5))], [])));
+        store.Reload(everything: false);
+        var vm = new WorldMapViewModel(store, new Settings(), Path.Combine(_root, "Data")) { SelectedMap = new WorldMapItemViewModel(map) };
+        vm.ShowCaves = false;
+
+        vm.SearchText = "tier 3";
+        var first = vm.Markers.ToList();
+        vm.SearchText = "tier 3 ";
+
+        Assert.Equal(2, first.Count);
+        Assert.All(first, m => Assert.True(m.IsFound));
+        Assert.Equal(first, vm.Markers);
+        Assert.Contains("2 places", vm.SearchResult);
+    }
+
     [Fact]
     public void PuttingTheChoicesBack_SavesNothing()
     {

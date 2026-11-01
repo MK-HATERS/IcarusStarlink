@@ -542,7 +542,28 @@ public sealed partial class WorldMapViewModel : ObservableObject
         UpdateHighlight();
     }
 
+    /// <summary>
+    /// Typing waits for a short pause before it searches: each search can redraw every marker and a
+    /// whole-map highlight, and doing that on every key made typing lag. Without a window (tests) it
+    /// searches at once.
+    /// </summary>
     partial void OnSearchTextChanged(string value)
+    {
+        if (System.Windows.Application.Current?.Dispatcher is not { } dispatcher)
+        {
+            RunSearch();
+            return;
+        }
+
+        _searchPause ??= new System.Windows.Threading.DispatcherTimer(TimeSpan.FromMilliseconds(250), System.Windows.Threading.DispatcherPriority.Background,
+            (_, _) => { _searchPause!.Stop(); RunSearch(); }, dispatcher);
+        _searchPause.Stop();
+        _searchPause.Start();
+    }
+
+    private System.Windows.Threading.DispatcherTimer? _searchPause;
+
+    private void RunSearch()
     {
         FindPlaces();
         UpdateHighlight();
@@ -628,6 +649,9 @@ public sealed partial class WorldMapViewModel : ObservableObject
     }
 
     /// <summary>Lights up the clicked zones, those under the mouse, and every zone the search finds, in the ticked layers.</summary>
+    /// <summary>What the highlight image was last drawn for (layers, found zones, clicked and hovered zone); null when there's none.</summary>
+    private string? _highlightDrawn;
+
     private void UpdateHighlight()
     {
         var query = SearchText.Trim();
@@ -662,9 +686,22 @@ public sealed partial class WorldMapViewModel : ObservableObject
         if (layers.Count == 0 || (foundCount == 0 && _selectedColors.Count == 0 && _hoverColors.Count == 0))
         {
             HighlightImage = null;
+            _highlightDrawn = null;
             return;
         }
 
+        // What the highlight shows; when it's what's drawn already, the whole-map pixel pass is skipped
+        // (it ran on every search key and hover move, millions of pixels each time).
+        var drawing = string.Join(";", layers.Select(l =>
+            $"{l.Kind}:{System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(l.Pixels)}:"
+            + $"{(_selectedColors.TryGetValue(l.Kind, out var s) ? s : -1)}:{(_hoverColors.TryGetValue(l.Kind, out var h) ? h : -1)}:"
+            + string.Join(",", found[l.Kind].Order())));
+        if (drawing == _highlightDrawn && HighlightImage is not null)
+        {
+            return;
+        }
+
+        _highlightDrawn = drawing;
         var size = layers.Max(l => l.Pixels.Size);
         var pixels = new uint[size * size];
         foreach (var (kind, layer, _) in layers)
