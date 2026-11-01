@@ -273,4 +273,53 @@ public class LuaConfigDocumentTests
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
         Assert.Contains(described, s => s.Key == "A");
     }
+
+    /// <summary>
+    /// MkHaters Mod Settings 1.6.0's layout (real lines from Bags and Cheats, 2026-11-01): "-- [section]"
+    /// headings, [tip] / [warning] notes, [name], [pair], [context]. Every setting landed in one group
+    /// with "[section] Ammo Bag [tip] Keep the..." and "[name Arrows]" in its description.
+    /// </summary>
+    [Fact]
+    public void MkHatersSettingsTags_GiveSectionsNotesNamesAndPairs_AndLeaveTheDescriptionClean()
+    {
+        const string text =
+            "-- [MkHatersSettings] Bags [icon Bag] [order 4]\n" +
+            "return {\n" +
+            "    -- [section] Ammo Bag\n" +
+            "    -- [tip] Keep the Ammo Bag in your backpack or quickbar, and guns and bows reload from it.\n" +
+            "    SearchBackpack = true, -- The Ammo Bag is used while it's in your backpack. [server]\n" +
+            "    WheelKey = \"R\", -- The key you hold for both wheels. [key] [shared Reload] [context Weapons]\n" +
+            "\n" +
+            "    -- [section] Ammo Rules\n" +
+            "    Ammo_Arrows_Auto = true, -- Arrows in the Ammo Bag. [name Arrows] [restart] [server] [pair Ammo_Arrows_Allowed By itself|Allowed]\n" +
+            "    Ammo_Arrows_Allowed = true, -- May be put in the Ammo Bag at all. [name Arrows] [restart] [server]\n" +
+            "\n" +
+            "    -- [section] Items\n" +
+            "    -- [warning] A server can't switch off giving items. It is the game's own pickup call, which the server can't\n" +
+            "    -- tell from a real pickup.\n" +
+            "    DefaultAmount = 1, -- The amount in the box when the window opens. [slider 1 100 1] [important]\n" +
+            "}\n";
+        var doc = LuaConfigDocument.Parse(text);
+        var settings = doc.Settings.ToDictionary(s => s.Key, s => (Raw: s, Shown: Ue4ssSettingsDocument.DescribeLuaSetting(s.Key, s.Value, s.Kind, s.Comments, s.Note)));
+
+        Assert.Equal(["Ammo Bag", "Ammo Bag", "Ammo Rules", "Ammo Rules", "Items"], doc.Settings.Select(s => s.Group));
+        var backpack = settings["SearchBackpack"].Shown;
+        Assert.Equal(("Keep the Ammo Bag in your backpack or quickbar, and guns and bows reload from it.", Ue4ssNoticeKind.Tip), (backpack.Notice, backpack.NoticeKind));
+        Assert.Equal("The Ammo Bag is used while it's in your backpack.", backpack.Description);
+        Assert.Equal("The key you hold for both wheels.", settings["WheelKey"].Shown.Description);
+        var arrows = settings["Ammo_Arrows_Auto"].Shown;
+        Assert.Equal(("Arrows", "Arrows in the Ammo Bag.", true), (arrows.DisplayName, arrows.Description, arrows.NeedsRestart));
+        Assert.Equal(("Ammo_Arrows_Allowed", "By itself", "Allowed"), (arrows.PairKey, arrows.PairOwnLabel, arrows.PairLabel));
+        var amount = settings["DefaultAmount"].Shown;
+        Assert.Equal(Ue4ssNoticeKind.Warning, amount.NoticeKind);
+        Assert.Equal("A server can't switch off giving items. It is the game's own pickup call, which the server can't tell from a real pickup.", amount.Notice);
+        Assert.Equal(("The amount in the box when the window opens.", true, 100d), (amount.Description, amount.Important, amount.Maximum));
+        Assert.Equal(0, doc.UnknownLineCount);
+    }
+
+    [Theory]
+    [InlineData("all", "All")]
+    [InlineData("on foot", "On Foot")]
+    [InlineData("NoStability", "NoStability")]
+    public void AChoiceIsShownCapitalised(string choice, string shown) => Assert.Equal(shown, Ue4ssSettingLabel.ChoiceCaption(choice));
 }

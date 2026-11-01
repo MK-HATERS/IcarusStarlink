@@ -116,6 +116,38 @@
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,6,0,8">
+                                                <StackPanel>
+                                                <!-- The mod's note above this setting ("[tip] ...", "[warning] ..."): how to use what follows, or what can be lost. -->
+                                                <Border CornerRadius="4" Padding="8,5" Margin="0,0,14,8"
+                                                        Visibility="{Binding HasNotice, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="{DynamicResource SuccessSoftBrush}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsWarningNotice}" Value="True">
+                                                                    <Setter Property="Background" Value="{DynamicResource WarningSoftBrush}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <DockPanel>
+                                                        <TextBlock DockPanel.Dock="Left" FontWeight="SemiBold" Margin="0,0,8,0">
+                                                            <TextBlock.Style>
+                                                                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                                    <Setter Property="Text" Value="Tip"/>
+                                                                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsWarningNotice}" Value="True">
+                                                                            <Setter Property="Text" Value="Warning"/>
+                                                                            <Setter Property="Foreground" Value="{DynamicResource WarningBrush}"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </TextBlock.Style>
+                                                        </TextBlock>
+                                                        <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" FontSize="12"/>
+                                                    </DockPanel>
+                                                </Border>
                                                 <Grid>
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="*"/>
@@ -125,16 +157,27 @@
                                                     <StackPanel Margin="0,0,12,0">
                                                         <WrapPanel>
                                                             <!-- The key in plain words, the real key small beside it (it's what the file and the mod's page call it). -->
-                                                            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" ToolTip="{Binding Key}"/>
+                                                            <!-- [important] (or a [color]): one that can lose things when set wrong, in amber. -->
+                                                            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" ToolTip="{Binding Key}">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsImportant}" Value="True">
+                                                                                <Setter Property="Foreground" Value="{DynamicResource WarningBrush}"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
                                                             <TextBlock Text="{Binding Key}" FontSize="11" FontFamily="Consolas" Margin="8,0,0,0" VerticalAlignment="Center"
                                                                        Foreground="{DynamicResource FaintForegroundBrush}" ToolTip="The setting's name in the file"
                                                                        Visibility="{Binding ShowKeyName, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                             <TextBlock Text="  changed" Foreground="{DynamicResource AccentBrush}" FontSize="11" VerticalAlignment="Center"
                                                                        ToolTip="Edited here and not saved yet"
-                                                                       Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                                       Visibility="{Binding RowIsChanged, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                             <TextBlock Text="  not the default" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11" VerticalAlignment="Center"
                                                                        ToolTip="Differs from the value the mod ships with"
-                                                                       Visibility="{Binding CanResetToDefault, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                                       Visibility="{Binding RowCanResetToDefault, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                             <TextBlock Text="  server decides" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource FaintForegroundBrush}"
                                                                        ToolTip="In multiplayer the host's or the server's copy of this setting is the one used"
                                                                        Visibility="{Binding ServerDecides, Converter={StaticResource BoolToVisibilityConverter}}"/>
@@ -153,14 +196,21 @@
                                                             <TextBlock Text="{Binding DefaultText}" FontSize="11" Foreground="{DynamicResource FaintForegroundBrush}"/>
                                                             <Button Content="Reset to default" Command="{Binding ResetToDefaultCommand}" Style="{StaticResource PillButtonStyle}" Margin="8,0,0,0" FontSize="11"
                                                                     Background="{DynamicResource AccentSoftBrush}" Foreground="{DynamicResource ForegroundBrush}"
-                                                                    Visibility="{Binding CanResetToDefault, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                                    Visibility="{Binding RowCanResetToDefault, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                         </StackPanel>
                                                     </StackPanel>
                                                     <Grid Grid.Column="1" VerticalAlignment="Top">
                                                         <CheckBox IsChecked="{Binding IsOn}" Style="{StaticResource ToggleSwitchStyle}" HorizontalAlignment="Left"
                                                                   AutomationProperties.Name="{Binding Key}"
-                                                                  Visibility="{Binding IsToggle, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                                        <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding ChoiceValue}"
+                                                                  Visibility="{Binding IsSingleToggle, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        <!-- [pair]: two true/false settings in one row ("By itself", "Allowed"), each box its own setting. -->
+                                                        <StackPanel Orientation="Horizontal" Visibility="{Binding HasPartner, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                            <CheckBox Content="{Binding PairOwnLabel}" IsChecked="{Binding IsOn}" Margin="0,0,16,0"
+                                                                      AutomationProperties.Name="{Binding Key}" ToolTip="{Binding Key}"/>
+                                                            <CheckBox Content="{Binding PartnerLabel}" IsChecked="{Binding PartnerIsOn}"
+                                                                      AutomationProperties.Name="{Binding Partner.Key}" ToolTip="{Binding Partner.Description}"/>
+                                                        </StackPanel>
+                                                        <ComboBox ItemsSource="{Binding ChoiceOptions}" DisplayMemberPath="Caption" SelectedValuePath="Value" SelectedValue="{Binding ChoiceValue}"
                                                                   AutomationProperties.Name="{Binding Key}"
                                                                   Visibility="{Binding IsChoice, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                         <StackPanel Visibility="{Binding IsText, Converter={StaticResource BoolToVisibilityConverter}}">
@@ -211,6 +261,7 @@
                                                         </StackPanel>
                                                     </Grid>
                                                 </Grid>
+                                                </StackPanel>
                                             </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>

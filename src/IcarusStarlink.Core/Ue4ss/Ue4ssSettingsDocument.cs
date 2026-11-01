@@ -28,10 +28,30 @@ public enum Ue4ssSettingKind
 /// <param name="Hidden">The mod asks for it not to be shown ("[hidden]": an internal or testing value); it stays in the file for hand edits.</param>
 /// <param name="ServerDecides">"[server]": in multiplayer only the host's or server's copy is read.</param>
 /// <param name="LocalOnly">"[local]": read on each player's own PC (an exception in a file marked [server]).</param>
+/// <param name="DisplayName">"[name Window Size]": the name the mod wants shown instead of its key's words.</param>
+/// <param name="Notice">The comment block above it when that starts "[tip]" or "[warning]": a note shown above the setting, not part of its description.</param>
+/// <param name="Important">"[important]" (or a [color] on its name): the mod wants it to stand out, as one that can lose things when set wrong.</param>
+/// <param name="PairKey">"[pair Other By itself|Allowed]": the other true/false setting drawn as a second box in this row.</param>
+/// <param name="PairOwnLabel">This setting's box label in a pair ("By itself"); null when the pair names only the other's.</param>
+/// <param name="PairLabel">The other setting's box label in a pair ("Allowed").</param>
 public sealed record Ue4ssSetting(
     string Section, string Key, string Value, string Description, string? Default, Ue4ssSettingKind Kind, IReadOnlyList<string> Choices,
     double? Minimum = null, double? Maximum = null, double? Step = null, bool NeedsRestart = false, bool Hidden = false,
-    bool ServerDecides = false, bool LocalOnly = false);
+    bool ServerDecides = false, bool LocalOnly = false, string? DisplayName = null, string? Notice = null,
+    Ue4ssNoticeKind NoticeKind = Ue4ssNoticeKind.None, bool Important = false, string? PairKey = null, string? PairOwnLabel = null,
+    string? PairLabel = null);
+
+/// <summary>How a note above a setting looks ("-- [tip] ...", "-- [warning] ...", as MkHaters Mod Settings 1.5.0+ draws them).</summary>
+public enum Ue4ssNoticeKind
+{
+    None,
+
+    /// <summary>"[tip]" (or "[color X]"): how to use what follows.</summary>
+    Tip,
+
+    /// <summary>"[warning]": something that can lose things.</summary>
+    Warning,
+}
 
 /// <summary>
 /// UE4SS-settings.ini, read and written line by line so that saving only changes the value part of
@@ -196,8 +216,10 @@ public sealed partial class Ue4ssSettingsDocument
                     // A setting with its own comment on its line is described by that; it doesn't
                     // borrow the comment above the setting before it (that one was about the other).
                     var block = comments.Count == 0 && afterSetting && _descriptionSeparator == "\n" && note.Length == 0 ? shared : [.. comments];
-                    settings.Add(Describe(section, keyMatch.Groups["key"].Value.Trim(), value, block, _descriptionSeparator, note));
-                    shared = block;
+                    var setting = Describe(section, keyMatch.Groups["key"].Value.Trim(), value, block, _descriptionSeparator, note);
+                    settings.Add(setting);
+                    // A [tip] / [warning] note is shown once, above the first setting under it.
+                    shared = setting.Notice is null ? block : [];
                     comments.Clear();
                     afterSetting = true;
                 }
@@ -402,8 +424,42 @@ public sealed partial class Ue4ssSettingsDocument
         var hidden = false;
         var serverDecides = false;
         var localOnly = false;
+        string? displayName = null, pairKey = null, pairOwnLabel = null, pairLabel = null;
+        var important = false;
+
+        // A note block above it ("[tip] Spawns start a minute after you load in.") is the mod's note
+        // about what follows, drawn on its own, not the start of this setting's description.
+        string? notice = null;
+        var noticeKind = Ue4ssNoticeKind.None;
+        if (comments.Count > 0 && NoticeTag().Match(comments[0]) is { Success: true } noticeTag)
+        {
+            noticeKind = noticeTag.Groups["kind"].Value.Equals("warning", StringComparison.OrdinalIgnoreCase) ? Ue4ssNoticeKind.Warning : Ue4ssNoticeKind.Tip;
+            notice = string.Join(" ", new[] { noticeTag.Groups["rest"].Value }.Concat(comments.Skip(1)).Select(c => c.Trim()).Where(c => c.Length > 0));
+            comments = [];
+        }
+
         if (note.Length > 0)
         {
+            if (NameMarker().Match(note) is { Success: true } named && named.Groups["words"].Value.Replace('|', ' ').Trim() is { Length: > 0 } words)
+            {
+                displayName = words;
+            }
+
+            // "[pair Food_Allowed By itself|Allowed]": the other setting's key, then Theirs, or Mine|Theirs.
+            if (PairMarker().Match(note) is { Success: true } pair)
+            {
+                pairKey = pair.Groups["key"].Value;
+                var labels = pair.Groups["labels"].Value.Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                (pairOwnLabel, pairLabel) = labels.Length switch
+                {
+                    0 => (null, null),
+                    1 => (null, labels[0]),
+                    _ => (labels[0], labels[1]),
+                };
+            }
+
+            important = ImportantMarker().IsMatch(note);
+
             if (SliderMarker().Match(note) is { Success: true } slider)
             {
                 (minimum, maximum) = (Number(slider.Groups["min"].Value), Number(slider.Groups["max"].Value));
@@ -515,8 +571,23 @@ public sealed partial class Ue4ssSettingsDocument
             : Ue4ssSettingKind.Text;
         return new Ue4ssSetting(section, key, value, text, defaultValue, kind, choices,
             kind == Ue4ssSettingKind.Number ? minimum : null, kind == Ue4ssSettingKind.Number ? maximum : null,
-            kind == Ue4ssSettingKind.Number ? step : null, needsRestart, hidden, serverDecides, localOnly);
+            kind == Ue4ssSettingKind.Number ? step : null, needsRestart, hidden, serverDecides, localOnly,
+            displayName, notice, noticeKind, important, pairKey, pairOwnLabel, pairLabel);
     }
+
+    // "[tip] ...", "[warning] ...", "[color amber] ...": a note block's look, at its start.
+    [GeneratedRegex(@"^\[(?<kind>tip|warning|colou?r\s+[^\]\s]{1,20})\]\s*(?<rest>.*)$", RegexOptions.IgnoreCase)]
+    private static partial Regex NoticeTag();
+
+    [GeneratedRegex(@"\[name\s+(?<words>[^\]]{1,200})\]", RegexOptions.IgnoreCase)]
+    private static partial Regex NameMarker();
+
+    [GeneratedRegex(@"\[pair\s+(?<key>[A-Za-z_][A-Za-z0-9_.]*)(?:\s+(?<labels>[^\]]{0,200}))?\]", RegexOptions.IgnoreCase)]
+    private static partial Regex PairMarker();
+
+    // "[important]", or a colour on the name ("[color red]"): the mod wants the setting to stand out.
+    [GeneratedRegex(@"\[(important|colou?r\s+[^\]\s]{1,20})\]", RegexOptions.IgnoreCase)]
+    private static partial Regex ImportantMarker();
 
     // "Valid range: 1.0-500.0 metres", "Range: 0 to 10": a range written out in the comment above.
     [GeneratedRegex(@"\b(?:valid\s+)?range\s*:\s*(?<min>-?\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(?<max>-?\d+(?:\.\d+)?)", RegexOptions.IgnoreCase)]
@@ -562,7 +633,7 @@ public sealed partial class Ue4ssSettingsDocument
     private static partial Regex RestartWords();
 
     // Any "[word ...]" marker for tools, not for people (the tags MkHaters Mod Settings reads; "[Wax]" is text).
-    [GeneratedRegex(@"(?<!\s)(?>\s*)\[(slider|restart|choice|dropdown|key|hidden|server|local|shared)(\s[^\]]{0,1000})?\]", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(?<!\s)(?>\s*)\[(slider|restart|choice|dropdown|key|hidden|server|local|shared|name|pair|context|exact|important|color)(\s[^\]]{0,1000})?\]", RegexOptions.IgnoreCase)]
     private static partial Regex Marker();
 
     // "(0-10)", "(1-100)", "(0-600; 0 = off)": the range a number takes.

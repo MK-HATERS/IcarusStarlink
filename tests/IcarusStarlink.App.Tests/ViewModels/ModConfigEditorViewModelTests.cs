@@ -600,4 +600,51 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
         Assert.Equal(changed, File.ReadAllText(Path.Combine(game, "config.lua")));
         Assert.StartsWith("Not saved: the file was changed outside this window", vm.StatusMessage);
     }
+
+    /// <summary>
+    /// MkHaters Mod Settings 1.6.0's tags (real Bags and Pet Commander lines): sections by "-- [section]",
+    /// the [name] shown, a [pair] as one row with two boxes that each save their own setting, and
+    /// lower-case choices shown capitalised but written as the mod's word.
+    /// </summary>
+    [Fact]
+    public void MkHatersSettingsLayout_SectionsNamesPairsAndChoices()
+    {
+        const string text =
+            "-- [MkHatersSettings] Bags [icon Bag]\r\n" +
+            "return {\r\n" +
+            "    -- [section] Ammo Rules\r\n" +
+            "    -- [tip] Tick By itself for what goes in the Ammo Bag when picked up, Allowed for what may go in at all.\r\n" +
+            "    Ammo_Arrows_Auto = true, -- Arrows in the Ammo Bag. [name Arrows] [restart] [pair Ammo_Arrows_Allowed By itself|Allowed]\r\n" +
+            "    Ammo_Arrows_Allowed = true, -- May be put in the Ammo Bag at all. [name Arrows] [restart]\r\n" +
+            "\r\n" +
+            "    -- [section] Panel\r\n" +
+            "    PetPanel = \"all\", -- Which pets the panel shows. [choice all starred off]\r\n" +
+            "}\r\n";
+        var game = Mod("game", "config.lua", text);
+        File.WriteAllText(Path.Combine(game, "config.default.lua"), text);
+        var vm = new ModConfigEditorViewModel("MkHatersBags", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
+
+        Assert.Equal(["Ammo Rules", "Panel"], vm.Sections.Select(s => s.Name));
+        var arrows = Assert.Single(vm.Sections[0].Fields);
+        Assert.Equal(("Arrows", "By itself", "Allowed", "Ammo_Arrows_Allowed"), (arrows.Label, arrows.PairOwnLabel, arrows.PartnerLabel, arrows.Partner!.Key));
+        Assert.StartsWith("Tick By itself", arrows.Notice);
+        var panel = Field(vm, "PetPanel");
+        Assert.Equal(["All", "Starred", "Off"], panel.ChoiceOptions.Select(c => c.Caption));
+
+        arrows.PartnerIsOn = false;
+        panel.ChoiceValue = "starred";
+        Assert.True(arrows.RowIsChanged && arrows.RowCanResetToDefault);
+        Assert.Equal("Default: By itself on, Allowed on", arrows.DefaultText);
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(text.Replace("Ammo_Arrows_Allowed = true", "Ammo_Arrows_Allowed = false").Replace("\"all\"", "\"starred\""),
+            File.ReadAllText(Path.Combine(game, "config.lua")));
+        arrows = Field(vm, "Ammo_Arrows_Auto"); // a save reads the file again
+        Assert.False(arrows.RowIsChanged);
+        Assert.False(arrows.PartnerIsOn);
+        arrows.ResetToDefaultCommand.Execute(null);
+        Assert.True(arrows.PartnerIsOn);
+        vm.Filter = "may be put";
+        Assert.Equal("Ammo_Arrows_Auto", Assert.Single(vm.Sections.SelectMany(s => s.Fields)).Key);
+    }
 }

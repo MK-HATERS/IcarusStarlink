@@ -307,6 +307,9 @@ public sealed partial class LuaConfigDocument
     [GeneratedRegex(@"^(?:(?>[=#*~-]{3,})\s*(?<name>[^=#*~]*?)\s*[=#*~-]{3,}|[=#*~-]{3,})$")]
     private static partial Regex Heading();
 
+    [GeneratedRegex(@"^\[section\](?<name>.*)$", RegexOptions.IgnoreCase)]
+    private static partial Regex SectionTag();
+
     private static List<Entry> Scan(List<string> lines, out int unknownLines)
     {
         var entries = new List<Entry>();
@@ -337,6 +340,19 @@ public sealed partial class LuaConfigDocument
                 // A heading ("-- ==== SPAWN AMOUNTS ====") starts a group of settings; it isn't part of
                 // the next setting's description. A bare rule ("-- ======") is dropped too.
                 var comment = trimmed[2..].Trim();
+                // "-- [section] Spawns": MkHaters Mod Settings' heading (1.5.0+), the same as a ruled one.
+                if (depth <= 1 && SectionTag().Match(comment) is { Success: true } tagged)
+                {
+                    var name = tagged.Groups["name"].Value.Trim();
+                    if (name.Length > 0)
+                    {
+                        group = name.Length > MaxGroupLength ? name[..MaxGroupLength] : name;
+                    }
+
+                    comments.Clear();
+                    continue;
+                }
+
                 // Length-capped: a downloaded file's long run of dashes must not make the match slow.
                 if (depth <= 1 && comment.Length <= MaxHeadingLineLength && Heading().Match(comment) is { Success: true } heading)
                 {

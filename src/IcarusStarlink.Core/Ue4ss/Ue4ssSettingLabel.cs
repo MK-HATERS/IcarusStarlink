@@ -78,6 +78,10 @@ public static class Ue4ssSettingLabel
         return string.Join(" ", parts);
     }
 
+    /// <summary>A choice as shown in its drop-down, each word capitalised as MkHaters Mod Settings shows it ("all" → "All", "on foot" → "On Foot", "NoStability" stays); the file keeps the mod's own word.</summary>
+    public static string ChoiceCaption(string choice) =>
+        string.Join(" ", choice.Split(' ').Select(w => w.Length > 0 && char.IsLower(w[0]) ? char.ToUpperInvariant(w[0]) + w[1..] : w));
+
     private static bool IsAcronym(string word) => word.Any(char.IsLetter) && word.All(c => char.IsUpper(c) || char.IsDigit(c));
 
     /// <summary>A comment heading as a section name: "GENERAL" → "General", "WHERE THE WORLD RUNS (solo)" → "Where the world runs (solo)".</summary>

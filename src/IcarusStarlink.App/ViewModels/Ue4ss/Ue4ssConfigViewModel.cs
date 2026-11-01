@@ -45,8 +45,15 @@ public sealed partial class Ue4ssConfigField : ObservableObject
         ServerDecides = setting.ServerDecides && !setting.LocalOnly;
         OriginalValue = originalValue ?? setting.Value;
         _value = setting.Value;
-        Label = Ue4ssSettingLabel.FromKey(setting.Key);
+        Label = setting.DisplayName ?? Ue4ssSettingLabel.FromKey(setting.Key);
         Group = setting.Section;
+        Notice = setting.Notice;
+        IsWarningNotice = setting.NoticeKind == Ue4ssNoticeKind.Warning;
+        IsImportant = setting.Important;
+        PairKey = setting.PairKey;
+        PairOwnLabel = setting.PairOwnLabel ?? "";
+        PairLabel = setting.PairLabel;
+        ChoiceOptions = [.. setting.Choices.Select(c => new Ue4ssChoiceOption(c, Ue4ssSettingLabel.ChoiceCaption(c)))];
         // A key as a table ({ key = "F4", ctrl = true }) can take Ctrl/Shift/Alt; "R" can't.
         KeyAllowsModifiers = IsKey && Ue4ssKeyBind.TryParse(setting.Value, out _);
     }
@@ -54,8 +61,85 @@ public sealed partial class Ue4ssConfigField : ObservableObject
     public string Section { get; }
     public string Key { get; }
 
-    /// <summary>The key in plain words ("ScanRadiusMeters" → "Scan radius meters"); the real key shows small beside it.</summary>
+    /// <summary>The key in plain words ("ScanRadiusMeters" → "Scan radius meters"), or the mod's own [name]; the real key shows small beside it.</summary>
     public string Label { get; }
+
+    /// <summary>The mod's [tip] / [warning] note above this setting, shown above its row.</summary>
+    public string? Notice { get; }
+
+    public bool HasNotice => Notice is { Length: > 0 };
+
+    public bool IsWarningNotice { get; }
+
+    /// <summary>[important] (or a [color] name): one the mod wants to stand out.</summary>
+    public bool IsImportant { get; }
+
+    /// <summary>The choices as the drop-down shows them ("all" → "All"); the value written is the mod's own word.</summary>
+    public IReadOnlyList<Ue4ssChoiceOption> ChoiceOptions { get; }
+
+    /// <summary>[pair Other ...]: the other true/false setting this row also shows, by key (the editor links them).</summary>
+    public string? PairKey { get; }
+
+    /// <summary>This setting's box label in a pair ("By itself"); empty when the pair only names the other's.</summary>
+    public string PairOwnLabel { get; }
+
+    private string? PairLabel { get; }
+
+    /// <summary>The other setting drawn as a second box in this row; it gets no row of its own.</summary>
+    public Ue4ssConfigField? Partner
+    {
+        get => _partner;
+        set
+        {
+            _partner = value;
+            if (value is not null)
+            {
+                value.IsPairedInto = true;
+                value.PropertyChanged += (_, e) =>
+                {
+                    // IsChanged too: a save marks the other box saved without changing its value.
+                    if (e.PropertyName is nameof(Value) or nameof(IsChanged))
+                    {
+                        OnPropertyChanged(nameof(PartnerIsOn));
+                        OnPropertyChanged(nameof(RowIsChanged));
+                        OnPropertyChanged(nameof(RowCanResetToDefault));
+                    }
+                };
+            }
+
+            OnPropertyChanged(nameof(HasPartner));
+            OnPropertyChanged(nameof(IsSingleToggle));
+        }
+    }
+
+    private Ue4ssConfigField? _partner;
+
+    public bool HasPartner => Partner is not null;
+
+    /// <summary>A plain switch, not a row of two boxes.</summary>
+    public bool IsSingleToggle => IsToggle && !HasPartner;
+
+    /// <summary>Shown inside another setting's row (its [pair]), so not listed by itself.</summary>
+    public bool IsPairedInto { get; private set; }
+
+    public string PartnerLabel => Partner is null ? "" : PairLabel ?? Partner.Label;
+
+    public bool PartnerIsOn
+    {
+        get => Partner?.IsOn ?? false;
+        set
+        {
+            if (Partner is not null)
+            {
+                Partner.IsOn = value;
+            }
+        }
+    }
+
+    /// <summary>This setting or its pair's other box was edited and not saved.</summary>
+    public bool RowIsChanged => IsChanged || (Partner?.IsChanged ?? false);
+
+    public bool RowCanResetToDefault => CanResetToDefault || (Partner?.CanResetToDefault ?? false);
 
     /// <summary>The real key, shown small next to the label when the label reads differently.</summary>
     public bool ShowKeyName => !string.Equals(Label.Replace(" ", ""), Key.Replace("_", "").Replace(".", ""), StringComparison.Ordinal);
@@ -245,12 +329,18 @@ public sealed partial class Ue4ssConfigField : ObservableObject
     }
 
     public bool HasDescription => Description.Length > 0;
-    public string DefaultText => Default is not { Length: > 0 } d ? ""
+    public string DefaultText => Partner is { } other
+        ? (Default, other.Default) is ({ Length: > 0 } mine, { Length: > 0 } theirs)
+            ? $"Default: {(PairOwnLabel.Length > 0 ? PairOwnLabel : Label)} {OnOff(mine)}, {PartnerLabel} {OnOff(theirs)}"
+            : ""
+        : Default is not { Length: > 0 } d ? ""
         : IsKey && Ue4ssKeyBind.TryParse(d, out var key) ? $"Default: {key}"
         : $"Default: {d}";
 
+    private static string OnOff(string value) => Ue4ssSettingsDocument.IsOn(value) ? "on" : "off";
+
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsChanged), nameof(IsOn), nameof(IsDefault), nameof(CanResetToDefault),
+    [NotifyPropertyChangedFor(nameof(IsChanged), nameof(RowIsChanged), nameof(RowCanResetToDefault), nameof(IsOn), nameof(IsDefault), nameof(CanResetToDefault),
         nameof(NumberValue), nameof(ValueProblem), nameof(HasValueProblem), nameof(ChoiceValue),
         nameof(KeyName), nameof(KeyCtrl), nameof(KeyShift), nameof(KeyAlt), nameof(KeyText), nameof(KeyProblem))]
     private string _value;
@@ -291,14 +381,24 @@ public sealed partial class Ue4ssConfigField : ObservableObject
             Value = DefaultMeansBlank ? ""
                 : IsToggle ? Ue4ssSettingsDocument.ToggleText(Ue4ssSettingsDocument.IsOn(Default), OriginalValue) : Default;
         }
+
+        // A pair's row has one Reset: both boxes go back.
+        if (Partner is { CanResetToDefault: true } other)
+        {
+            other.ResetToDefault();
+        }
     }
 
     public void MarkSaved()
     {
         OriginalValue = Value.Trim();
         OnPropertyChanged(nameof(IsChanged));
+        OnPropertyChanged(nameof(RowIsChanged));
     }
 }
+
+/// <summary>One drop-down entry: the mod's own word, and how it's shown.</summary>
+public sealed record Ue4ssChoiceOption(string Value, string Caption);
 
 public sealed class Ue4ssConfigSection(string name, IReadOnlyList<Ue4ssConfigField> fields)
 {

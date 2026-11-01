@@ -528,6 +528,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
                 Hint = document.HintOf(s.Key),
                 ServerDecides = (s.ServerDecides || _fileWideServer) && !s.LocalOnly,
             })];
+        LinkPairs(_fields);
         foreach (var field in _fields)
         {
             field.PropertyChanged += (_, e) =>
@@ -546,17 +547,45 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
         BuildSections();
     }
 
+    /// <summary>
+    /// [pair Other Label] (MkHaters Mod Settings 1.6.0+): two true/false settings of the same section
+    /// in one row, the other drawn as a second box. A pair that doesn't fit (no such setting, not a
+    /// true/false, itself, already in a pair, hidden) is ignored, and both rows show as usual.
+    /// </summary>
+    internal static void LinkPairs(IReadOnlyList<Ue4ssConfigField> fields)
+    {
+        foreach (var field in fields.Where(f => f.PairKey is not null && f.IsToggle))
+        {
+            if (field.IsPairedInto || field.HasPartner)
+            {
+                continue;
+            }
+
+            var other = fields.FirstOrDefault(o => o != field && o.IsToggle
+                && o.Key.Equals(field.PairKey, StringComparison.Ordinal) && o.Section.Equals(field.Section, StringComparison.OrdinalIgnoreCase));
+            if (other is { IsPairedInto: false, HasPartner: false })
+            {
+                field.Partner = other;
+            }
+        }
+    }
+
+    private static bool Matches(Ue4ssConfigField f, string filter) =>
+        f.Key.Contains(filter, StringComparison.OrdinalIgnoreCase)
+        || f.Label.Contains(filter, StringComparison.OrdinalIgnoreCase)
+        || f.Group.Contains(filter, StringComparison.OrdinalIgnoreCase)
+        || f.Description.Contains(filter, StringComparison.OrdinalIgnoreCase)
+        || (f.Notice?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false);
+
     private void BuildSections()
     {
         Sections.Clear();
         var filter = Filter.Trim();
-        // Grouped by the ini's [Section] or the Lua file's comment headings ("==== GUESTS ===="), in file order.
+        // Grouped by the ini's [Section] or the Lua file's headings ("-- [section] Spawns", "==== GUESTS ===="), in file order.
+        // A pair's second setting is in its first one's row; search finds the row by either.
         foreach (var group in _fields
-                     .Where(f => filter.Length == 0
-                         || f.Key.Contains(filter, StringComparison.OrdinalIgnoreCase)
-                         || f.Label.Contains(filter, StringComparison.OrdinalIgnoreCase)
-                         || f.Group.Contains(filter, StringComparison.OrdinalIgnoreCase)
-                         || f.Description.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                     .Where(f => !f.IsPairedInto)
+                     .Where(f => filter.Length == 0 || Matches(f, filter) || (f.Partner is { } other && Matches(other, filter)))
                      .GroupBy(f => f.Group))
         {
             Sections.Add(new Ue4ssConfigSection(group.Key.Length == 0 ? "Settings" : Ue4ssSettingLabel.Heading(group.Key), [.. group]));
