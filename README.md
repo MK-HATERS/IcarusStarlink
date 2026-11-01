@@ -140,7 +140,10 @@ everything can do it for you (off by default). Your choices of what to show are 
 Browses the community mod catalog (the Daedalus and Jimk72 projects) with
 sortable/filterable columns, plus a native Nexus browsing/search view backed by the real Nexus API
 (images, live search, per-card local-status badges, tracking) with `nxm://` protocol handling for
-one-click downloads from the website.
+one-click downloads from the website. A mod's **Update** in the Library opens the list of its Nexus
+files straight away and installs the one you pick in place of your copy. Mod authors: a mod newer
+than everything on its Nexus page shows **Your build**, and `IcarusStarlink.exe --import <zip or
+folder>` installs a build of your own the way an update is installed (backed up, settings kept).
 
 ### UE4SS
 
@@ -304,7 +307,26 @@ keys or tokens) makes it much faster to track down.
 
 ## Changelog
 
-### 4.2.0 (latest)
+### 4.3.0 (latest)
+
+**Added**
+- **Update** on a Nexus mod (data or UE4SS) opens the list of the mod's Nexus files straight away, the newer version of yours already picked, then downloads and installs it in place of your copy. No trip to the Nexus page and a second Download click. Without a Nexus key it still opens the Nexus page.
+- **Your build**: a mod newer than every file on its Nexus page (a mod author's own build, not released yet) shows Your build instead of an update. Click it to switch to a Nexus version. It goes by itself once Nexus has that version, and a real update still shows when Nexus gets something newer.
+- Deleting a mod that has both a data half and a UE4SS half asks what to delete: both, only the data mod, or only the UE4SS mod. The half you keep stays in your Library.
+- For mod authors: `IcarusStarlink.exe --import <zip or folder>` installs your own build in place of the installed copy, the way an update is installed: the old copy is backed up, your config settings are kept (new ones marked), both halves are replaced and stay linked, and the Nexus link is kept. It works whether Starlink is open or not.
+- The mod settings window reads MkHaters Mod Settings 1.6.0's layout: its sections, its tips and warnings above a setting, the names it gives settings, two tick boxes in one row (By itself / Allowed), and choices shown capitalised. Its tags no longer show inside the descriptions.
+
+**Fixed**
+- Library: the UE4SS panel's row buttons no longer slide off its right edge after launch (they came back only when the window was resized).
+- An older version on Nexus is no longer offered as an "update" to a newer copy you have (a v0.8.0 mod showed "Update v0.7.0").
+- Map: typing in the search no longer lags.
+
+### Earlier versions
+
+Click a version to open its notes.
+
+<details>
+<summary><b>4.2.0</b></summary>
 
 **Added**
 - **Map** page (under Game): every world the game has, drawn from the game's own files. Olympus, Styx, Prometheus, Elysium and every outpost, plus worlds the game has but doesn't offer yet, tagged In development (ARK, for one). Each one says what it's played as: open world, missions or outpost.
@@ -331,9 +353,7 @@ keys or tokens) makes it much faster to track down.
 - Server: only one SteamCMD run at a time. An Update waits for another server's check instead of running alongside it and mixing up the progress box.
 - Saves: pictures are read again after Refresh game data, so a picture a game update changed shows without restarting Starlink.
 
-### Earlier versions
-
-Click a version to open its notes.
+</details>
 
 <details>
 <summary><b>4.1.0</b></summary>
