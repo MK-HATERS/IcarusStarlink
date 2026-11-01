@@ -13,6 +13,9 @@ public sealed class WpfDialogService : IDialogService
     public bool? ConfirmWithCancel(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText) =>
         ThemedConfirmDialog.ShowWithCancel(Application.Current?.MainWindow, message, title, severity, yesText, noText);
 
+    public int? Choose(string message, string title, ThemedConfirmSeverity severity, string first, string second, string third) =>
+        ThemedConfirmDialog.ShowChoice(Application.Current?.MainWindow, message, title, severity, first, second, third);
+
     public bool ConfirmWithWords(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText) =>
         ThemedConfirmDialog.ShowWithWords(Application.Current?.MainWindow, message, title, severity, yesText, noText);
 

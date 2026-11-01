@@ -455,6 +455,25 @@ public sealed class LibraryViewModelTests
         Assert.Contains("Run Merge & Install", vm.StatusMessage);
     }
 
+    /// <summary>User's ask 2026-11-01: deleting a download with both halves can take just one of them; the other stays.</summary>
+    [Theory]
+    [InlineData(1, "WirelessPower", "")]
+    [InlineData(2, "", "WirelessPower")]
+    public void DeleteItemCommand_OnAModWithALuaHalf_CanDeleteJustOneHalf(int answer, string libraryDeleted, string ue4ssDeleted)
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) { ChooseAnswer = answer } };
+        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.Ue4ssModRepository.Staged.Add("WirelessPower");
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
+        var vm = harness.Build();
+
+        vm.DeleteItemCommand.Execute(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower"));
+
+        Assert.Equal(libraryDeleted, string.Join(",", harness.Repository.DeleteCalls));
+        Assert.Equal(ue4ssDeleted, string.Join(",", harness.Ue4ssModRepository.DeleteCalls));
+        Assert.Contains("Kept the", vm.StatusMessage);
+    }
+
     /// <summary>
     /// Two separate files from one Nexus page (a main file with a Lua half, and an optional pak)
     /// are two downloads: the optional pak isn't part of the main file's package, so deleting it
@@ -2831,6 +2850,16 @@ public sealed class LibraryViewModelTests
             ConfirmCallCount++;
             ConfirmMessages.Add(message);
             return confirmResult;
+        }
+
+        /// <summary>The answer to a three-way question (deleting a download's halves): 0 = the first button; a "no" fake cancels.</summary>
+        public int ChooseAnswer { get; set; }
+
+        public int? Choose(string message, string title, ThemedConfirmSeverity severity, string first, string second, string third)
+        {
+            ConfirmCallCount++;
+            ConfirmMessages.Add(message);
+            return confirmResult ? ChooseAnswer : null;
         }
 
         public RenamePromptResult PromptRename(

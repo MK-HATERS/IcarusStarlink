@@ -77,8 +77,42 @@ public static partial class UpdateVersionComparer
             return false;
         }
 
+        // A copy newer than the source's (the author's own build, installed before its Nexus
+        // upload): the source's older version isn't an update (user report 2026-11-01: v0.8.0
+        // installed showed "Update v0.7.0").
+        if (IsNewer(installedVersion, latestVersion))
+        {
+            return false;
+        }
+
         // Neither side known at all — nothing to compare against, so nothing to claim.
         return !string.IsNullOrWhiteSpace(installedVersion) || !string.IsNullOrWhiteSpace(recordedSourceVersion);
+    }
+
+    /// <summary>
+    /// True when both are clean dotted numbers ("1.2.0", "v9") and <paramref name="version"/> is the
+    /// higher one ("0.8.0" over "0.7.0", "1.10" over "1.9"). Anything else ("2.0-beta", a date) can't
+    /// be ordered, so it's never newer.
+    /// </summary>
+    public static bool IsNewer(string? version, string? than)
+    {
+        if (string.IsNullOrWhiteSpace(version) || string.IsNullOrWhiteSpace(than)
+            || !DottedNumericPattern().IsMatch(version.Trim()) || !DottedNumericPattern().IsMatch(than.Trim())
+            || NormalizeComponents(version.Trim()) is not { } mine || NormalizeComponents(than.Trim()) is not { } theirs)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < Math.Max(mine.Count, theirs.Count); i++)
+        {
+            var (a, b) = (i < mine.Count ? mine[i] : 0, i < theirs.Count ? theirs[i] : 0);
+            if (a != b)
+            {
+                return a > b;
+            }
+        }
+
+        return false;
     }
 
     private static List<long>? NormalizeComponents(string version)

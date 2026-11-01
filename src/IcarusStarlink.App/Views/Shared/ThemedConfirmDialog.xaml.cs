@@ -80,6 +80,31 @@ public partial class ThemedConfirmDialog : Window
         return dialog._result;
     }
 
+    /// <summary>
+    /// One of three answers, or none: 0 = <paramref name="first"/> (the main button), 1 = <paramref name="second"/>,
+    /// 2 = <paramref name="third"/>, null = Cancel, Escape or the window's ✕ (Cancel has the focus).
+    /// </summary>
+    public static int? ShowChoice(Window? owner, string message, string title, ThemedConfirmSeverity severity, string first, string second, string third)
+    {
+        var dialog = new ThemedConfirmDialog(owner, message, title, severity);
+        dialog.YesButton.Content = first;
+        dialog.NoButton.Content = second;
+        dialog.ThirdButton.Content = third;
+        dialog.ThirdButton.Visibility = Visibility.Visible;
+        dialog.CancelButton.Visibility = Visibility.Visible;
+        dialog.Loaded += (_, _) => dialog.CancelButton.Focus();
+        dialog.ShowDialog();
+        return dialog._third ? 2 : dialog._result switch { true => 0, false => 1, null => null };
+    }
+
+    private bool _third;
+
+    private void Third_Click(object sender, RoutedEventArgs e)
+    {
+        _third = true;
+        Close();
+    }
+
     private void Yes_Click(object sender, RoutedEventArgs e)
     {
         _result = true;

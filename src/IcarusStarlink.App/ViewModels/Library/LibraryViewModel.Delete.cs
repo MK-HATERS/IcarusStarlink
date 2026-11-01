@@ -82,7 +82,8 @@ public sealed partial class LibraryViewModel
         // real count rather than a generic "these mods" so a fat-fingered bulk selection is obvious
         // before it's too late to back out.
         string message;
-        if (packages.Count == 1 && items.Count + ue4ssParts.Count == packages[0].PartCount)
+        var whole = packages.Count == 1 && items.Count + ue4ssParts.Count == packages[0].PartCount;
+        if (whole)
         {
             var package = packages[0];
             var partLines = items.Select(i => $"  • {i.Name} (Library)")
@@ -96,9 +97,10 @@ public sealed partial class LibraryViewModel
                 : $"Delete {items.Count} mods from your Library?\n\nTheir folders are removed from disk (each is backed up first, under Backups\\Mods). Run Merge & Install afterwards to drop them from the game.";
             if (ue4ssParts.Count > 0)
             {
-                message += $"\n\nThese came with UE4SS mods from the same download, which are removed too: {string.Join(", ", ue4ssParts)}.";
+                message += $"\n\nThese came with UE4SS mods from the same download: {string.Join(", ", ue4ssParts)}.";
             }
         }
+
 
         // A UE4SS part that is on in the game can't come out of its Mods folder while the game runs.
         // Asked anyway, the Library parts went after the Yes and the Lua half stayed in the game:
@@ -123,8 +125,35 @@ public sealed partial class LibraryViewModel
             return;
         }
 
-        var confirm = _dialogService.Confirm(message, "Delete mod(s)", ThemedConfirmSeverity.Warning);
-        if (!(confirm) || RefusedWhileGameRuns())
+        // A download with both halves: both go by default, or just one (the data half, keeping the
+        // Lua mod, or the other way round). The half kept is an ordinary row afterwards (user's
+        // call 2026-11-01).
+        var keptHalf = "";
+        if (ue4ssParts.Count > 0)
+        {
+            var choice = _dialogService.Choose(
+                message + "\n\nDelete both halves, or only one of them? The half you keep stays in your Library on its own.",
+                "Delete mod(s)", ThemedConfirmSeverity.Warning, "Delete both", "Only the data mod", "Only the UE4SS mod");
+            switch (choice)
+            {
+                case null:
+                    return;
+                case 1:
+                    keptHalf = $" Kept the UE4SS mod: {string.Join(", ", ue4ssParts)}.";
+                    ue4ssParts = [];
+                    break;
+                case 2:
+                    keptHalf = $" Kept the data mod: {string.Join(", ", items.Select(i => i.Name))}.";
+                    items = [];
+                    break;
+            }
+        }
+        else if (!_dialogService.Confirm(message, "Delete mod(s)", ThemedConfirmSeverity.Warning))
+        {
+            return;
+        }
+
+        if (RefusedWhileGameRuns())
         {
             return;
         }
@@ -178,10 +207,11 @@ public sealed partial class LibraryViewModel
         var nextStep = deletedCount > 0 ? " Run Merge & Install to remove it from the game." : "";
         StatusMessage = failures.Count switch
         {
-            0 when deletedCount == 1 && ue4ssParts.Count == 0 => $"Deleted '{items[0].Name}'.{nextStep}",
+            0 when items.Count == 0 => $"Deleted the UE4SS mod {string.Join(", ", ue4ssParts)}.{keptHalf}",
+            0 when deletedCount == 1 && ue4ssParts.Count == 0 => $"Deleted '{items[0].Name}'.{nextStep}{keptHalf}",
             0 when packages.Count == 1 && ue4ssParts.Count > 0 => $"Deleted '{packages[0].DisplayName}' ({deletedCount + ue4ssParts.Count} parts).{nextStep}",
-            0 => $"Deleted {deletedCount} mod(s).{nextStep}",
-            _ => $"Deleted {deletedCount} of {items.Count} — {string.Join("; ", failures)}",
+            0 => $"Deleted {deletedCount} mod(s).{nextStep}{keptHalf}",
+            _ => $"Deleted {deletedCount} of {items.Count + ue4ssParts.Count} — {string.Join("; ", failures)}",
         };
         // Its own handler reloads both panels (the UE4SS parts too): no Reload of its own here.
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());

@@ -63,4 +63,14 @@ public sealed class UpdateVersionComparerTests
     [Fact]
     public void HasUpdate_NothingKnownOnTheInstalledSide_IsFalse() =>
         Assert.False(UpdateVersionComparer.HasUpdate("1.0", installedVersion: "", recordedSourceVersion: null));
+
+    /// <summary>User report 2026-11-01 (the author's own builds): v0.8.0 installed showed "Update v0.7.0".</summary>
+    [Theory]
+    [InlineData("0.7.0", "0.8.0", false)]
+    [InlineData("v1.5.0", "1.6.0", false)]
+    [InlineData("1.9", "1.10", false)]
+    [InlineData("v12", "v9", true)]
+    [InlineData("2.0", "2.0-beta", true)] // can't be ordered: still a difference
+    public void HasUpdate_AnOlderLatestIsNoUpdate(string latest, string installed, bool update) =>
+        Assert.Equal(update, UpdateVersionComparer.HasUpdate(latest, installed, recordedSourceVersion: null));
 }

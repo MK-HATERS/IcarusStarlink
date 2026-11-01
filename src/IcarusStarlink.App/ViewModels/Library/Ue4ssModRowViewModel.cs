@@ -201,8 +201,9 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     // guard, a null KnownVersion never equals any real fetched LatestVersion, permanently
     // mislabeling an unenriched mod as having an update available.
     // Not a plain string compare — see UpdateVersionComparer ("1" vs "1.0" is the same version).
+    // A copy newer than Nexus's latest (the author's own build) has no update, whichever file it came from.
     public bool HasUpdateAvailable =>
-        HasNexusLink && (NexusFileId is { } installedFile && LatestNexusFileId is { } newestFile
+        HasNexusLink && !UpdateVersionComparer.IsNewer(KnownVersion, LatestVersion) && (NexusFileId is { } installedFile && LatestNexusFileId is { } newestFile
             ? newestFile != installedFile
             : !string.IsNullOrEmpty(KnownVersion) && UpdateVersionComparer.HasUpdate(LatestVersion, KnownVersion, null));
 

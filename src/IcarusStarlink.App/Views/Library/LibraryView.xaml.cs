@@ -73,33 +73,66 @@ public partial class LibraryView : UserControl
                     }
                 }));
             }
+
+            // A column next to the name growing after the lists are shown (the Nexus check's "Update
+            // v1.2" badge widens Status) changes neither list's size nor its extent, since neither
+            // scrolls sideways: the fill column kept its old width and pushed the row buttons past the
+            // panel's edge until the window was resized (user report 2026-11-01). Only a sum of the
+            // other columns is compared here, so a layout pass that changed none costs nothing.
+            LayoutUpdated += (_, _) =>
+            {
+                if (OtherColumnsWidth(DataHeaderGrid, DataFillIndex) != _dataOtherColumns
+                    || OtherColumnsWidth(Ue4ssHeaderGrid, Ue4ssFillIndex) != _ue4ssOtherColumns)
+                {
+                    UpdateColumnWidths();
+                }
+            };
         }
 
         UpdateColumnWidths();
     }
 
+    private const int NameIndex = 3;
+    private const int DataFillIndex = 11;
+    private const int Ue4ssFillIndex = 8;
+
+    /// <summary>The other columns' widths each list's Name and fill were last worked out from.</summary>
+    private double _dataOtherColumns = -1;
+    private double _ue4ssOtherColumns = -1;
+
+    private static double OtherColumnsWidth(Grid headerGrid, int fillIndex) =>
+        headerGrid.ColumnDefinitions.Where((_, index) => index != NameIndex && index != fillIndex).Sum(c => c.ActualWidth);
+
     private void UpdateColumnWidths()
     {
         _dataTreeScrollViewer ??= FindDescendant<ScrollViewer>(LibraryTree);
         _ue4ssTreeScrollViewer ??= FindDescendant<ScrollViewer>(Ue4ssTree);
-        UpdateColumnWidths(_dataTreeScrollViewer, DataHeaderGrid, fillIndex: 11, maxName: 380, "LibraryNameColumnWidth", "LibraryFillWidth");
-        UpdateColumnWidths(_ue4ssTreeScrollViewer, Ue4ssHeaderGrid, fillIndex: 8, maxName: 300, "Ue4ssNameColumnWidth", "Ue4ssFillWidth");
+        if (UpdateColumnWidths(_dataTreeScrollViewer, DataHeaderGrid, DataFillIndex, maxName: 380, "LibraryNameColumnWidth", "LibraryFillWidth") is { } data)
+        {
+            _dataOtherColumns = data;
+        }
+
+        if (UpdateColumnWidths(_ue4ssTreeScrollViewer, Ue4ssHeaderGrid, Ue4ssFillIndex, maxName: 300, "Ue4ssNameColumnWidth", "Ue4ssFillWidth") is { } ue4ss)
+        {
+            _ue4ssOtherColumns = ue4ss;
+        }
     }
 
-    private void UpdateColumnWidths(ScrollViewer? scrollViewer, Grid headerGrid, int fillIndex, double maxName, string nameKey, string fillKey)
+    /// <returns>The other columns' width the sizes were worked out from; null when the list isn't laid out yet.</returns>
+    private double? UpdateColumnWidths(ScrollViewer? scrollViewer, Grid headerGrid, int fillIndex, double maxName, string nameKey, string fillKey)
     {
         var visibleWidth = scrollViewer?.ViewportWidth ?? 0;
         if (visibleWidth <= 0 || headerGrid.ColumnDefinitions.Count <= fillIndex)
         {
-            return;
+            return null;
         }
 
-        const int nameIndex = 3;
-        var otherColumns = headerGrid.ColumnDefinitions.Where((_, index) => index != nameIndex && index != fillIndex).Sum(c => c.ActualWidth);
+        var otherColumns = OtherColumnsWidth(headerGrid, fillIndex);
         var room = Math.Floor(visibleWidth - RowChromeWidth - otherColumns);
         var name = Math.Clamp(room, MinNameColumnWidth, maxName);
         SetWidth(nameKey, name);
         SetWidth(fillKey, Math.Max(0, room - name));
+        return otherColumns;
     }
 
     private void SetWidth(string key, double width)

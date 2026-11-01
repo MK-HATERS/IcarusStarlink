@@ -34,6 +34,13 @@ public interface IDialogService
     /// </summary>
     bool? ConfirmWithCancel(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText) => null;
 
+    /// <summary>
+    /// Three answers and Cancel, with the caller's words: 0 = <paramref name="first"/> (the main
+    /// button), 1 = <paramref name="second"/>, 2 = <paramref name="third"/>, null = Cancel. The
+    /// default answers "cancelled".
+    /// </summary>
+    int? Choose(string message, string title, ThemedConfirmSeverity severity, string first, string second, string third) => null;
+
     /// <summary>A plain two-button confirm with the caller's words on the buttons: true = <paramref name="yesText"/>. The default answers no.</summary>
     bool ConfirmWithWords(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText) => false;
 
