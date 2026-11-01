@@ -290,13 +290,26 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(HasUpdateAvailable));
         OnPropertyChanged(nameof(IsAheadOfNexus));
+        OnPropertyChanged(nameof(NewestOnNexusShown));
     }
 
     /// <summary>
     /// "Your build": linked to Nexus, and newer than the newest version there (the author's own
     /// build, not released yet). Goes by itself once Nexus has that version or a newer one.
     /// </summary>
-    public bool IsAheadOfNexus => NexusModId is not null && UpdateVersionComparer.IsNewer(Version, LatestVersion);
+    public bool IsAheadOfNexus => NexusModId is not null && UpdateVersionComparer.IsNewer(Version, NewestOnNexusShown);
+
+    /// <summary>
+    /// The highest version of any file on the mod's Nexus page, from the last per-file check (null
+    /// otherwise). A mod with several files (Animal Talents' "Only" at 2.2, its addon at 2.1.1) is
+    /// "Your build" only when it's newer than all of them, not just the file it's tracked to.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsAheadOfNexus), nameof(HasUpdateAvailable), nameof(NewestOnNexusShown))]
+    private string? _newestOnNexus;
+
+    /// <summary>What "Your build" is compared with: the newest file on the page, else the latest the check found.</summary>
+    public string? NewestOnNexusShown => NewestOnNexus ?? LatestVersion;
 
     /// <summary>
     /// What "Check mods against game data" found doesn't fit the current game (ModHealthChecker):

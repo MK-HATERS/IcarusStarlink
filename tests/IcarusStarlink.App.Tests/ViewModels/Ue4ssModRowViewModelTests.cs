@@ -79,4 +79,27 @@ public class Ue4ssModRowViewModelTests
         row.LatestVersion = "0.9.0";
         Assert.True(row.HasUpdateAvailable);
     }
+
+    /// <summary>
+    /// Seen in the dev build 2026-11-01 (MkHatersAnimalTalents): tracked to its addon file (2.1.1),
+    /// while the page's "Only" file is 2.2, the version installed. Not "Your build", and no update.
+    /// </summary>
+    [Fact]
+    public void AnotherFileOnThePageAtTheSameVersion_IsntYourBuild()
+    {
+        var row = new Ue4ssModRowViewModel("MkHatersAnimalTalents", true, false, nexusModId: 370, knownVersion: "2.1.1", null, null, () => { })
+        {
+            NexusFileId = 3043,
+            LocalVersion = "2.2.0",
+            LatestNexusFileId = 3043,
+            LatestVersion = "2.1.1",
+        };
+        Assert.True(row.IsAheadOfNexus); // before the page's other files are known
+
+        row.NewestOnNexus = IcarusStarlink.Core.Library.UpdateVersionComparer.Highest(["2.1.1", "2.2", "2.1.1", null]);
+
+        Assert.Equal("2.2", row.NewestOnNexusShown);
+        Assert.False(row.IsAheadOfNexus);
+        Assert.False(row.HasUpdateAvailable);
+    }
 }

@@ -95,6 +95,7 @@ public sealed partial class LibraryViewModel
 
                     row.LatestVersion = previous.LatestVersion;
                     row.LatestNexusFileId = previous.LatestNexusFileId;
+                    row.NewestOnNexus = previous.NewestOnNexus;
                     row.EndorsementStatus = previous.EndorsementStatus;
                     row.IsOwnNexusMod = previous.IsOwnNexusMod;
                 }

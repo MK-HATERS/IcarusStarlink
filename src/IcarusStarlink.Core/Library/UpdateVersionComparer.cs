@@ -115,6 +115,10 @@ public static partial class UpdateVersionComparer
         return false;
     }
 
+    /// <summary>The highest of these versions (IsNewer), or null when there are none; one that can't be ordered never replaces another.</summary>
+    public static string? Highest(IEnumerable<string?> versions) =>
+        versions.Where(v => !string.IsNullOrWhiteSpace(v)).Aggregate((string?)null, (best, v) => best is null || IsNewer(v, best) ? v : best);
+
     private static List<long>? NormalizeComponents(string version)
     {
         var components = new List<long>();

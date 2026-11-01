@@ -313,7 +313,7 @@
                             AutomationProperties.Name="Your build">
                         <Button.ToolTip>
                             <TextBlock>
-                                <Run Text="Your own build: newer than Nexus's latest (v"/><Run Text="{Binding LatestVersion, Mode=OneWay}"/><Run Text="). Click to install a Nexus version instead."/>
+                                <Run Text="Your own build: newer than Nexus's latest (v"/><Run Text="{Binding NewestOnNexusShown, Mode=OneWay}"/><Run Text="). Click to install a Nexus version instead."/>
                             </TextBlock>
                         </Button.ToolTip>
                         <TextBlock Text="Your build" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
@@ -653,7 +653,7 @@
                             AutomationProperties.Name="Your build">
                         <Button.ToolTip>
                             <TextBlock>
-                                <Run Text="Your own build: newer than Nexus's latest (v"/><Run Text="{Binding LatestVersion, Mode=OneWay}"/><Run Text="). Click to install a Nexus version instead."/>
+                                <Run Text="Your own build: newer than Nexus's latest (v"/><Run Text="{Binding NewestOnNexusShown, Mode=OneWay}"/><Run Text="). Click to install a Nexus version instead."/>
                             </TextBlock>
                         </Button.ToolTip>
                         <TextBlock Text="Your build" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>

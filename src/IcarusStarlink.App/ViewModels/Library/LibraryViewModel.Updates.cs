@@ -78,7 +78,7 @@ public sealed partial class LibraryViewModel
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ReplaceOwnBuildAsync(LibraryItemViewModel? item)
     {
-        if (item is not null && ConfirmReplaceOwnBuild(item.Name, item.Version, item.LatestVersion))
+        if (item is not null && ConfirmReplaceOwnBuild(item.Name, item.Version, item.NewestOnNexusShown))
         {
             await GetUpdateAsync(item);
         }
@@ -317,7 +317,7 @@ public sealed partial class LibraryViewModel
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ReplaceOwnUe4ssBuildAsync(Ue4ssModRowViewModel? row)
     {
-        if (row is not null && ConfirmReplaceOwnBuild(row.Name, row.LocalVersion ?? row.KnownVersion, row.LatestVersion))
+        if (row is not null && ConfirmReplaceOwnBuild(row.Name, row.LocalVersion ?? row.KnownVersion, row.NewestOnNexusShown))
         {
             await GetUe4ssUpdateAsync(row);
         }
@@ -782,6 +782,7 @@ public sealed partial class LibraryViewModel
         {
             if (setByMod.TryGetValue(item.NexusModId!.Value, out var set) && NexusFileLineage.Newest(set, item.NexusFileId!.Value) is { } newest)
             {
+                item.NewestOnNexus = UpdateVersionComparer.Highest(set.Files.Select(f => f.Version));
                 item.LatestVersion = newest.Version;
                 item.LatestNexusFileId = newest.FileId;
                 resolvedItems.Add(item);
@@ -795,6 +796,7 @@ public sealed partial class LibraryViewModel
             var row = Ue4ssMods.FirstOrDefault(m => m.Name == captured.Name) ?? captured;
             if (setByMod.TryGetValue(captured.NexusModId!.Value, out var set) && NexusFileLineage.Newest(set, captured.NexusFileId!.Value) is { } newest)
             {
+                row.NewestOnNexus = UpdateVersionComparer.Highest(set.Files.Select(f => f.Version));
                 row.LatestVersion = newest.Version;
                 row.LatestNexusFileId = newest.FileId;
                 resolvedNames.Add(captured.Name);
