@@ -305,6 +305,19 @@
                             <Run Text="Update v"/><Run Text="{Binding LatestVersion, Mode=OneWay}"/>
                         </TextBlock>
                     </Button>
+                    <!-- Your own build, newer than Nexus's latest: no update badge; a click offers a Nexus version instead. -->
+                    <Button Style="{StaticResource PillButtonStyle}" Background="{DynamicResource InfoBrush}" Margin="6,0,0,0"
+                            Command="{Binding DataContext.ReplaceOwnUe4ssBuildCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding}"
+                            Visibility="{Binding IsAheadOfNexus, Converter={StaticResource BoolToVisibilityConverter}}"
+                            AutomationProperties.Name="Your build">
+                        <Button.ToolTip>
+                            <TextBlock>
+                                <Run Text="Your own build: newer than Nexus's latest (v"/><Run Text="{Binding LatestVersion, Mode=OneWay}"/><Run Text="). Click to install a Nexus version instead."/>
+                            </TextBlock>
+                        </Button.ToolTip>
+                        <TextBlock Text="Your build" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
+                    </Button>
                 </StackPanel>
 
                 <TextBlock Grid.Column="7" Text="{Binding LatestVersion}" VerticalAlignment="Center" FontSize="12"
@@ -631,6 +644,19 @@
                             <TextBlock Text="{Binding LatestVersion, StringFormat='Update available: v{0} — click to update'}"/>
                         </Button.ToolTip>
                         <TextBlock Text="Update" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
+                    </Button>
+                    <!-- Your own build, newer than Nexus's latest: no update badge; a click offers a Nexus version instead. -->
+                    <Button Style="{StaticResource PillButtonStyle}" Background="{DynamicResource InfoBrush}" Margin="8,0,0,0"
+                            Command="{Binding DataContext.ReplaceOwnBuildCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding}"
+                            Visibility="{Binding IsAheadOfNexus, Converter={StaticResource BoolToVisibilityConverter}}"
+                            AutomationProperties.Name="Your build">
+                        <Button.ToolTip>
+                            <TextBlock>
+                                <Run Text="Your own build: newer than Nexus's latest (v"/><Run Text="{Binding LatestVersion, Mode=OneWay}"/><Run Text="). Click to install a Nexus version instead."/>
+                            </TextBlock>
+                        </Button.ToolTip>
+                        <TextBlock Text="Your build" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
                     </Button>
                 </StackPanel>
 

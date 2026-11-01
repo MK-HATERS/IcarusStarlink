@@ -55,4 +55,28 @@ public class Ue4ssModRowViewModelTests
 
         Assert.False(row.HasVersionWarning);
     }
+
+    /// <summary>
+    /// User report 2026-11-01 (MkHatersCheats): a v0.8.0 build copied over a Nexus download whose
+    /// recorded version is older showed "Update v0.7.0". It's "Your build" until Nexus catches up.
+    /// </summary>
+    [Fact]
+    public void ABuildNewerThanNexus_IsYourBuild_NotAnUpdate_UntilNexusCatchesUp()
+    {
+        var row = new Ue4ssModRowViewModel("MkHatersCheats", true, false, nexusModId: 900, knownVersion: "0.6.0", null, null, () => { })
+        {
+            NexusFileId = 1,
+            LocalVersion = "0.8.0",
+            LatestNexusFileId = 2,
+            LatestVersion = "0.7.0",
+        };
+
+        Assert.True(row.IsAheadOfNexus);
+        Assert.False(row.HasUpdateAvailable);
+
+        row.LatestVersion = "0.8.0";
+        Assert.False(row.IsAheadOfNexus);
+        row.LatestVersion = "0.9.0";
+        Assert.True(row.HasUpdateAvailable);
+    }
 }

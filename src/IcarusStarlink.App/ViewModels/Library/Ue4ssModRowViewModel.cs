@@ -202,10 +202,21 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     // mislabeling an unenriched mod as having an update available.
     // Not a plain string compare — see UpdateVersionComparer ("1" vs "1.0" is the same version).
     // A copy newer than Nexus's latest (the author's own build) has no update, whichever file it came from.
+    // The copy's own main.lua version counts first: a build copied in over a Nexus download keeps
+    // the Nexus version recorded at download (KnownVersion), which said "Update v0.7.0" over v0.8.0.
     public bool HasUpdateAvailable =>
-        HasNexusLink && !UpdateVersionComparer.IsNewer(KnownVersion, LatestVersion) && (NexusFileId is { } installedFile && LatestNexusFileId is { } newestFile
+        HasNexusLink && !IsAheadOfNexus && (NexusFileId is { } installedFile && LatestNexusFileId is { } newestFile
             ? newestFile != installedFile
-            : !string.IsNullOrEmpty(KnownVersion) && UpdateVersionComparer.HasUpdate(LatestVersion, KnownVersion, null));
+            : !string.IsNullOrEmpty(InstalledVersion) && UpdateVersionComparer.HasUpdate(LatestVersion, InstalledVersion, KnownVersion));
+
+    /// <summary>The installed copy's version: its own main.lua's, else the one recorded at download.</summary>
+    private string? InstalledVersion => LocalVersion ?? KnownVersion;
+
+    partial void OnLocalVersionChanged(string? value)
+    {
+        OnPropertyChanged(nameof(HasUpdateAvailable));
+        OnPropertyChanged(nameof(IsAheadOfNexus));
+    }
 
     /// <summary>The Nexus file this mod came from (Ue4ssModMeta.NexusFileId); when known, updates follow that file's own update chain.</summary>
     public int? NexusFileId { get; set; }
@@ -216,7 +227,17 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     partial void OnLatestNexusFileIdChanged(int? value) => OnPropertyChanged(nameof(HasUpdateAvailable));
 
-    partial void OnLatestVersionChanged(string? value) => OnPropertyChanged(nameof(HasUpdateAvailable));
+    partial void OnLatestVersionChanged(string? value)
+    {
+        OnPropertyChanged(nameof(HasUpdateAvailable));
+        OnPropertyChanged(nameof(IsAheadOfNexus));
+    }
+
+    /// <summary>
+    /// "Your build": linked to Nexus, and newer than the newest version there (the author's own
+    /// build, not released yet). Goes by itself once Nexus has that version or a newer one.
+    /// </summary>
+    public bool IsAheadOfNexus => HasNexusLink && UpdateVersionComparer.IsNewer(InstalledVersion, LatestVersion);
 
     /// <summary>
     /// User-entered minimum UE4SS loader version this mod needs (e.g. "3.0.1") — set via this row's

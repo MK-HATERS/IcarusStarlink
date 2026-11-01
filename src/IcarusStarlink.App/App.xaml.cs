@@ -72,7 +72,9 @@ public partial class App : Application
             // A plain second launch (no nxm:// argument) asks the running instance to come to the
             // front instead of exiting silently (an audit finding: a minimized first instance plus a
             // Start-menu click looked like "the app won't start").
-            SingleInstanceService.SendToRunningInstance(nxmArgument ?? SingleInstanceService.ActivateMessage);
+            SingleInstanceService.SendToRunningInstance(nxmArgument
+                ?? (OwnBuildImport.PathIn(e.Args) is { } ownBuild ? OwnBuildImport.Message(ownBuild) : null)
+                ?? SingleInstanceService.ActivateMessage);
 
             singleInstanceService.Dispose();
             Shutdown();
@@ -316,7 +318,8 @@ public partial class App : Application
                 // This launch's own nxm:// argument (e.g. the very first time the OS protocol
                 // registration is used) goes first, then any link a second launch handed over
                 // while this one was starting.
-                var ownNxmArg = e.Args.FirstOrDefault(arg => arg.StartsWith("nxm://", StringComparison.OrdinalIgnoreCase));
+                var ownNxmArg = e.Args.FirstOrDefault(arg => arg.StartsWith("nxm://", StringComparison.OrdinalIgnoreCase))
+                    ?? (OwnBuildImport.PathIn(e.Args) is { } ownBuild ? OwnBuildImport.Message(ownBuild) : null);
                 FinishStartupNxmQueue(ownNxmArg);
             });
         }

@@ -31,14 +31,13 @@ namespace IcarusStarlink.App.ViewModels;
 public sealed partial class LibraryViewModel
 {
     /// <summary>
-    /// The action behind the "Update available" badge. A Database-sourced mod genuinely updates in
-    /// place: re-download from the catalog, then replace (delete-then-reimport under the same
-    /// "Replace, not accumulate" rule Install/patch-import already use), carrying pin/favorite/
-    /// notes across the swap. A Nexus-sourced mod jumps to its card on the native Nexus page
-    /// instead — a real in-app Nexus download needs a file ID this app doesn't have (only the mod
-    /// ID), so the honest action is the card whose own Download button starts a Mod Manager
-    /// Download through the existing nxm:// pipeline (or its "Open page" action, for a non-Premium
-    /// account that needs the real website).
+    /// The action behind the "Update available" badge. A Database-sourced mod updates in place:
+    /// re-download from the catalog, then replace (delete-then-reimport under the same "Replace,
+    /// not accumulate" rule Install/patch-import already use), carrying pin/favorite/notes across
+    /// the swap. A Nexus-sourced mod goes straight to the choice of its Nexus files (the newer
+    /// version of the installed file picked), then downloads and installs it in place of this copy
+    /// (user's ask 2026-11-01: it used to open the Nexus page, where Download had to be clicked
+    /// again). Without a Nexus key, or a mod not linked by ID, its card on the Nexus page opens.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task GetUpdateAsync(LibraryItemViewModel? item)
@@ -50,46 +49,45 @@ public sealed partial class LibraryViewModel
 
         if (string.Equals(item.Source, "Nexus", StringComparison.OrdinalIgnoreCase))
         {
-            // Nexus downloads persist in Pending Downloads (MO2-style) — if a file for this mod is
-            // already sitting there UNCLAIMED, activating it is one click closer than a fresh
-            // browser trip, so point there instead of the website. (Can't distinguish which version
-            // that file is — PendingDownloadEntry carries no version — so this stays a pointer, not
-            // an automatic activation of a possibly-older file.)
-            //
-            // "Unclaimed" specifically — not just "an entry for this mod ID exists at all" (a real
-            // bug found live): downloads are never removed except by an explicit Discard, so ANY mod
-            // ever downloaded from Nexus always has at least one PendingDownloadEntry sitting around
-            // forever. The old check matched regardless of activation state, meaning once a mod had
-            // been downloaded via this app even once, clicking Update on it could never again open
-            // its Nexus page for a newer file — it always redirected to Pending Downloads instead,
-            // even when the earlier download was already successfully activated and IS the mod
-            // currently showing right here. Only a pending entry that ISN'T currently reflected as a
-            // live Library item (never activated, or activated then since removed) is genuinely
-            // "unclaimed" and worth pointing the user at instead of Nexus.
-            // UE4SS halves count wherever they are: an ENABLED one sits in the game's Mods folder,
-            // not staging — looking at staging alone called every download with an enabled Lua
-            // half "unclaimed", so Update on its pak half only ever pointed back at the old file.
-            var ue4ssNames = item.NexusModId is null ? null
-                : new Ue4ssInstalledNames(_ue4ssModRepository, _settingsService).All().ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var hasUnclaimedDownload = item.NexusModId is { } nexusModId && _pendingDownloadStore.Entries
-                .Where(e => e.ModId == nexusModId)
-                .Any(e => e.AllActivatedItems.Count == 0
-                    || e.AllActivatedItems.Any(activated => activated.Kind == PendingDownloadActivationKind.Library
-                        ? !_repository.GetAll().Any(le => string.Equals(le.FolderName, activated.FolderName, StringComparison.OrdinalIgnoreCase))
-                        : !ue4ssNames!.Contains(activated.FolderName)));
-            if (hasUnclaimedDownload)
+            if (item.NexusModId is { } nexusModId && Downloads.CanFetchFromNexus)
             {
-                StatusMessage = "A downloaded file for this mod is already on the Downloads page — Activate or Reinstall it there (or re-download from Nexus if it's older than the update).";
+                if (RefuseWhileBusy(item))
+                {
+                    return;
+                }
+
+                item.FlushPendingSave();
+                StatusMessage = $"Getting '{item.Name}' from Nexus…";
+                await Downloads.ResolvePrimaryFileAndFetchAsync(nexusModId, item.Name);
+                StatusMessage = Downloads.PendingDownloadStatusMessage;
                 return;
             }
 
             SearchNexusFor(item);
-            StatusMessage = "Found the mod's card on the Nexus page — use its Download button to pull the update through this app.";
+            StatusMessage = "Found the mod's card on the Nexus page — use its Download button to pull the update through this app (sign in with your Nexus key in Settings to update straight from the Library).";
             return;
         }
 
         await UpdateFromCatalogAsync(item, offerComparison: true);
     }
+
+    /// <summary>
+    /// The "Your build" pill: this copy is newer than anything on Nexus (the author's own build).
+    /// Clicking it swaps it for a Nexus version after asking, through the same file choice as Update.
+    /// </summary>
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task ReplaceOwnBuildAsync(LibraryItemViewModel? item)
+    {
+        if (item is not null && ConfirmReplaceOwnBuild(item.Name, item.Version, item.LatestVersion))
+        {
+            await GetUpdateAsync(item);
+        }
+    }
+
+    private bool ConfirmReplaceOwnBuild(string name, string? yours, string? nexus) =>
+        _dialogService.ConfirmWithWords(
+            $"'{name}' here is your own build (v{yours}), newer than Nexus's latest (v{nexus}).\n\nReplace it with a version from Nexus? You choose the file next; your build is backed up first (Backups).",
+            "Replace your build", ThemedConfirmSeverity.Question, "Choose a Nexus version", "Keep my build");
 
     /// <summary>
     /// A Database mod's Get update: downloaded and installed through Downloads' own Activate (the
@@ -291,34 +289,38 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
-    /// The UE4SS row's Update pill: the same as a Nexus data mod's Get update. A download of this
-    /// mod already waiting on the Downloads page (never activated, or its folder since removed) is
-    /// pointed at; otherwise the mod's card opens on the Nexus page, whose Download pulls the new file.
+    /// The UE4SS row's Update pill: the same as a Nexus data mod's Get update, straight to the
+    /// choice of the mod's Nexus files; without a Nexus key, its card on the Nexus page.
     /// </summary>
-    [RelayCommand]
-    private void GetUe4ssUpdate(Ue4ssModRowViewModel? row)
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task GetUe4ssUpdateAsync(Ue4ssModRowViewModel? row)
     {
         if (row?.NexusModId is not { } nexusModId)
         {
             return;
         }
 
-        var ue4ssNames = new Ue4ssInstalledNames(_ue4ssModRepository, _settingsService).All().ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var hasUnclaimedDownload = _pendingDownloadStore.Entries
-            .Where(e => e.ModId == nexusModId)
-            .Any(e => e.AllActivatedItems.Count == 0
-                || e.AllActivatedItems.Any(activated => activated.Kind == PendingDownloadActivationKind.Library
-                    ? !_repository.GetAll().Any(le => string.Equals(le.FolderName, activated.FolderName, StringComparison.OrdinalIgnoreCase))
-                    : !ue4ssNames.Contains(activated.FolderName)));
-        if (hasUnclaimedDownload)
+        if (Downloads.CanFetchFromNexus)
         {
-            Ue4ssStatusMessage = "A downloaded file for this mod is already on the Downloads page — Activate or Reinstall it there (or re-download from Nexus if it's older than the update).";
+            Ue4ssStatusMessage = $"Getting '{row.Name}' from Nexus…";
+            await Downloads.ResolvePrimaryFileAndFetchAsync(nexusModId, row.Name);
+            Ue4ssStatusMessage = Downloads.PendingDownloadStatusMessage;
             return;
         }
 
         _nexusCatalogViewModel().SearchText = nexusModId.ToString(CultureInfo.InvariantCulture);
         WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("nexus"));
-        Ue4ssStatusMessage = "Found the mod's card on the Nexus page — use its Download button to pull the update through this app.";
+        Ue4ssStatusMessage = "Found the mod's card on the Nexus page — use its Download button to pull the update through this app (sign in with your Nexus key in Settings to update straight from the Library).";
+    }
+
+    /// <summary>The UE4SS row's "Your build" pill: as ReplaceOwnBuild, for the Lua half.</summary>
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task ReplaceOwnUe4ssBuildAsync(Ue4ssModRowViewModel? row)
+    {
+        if (row is not null && ConfirmReplaceOwnBuild(row.Name, row.LocalVersion ?? row.KnownVersion, row.LatestVersion))
+        {
+            await GetUe4ssUpdateAsync(row);
+        }
     }
 
     /// <summary>

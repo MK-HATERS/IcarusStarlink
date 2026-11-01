@@ -1913,23 +1913,28 @@ public sealed class LibraryViewModelTests
         Assert.Contains(vm.RootItems.OfType<LibraryItemViewModel>(), i => i.FolderName == "ModA");
     }
 
+    /// <summary>
+    /// User's ask 2026-11-01: Update on a Nexus mod opened the Nexus page, where Download had to be
+    /// clicked again. Signed in, it goes straight to the choice of the mod's files (the newer
+    /// version of the installed file picked), and the Nexus page isn't opened (the harness's Nexus
+    /// factory throws if it is).
+    /// </summary>
     [Fact]
-    public async Task GetUpdateCommand_NexusSourcedModWithAPendingDownloadAlreadyPresent_PointsThereInsteadOfTouchingTheRepository()
+    public async Task GetUpdateCommand_NexusModWhenSignedIn_GoesStraightToTheChoiceOfFiles()
     {
         var harness = new TestHarness();
-        harness.AddMod("ModA", source: "Nexus", nexusModId: 555);
-        harness.PendingDownloadStore.EntriesList.Add(new PendingDownloadEntry
-        {
-            ModId = 555, FileId = 1, FileName = "ModA.zip", LocalFilePath = @"C:\fake\ModA.zip",
-        });
+        harness.AddMod("AllInOne", source: "Nexus", nexusModId: 317).NexusFileId = 100;
+        harness.CredentialStore.ApiKey = "key";
+        harness.NexusApiClient.FileSets[317] = AllInOneFiles();
         var vm = harness.Build();
-        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "AllInOne");
 
         await vm.GetUpdateCommand.ExecuteAsync(item);
 
+        var (mod, files, preselected) = Assert.Single(harness.DialogService.NexusFilePicks);
+        Assert.Equal(("AllInOne", 3, 101), (mod, files, preselected));
+        Assert.Equal("Download cancelled.", vm.StatusMessage);
         Assert.Empty(harness.Repository.DeleteCalls);
-        Assert.Empty(harness.Repository.BackupModCalls);
-        Assert.Contains("already on the Downloads page", vm.StatusMessage);
     }
 
     /// <summary>
@@ -2850,6 +2855,15 @@ public sealed class LibraryViewModelTests
             ConfirmCallCount++;
             ConfirmMessages.Add(message);
             return confirmResult;
+        }
+
+        /// <summary>Each choice of a Nexus mod's files asked: the mod's name, how many files, the one preselected. Always cancelled.</summary>
+        public List<(string Mod, int Files, int? Preselected)> NexusFilePicks { get; } = [];
+
+        public NexusModFile? PickNexusFile(string modName, IReadOnlyList<NexusModFile> files, NexusModFile? preselect)
+        {
+            NexusFilePicks.Add((modName, files.Count, preselect?.FileId));
+            return null;
         }
 
         /// <summary>The answer to a three-way question (deleting a download's halves): 0 = the first button; a "no" fake cancels.</summary>

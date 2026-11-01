@@ -408,6 +408,23 @@ public static class ExtractedModClassifier
         return result;
     }
 
+    /// <summary>
+    /// The mods an unpacked build holds, by name, before anything is imported: its UE4SS mod folders
+    /// (the root itself, under <paramref name="rootName"/>, when it is one) and the base names of its
+    /// data files (.EXMOD, .EXMODZ, .pak). What a local build replaces is found by these names.
+    /// </summary>
+    public static (IReadOnlyList<string> Ue4ssNames, IReadOnlyList<string> DataNames) ModNamesIn(string root, string rootName)
+    {
+        var ue4ss = IsUe4ssModFolder(root) ? [rootName] : FindLooseUe4ssModFolders(root).Select(Path.GetFileName).OfType<string>().ToList();
+        var data = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+            .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".exmod" or ".exmodz" or ".pak")
+            .Select(Path.GetFileNameWithoutExtension)
+            .OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return (ue4ss, data);
+    }
+
     /// <summary>A mod's own code folder: "Scripts" holding Lua, or "dlls" holding a C++ mod's .dll.</summary>
     private static bool IsUe4ssCodeFolder(string folder)
     {

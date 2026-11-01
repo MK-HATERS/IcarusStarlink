@@ -38,6 +38,9 @@ public sealed partial class DownloadsViewModel
     /// variant packs) shows a real picker instead of silently grabbing whatever Nexus marks
     /// primary — that was silently discarding every other file a mod offered.
     /// </summary>
+    /// <summary>A Nexus API key is saved, so a mod's files can be listed and downloaded from here.</summary>
+    public bool CanFetchFromNexus => _credentialStore.Read(CredentialTargets.NexusApiKey) is not null;
+
     public async Task ResolvePrimaryFileAndFetchAsync(int nexusModId, string? displayName = null)
     {
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);

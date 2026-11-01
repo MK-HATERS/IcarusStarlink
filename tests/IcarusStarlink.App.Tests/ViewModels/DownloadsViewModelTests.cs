@@ -188,6 +188,58 @@ public sealed partial class DownloadsViewModelTests : IDisposable
     }
 
     /// <summary>
+    /// User's ask 2026-11-01: a mod author's own build ("--import build.zip") replaces the installed
+    /// Nexus copy, both halves, in place (no "_2"), backed up, and keeps the Nexus link.
+    /// </summary>
+    [Fact]
+    public async Task ImportOwnBuild_ReplacesBothHalvesOfTheNexusCopy_AndKeepsTheNexusLink()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(harness.AddDownload("WirelessPower 1.0.0.zip", WriteWirelessPowerLayout));
+        var build = Path.Combine(_root, "WirelessPower-build.zip");
+        using (var archive = new ZipArchive(File.Create(build), ZipArchiveMode.Create))
+        {
+            WriteEntry(archive, "Icarus/Binaries/Win64/ue4ss/Mods/WirelessPower/enabled.txt", "");
+            WriteEntry(archive, "Icarus/Binaries/Win64/ue4ss/Mods/WirelessPower/Scripts/main.lua", "print('my build')");
+            WriteEntry(archive, "Icarus/Content/Paks/mods/ZZ_WirelessPower_Icon_P.pak", "pak1 v2");
+            WriteEntry(archive, "Icarus/Content/Paks/mods/ZZ_WirelessPower_Model_P.pak", "pak2 v2");
+        }
+
+        var status = await vm.ImportOwnBuildAsync(build);
+
+        Assert.Contains("in place of the installed copy", status);
+        Assert.Equal(["WirelessPower"], harness.Ue4ss.GetAll());
+        Assert.Equal("print('my build')", File.ReadAllText(Path.Combine(harness.Ue4ss.GetFolderPath("WirelessPower"), "Scripts", "main.lua")));
+        Assert.Equal(361, harness.Ue4ssMeta.Load("WirelessPower").NexusModId);
+        Assert.Equal(361, Assert.Single(harness.Library.GetAll()).NexusModId);
+        Assert.NotEmpty(Directory.GetDirectories(Path.Combine(_root, "Backups"), "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task ImportOwnBuild_AMissingPath_SaysSoAndChangesNothing()
+    {
+        var vm = new Harness(_root).Build();
+
+        Assert.Contains("doesn't exist", await vm.ImportOwnBuildAsync(Path.Combine(_root, "nope.zip")));
+    }
+
+    [Theory]
+    [InlineData(new[] { "--import", @"C:\Builds\Bags.zip" }, @"C:\Builds\Bags.zip")]
+    [InlineData(new[] { "nxm://icarus/mods/1/files/2" }, null)]
+    [InlineData(new[] { "--import" }, null)]
+    public void TheImportArgument_IsReadAndCarriedOverThePipe(string[] args, string? path)
+    {
+        Assert.Equal(path, OwnBuildImport.PathIn(args));
+        if (path is not null)
+        {
+            Assert.Equal(path, OwnBuildImport.PathOf(OwnBuildImport.Message(path)));
+        }
+
+        Assert.Null(OwnBuildImport.PathOf("nxm://icarus/mods/1/files/2"));
+    }
+
+    /// <summary>
     /// Review 2026-10-28: Reinstall on a row whose file was deleted from Pending_Downloads went
     /// through the install, failed, opened nothing useful and ended on "Manual install failed:
     /// Could not find file …". It now says the file is gone and what to do, and leaves the

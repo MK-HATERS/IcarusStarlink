@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Storage.Nexus;
@@ -105,6 +106,17 @@ public partial class App
             MainWindow.Activate();
         }
 
+        // "--import <build>" (OwnBuildImport): a mod author's own build, installed like an update,
+        // shown on the Library page where it lands.
+        if (OwnBuildImport.PathOf(nxmUrl) is { } buildPath)
+        {
+            var main = _host.Services.GetRequiredService<MainViewModel>();
+            main.SelectedNavItem = main.NavItems.First(item => item.Id == "library");
+            var library = _host.Services.GetRequiredService<LibraryViewModel>();
+            _ = ImportOwnBuildAsync(library, buildPath);
+            return;
+        }
+
         // A download from Starlink's own Nexus page is an update, not a mod: the update window
         // waiting for it takes it, else it's offered as one (it used to be imported into the Library).
         if (Services.NexusAppUpdates.IsStarlinkLink(nxmUrl))
@@ -124,4 +136,7 @@ public partial class App
 
         _ = _host.Services.GetRequiredService<DownloadsViewModel>().FetchAndDownloadAsync(nxmUrl);
     }
+
+    private static async Task ImportOwnBuildAsync(LibraryViewModel library, string path) =>
+        library.StatusMessage = await library.Downloads.ImportOwnBuildAsync(path);
 }

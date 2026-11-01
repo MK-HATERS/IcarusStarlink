@@ -281,11 +281,22 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     // Not a plain string compare — see UpdateVersionComparer for the live "1.0" vs "1" false positive.
     // A tracked Nexus file: an update means a newer file replaced the one installed — versions of
     // OTHER files of the same mod (its other variants) never count.
-    public bool HasUpdateAvailable => HasSource && (NexusFileId is { } installedFile && LatestNexusFileId is { } newestFile
+    // A copy newer than Nexus's latest (the author's own build) has no update, whichever file it came from.
+    public bool HasUpdateAvailable => HasSource && !IsAheadOfNexus && (NexusFileId is { } installedFile && LatestNexusFileId is { } newestFile
         ? newestFile != installedFile
         : UpdateVersionComparer.HasUpdate(LatestVersion, Version, NexusVersion));
 
-    partial void OnLatestVersionChanged(string? value) => OnPropertyChanged(nameof(HasUpdateAvailable));
+    partial void OnLatestVersionChanged(string? value)
+    {
+        OnPropertyChanged(nameof(HasUpdateAvailable));
+        OnPropertyChanged(nameof(IsAheadOfNexus));
+    }
+
+    /// <summary>
+    /// "Your build": linked to Nexus, and newer than the newest version there (the author's own
+    /// build, not released yet). Goes by itself once Nexus has that version or a newer one.
+    /// </summary>
+    public bool IsAheadOfNexus => NexusModId is not null && UpdateVersionComparer.IsNewer(Version, LatestVersion);
 
     /// <summary>
     /// What "Check mods against game data" found doesn't fit the current game (ModHealthChecker):
