@@ -74,6 +74,7 @@ public sealed partial class SavesViewModel
         _charactersListDirty = false;
         _mountsListDirty = false;
         _profileFieldsDirty = false;
+        _removedCurrencies.Clear();
         _loadedStamps = null;
         _skippedSections.Clear();
         SkippedSectionsNote = null;
@@ -165,7 +166,10 @@ public sealed partial class SavesViewModel
                         var key = SaveJson.String(resource["MetaRow"]) ?? "?";
                         // A key the game doesn't have (Exotic_stabilized, in a real save) is said to be one:
                         // it used to be labelled as if it were a real currency.
-                        Currencies.Add(new SaveCurrencyViewModel(resource, CurrencyLabels.GetValueOrDefault(key, $"{key} (not a game currency)"), NotifyDirtyChanged));
+                        Currencies.Add(new SaveCurrencyViewModel(resource, CurrencyLabels.GetValueOrDefault(key, $"{key} (not a game currency)"), NotifyDirtyChanged)
+                        {
+                            IsGameCurrency = CurrencyLabels.ContainsKey(key),
+                        });
                     }
                 }
             }, Currencies.Clear);

@@ -1443,6 +1443,41 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.Equal(["Ren", "Exotic_stabilized (not a game currency)", "Flux"], vm.Currencies.Select(c => c.Label));
     }
 
+    /// <summary>The user's ask (2026-11-03): a currency the game doesn't have can be taken out of the save; a real one can't.</summary>
+    [Fact]
+    public async Task CurrencyTheGameDoesntHave_CanBeTakenOut_FromTheSaveCheck()
+    {
+        var profile = MakeProfile(nextChrSlot: 0);
+        profile["MetaResources"] = new JsonArray(
+            new JsonObject { ["MetaRow"] = "Credits", ["Count"] = 10 },
+            new JsonObject { ["MetaRow"] = "Exotic_stabilized", ["Count"] = 0 });
+        var repository = new FakeSaveRepository { Profile = profile };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            vm.RemoveCurrencyCommand.Execute(vm.Currencies.Single(c => c.IsGameCurrency));
+            Assert.Equal(2, vm.Currencies.Count);
+
+            var finding = Assert.Single(vm.CheckFindings, f => f.Message.Contains("Exotic_stabilized"));
+            finding.Fix!.Invoke();
+
+            Assert.Equal(["Ren"], vm.Currencies.Select(c => c.Label));
+            Assert.Contains("Currencies: taking out Exotic_stabilized (not a game currency)", vm.ChangeLines());
+            Assert.True(vm.HasUnsavedChanges);
+
+            vm.SaveChangesCommand.Execute(null);
+
+            Assert.Equal(1, repository.SaveProfileCallCount);
+            Assert.Equal(["Credits"], ((JsonArray)repository.Profile["MetaResources"]!).Select(r => (string?)r!["MetaRow"]));
+            Assert.False(vm.HasUnsavedChanges);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     /// <summary>
     /// Researched 2026-10-23: flags_&lt;SteamID&gt;.dat is the game's cached list of owned DLC
     /// (D_DLCPackageData rows), not character flags. Each pack is a toggle under its real name

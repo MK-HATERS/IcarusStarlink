@@ -11,6 +11,14 @@ public sealed partial class SaveCurrencyViewModel : DirtyRow
 
     public string Label { get; }
 
+    /// <summary>A currency the game has (D_MetaCurrency). False for a leftover like "Exotic_stabilized": the game ignores it, and it can be taken out.</summary>
+    public bool IsGameCurrency { get; init; } = true;
+
+    public bool IsUnknown => !IsGameCurrency;
+
+    /// <summary>Its MetaResources entry, for taking it out of the save.</summary>
+    internal JsonObject Node => _node;
+
     /// <summary>What a screen reader says for the row (the class name otherwise).</summary>
     public override string ToString() => Label;
 

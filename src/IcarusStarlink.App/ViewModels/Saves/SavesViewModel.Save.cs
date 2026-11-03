@@ -28,7 +28,7 @@ public sealed partial class SavesViewModel
             }
 
             Add(CharactersDirty, "Characters");
-            Add(Currencies.Any(c => c.IsDirty), "Currencies");
+            Add(Currencies.Any(c => c.IsDirty) || _removedCurrencies.Count > 0, "Currencies");
             Add(AccountFlags.Any(f => f.IsDirty), "Unlocks");
             Add(BinaryFlags.Any(f => f.IsDirty), "Owned DLC");
             Add(WorkshopTalents.Any(t => t.IsDirty && !IsMission(t)), "Workshop");
@@ -90,6 +90,11 @@ public sealed partial class SavesViewModel
         if (Currencies.Where(c => c.IsDirty).Select(c => c.Label).ToList() is { Count: > 0 } currencies)
         {
             lines.Add($"Currencies: {Some(currencies)}");
+        }
+
+        if (_removedCurrencies.Count > 0)
+        {
+            lines.Add($"Currencies: taking out {Some([.. _removedCurrencies.Select(c => c.Label)])}");
         }
 
         OnOff("Workshop", WorkshopTalents.Where(t => t.IsDirty && !IsMission(t)).Select(t => (t.DisplayName, t.Rank > 0)), "researched", "cleared");
@@ -224,6 +229,8 @@ public sealed partial class SavesViewModel
         {
             ApplyWorkshopTalentEdits(_profile);
         }
+
+        ApplyCurrencyRemovals(_profile);
     }
 
     [RelayCommand]
@@ -343,6 +350,7 @@ public sealed partial class SavesViewModel
             {
                 _repository.SaveProfile(SelectedSlot.SteamId, _profile!, takeBackup: false);
                 _profileFieldsDirty = false;
+                _removedCurrencies.Clear();
             }
 
             // The DLC list is written only when a pack was toggled: packs that stay keep the file's

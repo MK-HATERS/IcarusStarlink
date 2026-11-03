@@ -20,6 +20,39 @@ public sealed partial class SavesViewModel
         ["Refund"] = "Respec Points",
     };
 
+    /// <summary>MetaResources entries taken out, written at the next Save (the user's ask, 2026-11-03: their save carried Exotic_stabilized, which the game never had).</summary>
+    private readonly List<SaveCurrencyViewModel> _removedCurrencies = [];
+
+    /// <summary>Takes a currency the game doesn't have out of the save. A real one can't be: set it to 0 instead.</summary>
+    [RelayCommand]
+    private void RemoveCurrency(SaveCurrencyViewModel? currency)
+    {
+        if (currency is not { IsGameCurrency: false } || !Currencies.Remove(currency))
+        {
+            return;
+        }
+
+        _removedCurrencies.Add(currency);
+        _profileFieldsDirty = true;
+        _activityLog.Log($"{currency.Label} will be taken out of the save when you save.", IcarusStarlink.Core.Activity.ActivityEntryKind.Info);
+        NotifyDirtyChanged();
+        RunSaveCheck();
+    }
+
+    /// <summary>At save time, after the backup: the removed entries go out of MetaResources.</summary>
+    private void ApplyCurrencyRemovals(JsonObject profile)
+    {
+        if (_removedCurrencies.Count == 0 || profile["MetaResources"] is not JsonArray resources)
+        {
+            return;
+        }
+
+        foreach (var currency in _removedCurrencies)
+        {
+            resources.Remove(currency.Node);
+        }
+    }
+
     partial void OnSelectedCharacterChanged(SaveCharacterViewModel? value)
     {
         RefreshFlagFilter();

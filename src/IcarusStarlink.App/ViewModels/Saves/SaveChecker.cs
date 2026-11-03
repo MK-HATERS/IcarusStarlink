@@ -170,9 +170,10 @@ public static class SaveChecker
                 findings.Add(new(SaveCheckSeverity.Problem, "Account", $"{currency.Label} is negative ({count:N0}).", $"Set {currency.Label} to 0", () => currency.CountText = "0"));
             }
 
-            if (currency.Label.EndsWith("(not a game currency)", StringComparison.Ordinal))
+            if (!currency.IsGameCurrency)
             {
-                findings.Add(new(SaveCheckSeverity.Note, "Account", $"{currency.Label}: the game has no such currency and ignores it."));
+                findings.Add(new(SaveCheckSeverity.Note, "Account", $"{currency.Label}: the game has no such currency and ignores it.",
+                    "Take it out of the save", () => page.RemoveCurrencyCommand.Execute(currency)));
             }
         }
 

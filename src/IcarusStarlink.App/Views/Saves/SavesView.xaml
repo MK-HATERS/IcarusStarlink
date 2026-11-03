@@ -186,6 +186,12 @@
                                                 <DataTemplate>
                                                     <DockPanel Margin="0,3">
                                                         <TextBlock DockPanel.Dock="Left" Text="{Binding Label}" Width="190" Margin="0,0,8,0" VerticalAlignment="Center" FontSize="12.5" TextWrapping="Wrap"/>
+                                                        <!-- A currency the game doesn't have (a leftover in the save): it can be taken out. -->
+                                                        <Button DockPanel.Dock="Right" Content="Remove" Padding="8,1" Margin="8,0,0,0" VerticalAlignment="Center"
+                                                                Command="{Binding DataContext.RemoveCurrencyCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"
+                                                                Visibility="{Binding IsUnknown, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                                AutomationProperties.Name="{Binding Label, StringFormat='Remove {0}'}"
+                                                                ToolTip="Takes this entry out of the save when you save. The game has no such currency, so nothing in game changes."/>
                                                         <StackPanel>
                                                             <TextBox Text="{Binding CountText, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas" FontSize="12.5" TextAlignment="Right"
                                                                      AutomationProperties.Name="{Binding Label}" AutomationProperties.HelpText="{Binding NumberError}"
