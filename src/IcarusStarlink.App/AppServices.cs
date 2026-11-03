@@ -394,7 +394,7 @@ internal static class AppServices
         services.AddSingleton(sp => new WorldMapViewModel(
             sp.GetRequiredService<IcarusStarlink.PakIO.World.WorldMapStore>(), sp.GetRequiredService<ISettingsService>(), Path.Combine(appDataDirectory, "Data")));
         services.AddSingleton(sp => new DatabaseViewModel(sp.GetRequiredService<NexusCatalogViewModel>(), sp.GetRequiredService<LibraryViewModel>()));
-        services.AddSingleton(sp => new GameEditorViewModel(sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data"), sp.GetRequiredService<IActivityLog>()));
+        services.AddSingleton(sp => new GameEditorViewModel(sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data"), sp.GetRequiredService<IActivityLog>(), sp.GetRequiredService<IBaseGameIconDecoder>()));
         services.AddSingleton(sp => new ServerViewModel(
             sp.GetRequiredService<IFtpSiteStore>(),
             sp.GetRequiredService<ICredentialStore>(),

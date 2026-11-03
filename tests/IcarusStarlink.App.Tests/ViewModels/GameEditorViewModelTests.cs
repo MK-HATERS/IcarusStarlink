@@ -30,8 +30,10 @@ public sealed class GameEditorViewModelTests : IDisposable
             """);
         Write("Traits/D_Itemable.json", """
             {"RowStruct":"S","Defaults":{"Weight":0,"MaxStack":1},"Rows":[
-              {"Name":"Item_Envirosuit","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Envirosuit-DisplayName\", \"Xigo Envirosuit\")","Weight":100},
-              {"Name":"Item_Stone","Weight":10}
+              {"Name":"Item_Envirosuit","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Envirosuit-DisplayName\", \"Xigo Envirosuit\")","Weight":100,
+               "Icon":"/Game/Assets/2DArt/UI/Items/Item_Icons/Armour/ITEM_Envirosuit_1.ITEM_Envirosuit_1"},
+              {"Name":"Item_Stone","Weight":10,"Icon":"/Game/Assets/2DArt/UI/Items/Item_Icons/Voxels/ITEM_Stone.ITEM_Stone",
+               "Description":"NSLOCTEXT(\"D_Itemable\", \"Item_Stone-Description\", \"A hard rock.\")"}
             ]}
             """);
         Write("Traits/D_Armour.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"IO_Undersuit","ArmourStats":{"(Value=\"BaseOxygenSlots_+\")":1}}]}""");
@@ -288,25 +290,286 @@ public sealed class GameEditorViewModelTests : IDisposable
 
     private static GameItemFieldViewModel Weight(GameEditorViewModel vm) => vm.Sections.Single(s => s.Section.Key == "Itemable").Fields.Single(f => f.Label == "Weight");
 
-    /// <summary>A review finding: clicking another item threw away everything typed, without a word.</summary>
+    private static EditorItemEntry Item(GameEditorViewModel vm, string name) => vm.FilteredItems.Single(i => i.Name == name);
+
+    /// <summary>Clicking another item used to throw away (later: ask to throw away) what was typed; now each item keeps its changes until one Save writes them all.</summary>
     [Fact]
-    public void SwitchingItem_WithTypedChanges_AsksFirst_AndStaysWhenTheAnswerIsNo()
+    public void SwitchingItems_KeepsEachItemsChanges_WithoutAsking()
     {
         var vm = Open();
-        var asked = 0;
-        vm.ConfirmDiscard = _ => { asked++; return false; };
-        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        vm.ConfirmDiscard = _ => throw new InvalidOperationException("Switching items must not ask.");
+        vm.SelectedItem = Item(vm, "Envirosuit");
         Weight(vm).ValueText = "50";
 
-        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Stone");
-
-        Assert.Equal(1, asked);
-        Assert.Equal("Envirosuit", vm.SelectedItem?.Name);
-        Assert.Equal("50", Weight(vm).ValueText);
-
-        vm.ConfirmDiscard = _ => true;
-        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Stone");
+        vm.SelectedItem = Item(vm, "Stone");
         Assert.Equal("10", Weight(vm).ValueText);
+        Weight(vm).ValueText = "5";
+
+        Assert.Equal(2, vm.PendingCount);
+        Assert.Equal(2, vm.EditedItemCount);
+        Assert.Equal("YOUR CHANGES (2 IN 2 ITEMS)", vm.PendingHeaderText);
+        Assert.Equal(["Stone", "Envirosuit"], vm.PendingGroups.Select(g => g.ItemName)); // the shown item first
+        Assert.True(Item(vm, "Envirosuit").HasUnsavedChanges);
+
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Assert.Equal("50", Weight(vm).ValueText);
+        Assert.Equal(2, vm.PendingCount);
+    }
+
+    [Fact]
+    public void OneSave_WritesEveryItemsChanges()
+    {
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "50";
+        vm.SelectedItem = Item(vm, "Stone");
+        Weight(vm).ValueText = "5";
+        vm.NewModName = "Lighter";
+
+        vm.SaveCommand.Execute(null);
+
+        var entry = Assert.Single(_library.GetAll());
+        var rows = Read(_library, entry.FolderName).Rows.Single(r => r.CurrentFile == "Traits-D_Itemable.json").FileItems;
+        Assert.Equal(50, rows.Single(i => i.Name == "Item_Envirosuit").Fields["Weight"]!.GetValue<int>());
+        Assert.Equal(5, rows.Single(i => i.Name == "Item_Stone").Fields["Weight"]!.GetValue<int>());
+        Assert.StartsWith("Saved 2 change(s) to 'Lighter' (2 items)", vm.StatusMessage);
+        Assert.Equal(0, vm.PendingCount);
+        Assert.All(vm.FilteredItems, i => Assert.False(i.HasUnsavedChanges));
+        Assert.All(vm.FilteredItems, i => Assert.True(i.IsInTargetMod));
+    }
+
+    /// <summary>The × beside an item in Your changes throws away only that item's changes; Discard throws away every item's.</summary>
+    [Fact]
+    public void DiscardingOneItem_KeepsTheOthers_AndDiscardThrowsAwayAll()
+    {
+        var vm = Open();
+        vm.ConfirmDiscard = _ => true;
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "50";
+        vm.SelectedItem = Item(vm, "Stone");
+        Weight(vm).ValueText = "5";
+
+        vm.DiscardPendingItemCommand.Execute(vm.PendingGroups.Single(g => g.ItemName == "Envirosuit"));
+
+        Assert.Equal(["Stone"], vm.PendingGroups.Select(g => g.ItemName));
+        Assert.False(Item(vm, "Envirosuit").HasUnsavedChanges);
+
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "60";
+        vm.DiscardChangesCommand.Execute(null);
+
+        Assert.Equal(0, vm.PendingCount);
+        Assert.Equal("100", Weight(vm).ValueText);
+    }
+
+    /// <summary>Clicking an item's name in Your changes shows it, with what was typed for it.</summary>
+    [Fact]
+    public void AnItemInYourChanges_OpensWithItsChanges()
+    {
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "50";
+        vm.SelectedItem = Item(vm, "Stone");
+        vm.FilterText = "stone";
+
+        vm.OpenPendingItemCommand.Execute(vm.PendingGroups.Single(g => g.ItemName == "Envirosuit"));
+
+        Assert.Equal("Envirosuit", vm.SelectedItem?.Name);
+        Assert.Contains(vm.SelectedItem, vm.FilteredItems);
+        Assert.Equal("50", Weight(vm).ValueText);
+    }
+
+    /// <summary>A waiting item's changes come along to another Save to, like the shown item's, and survive Refresh game data.</summary>
+    [Fact]
+    public void AWaitingItemsChanges_FollowSaveTo_AndARefresh()
+    {
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "50";
+        vm.SelectedItem = Item(vm, "Stone");
+
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
+        WeakReferenceMessenger.Default.Send(new WeeklyChangeReportUpdatedMessage());
+
+        Assert.Equal(1, vm.PendingCount);
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Assert.Equal("50", Weight(vm).ValueText);
+    }
+
+    /// <summary>Found by a bulk edit on the 2026-11-03 game data: 47 items' text ends in a space ("…exposure resistance. "), and opening one showed a change nobody made.</summary>
+    [Fact]
+    public void GameTextEndingInASpace_IsNotAChange()
+    {
+        Write("Traits/D_Itemable.json", """
+            {"RowStruct":"S","Defaults":{"Weight":0,"MaxStack":1},"Rows":[
+              {"Name":"Item_Envirosuit","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Envirosuit-DisplayName\", \"Xigo Envirosuit\")",
+               "Description":"NSLOCTEXT(\"D_Itemable\", \"Item_Envirosuit-Description\", \"A suit. \")","Weight":100},
+              {"Name":"Item_Stone","Weight":10}
+            ]}
+            """);
+        var vm = Open();
+
+        vm.SelectedItem = Item(vm, "Envirosuit");
+
+        var description = vm.Sections.Single(s => s.Section.Key == "Itemable").Fields.Single(f => f.Label == "Description");
+        Assert.False(description.DiffersFromGame);
+        Assert.Equal(0, vm.PendingCount);
+        Assert.False(Item(vm, "Envirosuit").HasUnsavedChanges);
+    }
+
+    private static void PickBulkField(GameEditorViewModel vm, string section, string path) =>
+        vm.SelectedBulkField = vm.BulkFields.Single(f => f.Key == new BulkFieldKey(section, path));
+
+    /// <summary>Tick items, pick a value they share, multiply: the preview shows each item's before and after, and the values go into Your changes like typed ones.</summary>
+    [Fact]
+    public void BulkEdit_MultipliesEveryTickedItem_IntoYourChanges_ThenOneSave()
+    {
+        var vm = Open();
+        vm.TickAllShownCommand.Execute(null);
+        Assert.Equal(2, vm.TickedCount);
+
+        vm.OpenBulkCommand.Execute(null);
+        Assert.False(vm.ShowPickPrompt);
+        PickBulkField(vm, "Itemable", "Weight");
+        Assert.Equal(2, vm.SelectedBulkField!.ItemCount);
+        vm.SelectedBulkOperation = BulkEdit.Operations.Single(o => o.Operation == BulkOperation.Multiply);
+        vm.BulkValueText = "0.5";
+
+        Assert.Equal(["100 → 50", "10 → 5"], vm.BulkRows.Select(r => $"{r.CurrentText} → {r.NewText}"));
+        Assert.Equal(0, vm.PendingCount); // only a preview
+
+        vm.ApplyBulkCommand.Execute(null);
+
+        Assert.Equal(2, vm.PendingCount);
+        Assert.Equal(2, vm.EditedItemCount);
+        Assert.Empty(vm.BulkRows); // not previewed again from the new values: a second click would halve twice
+        Assert.StartsWith("Done: 2 item(s)", vm.BulkSummary);
+        vm.NewModName = "Light";
+        vm.SaveCommand.Execute(null);
+        var rows = Read(_library, Assert.Single(_library.GetAll()).FolderName).Rows.Single(r => r.CurrentFile == "Traits-D_Itemable.json").FileItems;
+        Assert.Equal(50, rows.Single(i => i.Name == "Item_Envirosuit").Fields["Weight"]!.GetValue<int>());
+        Assert.Equal(5, rows.Single(i => i.Name == "Item_Stone").Fields["Weight"]!.GetValue<int>());
+    }
+
+    /// <summary>The decay row Stone uses too: the Envirosuit gets its own copy by default (Stone's decay stays); "Change the shared rows" changes the shared row, for Stone as well.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void BulkEdit_OnASharedRow_OwnCopyOrTheSharedRow(bool ownCopy)
+    {
+        var vm = Open();
+        Item(vm, "Envirosuit").IsTicked = true;
+        vm.OpenBulkCommand.Execute(null);
+        PickBulkField(vm, "Decayable", "DecayTime");
+        vm.BulkValueText = "2";
+        Assert.NotNull(vm.BulkSharedText);
+        vm.BulkOwnCopy = ownCopy;
+
+        vm.ApplyBulkCommand.Execute(null);
+        vm.NewModName = "Slow decay";
+        vm.SaveCommand.Execute(null);
+
+        var row = Assert.Single(Read(_library, Assert.Single(_library.GetAll()).FolderName).Rows.Single(r => r.CurrentFile == "Traits-D_Decayable.json").FileItems);
+        Assert.Equal(ownCopy ? "Decay_General_Envirosuit" : "Decay_General", row.Name);
+        Assert.Equal(600, row.Fields["DecayTime"]!.GetValue<int>());
+    }
+
+    /// <summary>The bulk edit starts from what's typed (the shown item's 80, not its 100); an unticked preview row is left out; Undo takes it all back out.</summary>
+    [Fact]
+    public void BulkEdit_StartsFromTypedValues_LeavesOutUntickedRows_AndUndoes()
+    {
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "80";
+        vm.TickAllShownCommand.Execute(null);
+        vm.OpenBulkCommand.Execute(null);
+        PickBulkField(vm, "Itemable", "Weight");
+        vm.BulkValueText = "0.5";
+
+        Assert.Equal("80 → 40", vm.BulkRows.Single(r => r.Item.Name == "Envirosuit").CurrentText + " → " + vm.BulkRows.Single(r => r.Item.Name == "Envirosuit").NewText);
+        vm.BulkRows.Single(r => r.Item.Name == "Stone").Include = false;
+        vm.ApplyBulkCommand.Execute(null);
+
+        Assert.Equal("40", Weight(vm).ValueText);
+        Assert.Equal(["Envirosuit"], vm.PendingGroups.Select(g => g.ItemName));
+        Assert.True(vm.CanUndoBulk);
+
+        vm.UndoBulkCommand.Execute(null);
+
+        Assert.Equal("80", Weight(vm).ValueText);
+        Assert.Equal(1, vm.PendingCount);
+        Assert.False(vm.CanUndoBulk);
+    }
+
+    /// <summary>A value's chip ticks the items the list shows that have it (here: the Armour category) and picks it; ×1.5 is one click; nothing changes until it's put in.</summary>
+    [Fact]
+    public void AValuesChip_TicksTheListedItems_AndAQuickButtonSetsTheNumber()
+    {
+        var vm = Open();
+        vm.SelectedCategory = vm.Categories.Single(c => c.Label == "Armour");
+
+        vm.PickShortcutCommand.Execute(BulkEdit.Shortcuts.Single(s => s.Label == "Weight"));
+        vm.MultiplyByCommand.Execute("1.5");
+
+        Assert.True(vm.BulkMode);
+        vm.ClearFiltersCommand.Execute(null); // every item listed again: Stone (not armour) wasn't ticked
+        Assert.Equal(["Envirosuit"], vm.FilteredItems.Where(i => i.IsTicked).Select(i => i.Name));
+        Assert.Equal(new BulkFieldKey("Itemable", "Weight"), vm.SelectedBulkField?.Key);
+        Assert.Equal(BulkOperation.Multiply, vm.SelectedBulkOperation.Operation);
+        Assert.Equal("100 → 150", $"{vm.BulkRows.Single().CurrentText} → {vm.BulkRows.Single().NewText}");
+        Assert.Equal(0, vm.PendingCount);
+
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Assert.False(vm.BulkMode); // picking an item shows it
+    }
+
+    /// <summary>One item's new value typed over: it gets that instead, the edit survives another number, and a bad one blocks putting it in with the item's name.</summary>
+    [Fact]
+    public void APreviewRow_TypedOver_GivesThatItemItsOwnValue()
+    {
+        var vm = Open();
+        vm.TickAllShownCommand.Execute(null);
+        vm.OpenBulkCommand.Execute(null);
+        PickBulkField(vm, "Itemable", "Weight");
+        vm.MultiplyByCommand.Execute("2");
+
+        var stone = vm.BulkRows.Single(r => r.Item.Name == "Stone");
+        stone.NewText = "7.5";
+        Assert.Equal("Whole numbers only here.", stone.Error);
+        vm.ApplyBulkCommand.Execute(null);
+        Assert.Equal("Stone: Whole numbers only here.", vm.BulkError);
+        Assert.Equal(0, vm.PendingCount);
+
+        stone.NewText = "7";
+        vm.MultiplyByCommand.Execute("3"); // the preview is rebuilt: Stone keeps its 7
+        Assert.Equal("7", vm.BulkRows.Single(r => r.Item.Name == "Stone").NewText);
+        Assert.True(vm.BulkRows.Single(r => r.Item.Name == "Stone").IsEdited);
+        Assert.Equal("300", vm.BulkRows.Single(r => r.Item.Name == "Envirosuit").NewText);
+
+        vm.ApplyBulkCommand.Execute(null);
+        vm.SelectedItem = Item(vm, "Stone");
+        Assert.Equal("7", Weight(vm).ValueText);
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Assert.Equal("300", Weight(vm).ValueText);
+    }
+
+    /// <summary>A waiting item with a value that isn't a number blocks Save, naming the item.</summary>
+    [Fact]
+    public void ABadNumberOnAWaitingItem_BlocksSaving_NamingTheItem()
+    {
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "heavy";
+        vm.SelectedItem = Item(vm, "Stone");
+        Weight(vm).ValueText = "5";
+        vm.NewModName = "X";
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal("Xigo Envirosuit · Weight: Needs a number, like 50 or 0.5.", vm.StatusMessage);
+        Assert.Empty(_library.GetAll());
+        Assert.True(Item(vm, "Envirosuit").HasUnsavedChanges);
     }
 
     /// <summary>A review finding: changing "Save to" with typed changes showed one mod's values and saved into another.</summary>
@@ -520,5 +783,93 @@ public sealed class GameEditorViewModelTests : IDisposable
         var saved = ExmodJson.Serialize(Read(_library, mine.FolderName));
         Assert.Contains("Item_Stone", saved);
         Assert.Contains("Item_Envirosuit", saved);
+    }
+
+    private static string[] Names(GameEditorViewModel vm) => [.. vm.FilteredItems.Select(i => i.Name)];
+
+    /// <summary>Every item is listed (it stopped at 400 of 3,090), with a chip per category the game files its icons under; each chip counts what it would show under the search.</summary>
+    [Fact]
+    public void Categories_NarrowTheList_AndCountUnderTheSearch()
+    {
+        var vm = Open();
+        Assert.Equal(["All", "Armour", "Resources"], vm.Categories.Select(c => c.Label));
+        Assert.Equal("All 2 items", vm.ShowingText);
+
+        vm.SelectedCategory = vm.Categories.Single(c => c.Label == "Armour");
+        Assert.Equal(["Envirosuit"], Names(vm));
+        Assert.Equal("1 of 2 items", vm.ShowingText);
+
+        vm.SelectedCategory = vm.Categories[0];
+        vm.FilterText = "xigo";
+        Assert.Equal([1, 1, 0], vm.Categories.Select(c => c.Count));
+    }
+
+    /// <summary>A search also finds what the game says about an item (after the name matches); Clear filters brings everything back.</summary>
+    [Fact]
+    public void Search_FindsAnItemByItsDescription_AndClearFiltersShowsAllAgain()
+    {
+        var vm = Open();
+
+        vm.FilterText = "rock";
+        Assert.Equal(["Stone"], Names(vm));
+
+        vm.FilterText = "nothing like this";
+        Assert.True(vm.HasNoMatches);
+
+        vm.ClearFiltersCommand.Execute(null);
+        Assert.Equal("", vm.FilterText);
+        Assert.Equal(["Envirosuit", "Stone"], Names(vm));
+        Assert.False(vm.HasNoMatches);
+    }
+
+    [Fact]
+    public void HasFilter_KeepsTheItemsWithThatCard()
+    {
+        var vm = Open();
+
+        vm.SelectedHas = vm.HasChoices.Single(c => c.Key == "Armour");
+
+        Assert.Equal(["Envirosuit"], Names(vm));
+    }
+
+    /// <summary>The items the mod under Save to changes get a dot, and can be the only ones shown; "A new mod" changes nothing yet.</summary>
+    [Fact]
+    public void ItemsTheTargetModChanges_AreMarked_AndCanBeTheOnlyOnesShown()
+    {
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        Weight(vm).ValueText = "50";
+        vm.NewModName = "Lighter Suit";
+        vm.SaveCommand.Execute(null);
+
+        Assert.True(vm.IsOwnModTarget);
+        Assert.True(vm.FilteredItems.Single(i => i.Name == "Envirosuit").IsInTargetMod);
+        Assert.False(vm.FilteredItems.Single(i => i.Name == "Stone").IsInTargetMod);
+        vm.OnlyInTargetMod = true;
+        Assert.Equal(["Envirosuit"], Names(vm));
+        Assert.Equal("Only the 1 item this mod changes", vm.TargetModText);
+
+        vm.SelectedTarget = vm.Targets[0];
+
+        Assert.All(vm.FilteredItems, i => Assert.False(i.IsInTargetMod));
+        Assert.Equal(["Envirosuit", "Stone"], Names(vm));
+    }
+
+    /// <summary>The item on show stays in the list when a filter would hide it (on top), and is there once, not twice, after Refresh game data rebuilds the list.</summary>
+    [Fact]
+    public void TheItemOnShow_StaysListed_AndOnlyOnceAfterARefresh()
+    {
+        var vm = Open();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+
+        vm.SelectedCategory = vm.Categories.Single(c => c.Label == "Resources");
+        Assert.Equal(["Envirosuit", "Stone"], Names(vm));
+        Assert.Equal("1 of 2 items", vm.ShowingText);
+
+        vm.SelectedCategory = vm.Categories[0];
+        WeakReferenceMessenger.Default.Send(new WeeklyChangeReportUpdatedMessage());
+
+        Assert.Equal(["Envirosuit", "Stone"], Names(vm));
+        Assert.Same(vm.FilteredItems[0], vm.SelectedItem);
     }
 }

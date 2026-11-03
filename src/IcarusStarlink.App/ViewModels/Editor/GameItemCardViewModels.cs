@@ -48,6 +48,9 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
 
     public bool IsText => Field.Kind == EditableKind.Text;
 
+    /// <summary>Takes whole numbers only (a stat, a stack size): a bulk multiply rounds for it.</summary>
+    internal bool IsWholeNumber => _wholeNumber;
+
     public string GameText => Field.GameValue is null ? "game: not set" : $"game: {_gameText}{(Field.Inherited ? " (table default)" : "")}";
 
     [ObservableProperty]
@@ -93,10 +96,13 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     }
 
     /// <summary>Orange border: what the game will see differs from the game's own value.</summary>
-    public bool DiffersFromGame => ValueText.Trim() != _gameText;
+    public bool DiffersFromGame => ValueText.Trim() != _gameText.Trim();
 
     /// <summary>Typed here and not saved yet.</summary>
-    public bool IsPending => ValueText.Trim() != _startText && Error is null;
+    public bool IsPending => IsTyped && Error is null;
+
+    /// <summary>Differs from what was shown, valid or not (a half-typed number is kept when switching items too).</summary>
+    public bool IsTyped => ValueText.Trim() != _startText.Trim(); // game text can end in a space ("…resistance. "): not a change
 
     /// <summary>A value the game doesn't have (a stat the mod adds), emptied by ↺: it comes out of the mod again.</summary>
     private bool IsRemoved => Field.GameValue is null && ValueText.Trim().Length == 0;
@@ -142,7 +148,7 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     /// <summary>The value to write: null means "the game's again" (for a value the game doesn't have: none at all).</summary>
     public JsonNode? NewValue()
     {
-        if ((ValueText.Trim() == _gameText && Field.GameValue is not null) || IsRemoved)
+        if ((ValueText.Trim() == _gameText.Trim() && Field.GameValue is not null) || IsRemoved)
         {
             return null;
         }
@@ -202,6 +208,9 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
     partial void OnOwnCopyChanged(bool value) => _changed();
 
     public bool CanAddStat => Section.StatGroups.Count > 0;
+
+    /// <summary>Something was typed on this card (valid or not): switching items keeps it.</summary>
+    public bool HasTyped => Fields.Any(f => f.IsTyped);
 
     /// <summary>"Only changed values" hides every value of this card: it says so instead of showing an empty card.</summary>
     [ObservableProperty]

@@ -44,7 +44,10 @@ public sealed partial class HelpViewModel : ObservableObject
 
             Change the game's own items: make the default Envirosuit lighter, give it more oxygen slots, make Bread's buff last longer, a recipe cheaper. New mod… (Library) is the other half: it only ever makes new items, never changes the game's.
 
-            - **Pick an item** on the left by its in-game name (search: envirosuit, bread, axe…).
+            - **Pick an item** on the left: every item in the game, with its icon. Search by name (envirosuit, bread, axe…); what the game says about an item is searched too, after the names.
+            - **Narrow the list:** the category chips (Armour, Weapons, Consumables, Deployables…, as the game files its own icons) count what each would show. **Has** keeps items with a part you want to change (a recipe, a workshop price, durability, storage slots…), **Made at** the items crafted at one bench. With one of your mods under **Save to**, its items have an orange dot, and **Only the N items this mod changes** shows just those. **Clear filters** shows everything again.
+            - **One value on many items at once:** tick items in the list (**Tick all shown** ticks what the search and filters show), then **Change N ticked…**; or pick a category or filter and click a **Quick pick** (Stack size, Weight, Durability, Spoil time, Buff length, Ingredients, Research cost), which ticks the listed items that have it. Choose **What** (the values the ticked items have; a recipe's ingredients are "every ingredient amount"), **How** (Multiply by, Set to, Add) and the **Number** (or ×0.5, ×1.5, ×2, ×3). Whole-number values are rounded, and a multiply or add never takes 1 or more below 1. The preview shows each item's value now and after: type over an item's new value to give just that item something else (a list takes one number per value, with commas), or untick it to leave it out. If some items use a row shared with others, choose their own copies (the default) or changing the shared rows. **Put into Your changes** fills it all in like typing would; **Undo last bulk change** takes it back out. Nothing is saved until **Save**.
+            - **Change as many items as you like:** each keeps what you typed when you pick another (a ✎ in the list marks it). **Your changes** lists every change by item: click an item's name to show it again, its × throws away that item's changes, the × on a line undoes that one.
             - **Each card is one game row the item uses:** Name, icon, weight · Armour · Eating or using it · Its buff · Durability · Decay and spoiling · Tool damage · Recipe · Workshop price. Every number says what lower and higher do, and shows the game's value on the right; an orange border means yours differs. ↺ puts the game's value back. **Only changed values** hides the values still at the game's.
             - **Shared rows:** a card marked "shared by N items" is used by other items too (the basic Envirosuit's decay row is shared by 1,895 items). Choose **Give this item its own copy** (the default: only this item changes) or **Change it for all**.
             - **Stats:** armour, module and buff cards can **Add stat**: any stat the game knows, like cold resistance or max health.
@@ -53,7 +56,7 @@ public sealed partial class HelpViewModel : ObservableObject
             **Saving**
 
             - **Save to:** **A new mod** (give it a name), or one of **your own mods**: ones made in Starlink. Mods from Nexus or the IMM Database aren't listed, since an update would replace your changes and they aren't yours.
-            - Only the values you changed go into the mod. Putting a value back to the game's takes it out again.
+            - **Save** writes every item's changes into that one mod; **Discard** throws away all of them. Only the values you changed go into the mod. Putting a value back to the game's takes it out again.
             - After saving, **Turn on & go to Merge & Install** ticks the mod and takes you there (or tick it in **Library** yourself). Open it in the mod editor to see exactly what it holds.
             """),
         new("When an install goes wrong", """

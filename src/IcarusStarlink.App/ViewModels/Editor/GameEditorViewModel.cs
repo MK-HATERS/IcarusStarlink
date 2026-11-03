@@ -8,6 +8,7 @@ using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.PakIO.Assets;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
 
@@ -23,7 +24,7 @@ public sealed record EditorSaveTarget(string? FolderName, string Display)
 }
 
 /// <summary>A quick-start button on the Editor's empty state: a common item to change, and what people usually change on it.</summary>
-public sealed record EditorQuickStart(ItemChoice Item, string Hint)
+public sealed record EditorQuickStart(EditorItemEntry Item, string Hint)
 {
     public string Label => Item.Title;
 
@@ -50,17 +51,17 @@ public sealed partial class GameEditorViewModel : ObservableObject
     private readonly IActivityLog? _activityLog;
     private readonly string _dataFolder;
     private GameTableIndex? _game;
-    private IReadOnlyList<ItemChoice> _allItems = [];
     private IReadOnlyList<StatChoice>? _statChoices;
-    private bool _refreshingFilter;
 
     /// <param name="activityLog">Saves and failed saves also go to the app-wide activity feed (null in tests).</param>
-    public GameEditorViewModel(ILibraryRepository repository, string dataFolder, IActivityLog? activityLog = null)
+    /// <param name="iconDecoder">The game's item icons for the list (null in tests: no icons).</param>
+    public GameEditorViewModel(ILibraryRepository repository, string dataFolder, IActivityLog? activityLog = null, IBaseGameIconDecoder? iconDecoder = null)
     {
         _repository = repository;
         _writer = new OwnModWriter(repository);
         _activityLog = activityLog;
         _dataFolder = dataFolder;
+        _icons = iconDecoder is null ? null : new GameIconLoader(iconDecoder);
         NewModAuthor = Environment.UserName;
         // Game data changes under the page when Refresh game data runs.
         WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).ResetGameData());
@@ -78,8 +79,6 @@ public sealed partial class GameEditorViewModel : ObservableObject
     }
 
     public string Title => "Editor";
-
-    public ObservableCollection<ItemChoice> FilteredItems { get; } = [];
 
     public ObservableCollection<GameItemSectionViewModel> Sections { get; } = [];
 
@@ -115,18 +114,22 @@ public sealed partial class GameEditorViewModel : ObservableObject
     }
 
     [ObservableProperty]
-    private string _filterText = "";
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasItem), nameof(ShowPickPrompt))]
-    private ItemChoice? _selectedItem;
+    [NotifyPropertyChangedFor(nameof(HasItem), nameof(ShowPickPrompt), nameof(ShowItemCards))]
+    private EditorItemEntry? _selectedItem;
 
     public bool HasItem => SelectedItem is not null && Sections.Count > 0;
 
-    public bool ShowPickPrompt => !HasItem && NoDataMessage is null;
+    /// <summary>The item's cards (not while the bulk edit takes the middle).</summary>
+    public bool ShowItemCards => HasItem && !BulkMode;
+
+    public bool ShowPickPrompt => !HasItem && NoDataMessage is null && !BulkMode;
 
     [ObservableProperty]
     private string? _itemTitle;
+
+    /// <summary>Under the item's title: its category and what the game says about it.</summary>
+    [ObservableProperty]
+    private string? _itemDescription;
 
     [ObservableProperty]
     private string? _keptAsGames;
@@ -136,8 +139,11 @@ public sealed partial class GameEditorViewModel : ObservableObject
     private string? _noDataMessage;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsNewTarget))]
+    [NotifyPropertyChangedFor(nameof(IsNewTarget), nameof(IsOwnModTarget))]
     private EditorSaveTarget? _selectedTarget;
+
+    /// <summary>One of the user's mods is chosen (not "A new mod"): the list can mark and filter what it changes.</summary>
+    public bool IsOwnModTarget => !IsNewTarget;
 
     public bool IsNewTarget => SelectedTarget?.IsNew != false;
 
@@ -146,18 +152,6 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
     [ObservableProperty]
     private string _newModAuthor;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasNoPendingChanges))]
-    private int _pendingCount;
-
-    public bool HasNoPendingChanges => PendingCount == 0;
-
-    [ObservableProperty]
-    private string _pendingSummary = "Nothing changed yet.";
-
-    /// <summary>"Your changes", one line per changed value, each with its own × (undo).</summary>
-    public ObservableCollection<EditorPendingChange> PendingChanges { get; } = [];
 
     [ObservableProperty]
     private string? _statusMessage;
@@ -211,18 +205,28 @@ public sealed partial class GameEditorViewModel : ObservableObject
         }
 
         NoDataMessage = null;
-        _allItems = ItemCloner.ListItems(game);
+        _allItems = [.. GameItemCatalog.List(game).Select(info => new EditorItemEntry(info, _icons))];
+        foreach (var entry in _allItems)
+        {
+            entry.PropertyChanged += OnEntryPropertyChanged;
+        }
+
+        TicksChanged();
         QuickStarts.Clear();
         foreach (var (name, hint) in QuickStartItems)
         {
-            if (_allItems.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase)) is { } item)
+            if (FindItem(name) is { } item)
             {
                 QuickStarts.Add(new EditorQuickStart(item, hint));
             }
         }
 
+        BuildFilterChoices(game);
+        RefreshTargetMarks();
         RefreshFilter();
     }
+
+    private EditorItemEntry? FindItem(string name) => _allItems.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Shows one game item (from the mod editor's "Open in Editor"). With the mod it came from, and
@@ -232,47 +236,47 @@ public sealed partial class GameEditorViewModel : ObservableObject
     public void Open(string itemName, string? targetFolder = null)
     {
         EnsureLoaded();
-        if (_allItems.FirstOrDefault(i => string.Equals(i.Name, itemName, StringComparison.OrdinalIgnoreCase)) is not { } item)
+        if (FindItem(itemName) is not { } item)
         {
             return;
         }
 
-        SelectedItem = item;
-        RefreshFilter(); // the list shows 400 items; make sure this one is in it
-        if (SelectedItem != item)
-        {
-            return; // kept the item being edited (typed changes not thrown away)
-        }
-
+        SelectedItem = item; // what was typed for the item on show waits for Save
+        RefreshFilter(); // the filters may hide it; make sure this one is in the list
         if (targetFolder is not null && Targets.FirstOrDefault(t => t.FolderName == targetFolder) is { } target)
         {
             SelectedTarget = target;
         }
     }
 
-    partial void OnFilterTextChanged(string value) => RefreshFilter();
-
-    /// <summary>Asks before typed changes are thrown away (switching item, Discard). Tests swap in an answer.</summary>
+    /// <summary>Asks before typed changes are thrown away (Discard, an item's × in Your changes). Tests swap in an answer.</summary>
     internal Func<string, bool> ConfirmDiscard { get; set; } = message =>
         Views.ThemedConfirmDialog.Show(System.Windows.Application.Current?.MainWindow, message, "Unsaved changes", Views.ThemedConfirmSeverity.Warning);
 
-    /// <summary>The item whose cards are showing (SelectedItem can move ahead of it while asking).</summary>
-    private ItemChoice? _shownItem;
+    /// <summary>The item whose cards are showing.</summary>
+    private EditorItemEntry? _shownItem;
 
-    partial void OnSelectedItemChanged(ItemChoice? value)
+    // Switching items keeps what was typed for the item left (its cards wait in _drafts) and brings
+    // back what was typed for the item picked: one Save then writes every item's changes.
+    partial void OnSelectedItemChanged(EditorItemEntry? value)
     {
         if (_refreshingFilter || value == _shownItem)
         {
             return;
         }
 
-        if (PendingCount > 0 && !ConfirmDiscard($"You changed {PendingCount} value(s) of {ItemTitle} and haven't saved them. Throw them away?"))
+        BulkMode = false; // picking an item shows it
+        StashShownItem();
+        var stampBefore = _shownStamp;
+        var target = TargetPackage();
+
+        // The mod editor saved into the target since the waiting items were built from it.
+        if (stampBefore is not null && _shownStamp != stampBefore && RebuildDrafts(target) is var dropped and > 0)
         {
-            SelectedItem = _shownItem; // stay on the item being edited
-            return;
+            StatusMessage = $"That mod was changed somewhere else: {dropped} typed change(s) aren't in its new version, so they were dropped.";
         }
 
-        LoadItem();
+        ShowItem(target);
     }
 
     /// <summary>Set while the target list is rebuilt: the list empties under the selection, which isn't a new pick.</summary>
@@ -283,73 +287,69 @@ public sealed partial class GameEditorViewModel : ObservableObject
         if (!_refreshingTargets)
         {
             ReloadForTarget();
+            RefreshTargetMarks();
         }
     }
 
     // The values shown are the game's with the target mod's changes on top; typed changes come
     // along to the newly chosen mod instead of being lost or applied to values not on screen.
-    private void ReloadForTarget() => ReloadKeepingTyped("don't apply to that mod's version of this item");
+    private void ReloadForTarget() => ReloadKeepingTyped("don't apply to that mod's version of the item");
 
-    /// <summary>Reloads the shown item's cards, putting back every typed value that still has a place (and each card's own-copy choice).</summary>
+    /// <summary>Reloads every edited item's cards and the shown item's, putting back every typed value that still has a place (and each card's own-copy choice).</summary>
     /// <param name="whyDropped">Ends "N typed change(s) …, so they were dropped."</param>
     private void ReloadKeepingTyped(string whyDropped)
     {
-        var typed = Sections.SelectMany(s => s.Fields.Where(f => f.IsPending).Select(f => (Section: s.Section.Key, Path: f.Field.Path.Key, f.ValueText))).ToList();
-        var ownCopy = Sections.ToDictionary(s => s.Section.Key, s => s.OwnCopy);
-        LoadItem();
-        var carried = 0;
-        foreach (var (section, path, text) in typed)
+        var target = TargetPackage();
+        var dropped = RebuildDrafts(target) + ShowItem(target, carryFrom: [.. Sections]);
+        if (dropped > 0)
         {
-            if (Sections.FirstOrDefault(s => s.Section.Key == section)?.Fields.FirstOrDefault(f => f.Field.Path.Key == path) is { } field)
-            {
-                field.ValueText = text;
-                carried++;
-            }
-        }
-
-        foreach (var section in Sections)
-        {
-            if (ownCopy.TryGetValue(section.Section.Key, out var own))
-            {
-                section.OwnCopy = own;
-            }
-        }
-
-        if (carried < typed.Count)
-        {
-            StatusMessage = $"{typed.Count - carried} typed change(s) {whyDropped}, so they were dropped.";
+            StatusMessage = $"{dropped} typed change(s) {whyDropped}, so they were dropped.";
         }
     }
 
+    /// <summary>Discard: throws away what was typed for every item.</summary>
     [RelayCommand]
     private void DiscardChanges()
     {
-        if (PendingCount > 0 && !ConfirmDiscard($"Throw away the {PendingCount} change(s) you typed?"))
+        if (PendingCount > 0 && !ConfirmDiscard(EditedItemCount > 1
+                ? $"Throw away the {PendingCount} change(s) you typed for {EditedItemCount} items?"
+                : $"Throw away the {PendingCount} change(s) you typed?"))
         {
             return;
         }
 
+        _drafts.Clear();
+        ClearBulkCache();
         LoadItem();
     }
 
     [RelayCommand]
     private void Save()
     {
-        if (Game is not { } game || SelectedItem is not { } item)
+        var edited = EditedItems();
+        if (Game is not { } game || (edited.Count == 0 && SelectedItem is null))
         {
             StatusMessage = "Pick a game item first.";
             return;
         }
 
-        var invalid = Sections.SelectMany(s => s.Fields).FirstOrDefault(f => f.Error is not null);
-        if (invalid is not null)
+        // A value that isn't a number blocks saving: the shown item's first, then the waiting ones.
+        var invalid = Sections.SelectMany(s => s.Fields).Select(f => (Item: (string?)null, Field: f))
+            .Concat(_drafts.SelectMany(d => d.Value.SelectMany(s => s.Fields).Select(f => (Item: (string?)d.Key, Field: f))))
+            .FirstOrDefault(x => x.Field.Error is not null);
+        if (invalid.Field is { } bad)
         {
-            StatusMessage = $"{invalid.Label}: {invalid.Error}";
+            StatusMessage = invalid.Item is null ? $"{bad.Label}: {bad.Error}" : $"{FindItem(invalid.Item)?.Title ?? invalid.Item} · {bad.Label}: {bad.Error}";
             return;
         }
 
-        var changes = Sections.SelectMany(s => s.Fields.Where(f => f.IsPending).Select(f => new GameItemChange(s.Section.Key, f.Field.Path, f.NewValue()))).ToList();
-        if (changes.Count == 0)
+        var work = edited
+            .Select(e => (e.Name,
+                Changes: e.Cards.SelectMany(s => s.Fields.Where(f => f.IsPending).Select(f => new GameItemChange(s.Section.Key, f.Field.Path, f.NewValue()))).ToList(),
+                OwnCopies: e.Cards.Where(s => s.IsShared && s.OwnCopy).Select(s => s.Section.Key).ToHashSet()))
+            .Where(w => w.Changes.Count > 0)
+            .ToList();
+        if (work.Count == 0)
         {
             StatusMessage = "Nothing to save: change a value first.";
             return;
@@ -363,10 +363,8 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
         try
         {
-            var ownCopies = Sections.Where(s => s.IsShared && s.OwnCopy).Select(s => s.Section.Key).ToHashSet();
             string folder;
             ExmodPackage package;
-            IReadOnlyList<string> lines;
             if (target.IsNew)
             {
                 if (string.IsNullOrWhiteSpace(NewModName) || string.IsNullOrWhiteSpace(NewModAuthor))
@@ -375,10 +373,8 @@ public sealed partial class GameEditorViewModel : ObservableObject
                     return;
                 }
 
-                // Built in memory first: if the changes can't be applied, no empty mod is left in Library.
                 package = ModTemplateContent.Create(ModTemplate.Blank, NewModName.Trim(), NewModAuthor.Trim());
-                lines = GameItemEditor.Apply(game, package, item.Name, changes, ownCopies);
-                folder = _repository.CreateBlankMod(NewModName.Trim(), NewModAuthor.Trim()).FolderName;
+                folder = "";
             }
             else
             {
@@ -392,7 +388,19 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
                 folder = target.FolderName!;
                 package = ExmodFolder.ReadPackageOnly(_repository.GetFolderPath(folder), _repository.ListFolderFiles(folder));
-                lines = GameItemEditor.Apply(game, package, item.Name, changes, ownCopies);
+            }
+
+            // Every item into the one package, in memory first: if one can't be applied, nothing is
+            // written (and no empty new mod is left in Library).
+            var lines = new List<string>();
+            foreach (var (itemName, changes, ownCopies) in work)
+            {
+                lines.AddRange(GameItemEditor.Apply(game, package, itemName, changes, ownCopies));
+            }
+
+            if (target.IsNew)
+            {
+                folder = _repository.CreateBlankMod(NewModName.Trim(), NewModAuthor.Trim()).FolderName;
             }
 
             // The mod editor may have saved into this mod since its values were shown here: the
@@ -407,10 +415,13 @@ public sealed partial class GameEditorViewModel : ObservableObject
             }
 
             var name = _repository.GetAll().FirstOrDefault(e => e.FolderName == folder)?.Name ?? folder;
+            var items = work.Count == 1 ? "" : $" ({work.Count} items)";
+            _drafts.Clear();
+            ClearBulkCache(); // built from the mod before this save
             RefreshTargets(selectFolder: folder);
             LoadItem();
-            StatusMessage = $"Saved {lines.Count} change(s) to '{name}'. To use it in game: Turn on & go to Merge & Install, then Install.";
-            _activityLog?.Log($"Saved {lines.Count} change(s) to '{name}' in the Editor.", ActivityEntryKind.Success);
+            StatusMessage = $"Saved {lines.Count} change(s) to '{name}'{items}. To use it in game: Turn on & go to Merge & Install, then Install.";
+            _activityLog?.Log($"Saved {lines.Count} change(s) to '{name}'{items} in the Editor.", ActivityEntryKind.Success);
             SavedModFolder = folder;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException or System.Text.Json.JsonException)
@@ -432,46 +443,74 @@ public sealed partial class GameEditorViewModel : ObservableObject
         }
     }
 
-    private void LoadItem()
+    /// <summary>Shows the selected item fresh from the game and the target mod (what was typed for it is thrown away).</summary>
+    private void LoadItem() => ShowItem(TargetPackage());
+
+    /// <summary>
+    /// Shows the selected item: its waiting cards when changes were typed for it before, else fresh
+    /// cards from the game with <paramref name="target"/>'s changes on top, taking over what was typed
+    /// on <paramref name="carryFrom"/> (the same item's previous cards). Returns how many typed values
+    /// had no place on the new cards.
+    /// </summary>
+    private int ShowItem(ExmodPackage? target, IReadOnlyList<GameItemSectionViewModel>? carryFrom = null)
     {
         _shownItem = SelectedItem;
         Sections.Clear();
         ItemTitle = null;
+        ItemDescription = null;
         KeptAsGames = null;
-        if (Game is not { } game || SelectedItem is not { } item)
+        var dropped = 0;
+        if (Game is { } game && SelectedItem is { } item)
         {
-            UpdatePending();
-            OnPropertyChanged(nameof(HasItem));
-            OnPropertyChanged(nameof(ShowPickPrompt));
-            return;
-        }
+            var view = GameItemEditor.Describe(game, target, item.Name);
+            if (view is null)
+            {
+                StatusMessage = $"'{item.Name}' isn't in the game data any more.";
+                _drafts.Remove(item.Name);
+                dropped = carryFrom?.Sum(s => s.Fields.Count(f => f.IsTyped)) ?? 0;
+            }
+            else
+            {
+                ItemTitle = view.DisplayName is { Length: > 0 } d ? $"{d}  ({item.Name})" : item.Name;
+                ItemDescription = item.Info.Description is { Length: > 0 } about ? $"{item.Category} · {about}" : item.Category;
+                KeptAsGames = view.KeptAsGames.Count == 0 ? null : "Kept as the game's (models, sounds, how it's picked up and used): " + string.Join("; ", view.KeptAsGames) + ".";
+                if (!_drafts.Remove(item.Name, out var cards))
+                {
+                    cards = BuildCards(game, view);
+                    dropped = carryFrom is null ? 0 : CarryTyped(carryFrom, cards);
+                }
 
-        var view = GameItemEditor.Describe(game, TargetPackage(), item.Name);
-        if (view is null)
-        {
-            StatusMessage = $"'{item.Name}' isn't in the game data any more.";
-            UpdatePending();
-            return;
-        }
-
-        ItemTitle = view.DisplayName is { Length: > 0 } d ? $"{d}  ({item.Name})" : item.Name;
-        KeptAsGames = view.KeptAsGames.Count == 0 ? null : "Kept as the game's (models, sounds, how it's picked up and used): " + string.Join("; ", view.KeptAsGames) + ".";
-        _statChoices ??= GameStats.StatChoices(game);
-        foreach (var section in view.Sections)
-        {
-            var card = new GameItemSectionViewModel(section, _statChoices, UpdatePending, game);
-            card.ShowOnlyChanged(ShowChangedValuesOnly);
-            Sections.Add(card);
+                foreach (var card in cards)
+                {
+                    card.ShowOnlyChanged(ShowChangedValuesOnly);
+                    Sections.Add(card);
+                }
+            }
         }
 
         UpdatePending();
         OnPropertyChanged(nameof(HasItem));
         OnPropertyChanged(nameof(ShowPickPrompt));
+        OnPropertyChanged(nameof(ShowItemCards));
+        if (BulkMode)
+        {
+            RefreshBulkFields(); // the shown item's cards are new
+        }
+
+        return dropped;
     }
 
+    /// <summary>The mod under Save to as it is on disk now (null for a new mod); its stamp is what Save checks against.</summary>
     private ExmodPackage? TargetPackage()
     {
-        _shownStamp = null;
+        var package = ReadTargetPackage(out var stamp);
+        _shownStamp = stamp;
+        return package;
+    }
+
+    private ExmodPackage? ReadTargetPackage(out DateTime? stamp)
+    {
+        stamp = null;
         if (SelectedTarget is not { IsNew: false, FolderName: { } folder })
         {
             return null;
@@ -481,7 +520,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
         {
             var path = _repository.GetFolderPath(folder);
             var package = ExmodFolder.ReadPackageOnly(path, _repository.ListFolderFiles(folder));
-            _shownStamp = _writer.StampOf(folder, package.FileName);
+            stamp = _writer.StampOf(folder, package.FileName);
             return package;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or System.Text.Json.JsonException)
@@ -490,21 +529,6 @@ public sealed partial class GameEditorViewModel : ObservableObject
             return null;
         }
     }
-
-    private void UpdatePending()
-    {
-        var pending = Sections.SelectMany(s => s.Fields.Where(f => f.IsPending).Select(f => (Section: s, Field: f))).ToList();
-        PendingCount = pending.Count;
-        var lines = pending.Select(p => (Text: $"{p.Section.Title} · {p.Field.Label}: {p.Field.ValueText}" + SharedNote(p.Section), p.Field)).ToList();
-        PendingSummary = pending.Count == 0
-            ? "Nothing changed yet."
-            : string.Join("\n", lines.Take(8).Select(l => l.Text))
-              + (pending.Count > 8 ? $"\n…and {pending.Count - 8} more" : "");
-        ObservableCollectionSync.SyncTo(PendingChanges, [.. lines.Select(l => new EditorPendingChange(l.Text, l.Field))]);
-    }
-
-    private static string SharedNote(GameItemSectionViewModel section) =>
-        section.IsShared && !section.Section.IsOwnCopy ? (section.OwnCopy ? "  (its own copy)" : $"  (all {section.Section.SharedBy:N0} items)") : "";
 
     /// <summary>
     /// Rebuilds the "save into" list (on every Library change). The shown item is reloaded only when
@@ -537,46 +561,40 @@ public sealed partial class GameEditorViewModel : ObservableObject
         {
             ReloadForTarget();
         }
-        else if (PendingCount == 0 && Sections.Count > 0)
+        else if (Sections.Count > 0 && !Sections.Any(s => s.HasTyped))
         {
-            LoadItem(); // nothing typed to lose: show the target mod as it is now
+            LoadItem(); // nothing typed on the shown item to lose: show the target mod as it is now
         }
+
+        RefreshTargetMarks(); // a save or a change in Library can change what the mod touches
     }
 
     private void ResetGameData()
     {
+        var shown = _shownItem?.Name;
         _game = null;
         _allItems = [];
         _statChoices = null;
         QuickStarts.Clear();
         EnsureLoaded();
+
+        // The list was rebuilt: the item on show is a new entry now (the old one would sit in the list twice).
+        if (shown is not null && FindItem(shown) is { } again)
+        {
+            _refreshingFilter = true;
+            try
+            {
+                SelectedItem = again;
+            }
+            finally
+            {
+                _refreshingFilter = false;
+            }
+
+            RefreshFilter();
+        }
+
         // Refresh game data used to throw away whatever was typed here, without a word.
         ReloadKeepingTyped("aren't in the refreshed game data");
-    }
-
-    private void RefreshFilter()
-    {
-        var picked = SelectedItem;
-        _refreshingFilter = true;
-        try
-        {
-            FilteredItems.Clear();
-            var filter = FilterText.Trim();
-            foreach (var item in _allItems.Where(i => filter.Length == 0 || i.Display.Contains(filter, StringComparison.OrdinalIgnoreCase)).Take(400))
-            {
-                FilteredItems.Add(item);
-            }
-
-            if (picked is not null && !FilteredItems.Contains(picked))
-            {
-                FilteredItems.Insert(0, picked);
-            }
-
-            SelectedItem = picked;
-        }
-        finally
-        {
-            _refreshingFilter = false;
-        }
     }
 }

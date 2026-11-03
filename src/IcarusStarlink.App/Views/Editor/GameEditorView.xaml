@@ -6,6 +6,151 @@
              xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
              mc:Ignorable="d" d:DataContext="{d:DesignInstance vm:GameEditorViewModel}"
              IsVisibleChanged="OnIsVisibleChanged">
+    <UserControl.Resources>
+        <!-- A value's chip: ticks the listed items that have it and picks it; nothing changed yet. -->
+        <DataTemplate x:Key="BulkShortcutTemplate" DataType="{x:Type vm:EditorBulkShortcut}">
+            <Button Content="{Binding Label}" Margin="0,0,6,6" Padding="10,3"
+                    Command="{Binding DataContext.PickShortcutCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                    ToolTip="Ticks the items in the list that have this (pick a category or filter on the left first to narrow it) and picks it below. You see every value before anything is put in."
+                    AutomationProperties.Name="{Binding Label, StringFormat='Change {0} on many items'}"/>
+        </DataTemplate>
+
+        <ItemsPanelTemplate x:Key="WrapItems">
+            <WrapPanel/>
+        </ItemsPanelTemplate>
+
+        <!-- The bulk edit: what, how, the preview, then into Your changes. -->
+        <DataTemplate x:Key="BulkEditTemplate" DataType="{x:Type vm:GameEditorViewModel}">
+            <DockPanel Margin="14">
+                <StackPanel DockPanel.Dock="Top">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Back to the item" Command="{Binding CloseBulkCommand}" Padding="8,2" VerticalAlignment="Top"
+                                ToolTip="Show the item picked in the list again (the ticks stay)"/>
+                        <TextBlock Text="{Binding BulkTitle}" FontSize="18" FontWeight="SemiBold"/>
+                    </DockPanel>
+                    <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,4,0,10" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Text="Tick items in the list, pick a value they have, and how to change it; type over any item's new value to give it something else. Nothing changes until you put it into Your changes, and nothing is saved until Save."/>
+                    <DockPanel>
+                        <TextBlock Text="Quick pick:" VerticalAlignment="Top" Margin="0,4,8,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        <ItemsControl ItemsSource="{Binding BulkShortcuts}" ItemTemplate="{StaticResource BulkShortcutTemplate}" ItemsPanel="{StaticResource WrapItems}"/>
+                    </DockPanel>
+
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" MaxWidth="460"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="What" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                            <ComboBox ItemsSource="{Binding BulkFields}" SelectedItem="{Binding SelectedBulkField}" DisplayMemberPath="Display" Margin="0,2,0,0"
+                                      AutomationProperties.Name="Value to change" ToolTip="The values the ticked items have; the number is how many of them have it"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="How" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                            <ComboBox ItemsSource="{Binding BulkOperations}" SelectedItem="{Binding SelectedBulkOperation}" DisplayMemberPath="Label" Margin="0,2,0,0"
+                                      AutomationProperties.Name="How to change it"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="Number" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                            <TextBox Text="{Binding BulkValueText, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0" TextAlignment="Right" AutomationProperties.Name="Bulk number"
+                                     ToolTip="Multiply by 2 = double, 0.5 = half. Add -10 takes 10 away. Whole-number values are rounded, and a multiply or add never takes 1 or more below 1."/>
+                        </StackPanel>
+                        <ItemsControl Grid.Column="5" ItemsSource="{Binding QuickMultipliers}" VerticalAlignment="Bottom" Margin="8,0,0,0" ItemsPanel="{StaticResource WrapItems}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Content="{Binding}" ContentStringFormat="×{0}" Margin="0,0,4,0" Padding="7,2"
+                                            Command="{Binding DataContext.MultiplyByCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                            ToolTip="Multiply by this" AutomationProperties.Name="{Binding StringFormat='Multiply by {0}'}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
+                    <TextBlock Text="{Binding BulkError}" Foreground="{DynamicResource DangerBrush}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"
+                               Visibility="{Binding BulkError, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+                    <Border Margin="0,10,0,0" Padding="9,7" CornerRadius="4" Background="{DynamicResource AccentSoftBrush}"
+                            Visibility="{Binding BulkSharedText, Converter={StaticResource NullToVisibilityConverter}}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding BulkSharedText}" TextWrapping="Wrap" FontSize="12.5"/>
+                            <WrapPanel Margin="0,4,0,0">
+                                <RadioButton Content="Give each its own copy (only these items change)" IsChecked="{Binding BulkOwnCopy}" Margin="0,0,16,0"/>
+                                <RadioButton Content="Change the shared rows (every item using them changes too)" IsChecked="{Binding BulkChangeShared}"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <DockPanel Margin="0,10,0,6">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Content="Undo last bulk change" Command="{Binding UndoBulkCommand}" Padding="8,2" Margin="0,0,8,0"
+                                    Visibility="{Binding CanUndoBulk, Converter={StaticResource BoolToVisibilityConverter}}"
+                                    ToolTip="Takes the last bulk change back out of Your changes"/>
+                            <Button Content="Put into Your changes" Command="{Binding ApplyBulkCommand}" Style="{StaticResource PrimaryButtonStyle}" Padding="10,2"
+                                    ToolTip="Fills in the ticked values below on each item; review them in Your changes, then Save"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding BulkSummary}" TextWrapping="Wrap" FontSize="12.5" VerticalAlignment="Center"/>
+                    </DockPanel>
+                </StackPanel>
+
+                <!-- The preview: one row per item, its values now and after (type over the new value to give
+                     just that item something else; a list takes one number per value, with commas); untick to leave it out. -->
+                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+                    <ListBox ItemsSource="{Binding BulkRows}" Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                             AutomationProperties.Name="Bulk change preview">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:EditorBulkRow}">
+                                <Grid Margin="0,1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="30"/>
+                                        <ColumnDefinition Width="2*"/>
+                                        <ColumnDefinition Width="2*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="2*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <CheckBox IsChecked="{Binding Include}" VerticalAlignment="Center" Margin="0,0,6,0"
+                                              AutomationProperties.Name="{Binding Item.Title, StringFormat='Include {0}'}"/>
+                                    <Image Grid.Column="1" Source="{Binding Item.Icon}" Width="24" Height="24" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" Margin="4,0,8,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Item.Display}">
+                                        <Run Text="{Binding Item.Title, Mode=OneWay}"/>
+                                    </TextBlock>
+                                    <TextBlock Grid.Column="3" Text="{Binding CurrentText}" VerticalAlignment="Center" TextAlignment="Right" TextTrimming="CharacterEllipsis"
+                                               FontFamily="Consolas" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" ToolTip="{Binding CurrentText}"/>
+                                    <TextBlock Grid.Column="4" Text="→" VerticalAlignment="Center" Margin="8,0"/>
+                                    <TextBox Grid.Column="5" Text="{Binding NewText, UpdateSourceTrigger=PropertyChanged}" FontFamily="Consolas" FontSize="12" Margin="0,1"
+                                             AutomationProperties.Name="{Binding Item.Title, StringFormat='New value for {0}'}"
+                                             ToolTip="Type over it to give just this item something else (a list: one number per value, with commas)">
+                                        <TextBox.Style>
+                                            <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsEdited}" Value="True">
+                                                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                                        <Setter Property="BorderThickness" Value="2"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBox.Style>
+                                    </TextBox>
+                                    <TextBlock Grid.Row="1" Grid.Column="5" Text="{Binding Error}" FontSize="11.5" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"
+                                               Visibility="{Binding Error, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+            </DockPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
     <UserControl.InputBindings>
         <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCommand}"/>
     </UserControl.InputBindings>
@@ -19,11 +164,11 @@
 
         <TextBlock Grid.Row="0" Text="{Binding Title}" Style="{StaticResource PageHeaderStyle}"/>
         <TextBlock Grid.Row="1" TextWrapping="Wrap" MaxWidth="900" HorizontalAlignment="Left" Margin="0,6,0,14" Style="{StaticResource PageBodyTextStyle}"
-                   Text="Change the game's own items: make the default Envirosuit lighter, Bread's buff stronger, a recipe cheaper. Pick an item, change the numbers you want, then save into a new mod or one of your own mods. Only what you change goes into the mod. To make a brand-new item instead, use New mod… in Library."/>
+                   Text="Change the game's own items: make the default Envirosuit lighter, Bread's buff stronger, a recipe cheaper. Pick an item, change the numbers you want (as many items as you like: each keeps its changes), then save them all into a new mod or one of your own mods. Only what you change goes into the mod. To make a brand-new item instead, use New mod… in Library."/>
 
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="260" MinWidth="180"/>
+                <ColumnDefinition Width="320" MinWidth="220"/>
                 <ColumnDefinition Width="16"/>
                 <ColumnDefinition Width="*" MinWidth="360"/>
                 <ColumnDefinition Width="16"/>
@@ -38,33 +183,158 @@
                           ResizeDirection="Columns" ResizeBehavior="PreviousAndNext" Cursor="SizeWE" ToolTip="Drag to resize"
                           AutomationProperties.Name="Resize the save panel"/>
 
-            <!-- The game's items -->
+            <!-- The game's items: search, category chips, "Has" / "Made at", then the list. -->
             <Grid Grid.Column="0">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
                 <Grid>
-                    <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search game items"/>
+                    <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search game items"
+                             ToolTip="Searches the names first, then what the game says about each item"/>
                     <TextBlock Text="Search, e.g. envirosuit, bread, axe" Style="{StaticResource PlaceholderTextStyle}"
                                Visibility="{Binding FilterText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
                 </Grid>
-                <Border Grid.Row="1" Margin="0,6,0,0" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
-                    <!-- No sideways scrolling: the in-game name on top, the row name smaller under it,
-                         both cut with … and shown in full on hover. -->
-                    <ListBox ItemsSource="{Binding FilteredItems}" SelectedItem="{Binding SelectedItem}" Background="Transparent" BorderThickness="0"
-                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Margin="0,1" ToolTip="{Binding Display}">
-                                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding Subtitle}" TextTrimming="CharacterEllipsis" FontSize="10.5" FontFamily="Consolas"
-                                               Foreground="{DynamicResource FaintForegroundBrush}"
-                                               Visibility="{Binding Subtitle, Converter={StaticResource NullToVisibilityConverter}}"/>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+
+                <!-- One chip per category the game files its icons under; each counts what it would show. -->
+                <ListBox Grid.Row="1" Margin="0,8,0,0" ItemsSource="{Binding Categories}" SelectedItem="{Binding SelectedCategory}"
+                         Background="Transparent" BorderThickness="0" Padding="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                         AutomationProperties.Name="Item category">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel/>
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Margin" Value="0,0,4,4"/>
+                            <Setter Property="Cursor" Value="Hand"/>
+                            <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border x:Name="Bd" CornerRadius="9" Padding="8,2" BorderThickness="1"
+                                                BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource ContentBackgroundBrush}">
+                                            <ContentPresenter/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource ForegroundBrush}"/>
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                                <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:EditorCategoryChoice}">
+                            <TextBlock FontSize="11.5">
+                                <Run Text="{Binding Label, Mode=OneWay}"/><Run Text=" "/><Run Text="{Binding Count, Mode=OneWay}" FontSize="10.5"/>
+                            </TextBlock>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <Grid Grid.Row="2" Margin="0,4,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="6"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Has" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        <ComboBox ItemsSource="{Binding HasChoices}" SelectedItem="{Binding SelectedHas}" DisplayMemberPath="Label" Margin="0,2,0,0"
+                                  AutomationProperties.Name="Only items that have" ToolTip="Only items that have this: a card for it shows when you pick one"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Made at" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        <ComboBox ItemsSource="{Binding BenchChoices}" SelectedItem="{Binding SelectedBench}" DisplayMemberPath="Label" Margin="0,2,0,0"
+                                  AutomationProperties.Name="Only items made at" ToolTip="Only items one of whose recipes is at this bench"/>
+                    </StackPanel>
+                </Grid>
+
+                <StackPanel Grid.Row="3" Margin="0,6,0,0">
+                    <CheckBox IsChecked="{Binding OnlyInTargetMod}" Margin="0,0,0,4"
+                              Visibility="{Binding IsOwnModTarget, Converter={StaticResource BoolToVisibilityConverter}}"
+                              ToolTip="The mod chosen under Save to: its items have a dot in the list">
+                        <TextBlock Text="{Binding TargetModText}" TextWrapping="Wrap"/>
+                    </CheckBox>
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Clear filters" Command="{Binding ClearFiltersCommand}" Padding="6,0" FontSize="11.5"
+                                ToolTip="Every item again: no search, all categories"/>
+                        <TextBlock Text="{Binding ShowingText}" FontSize="11.5" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    </DockPanel>
+                    <!-- Ticks: change many items at once (the bulk edit in the middle). -->
+                    <WrapPanel Margin="0,6,0,0">
+                        <Button Content="Tick all shown" Command="{Binding TickAllShownCommand}" Padding="6,0" FontSize="11.5" Margin="0,0,6,4"
+                                ToolTip="Ticks every item the search and filters show, to change them all at once"/>
+                        <Button Content="Untick all" Command="{Binding UntickAllCommand}" Padding="6,0" FontSize="11.5" Margin="0,0,6,4"
+                                Visibility="{Binding HasTicked, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <Button Command="{Binding OpenBulkCommand}" Style="{StaticResource PrimaryButtonStyle}" Padding="8,1" FontSize="11.5" Margin="0,0,0,4"
+                                Visibility="{Binding HasTicked, Converter={StaticResource BoolToVisibilityConverter}}"
+                                ToolTip="Change one value on every ticked item: set it, multiply it or add to it, with a preview first">
+                            <TextBlock>
+                                <Run Text="Change"/><Run Text=" "/><Run Text="{Binding TickedText, Mode=OneWay}"/><Run Text="…"/>
+                            </TextBlock>
+                        </Button>
+                    </WrapPanel>
+                </StackPanel>
+
+                <Border Grid.Row="4" Margin="0,6,0,0" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+                    <Grid>
+                        <TextBlock Text="No item matches. Try fewer words, another category, or Clear filters." TextWrapping="Wrap" Margin="10"
+                                   Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   Visibility="{Binding HasNoMatches, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <!-- No sideways scrolling: the icon, the in-game name on top, the row name smaller under
+                             it, both cut with … and shown in full on hover. Rows are recycled as they scroll,
+                             and an icon is decoded only when its row first shows. -->
+                        <ListBox ItemsSource="{Binding FilteredItems}" SelectedItem="{Binding SelectedItem}" Background="Transparent" BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch"
+                                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                                 AutomationProperties.Name="Game items">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:EditorItemEntry}">
+                                    <Grid Margin="0,1" ToolTip="{Binding ToolTipText}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="32"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox IsChecked="{Binding IsTicked}" VerticalAlignment="Center" Margin="0,0,4,0"
+                                                  ToolTip="Tick to change it with others at once" AutomationProperties.Name="{Binding Title, StringFormat='Tick {0}'}"/>
+                                        <Border Grid.Column="1" Width="28" Height="28" CornerRadius="3" Background="{DynamicResource ContentBackgroundBrush}" HorizontalAlignment="Left">
+                                            <Image Source="{Binding Icon}" Width="26" Height="26" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                        </Border>
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="4,0,0,0">
+                                            <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Subtitle}" TextTrimming="CharacterEllipsis" FontSize="10.5" FontFamily="Consolas"
+                                                       Foreground="{DynamicResource FaintForegroundBrush}"
+                                                       Visibility="{Binding Subtitle, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="&#x270E;" FontSize="13" Margin="4,0,0,0" Foreground="{DynamicResource ForegroundBrush}"
+                                                       ToolTip="Changed here, not saved yet (see Your changes)"
+                                                       Visibility="{Binding HasUnsavedChanges, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                            <Ellipse Width="7" Height="7" Margin="4,0,2,0" Fill="{DynamicResource AccentBrush}" VerticalAlignment="Center"
+                                                     ToolTip="The mod chosen under Save to changes this item"
+                                                     Visibility="{Binding IsInTargetMod, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
                 </Border>
             </Grid>
 
@@ -87,21 +357,41 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:EditorQuickStart}">
-                                    <Button Margin="0,0,8,8" Padding="10,5" Width="170" HorizontalContentAlignment="Left"
+                                    <Button Margin="0,0,8,8" Padding="8,5" Width="200" HorizontalContentAlignment="Left"
                                             Command="{Binding DataContext.OpenQuickStartCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
                                             ToolTip="{Binding Item.Display}" AutomationProperties.Name="{Binding Label, StringFormat='Edit {0}'}">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Text="{Binding Hint}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                                        </StackPanel>
+                                        <!-- A fixed width: the button's template centres its content, which left the icons ragged. -->
+                                        <DockPanel Width="182">
+                                            <Image DockPanel.Dock="Left" Source="{Binding Item.Icon}" Width="32" Height="32" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Hint}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                            </StackPanel>
+                                        </DockPanel>
                                     </Button>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,14,0,0"
+                                   Text="Or change one value on many items at once: pick a category or filter on the left, then what to change (you see every item's new value, and can type over any, before anything is put in):"/>
+                        <ItemsControl ItemsSource="{Binding BulkShortcuts}" Margin="0,10,0,0" ItemTemplate="{StaticResource BulkShortcutTemplate}" ItemsPanel="{StaticResource WrapItems}"/>
                     </StackPanel>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding HasItem, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <ContentControl Content="{Binding}" ContentTemplate="{StaticResource BulkEditTemplate}"
+                                    Visibility="{Binding BulkMode, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding ShowItemCards, Converter={StaticResource BoolToVisibilityConverter}}">
                         <StackPanel Margin="14">
-                            <TextBlock Text="{Binding ItemTitle}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            <DockPanel>
+                                <Border DockPanel.Dock="Left" Width="56" Height="56" CornerRadius="4" Margin="0,0,12,0" VerticalAlignment="Top"
+                                        Background="{DynamicResource ContentBackgroundBrush}">
+                                    <Image Source="{Binding SelectedItem.Icon}" Width="52" Height="52" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding ItemTitle}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding ItemDescription}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0" MaxWidth="720" HorizontalAlignment="Left"
+                                               Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                               Visibility="{Binding ItemDescription, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                </StackPanel>
+                            </DockPanel>
                             <DockPanel Margin="0,4,0,10">
                                 <CheckBox DockPanel.Dock="Right" Content="Only changed values" IsChecked="{Binding ShowChangedValuesOnly}" VerticalAlignment="Top" Margin="12,0,0,0"
                                           ToolTip="Hide the values that are still the game's, so you see just what you (or the mod you save to) change. Untick to see them all."/>
@@ -260,16 +550,14 @@
                         <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,8,0,12"
                                    Text="Only mods you made in Starlink are listed: changes can't go into a mod from Nexus or the IMM Database."/>
 
-                        <TextBlock Style="{StaticResource FieldLabelStyle}">
-                            <Run Text="YOUR CHANGES"/><Run Text="{Binding PendingCount, Mode=OneWay, StringFormat=' ({0})'}"/>
-                        </TextBlock>
+                        <TextBlock Text="{Binding PendingHeaderText}" Style="{StaticResource FieldLabelStyle}"/>
                     </StackPanel>
 
                     <StackPanel DockPanel.Dock="Bottom">
                         <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                             <Button Content="Save (Ctrl+S)" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                                    ToolTip="Writes every changed value into the chosen mod (only those values)"/>
-                            <Button Content="Discard" Command="{Binding DiscardChangesCommand}" Margin="8,0,0,0" ToolTip="Forget the changes typed here, nothing saved"/>
+                                    ToolTip="Writes every changed value of every item listed into the chosen mod (only those values)"/>
+                            <Button Content="Discard" Command="{Binding DiscardChangesCommand}" Margin="8,0,0,0" ToolTip="Forget every change typed here, for every item; nothing saved"/>
                         </StackPanel>
                         <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" Margin="0,8,0,0" FontSize="12"
                                    Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
@@ -278,28 +566,83 @@
                                 ToolTip="Ticks the saved mod ON (adds it to the merge queue) and opens Merge &amp; Install, where Install puts it in the game"/>
                     </StackPanel>
 
-                    <!-- One line per changed value; the x puts that one back as it was shown. -->
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,6,0,0" HorizontalScrollBarVisibility="Disabled">
-                        <Grid>
-                            <TextBlock Text="Nothing changed yet." FontSize="12.5" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                    <!-- Grouped by item: its icon and name (click to open it, changes come along) and an x that
+                         throws away all of its changes; then one line per changed value, whose x puts that one back. -->
+                    <Grid Margin="0,6,0,0">
+                            <TextBlock Text="Nothing changed yet. You can change several items, then save them all at once." TextWrapping="Wrap" FontSize="12.5"
+                                       Foreground="{DynamicResource SecondaryForegroundBrush}"
                                        Visibility="{Binding HasNoPendingChanges, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                            <ItemsControl ItemsSource="{Binding PendingChanges}">
+                            <!-- Its own scrolling, so only the groups on screen are drawn (a bulk edit can leave hundreds). -->
+                            <ItemsControl ItemsSource="{Binding PendingGroups}" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.ScrollUnit="Pixel"
+                                          ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl.Template>
+                                    <ControlTemplate TargetType="ItemsControl">
+                                        <ScrollViewer CanContentScroll="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                                            <ItemsPresenter/>
+                                        </ScrollViewer>
+                                    </ControlTemplate>
+                                </ItemsControl.Template>
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <VirtualizingStackPanel/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="{x:Type vm:EditorPendingChange}">
-                                        <DockPanel Margin="0,0,0,4">
-                                            <Button DockPanel.Dock="Right" Style="{StaticResource IconButtonStyle}" Width="20" Height="20" VerticalAlignment="Top" Margin="4,0,0,0"
-                                                    Command="{Binding Field.UndoChangeCommand}"
-                                                    ToolTip="Undo this change" AutomationProperties.Name="Undo this change">
-                                                <Path Data="M1,1 L9,9 M9,1 L1,9" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.5"
-                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="8" Height="8" Stretch="Uniform"/>
-                                            </Button>
-                                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12.5"/>
-                                        </DockPanel>
+                                    <DataTemplate DataType="{x:Type vm:EditorPendingGroup}">
+                                        <StackPanel Margin="0,0,0,10">
+                                            <DockPanel Margin="0,0,0,4">
+                                                <Button DockPanel.Dock="Right" Style="{StaticResource IconButtonStyle}" Width="20" Height="20" Margin="4,0,0,0"
+                                                        Command="{Binding DataContext.DiscardPendingItemCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                                        ToolTip="Throw away every change typed for this item" AutomationProperties.Name="{Binding Title, StringFormat='Throw away the changes to {0}'}">
+                                                    <Path Data="M1,1 L9,9 M9,1 L1,9" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.5"
+                                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="8" Height="8" Stretch="Uniform"/>
+                                                </Button>
+                                                <Image DockPanel.Dock="Left" Source="{Binding Item.Icon}" Width="22" Height="22" Margin="0,0,6,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                                <Button Command="{Binding DataContext.OpenPendingItemCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                                        Cursor="Hand" HorizontalAlignment="Left" VerticalAlignment="Center" Background="Transparent" BorderThickness="0" Padding="0"
+                                                        ToolTip="Show this item (its changes come with it)" AutomationProperties.Name="{Binding Title, StringFormat='Show {0}'}">
+                                                    <Button.Template>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <ContentPresenter/>
+                                                        </ControlTemplate>
+                                                    </Button.Template>
+                                                    <TextBlock TextTrimming="CharacterEllipsis" FontSize="12.5">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsShown}" Value="True">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                        <Run Text="{Binding Title, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding CountText, Mode=OneWay}" FontWeight="Normal" FontSize="11"
+                                                                                                                       Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                    </TextBlock>
+                                                </Button>
+                                            </DockPanel>
+                                            <ItemsControl ItemsSource="{Binding Changes}" Margin="28,0,0,0">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type vm:EditorPendingChange}">
+                                                        <DockPanel Margin="0,0,0,3">
+                                                            <Button DockPanel.Dock="Right" Style="{StaticResource IconButtonStyle}" Width="20" Height="20" VerticalAlignment="Top" Margin="4,0,0,0"
+                                                                    Command="{Binding Field.UndoChangeCommand}"
+                                                                    ToolTip="Undo this change" AutomationProperties.Name="Undo this change">
+                                                                <Path Data="M1,1 L9,9 M9,1 L1,9" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="1.5"
+                                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="8" Height="8" Stretch="Uniform"/>
+                                                            </Button>
+                                                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="12"/>
+                                                        </DockPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                        </Grid>
-                    </ScrollViewer>
+                    </Grid>
                 </DockPanel>
             </Border>
         </Grid>
