@@ -329,22 +329,38 @@ keys or tokens) makes it much faster to track down.
 ### 4.4.0 (latest)
 
 **Added**
-- **Editor page, rebuilt**:
-  - Every one of the game's 3,090 items is listed (it stopped at 400), each with its icon. Category chips (Armour, Weapons, Consumables, Deployables…, as the game files its own icons) count what each would show. **Has** and **Made at** narrow the list to items with a part you want to change, or made at one bench. Search also finds what the game says about an item.
-  - With one of your mods under Save to, the items it already changes have a dot, and a filter shows just those.
-  - **Change as many items as you like, then save once**: each item keeps what you typed when you pick another (a pencil marks it in the list). Your changes lists them by item: click one to show it again, or throw one item's changes away. Save writes them all into the one mod.
-  - **Change many items at once**: tick items, or click a Quick pick (Stack size, Weight, Durability, Spoil time, Buff length, Storage slots, Ingredients, Research cost) to tick the listed items that have it. Set, multiply (×0.5, ×1.5, ×2, ×3 or any number) or add; a preview shows every item's value now and after. Type over any item's new value to give it something else, or untick it. Shared rows get their own copies unless you choose otherwise. It goes into Your changes, with Undo.
-  - New on the item cards: tick boxes for on/off settings (Weather damages it, Needs shelter, Blocked by walls…), drop-downs for links (what food spoils into, a recipe's bench, a bench's recipe list), **storage slots** (crates, benches and furnaces, own copy and all), and a recipe's ingredients can be **added and taken out**.
-  - The item list loads in the background the first time the page opens.
-- **Mod checks from tests in the game** (MkHaters' Hook Scout): a row name that's probably a typo of a game row, new rows in a table the game can't use them in (`D_CharacterGrowth`), stats the game ignores where they are (aura stats on placed items, a bag's spoil-rate stat), and new items nothing hands out. A dedicated server's log is quoted as proof where it says the same. The Editor and the mod editor refuse those rows and stats when you add them, and say why. Field notes say what heat and aura ranges, blocking by walls and automatic shut-off really do in game.
-- **Saves**: Talents, Workshop, Missions and a mount's talents can be shown as the game's own trees (nodes where the game places them, the lines between them, learned ones lit, Fit and a size slider), or as lists. A character's Level can be set directly. Save's confirm lists what changes.
-- **Saves**: Clean up also takes out currencies, creatures and accolades the game doesn't have and no mod gives; a currency the game doesn't have can be removed. The save check offers more fixes (a creature over its max, a talent learned without the one before it, unknown flags), and the same entry listed twice is merged.
+
+**Editor page, rebuilt** (the page for changing the game's own items)
+- **Every item is listed**: all 3,090 (the list used to stop at 400 without saying so), each with its in-game icon.
+- **Find items faster**: category chips (Armour, Weapons, Consumables, Deployables…), **Has** (items with a recipe, durability, storage slots…), **Made at** (items crafted at one bench), and search also reads what the game says about an item.
+- **Change several items, then save once**: each item keeps what you typed when you move to another. **Your changes** lists them by item, and one **Save** writes them all into one mod.
+- **Change many items at once**: tick items, or click a **Quick pick** (Stack size, Weight, Durability, Spoil time, Buff length, Storage slots, Ingredients, Research cost). Then set, multiply (×0.5, ×1.5, ×2, ×3 or any number) or add. You see every item's old and new value before anything changes, and you can type a different value for any one item or leave it out. **Undo last bulk change** takes it back.
+- **More you can change**: on/off settings (Weather damages it, Needs shelter, Blocked by walls…), what food spoils into, which bench a recipe uses, the storage slots of crates, benches and furnaces, and a recipe's ingredients (add or take out).
+- Items the mod you're saving to already changes have a dot, and a filter shows just those.
+
+**Mod checks that know what the game really does** (from in-game tests by MkHaters' Hook Scout). Mods are now also flagged for:
+- a row name that's probably a typo of a game row: it would add a useless new row instead of changing the game's;
+- new rows in `D_CharacterGrowth`, which the game can't use (tames show level 0). A dedicated server's own log is quoted as proof when it says the same;
+- stats the game ignores where they are: an aura stat on a placed item (a bed, a heater), a spoil-rate stat on a bag or storage;
+- new items nobody can get: no item template, or nothing in the mod hands them out.
+
+Both editors refuse those rows and stats when you add them, and say why. Checked against 75 real mods: none of the working ones get flagged. Field notes now say what heat and aura ranges (in centimetres), blocking by walls and automatic shut-off really do in game.
+
+**Saves**
+- Talents, Workshop, Missions and a mount's talents can be shown as the game's own trees (each node where the game puts it, learned ones lit, Fit and a size slider) or as lists.
+- Set a character's level directly with the **Level** box. Save's confirmation lists exactly what will change.
+- **Clean up** also removes currencies, creatures and accolades the game doesn't have and no mod gives; a currency the game doesn't have can be removed by hand. The save check offers more fixes, and an entry listed twice is merged.
+
+**Changed**
+- Editor: switching to another item no longer asks to throw away what you typed. It's kept until you save or discard it.
+- Editor: the first time you open it, the item list loads in the background instead of freezing the window for a moment.
+- Help: **Getting started** now walks you through putting your first mod in the game and explains the words you'll meet (data mod, EXMOD, pak, UE4SS). The Editor topic starts with your first change.
 
 **Fixed**
-- Game text ending in a space showed as a change nobody made in the Editor.
-- "Needs power" read wrong (a stone furnace has it on while burning fuel): it's "Requires energy" now.
-- Backups: the newest backup is always the one kept (two installs in the same second could keep the older pak).
-- A mount's talent count no longer lags one rank behind.
+- Editor: an item whose game text ends in a space showed a change you never made.
+- The on/off setting shown as "Needs power" was misleading: the stone furnace has it on while it burns fuel. It's now "Requires energy", with what it means.
+- Backups: two installs in the same second could keep the older merged pak instead of the newer one.
+- Saves: a mount's talent count lagged one rank behind.
 
 ### Earlier versions
 
