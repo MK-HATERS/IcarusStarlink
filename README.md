@@ -719,6 +719,16 @@ dotnet build IcarusStarlink.slnx
 dotnet test IcarusStarlink.slnx
 ```
 
+To build the release files (the same 11 files as the release zip):
+
+```console
+dotnet publish src/IcarusStarlink.App/IcarusStarlink.App.csproj -c Release -r win-x64 --self-contained true -o out\IcarusStarlink
+```
+
+Publishing compiles the updater (`IcarusStarlink.Updater.exe`) with Native AOT, which also needs
+Visual Studio's "Desktop development with C++" tools. If the publish fails with "'vswhere.exe' is
+not recognized", add `C:\Program Files (x86)\Microsoft Visual Studio\Installer` to PATH.
+
 ## Credits
 
 None of this exists without the people who actually make Icarus modding a real thing to build a

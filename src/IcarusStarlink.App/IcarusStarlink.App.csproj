@@ -37,15 +37,15 @@
     <Copy SourceFiles="@(_UpdaterFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
-  <!-- `dotnet publish` — the Updater has to ship as its OWN self-contained single-file exe, for a
-       real bug confirmed live against the shipped v1.4.9 zip: the Updater was published
-       self-contained (its runtimeconfig lists includedFrameworks), but "Update now" stages just its
-       four files into TEMP with none of the runtime beside them, so the apphost died at startup
-       ("hostpolicy.dll ... not found. Failed to run as a self-contained app") before a single line
-       of its own code ran — no updater.log, the app had already closed, nothing relaunched. In-app
-       self-update had never worked in any self-contained release (it only ever worked on a
-       framework-dependent dev build with .NET installed). A single-file self-contained Updater
-       carries its runtime inside the one exe, so staging that one file into TEMP is enough.
+  <!-- `dotnet publish` — the Updater ships as its OWN standalone exe: "Update now" stages just that
+       one file into TEMP, so it must run with nothing beside it (a self-contained apphost there
+       dies with "hostpolicy.dll ... not found" before any of its code runs).
+
+       It is compiled with Native AOT: a plain 2 MB native Windows program, no bundled runtime.
+       A self-contained single-file .NET bundle (trimmed or not) of this small file-copying,
+       process-waiting program matches generic antivirus signatures (BitDefender's
+       Gen:Variant.Yogi and the engines that license it); the AOT build scans clean. AOT needs the
+       Visual Studio C++ build tools (MSVC linker) on the publishing machine.
 
        Hooked AfterTargets on the publish pipeline's own list-building target (publish-only; never
        runs on a plain build) — AFTER, not before, because that target is what adds the
@@ -56,20 +56,19 @@
        (matched on RelativePath — the publish destination — not Filename: the SDK's apphost item is
        literally named apphost.exe on disk and only becomes IcarusStarlink.Updater.exe on output;
        and with PublishSingleFile on below, its .dll would otherwise be swallowed into THIS app's
-       bundle, also confirmed in a trial publish), then adds the single-file exe with
+       bundle, also confirmed in a trial publish), then adds the native exe with
        ExcludeFromSingleFile so it stays a separate, runnable file beside the app. -->
   <PropertyGroup>
     <_UpdaterPublishDir>$(MSBuildProjectDirectory)\obj\$(Configuration)\updater-publish\</_UpdaterPublishDir>
   </PropertyGroup>
   <PropertyGroup>
-    <!-- Trimming has to be known at RESTORE time (the ILLink pack is a restore-time dependency) —
-         a plain Publish with PublishTrimmed=true against the Updater's ordinary restore silently
-         published it untrimmed (confirmed live: 70 MB, the full runtime). So: a dedicated Restore
-         with the exact same property set first, under a fresh restore session id so MSBuild
-         doesn't hand back the cached untrimmed evaluation, then the Publish. -->
-    <_UpdaterPublishProperties>Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=true;PublishSingleFile=true;PublishTrimmed=true;PublishDir=$(_UpdaterPublishDir);_IsPublishing=true</_UpdaterPublishProperties>
+    <!-- AOT has to be known at RESTORE time (the ILCompiler pack is a restore-time dependency,
+         like the ILLink pack: a Publish against the Updater's ordinary restore silently skips it).
+         So: a dedicated Restore with the exact same property set first, under a fresh restore
+         session id so MSBuild doesn't hand back the cached plain evaluation, then the Publish. -->
+    <_UpdaterPublishProperties>Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);PublishAot=true;PublishDir=$(_UpdaterPublishDir);_IsPublishing=true</_UpdaterPublishProperties>
   </PropertyGroup>
-  <Target Name="PublishSingleFileUpdater" AfterTargets="ComputeResolvedFilesToPublishList">
+  <Target Name="PublishNativeUpdater" AfterTargets="ComputeResolvedFilesToPublishList">
     <MSBuild Projects="..\IcarusStarlink.Updater\IcarusStarlink.Updater.csproj" Targets="Restore"
              Properties="$(_UpdaterPublishProperties);MSBuildRestoreSessionId=$([System.Guid]::NewGuid())" />
     <MSBuild Projects="..\IcarusStarlink.Updater\IcarusStarlink.Updater.csproj" Targets="Publish"
