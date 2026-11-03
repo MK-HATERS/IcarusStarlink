@@ -110,8 +110,10 @@ public static partial class GameItemEditor
     };
 
     /// <summary>Everything about one game item the Editor can change, as it is with <paramref name="mod"/> applied (null mod = the game alone). Null when the game has no such item.</summary>
-    public static GameItemView? Describe(GameTableIndex game, ExmodPackage? mod, string itemName)
+    /// <param name="lookup">Shared by many Describe calls with the same, unchanged mod (a bulk edit): the whole-table indexes are built once. Null builds one for this call.</param>
+    public static GameItemView? Describe(GameTableIndex game, ExmodPackage? mod, string itemName, GameItemLookup? lookup = null)
     {
+        lookup ??= new GameItemLookup(game, mod);
         if (game.Row(ItemsStatic, itemName) is not { } gameStatic)
         {
             return null;
@@ -133,7 +135,7 @@ public static partial class GameItemEditor
             // every item linking to it; a row only the mod has is this item's own copy, and its game
             // values come from the row it was copied from.
             var gameRowName = game.GameRowName(file, rowName) ?? gameStatic[field]?["RowName"]?.GetValue<string>() ?? rowName;
-            var shared = game.HasRow(file, rowName) ? CountUsers(game, mod, field, rowName) : 1;
+            var shared = game.HasRow(file, rowName) ? lookup.UsersOf(field, rowName) : 1;
             var section = BuildSection(game, mod, field, SectionTitles.GetValueOrDefault(field, Humanize(field)), file, rowName, gameRowName, Math.Max(shared, 1));
             if (section.Fields.Count == 0 && section.StatGroups.Count == 0)
             {
@@ -145,12 +147,12 @@ public static partial class GameItemEditor
 
             // The buff a consumable gives lives in its own table, linked from the consumable row.
             if (field.Equals("Consumable", StringComparison.OrdinalIgnoreCase)
-                && BuffOf(game, mod, file, rowName) is { } buff)
+                && lookup.BuffOf(file, rowName) is { } buff)
             {
                 // Shared by every ITEM whose consumable gives this buff (a food row is often shared too).
                 var isGameBuff = game.HasRow(ModifierStates, buff);
                 var gameBuff = game.GameRowName(ModifierStates, buff) ?? BuffOf(game, null, file, gameRowName) ?? buff;
-                var buffShared = isGameBuff ? CountBuffUsers(game, mod, file, buff) : 1;
+                var buffShared = isGameBuff ? lookup.BuffUsers(file, buff) : 1;
                 sections.Add(BuildSection(game, mod, BuffSection, "Its buff", ModifierStates, buff, gameBuff, Math.Max(buffShared, 1)));
             }
         }
@@ -161,9 +163,7 @@ public static partial class GameItemEditor
         // differently (Kit_Stone_Furnace is made as "Stone_Furnace"): match through those names.
         var products = game.ProductNamesFor(itemName);
         bool Makes(JsonNode? element) => (element as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var s) && products.Contains(s);
-        var recipes = (game.Rows(Recipes) ?? []).Where(kv => kv.Value?["Outputs"] is JsonArray outputs
-                && outputs.Any(o => Makes(o?["Element"])))
-            .Select(kv => kv.Key).ToList();
+        var recipes = lookup.RecipesMaking(products);
         for (var i = 0; i < recipes.Count; i++)
         {
             var recipeRow = game.Row(Recipes, recipes[i]);
@@ -175,7 +175,7 @@ public static partial class GameItemEditor
             sections.Add(BuildSection(game, mod, $"{RecipeSection}:{recipes[i]}", title, Recipes, recipes[i], recipes[i], 1));
         }
 
-        if ((game.Rows(WorkshopItems) ?? []).FirstOrDefault(kv => Makes(kv.Value?["Item"])) is { Key: { } workshop })
+        if (lookup.WorkshopFor(products) is { } workshop)
         {
             sections.Add(BuildSection(game, mod, WorkshopSection, "Workshop price", WorkshopItems, workshop, workshop, 1));
         }
@@ -356,6 +356,9 @@ public static partial class GameItemEditor
         return result;
     }
 
+    /// <summary>Effective, for GameItemLookup.</summary>
+    internal static JsonObject? EffectiveRow(GameTableIndex game, ExmodPackage? mod, string file, string rowName) => Effective(game, mod, file, rowName);
+
     private static ExmodFileItem? FindItem(ExmodPackage? mod, string file, string rowName) =>
         mod?.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, file, StringComparison.OrdinalIgnoreCase))
             ?.FileItems.FirstOrDefault(i => string.Equals(i.Name, rowName, StringComparison.OrdinalIgnoreCase));
@@ -442,40 +445,8 @@ public static partial class GameItemEditor
     private static string? LinkOf(GameTableIndex game, ExmodPackage? mod, string itemName, string field) =>
         Effective(game, mod, ItemsStatic, itemName)?[field]?["RowName"]?.GetValue<string>() is { } row && row != "None" ? row : null;
 
-    /// <summary>Every item's link for a field, with the mod's changes on top (including items only the mod has).</summary>
-    private static IEnumerable<string?> EffectiveLinks(GameTableIndex game, ExmodPackage? mod, string field)
-    {
-        var overrides = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in mod?.Rows.Where(r => string.Equals(r.CurrentFile, ItemsStatic, StringComparison.OrdinalIgnoreCase)).SelectMany(r => r.FileItems) ?? [])
-        {
-            if (item.Fields.TryGetValue(field, out var link))
-            {
-                overrides[item.Name] = link?["RowName"]?.GetValue<string>();
-            }
-        }
-
-        foreach (var (name, node) in game.Rows(ItemsStatic) ?? [])
-        {
-            yield return overrides.Remove(name, out var overridden) ? overridden : node?[field]?["RowName"]?.GetValue<string>();
-        }
-
-        foreach (var remaining in overrides.Values)
-        {
-            yield return remaining;
-        }
-    }
-
     /// <summary>How many items (with the mod's changes) link to this row.</summary>
-    private static int CountUsers(GameTableIndex game, ExmodPackage? mod, string field, string rowName) =>
-        EffectiveLinks(game, mod, field).Count(link => string.Equals(link, rowName, StringComparison.OrdinalIgnoreCase));
-
-    /// <summary>How many items get this buff, through whichever consumable rows carry it.</summary>
-    private static int CountBuffUsers(GameTableIndex game, ExmodPackage? mod, string consumableFile, string buff)
-    {
-        var buffByRow = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        return EffectiveLinks(game, mod, "Consumable").Count(row => row is not null
-            && string.Equals(buffByRow.TryGetValue(row, out var known) ? known : buffByRow[row] = BuffOf(game, mod, consumableFile, row), buff, StringComparison.OrdinalIgnoreCase));
-    }
+    private static int CountUsers(GameTableIndex game, ExmodPackage? mod, string field, string rowName) => new GameItemLookup(game, mod).UsersOf(field, rowName);
 
     /// <summary>The buff a consumable row gives (with the mod's changes); null for none.</summary>
     private static string? BuffOf(GameTableIndex game, ExmodPackage? mod, string consumableFile, string consumableRow) =>

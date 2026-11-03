@@ -36,6 +36,25 @@ public sealed class GameItemEditorTests : IDisposable
 
     private static EditableField Field(EditableSection section, string label) => section.Fields.Single(f => f.Label == label);
 
+    /// <summary>A bulk edit shares one lookup across items (812 deployables: 14.5 s → 90 ms): it must describe every item exactly as a fresh one does.</summary>
+    [Fact]
+    public void ASharedLookup_DescribesEveryItemAsAFreshOneDoes()
+    {
+        var mod = EmptyMod();
+        mod.Rows.Insert(0, new ExmodFileRow { CurrentFile = "Items-D_ItemsStatic.json", FileItems = [new ExmodFileItem { Name = "Food_Bread", Fields = { ["Decayable"] = new JsonObject { ["RowName"] = "None" } } }] });
+        var lookup = new GameItemLookup(_game, mod);
+
+        foreach (var item in new[] { "Envirosuit", "Food_Bread", "Kit_Stone_Furnace", "Meta_Carbon_Chest_Alpha" })
+        {
+            static string Shape(GameItemView? v) => string.Join(" | ", v!.Sections.Select(s => $"{s.Key}:{s.RowName}:{s.SharedBy}:{s.Fields.Count}"));
+            Assert.Equal(Shape(GameItemEditor.Describe(_game, mod, item)), Shape(GameItemEditor.Describe(_game, mod, item, lookup)));
+        }
+
+        // The mod took Bread off the shared decay row: the Envirosuit is its only user now.
+        Assert.Equal(1, lookup.UsersOf("Decayable", "Decay_General"));
+        Assert.Equal(1, lookup.BuffUsers("Traits-D_Consumable.json", "Bread"));
+    }
+
     /// <summary>Seen in the mod editor's Add a field (2026-10-28): "bIsClientSideOnly" read as "B is client side only".</summary>
     [Theory]
     [InlineData("bIsClientSideOnly", "Is client side only")]
