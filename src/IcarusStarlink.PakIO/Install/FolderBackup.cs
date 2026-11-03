@@ -56,20 +56,52 @@ public static class FolderBackup
     /// own folder/file backups, and IcarusStarlink.Storage's save-slot backups — so they all carry
     /// the same collision guarantee instead of each answering it differently (one prior copy of this
     /// logic here used to silently overwrite on collision instead).
+    /// The number is one past the highest already used in that second, never a gap: a prune that
+    /// deleted "_stamp" but kept "_stamp_2" would otherwise hand the next backup "_stamp", which
+    /// sorts as older than the copy it is newer than (keep 1 then kept the older pak).
     /// </summary>
     public static string MakeUniqueTimestampedPath(string directory, string baseName, DateTimeOffset timestamp, string extension = "")
     {
         // Invariant: BackupCleanup reads the stamp back as a Gregorian date, and a PC set to another
         // calendar (Thai, Hijri) would otherwise write a different year.
         var stamp = timestamp.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-        var path = Path.Combine(directory, $"{baseName}_{stamp}{extension}");
-        var suffix = 1;
-        while (File.Exists(path) || Directory.Exists(path))
+        var highest = HighestCollisionNumber(directory, $"{baseName}_{stamp}", extension);
+        if (highest == 0)
+        {
+            return Path.Combine(directory, $"{baseName}_{stamp}{extension}");
+        }
+
+        var suffix = highest;
+        string path;
+        do
         {
             path = Path.Combine(directory, $"{baseName}_{stamp}_{++suffix}{extension}");
         }
+        while (File.Exists(path) || Directory.Exists(path));
 
         return path;
+    }
+
+    /// <summary>0 when nothing named stamped (+ extension) exists yet, 1 for the plain name, N for "_N".</summary>
+    private static int HighestCollisionNumber(string directory, string stamped, string extension)
+    {
+        if (!Directory.Exists(directory))
+        {
+            return 0;
+        }
+
+        var pattern = new Regex($"^{Regex.Escape(stamped)}(?:_(?<n>\\d+))?{Regex.Escape(extension)}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        var highest = 0;
+        foreach (var entry in Directory.EnumerateFileSystemEntries(directory, stamped + "*"))
+        {
+            var match = pattern.Match(Path.GetFileName(entry));
+            if (match.Success)
+            {
+                highest = Math.Max(highest, match.Groups["n"].Success && int.TryParse(match.Groups["n"].Value, out var n) ? n : 1);
+            }
+        }
+
+        return highest;
     }
 
     /// <summary>The one recursive copy (Core's Directories.Copy), kept under this name for its many callers.</summary>
@@ -92,19 +124,36 @@ public static class FolderBackup
     public static IReadOnlyList<string> EnumerateFolderBackups(string backupDirectory, string name) =>
         !Directory.Exists(backupDirectory)
             ? []
-            : Directory.GetDirectories(backupDirectory)
-                .Where(d => IsTimestampedBackupOf(Path.GetFileName(d), name))
-                .OrderByDescending(Directory.GetCreationTimeUtc)
-                .ToList();
+            : NewestFirst(Directory.GetDirectories(backupDirectory)
+                .Where(d => IsTimestampedBackupOf(Path.GetFileName(d), name)), extension: "");
 
     /// <summary>This base name + extension's file backups, newest first; empty when the directory doesn't exist.</summary>
     public static IReadOnlyList<string> EnumerateFileBackups(string backupDirectory, string baseName, string extension) =>
         !Directory.Exists(backupDirectory)
             ? []
-            : Directory.GetFiles(backupDirectory)
-                .Where(f => IsTimestampedBackupOf(Path.GetFileName(f), baseName, extension))
-                .OrderByDescending(File.GetCreationTimeUtc)
-                .ToList();
+            : NewestFirst(Directory.GetFiles(backupDirectory)
+                .Where(f => IsTimestampedBackupOf(Path.GetFileName(f), baseName, extension)), extension);
+
+    private static readonly Regex StampAndNumber = new(@"_(?<stamp>\d{8}-\d{6})(?:_(?<n>\d+))?$", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// By the stamp and collision number in the name, the way BackupCleanup orders them, not by
+    /// creation time: NTFS gives a name re-created soon after a delete the deleted file's creation
+    /// time ("tunneling"), so a fresh backup could sort as the oldest and be pruned at once.
+    /// </summary>
+    private static List<string> NewestFirst(IEnumerable<string> backups, string extension) =>
+        backups
+            .Select(path =>
+            {
+                var leaf = Path.GetFileName(path);
+                var match = StampAndNumber.Match(leaf[..^extension.Length]);
+                var n = match.Groups["n"].Success && int.TryParse(match.Groups["n"].Value, out var parsed) ? parsed : 1;
+                return (Path: path, Stamp: match.Groups["stamp"].Value, N: n);
+            })
+            .OrderByDescending(b => b.Stamp, StringComparer.Ordinal)
+            .ThenByDescending(b => b.N)
+            .Select(b => b.Path)
+            .ToList();
 
     private static void PruneOldFolderBackups(string backupDirectory, string name)
     {
