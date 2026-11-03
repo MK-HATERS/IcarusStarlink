@@ -160,13 +160,12 @@ public class ProfileStoreTests : IDisposable
         }
 
         // 6 saves => 5 backups taken (the very first save had nothing to back up yet) => capped
-        // at MaxProfileBackups (3), the smaller-than-FolderBackup's-usual-5 cap the user asked for
-        // ("a couple of backups") since a profile is small, frequently-saved editor state, not a
-        // rare real-game-folder write.
+        // at MaxProfileBackups (3), a smaller cap than FolderBackup's usual 5, since a profile is
+        // small, frequently-saved editor state, not a rare real-game-folder write.
         Assert.Equal(3, Directory.GetFiles(_backupsDir, "Main_*.json").Length);
     }
 
-    /// <summary>Audit finding: the "{name}_*.json" glob let profile "Main" see, restore from, and prune the backups of "Main_Test".</summary>
+    /// <summary>The "{name}_*.json" glob used to let profile "Main" see, restore from, and prune the backups of "Main_Test".</summary>
     [Fact]
     public void Backups_ProfileWhoseNameIsAPrefixOfAnother_NeverSeesTheOthersBackups()
     {

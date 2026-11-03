@@ -4,7 +4,7 @@ namespace IcarusStarlink.Core.Tests.Nexus;
 
 public class NexusModWebUrlTests
 {
-    /// <summary>Audit finding: an absurdly long id in a pasted URL overflowed int.Parse and threw out of a Try-method.</summary>
+    /// <summary>Regression: an absurdly long id in a pasted URL overflowed int.Parse and threw out of a Try-method.</summary>
     [Fact]
     public void TryParseModId_IdTooLargeForAnInteger_ReturnsFalseInsteadOfThrowing()
     {

@@ -19,7 +19,7 @@ public class WeeklyChangeReportStoreTests : IDisposable
     // RetentionDays pruning compares against the REAL DateTimeOffset.UtcNow, so once enough real
     // time passed for that fixed date (and especially its own Now.AddDays(-N) offsets below) to
     // fall outside the retention window, tests relying on them surviving a reopen started failing
-    // on their own, with nothing in this file having changed — confirmed live: by 2026-10-14, both
+    // on their own, with nothing in this file having changed — confirmed live: both
     // History_ReturnsNewestFirst and Save_CalledAgain_AccumulatesInHistoryInsteadOfOverwriting had
     // started failing this exact way. Computed relative to the real current time instead so this
     // can never go stale again — truncated to the date (midnight UTC) purely for a clean, stable

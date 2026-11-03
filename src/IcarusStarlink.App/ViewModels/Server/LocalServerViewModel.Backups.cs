@@ -9,7 +9,7 @@ using IcarusStarlink.Core.Server;
 
 namespace IcarusStarlink.App.ViewModels;
 
-/// <summary>Phase 3: world backups (on demand and automatic before updates and mod changes), restore, and the admin and ban lists.</summary>
+/// <summary>World backups (on demand and automatic before updates and mod changes), restore, and the admin and ban lists.</summary>
 public sealed partial class LocalServerViewModel
 {
     public ObservableCollection<ServerBackupInfo> Backups { get; } = [];

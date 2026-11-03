@@ -96,7 +96,7 @@ public sealed class ThemeService(ICustomSkinStore customSkinStore) : IThemeServi
         {
             // Windows closing every window at once (shutting down, signing out) while Settings was
             // being built: WPF can no longer read its own resources ("The URI prefix is not
-            // recognized", 2026-10-26). The skin editor's colours are only a starting point.
+            // recognized"). The skin editor's colours are only a starting point.
             return colors;
         }
 

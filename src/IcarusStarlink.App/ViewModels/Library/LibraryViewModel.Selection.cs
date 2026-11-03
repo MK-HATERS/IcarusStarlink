@@ -210,7 +210,7 @@ public sealed partial class LibraryViewModel
     /// <summary>
     /// "Select all" (context menu, Ctrl+A) — every mod currently shown in ONE panel ("data" or
     /// "ue4ss"; respects the search filter). It used to select both panels, so Ctrl+A then Delete
-    /// in the UE4SS panel offered to delete every data mod (review, 2026-10-23).
+    /// in the UE4SS panel offered to delete every data mod.
     /// </summary>
     [RelayCommand]
     private void SelectAllForBulk(string? panel)

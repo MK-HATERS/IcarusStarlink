@@ -5,7 +5,7 @@ namespace IcarusStarlink.Catalog.Jimk72;
 /// <summary>
 /// Jimk72's own smaller catalog, published as plain JSON on GitHub — no ID field of its own
 /// (unlike Daedalus), so CatalogEntry.Id is synthesized from name+author. Verified against the
-/// live endpoint during Phase 4 planning: always a single "exmodz" file, "All" compatibility,
+/// live endpoint: always a single "exmodz" file, "All" compatibility,
 /// no category taxonomy at all — a much simpler shape than Daedalus's.
 /// </summary>
 public sealed class Jimk72CatalogClient(HttpClient httpClient) : IJimk72CatalogClient

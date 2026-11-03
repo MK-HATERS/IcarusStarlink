@@ -13,7 +13,7 @@
     <SolidColorBrush x:Key="NavItemHoverBrush" Color="#1F2731"/>
     <SolidColorBrush x:Key="NavItemSelectedBrush" Color="#26303D"/>
 
-    <!-- Phase 10 redesign additions: one elevation step above CardBackground, plus semantic
+    <!-- Extra brushes: one elevation step above CardBackground, plus semantic
          (not accent) colors for conflict/success/info states — kept separate from AccentBrush so
          a badge/toggle doesn't compete visually with primary actions. -->
     <SolidColorBrush x:Key="CardRaisedBackgroundBrush" Color="#232B36"/>
@@ -25,7 +25,7 @@
     <SolidColorBrush x:Key="SuccessSoftBrush" Color="#2052D68A"/>
     <SolidColorBrush x:Key="InfoBrush" Color="#5FA8FF"/>
 
-    <!-- More colour (2026-10-28): amber for "waiting / needs a look" (orange stays the accent for
+    <!-- More colour: amber for "waiting / needs a look" (orange stays the accent for
          buttons), one colour per mod type and per source, and six heading colours that grouped
          lists cycle through in order (GroupColor). -->
     <SolidColorBrush x:Key="WarningBrush" Color="#F5B83D"/>

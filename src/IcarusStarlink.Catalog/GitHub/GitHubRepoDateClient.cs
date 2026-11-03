@@ -11,7 +11,7 @@ namespace IcarusStarlink.Catalog.GitHub;
 /// shows the same date for every mod from that repo, whichever file in it was pushed most
 /// recently — not necessarily that specific mod's own file. Accepted tradeoff: a per-file-accurate
 /// date needs the commits API (?path=...), which costs one request PER FILE rather than per repo,
-/// and the catalog has far more distinct files (600+) than distinct repos (~40 as of Phase 4).
+/// and the catalog has far more distinct files (600+) than distinct repos (~40).
 /// </summary>
 public sealed class GitHubRepoDateClient : IGitHubRepoDateClient
 {

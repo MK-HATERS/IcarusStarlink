@@ -63,7 +63,7 @@ public class LoggingActivityLogTests
         Assert.Equal(3, inner.Entries.Count);
     }
 
-    /// <summary>Review 2026-10-23: background work logged straight into the collection the activity panel is bound to; an entry from another thread is now added on the window's thread.</summary>
+    /// <summary>Background work logged straight into the collection the activity panel is bound to; an entry from another thread is now added on the window's thread.</summary>
     [Fact]
     public void Log_FromAnotherThread_AddsTheEntryOnTheUiThread()
     {

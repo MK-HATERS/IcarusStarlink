@@ -35,7 +35,7 @@ public class AppUpdateClientTests
         }
         """;
 
-    /// <summary>Stable from Nexus (2026-10-25): Nexus's servers in turn, progress for the update window, then GitHub's checksum.</summary>
+    /// <summary>Stable from Nexus: Nexus's servers in turn, progress for the update window, then GitHub's checksum.</summary>
     [Fact]
     public async Task DownloadAsync_TriesTheNextServer_ReportsProgress_AndChecksTheDigest()
     {

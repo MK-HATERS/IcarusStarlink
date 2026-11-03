@@ -59,7 +59,7 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>
-    /// Phase 7.5: reads Steam's own install path from the registry, walks its real
+    /// Reads Steam's own install path from the registry, walks its real
     /// libraryfolders.vdf, and checks each library for Icarus's own App ID (1149460) —
     /// pre-fills the field but doesn't save on its own; the user still confirms via the
     /// existing Save button (or overrides it with Browse… first) just like a manual edit would.
@@ -168,7 +168,7 @@ public sealed partial class SettingsViewModel
     private Task UpdateDataFolderAsync()
     {
         // A merge being built reads the Data folder this rewrites, and a download being imported
-        // checks against it: refreshing under them mixed two game versions (review 2026-10-23).
+        // checks against it: refreshing under them mixed two game versions.
         if (!IsUpdatingDataFolder && AppBusyCheck.DescribeRunning() is { } running)
         {
             DataFolderStatusMessage = $"Wait until {running} has finished, then click Refresh game data again.";

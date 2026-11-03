@@ -6,8 +6,8 @@ namespace IcarusStarlink.Core.IO;
 /// Writes a file so it's never left half-written: the content goes to a temp file beside it (a
 /// name unique per call, so two writes at once can't collide), which then replaces the real one
 /// in one move. A crash, a forced shutdown or a full disk mid-write leaves the old file as it was,
-/// and a failed write removes its temp file. The one place every project does this (a review on
-/// 2026-10-23 found it copied by hand in about 14 places, half of them with a fixed ".tmp" name).
+/// and a failed write removes its temp file. The one place every project does this (it used to be
+/// copied by hand in about 14 places, half of them with a fixed ".tmp" name).
 /// </summary>
 public static class AtomicFile
 {

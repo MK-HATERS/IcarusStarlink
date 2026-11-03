@@ -77,7 +77,7 @@ public sealed partial class ExmodEditorViewModel
 
     /// <summary>What Add does with the current choices, for its tooltip and the line under the list.</summary>
     // Not "field": in C# 14 that word inside a property means the property's hidden backing field
-    // (always null here), so the hint went blank as soon as a field was picked (final review 2026-10-28).
+    // (always null here), so the hint went blank as soon as a field was picked.
     public string NotInModAddHint => NotInModFieldName is not { } fieldName
         ? "Adds each ticked row with all of its game values; change what you want after."
         : NotInModUseModChange && _notInModChange is not null

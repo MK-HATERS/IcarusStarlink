@@ -105,7 +105,7 @@ public sealed partial class LibraryViewModel
         // A UE4SS part that is on in the game can't come out of its Mods folder while the game runs.
         // Asked anyway, the Library parts went after the Yes and the Lua half stayed in the game:
         // half a mod left behind. Refused before the question (the UE4SS panel's own Delete of a
-        // linked half lands here too). Needed again since in-game halves are linked (2026-10-28).
+        // linked half lands here too). Needed since in-game halves are linked.
         // Checked again after the Yes, before anything goes: the question gives the game time to
         // start (as Merge & Install's ConfirmWithGameClosed does).
         bool RefusedWhileGameRuns()
@@ -126,8 +126,7 @@ public sealed partial class LibraryViewModel
         }
 
         // A download with both halves: both go by default, or just one (the data half, keeping the
-        // Lua mod, or the other way round). The half kept is an ordinary row afterwards (user's
-        // call 2026-11-01).
+        // Lua mod, or the other way round). The half kept is an ordinary row afterwards.
         var keptHalf = "";
         if (ue4ssParts.Count > 0)
         {

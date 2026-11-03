@@ -187,7 +187,7 @@ public sealed class SaveRepositoryTests : IDisposable
     public void RestoreSlot_WritesPreRestoreZipThenReplacesTheSlot()
     {
         // A world save in the slot's Prospects subfolder — the editor never touches it, so neither
-        // backup nor restore may include it (an audit finding: the old whole-folder swap rolled
+        // backup nor restore may include it (the old whole-folder swap rolled
         // every world back to the backup's moment).
         var worldPath = Path.Combine(_playerData, SteamId, "Prospects", "Everbark Outpost.json");
         Directory.CreateDirectory(Path.GetDirectoryName(worldPath)!);
@@ -468,7 +468,7 @@ public sealed class SaveRepositoryTests : IDisposable
         Assert.Contains(paths[^1], remaining);
     }
 
-    /// <summary>Audit finding: a deliberate "Backup now" was pruned exactly like an automatic Save/Restore backup, so it silently vanished after nine more clicks.</summary>
+    /// <summary>A deliberate "Backup now" was pruned exactly like an automatic Save/Restore backup, so it silently vanished after nine more clicks.</summary>
     [Fact]
     public void Backups_ManualBackupNow_IsNeverPrunedByTheAutomaticCap()
     {
@@ -620,7 +620,7 @@ public sealed class SaveRepositoryTests : IDisposable
     [Fact]
     public void LoadBinaryFlags_ParsesTheRealFormat()
     {
-        // The real format, confirmed against the user's own flags_<SteamID>.dat: int32 string
+        // The real format, confirmed against a real flags_<SteamID>.dat: int32 string
         // length (counting the null terminator), null-terminated ASCII SteamID, int32 count,
         // count * int32 flag IDs.
         WriteBinaryFlagsFile([3, 7, 22]);

@@ -186,7 +186,7 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// MkHaters Tools' layout (user 2026-10-27): config.lua opens first; config.default.lua isn't
+    /// MkHaters Tools' layout: config.lua opens first; config.default.lua isn't
     /// offered as a file but gives every setting its default, so Reset to default works; a Scripts
     /// module that reads the config isn't a config; the comment tags give a slider, a restart note
     /// and hide a testing value, as MkHaters Mod Settings reads them.
@@ -221,7 +221,7 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// After an update (user request 2026-10-27): the settings the update added are marked, the
+    /// After an update, the settings the update added are marked, the
     /// ones the mod no longer has are listed with the old values, and Done reviewing clears it all.
     /// </summary>
     [Fact]
@@ -265,7 +265,7 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// The known open issue (user, 2026-10-28): picking another file in the File drop-down (or
+    /// Picking another file in the File drop-down (or
     /// another copy in "Edit the copy in") dropped the unsaved edits without a word. They're kept
     /// now, listed as not saved, and back when the file is picked again.
     /// </summary>
@@ -364,7 +364,7 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// MkHaters Cheats' real config.lua (2026-10-28): the "-- ==== GENERAL ====" headings group
+    /// MkHaters Cheats' real config.lua: the "-- ==== GENERAL ====" headings group
     /// the settings, names read as words with the key beside them, OpenKey = { key = "F2" } is a
     /// key with Ctrl/Shift/Alt (it was a Lua text box), and [server] is a mark, not text.
     /// </summary>
@@ -412,7 +412,7 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
         Assert.Equal(cheats.Replace("OpenKey = { key = \"F2\" },", "OpenKey = { key = \"F3\", ctrl = true },"), File.ReadAllText(Path.Combine(game, "config.lua")));
     }
 
-    /// <summary>A downloaded mod's "config.lua" of many MB isn't read into the editor (no limit before 2026-10-28).</summary>
+    /// <summary>A downloaded mod's "config.lua" of many MB isn't read into the editor.</summary>
     [Fact]
     public void AHugeConfigFile_IsNotOpened()
     {
@@ -442,7 +442,7 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
     };
 
     /// <summary>
-    /// Report 2026-10-28: a config.lua saved as ANSI with "é" in a comment showed and saved as "�".
+    /// A config.lua saved as ANSI with "é" in a comment showed and saved as "�".
     /// Each file is shown in its own encoding and saved back in it, BOM and all, here and in the
     /// ticked other copy (which keeps its own).
     /// </summary>
@@ -556,7 +556,7 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Final review 2026-10-28: edits kept aside while another file was shown came back on the OLD
+    /// Edits kept aside while another file was shown came back on the OLD
     /// file's text. When the file changed on disk meanwhile (the mod's settings menu), Save took
     /// every outside change for an edit made here and wrote the old file back over it.
     /// </summary>

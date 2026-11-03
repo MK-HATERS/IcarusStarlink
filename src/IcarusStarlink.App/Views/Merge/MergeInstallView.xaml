@@ -42,7 +42,7 @@
         <TextBlock Grid.Row="2" Text="{Binding ProfileStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0"
                    TextWrapping="Wrap" Visibility="{Binding ProfileStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-        <!-- Share a mod list (stage 4 of the share plan, 2026-10-27): a compact card instead of the
+        <!-- Share a mod list: a compact card instead of the
              collapsed expander, so a new user sees what a patch is. A patch is the selected profile
              as it runs here: its data mods (by their Nexus or catalog source, or bundled), the UE4SS
              mods on in the game, and their settings. Classic IMM migration lives only in Settings
@@ -84,9 +84,8 @@
             </StackPanel>
         </Border>
 
-        <!-- Two columns now, not three: Library's own browsing pane left this page entirely
-             (redesign-round-2 pilot) — mods reach the queue from Library itself (multi-select +
-             right-click "Add to merge queue"), so this page only ever needs to own the queue and
+        <!-- Two columns, not three: Library's own browsing pane isn't on this page — mods reach
+             the queue from Library itself (multi-select + right-click "Add to merge queue"), so this page only ever needs to own the queue and
              the merge options. The gap between them is a splitter: drag it to widen either one. -->
         <Grid Grid.Row="5" Margin="0,16,0,0">
             <Grid.ColumnDefinitions>
@@ -394,7 +393,7 @@
                         <Border Style="{StaticResource SectionDividerStyle}" Margin="0,14,0,10"/>
                         <TextBlock Text="The merged pak in the game" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,8" FontSize="13"/>
                         <WrapPanel IsEnabled="{Binding IsInstallIdle}">
-                            <!-- The spec's "Copy built pack to game" / Retry: installs the already-staged
+                            <!-- "Copy built pack to game" / Retry: installs the already-staged
                                  pak without remerging. Shown only when there is one to copy. -->
                             <Button Command="{Binding CopyToGameCommand}" Margin="0,0,8,4"
                                     Visibility="{Binding CanCopyToGame, Converter={StaticResource BoolToVisibilityConverter}}"
@@ -424,7 +423,7 @@
 
             <!-- Gameplay-toggle merge options: applied as a final pass after the queue is merged,
                  even with an empty queue — matching classic IMM's own documented behavior.
-                 Collapsed by default (redesign-round-2 pilot): a new user landing on this page
+                 Collapsed by default: a new user landing on this page
                  doesn't need to parse 8 controls across 3 groups just to find Install, but the
                  collapsed header's own summary keeps whatever IS active from being hidden. -->
             <Expander Grid.Column="2" IsExpanded="False" AutomationProperties.Name="Merge options" IsEnabled="{Binding IsNotRebuilding}">
@@ -448,8 +447,8 @@
                 </Expander.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="0,0,10,0">
-                    <!-- Phase 10: the leveled options (multiple values, not on/off) are now pill
-                         selectors instead of dropdowns, matching the mockup — real hints from
+                    <!-- The leveled options (multiple values, not on/off) are pill
+                         selectors instead of dropdowns — real hints from
                          classic IMM's own documented numbers move onto a small (i) icon next to
                          the label instead of hovering the control itself, since a 3-way pill has
                          no one obvious hover target the way a ComboBox did. -->
@@ -595,7 +594,7 @@
                     <Border Style="{StaticResource SectionDividerStyle}" Margin="0,16,0,10"/>
                     <TextBlock Text="OTHER" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource FaintForegroundBrush}"/>
 
-                    <!-- Lighter Items is a slider; the three after it are genuine on/off toggles (Phase 10), replacing plain checkboxes. -->
+                    <!-- Lighter Items is a slider; the three after it are genuine on/off toggles, replacing plain checkboxes. -->
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Lighter Items" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"

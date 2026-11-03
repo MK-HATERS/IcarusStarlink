@@ -70,7 +70,7 @@ public partial class App : Application
         if (!singleInstanceService.IsFirstInstance)
         {
             // A plain second launch (no nxm:// argument) asks the running instance to come to the
-            // front instead of exiting silently (an audit finding: a minimized first instance plus a
+            // front instead of exiting silently (a minimized first instance plus a
             // Start-menu click looked like "the app won't start").
             SingleInstanceService.SendToRunningInstance(nxmArgument
                 ?? (OwnBuildImport.PathIn(e.Args) is { } ownBuild ? OwnBuildImport.Message(ownBuild) : null)
@@ -396,7 +396,7 @@ public partial class App : Application
     /// built) pumps messages, so closing Starlink then disposes the host under it. Closing during
     /// startup (or Windows shutting down) used to run every queued step against the disposed host:
     /// ObjectDisposedException, "The URI prefix is not recognized" loading theme colours, several
-    /// crash reports and a hung process (2026-10-26).
+    /// crash reports and a hung process.
     /// </summary>
     private void WhileRunning(System.Windows.Threading.DispatcherPriority priority, Action work) =>
         Dispatcher.BeginInvoke(priority, () =>

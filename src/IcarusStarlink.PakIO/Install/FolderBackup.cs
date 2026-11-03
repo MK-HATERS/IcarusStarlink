@@ -109,7 +109,7 @@ public static class FolderBackup
 
     /// <summary>
     /// Exactly the backups MakeUniqueTimestampedPath produced for THIS base name — "{name}_yyyyMMdd-HHmmss"
-    /// with an optional "_N" collision suffix — never a prefix glob (an audit finding): "Foo_*" also
+    /// with an optional "_N" collision suffix — never a prefix glob: "Foo_*" also
     /// matched every backup of "Foo_2", the very name ModFolders.MakeUnique hands a re-import, so
     /// Foo's "restore from backup" could overwrite Foo with Foo_2's content, and pruning Foo's
     /// backups could delete Foo_2's only one. Same for files: profile "Main" vs "Main_Test".

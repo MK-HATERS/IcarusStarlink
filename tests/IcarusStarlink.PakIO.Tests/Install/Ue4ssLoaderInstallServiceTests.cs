@@ -21,7 +21,7 @@ public class Ue4ssLoaderInstallServiceTests : IDisposable
     private string Win64Folder => Ue4ssGamePaths.ResolveWin64Folder(_fakeContentPath);
     private string LoaderFolder => Ue4ssGamePaths.ResolveLoaderFolder(_fakeContentPath);
 
-    /// <summary>Matches the real UE4SS_v3.0.1.zip structure confirmed during Phase 8.5 planning: dwmapi.dll/UE4SS.dll/UE4SS-settings.ini at the zip root, a Mods\ folder with a built-in mod plus mods.txt.</summary>
+    /// <summary>Matches the real UE4SS_v3.0.1.zip structure: dwmapi.dll/UE4SS.dll/UE4SS-settings.ini at the zip root, a Mods\ folder with a built-in mod plus mods.txt.</summary>
     private string CreateFakeReleaseZip(string dwmapiContent = "new dwmapi bytes", string dllContent = "new UE4SS.dll bytes")
     {
         var zipPath = Path.Combine(_tempDir, $"UE4SS_{Guid.NewGuid():N}.zip");
@@ -52,7 +52,7 @@ public class Ue4ssLoaderInstallServiceTests : IDisposable
         Assert.Null(status.InstalledVersion);
     }
 
-    /// <summary>Audit finding: the installer keyed everything on the entry's first path segment, so a release zip with one wrapping folder landed a broken, misplaced install after a full backup, with no error.</summary>
+    /// <summary>The installer used to key everything on the entry's first path segment, so a release zip with one wrapping folder landed a broken, misplaced install after a full backup, with no error.</summary>
     [Fact]
     public async Task InstallOrUpdateAsync_ReleaseZipWithOneWrappingFolder_IsInstalledAsIfFlat()
     {

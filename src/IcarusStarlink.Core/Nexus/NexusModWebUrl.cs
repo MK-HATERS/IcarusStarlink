@@ -22,7 +22,7 @@ public static partial class NexusModWebUrl
         if (match.Success)
         {
             // TryParse, so an absurdly long id in a pasted URL is "not a mod id" rather than an
-            // OverflowException out of a method named Try… (an audit finding).
+            // OverflowException out of a method named Try….
             return int.TryParse(match.Groups[1].Value, out modId) && modId > 0;
         }
 

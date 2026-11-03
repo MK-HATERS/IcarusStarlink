@@ -48,7 +48,7 @@ public sealed partial class SaveGameNames
     /// <summary>
     /// Flag row name -> the talents whose RequiredFlags name it (Caveworm Knife and Spear need
     /// GrantedBlueprint_CavewormMelee). A character can have learned those talents while the flag is
-    /// off (found on the user's save: the game then shows them as unlocked), so the Unlocks tab says so.
+    /// off (found on a real save: the game then shows them as unlocked), so the Unlocks tab says so.
     /// </summary>
     public IReadOnlyDictionary<string, IReadOnlyList<string>> TalentsGatedByFlag => Cached(ref _talentsGatedByFlag, LoadTalentsGatedByFlag);
 
@@ -70,7 +70,7 @@ public sealed partial class SaveGameNames
     /// <summary>
     /// Mission (a profile Prospect_* talent) -> the account flags finishing it rewards: the talent's
     /// ExtraData names its D_ProspectList row, and D_AccountFlags' RewardedFromMissions names the
-    /// same rows. 53 of the game's 88 mission rewards link this way (2026-10-23); the other 35 come
+    /// same rows. 53 of the game's 88 mission rewards link this way; the other 35 come
     /// from Great Hunt missions, which the save doesn't keep as Prospect_* talents.
     /// </summary>
     public IReadOnlyDictionary<string, IReadOnlyList<string>> MissionRewardFlags => Cached(ref _missionRewardFlags, LoadMissionRewardFlags);

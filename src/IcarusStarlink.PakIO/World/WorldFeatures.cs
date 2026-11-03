@@ -56,7 +56,7 @@ public sealed record WorldFeature(WorldFeatureKind Kind, string Name, WorldMapPo
     public IReadOnlyList<WorldMapPoint>? Entrances { get; init; }
 
     /// <summary>
-    /// A cave's tier by its cave worms (the user's rule: the good caves have more worms):
+    /// A cave's tier by its cave worms (the good caves have more worms):
     /// 1 up to 3 worms, 2 for 4-6, 3 for 7 or more. Null for anything that isn't a cave or has no spawner.
     /// </summary>
     public int? Tier => WormsMax switch

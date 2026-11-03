@@ -2,7 +2,7 @@ using IcarusStarlink.PakIO.Install;
 
 namespace IcarusStarlink.PakIO.Tests.Install;
 
-/// <summary>User request 2026-10-24: the Library says when a mod changed since the merge in the game was built.</summary>
+/// <summary>The Library says when a mod changed since the merge in the game was built.</summary>
 public sealed class MergedModFingerprintsTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests", $"Fingerprints_{Guid.NewGuid():N}");

@@ -205,7 +205,7 @@ public sealed partial class MergeInstallViewModel
     /// <summary>
     /// Called from Library's own "Add to merge queue" action (Ctrl/Shift-click multi-select +
     /// right-click, or the toolbar button once 2+ rows are selected) — the only way mods reach this
-    /// queue now that this page's own Library browsing pane is gone (redesign-round-2 pilot). Each
+    /// queue, since this page has no Library browsing pane of its own. Each
     /// folder name is looked up fresh via the repository rather than requiring Library to hold onto
     /// a LibraryEntry reference of its own.
     /// </summary>

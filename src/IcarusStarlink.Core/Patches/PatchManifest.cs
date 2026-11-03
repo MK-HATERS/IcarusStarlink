@@ -3,11 +3,10 @@ using IcarusStarlink.Core.Profiles;
 namespace IcarusStarlink.Core.Patches;
 
 /// <summary>
-/// The portable, shareable form of a Profile — "Export a patch for friends/servers" per the
-/// spec. A friend importing this gets the same named profile + mod list reconstructed on their
+/// The portable, shareable form of a Profile — "Export a patch for friends/servers". A friend importing this gets the same named profile + mod list reconstructed on their
 /// own machine; they still Rebuild &amp; Install locally, so this never carries a merged pak.
 ///
-/// Format 2 (2026-10-27) adds where each mod came from (Nexus mod and file ids, the catalog
+/// Format 2 adds where each mod came from (Nexus mod and file ids, the catalog
 /// entry id), pak mods (referenced, or bundled as their pak files), and the UE4SS mods that are
 /// on in the exporter's game with their config files, so a friend gets the whole setup, not only
 /// the EXMODs. A format 1 file (no FormatVersion) still imports: its mods are matched by name and
@@ -17,7 +16,7 @@ public sealed class PatchManifest
 {
     public const int CurrentFormatVersion = 2;
 
-    /// <summary>1 for patches written before 2026-10-27 (the field was added with format 2).</summary>
+    /// <summary>1 for patches written before format 2 (the field was added with it).</summary>
     public int FormatVersion { get; set; } = 1;
 
     public required string ProfileName { get; set; }

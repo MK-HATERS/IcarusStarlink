@@ -91,7 +91,7 @@ public class ExmodAssetCollisionCheckerTests
     [Fact]
     public void Check_TwoModsShareANonGameFileName_IsNotFlagged()
     {
-        // Real gap found live: several unrelated real mods in the user's own library shared
+        // Real gap found live: several unrelated real mods in one library shared
         // generic filenames like "Readme.txt"/"Banner.PNG" — RebuildService.StageAssets no longer
         // even packs these into the merged pak (see GameAssetExtensions), so flagging a "collision"
         // on one would report a problem that can no longer actually happen.

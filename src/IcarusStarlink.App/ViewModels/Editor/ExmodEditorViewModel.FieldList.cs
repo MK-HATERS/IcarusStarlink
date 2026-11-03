@@ -200,7 +200,7 @@ public sealed partial class ExmodEditorViewModel
         PushUndoSnapshot();
         item.Fields[NewFieldName] = parsedValue;
         // The amber "differs from base" highlight is keyed on a diff recomputed whenever Rows change
-        // shape — a freshly added field had no entry and so never highlighted (an audit finding).
+        // shape — a freshly added field had no entry and so never highlighted.
         RefreshBaseDiff();
         var baseValue = BaseValueFor(SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
         var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
@@ -244,12 +244,12 @@ public sealed partial class ExmodEditorViewModel
             return;
         }
 
-        // Matches the real EXMOD CurrentFile convention confirmed throughout Phase 6:
+        // Matches the real EXMOD CurrentFile convention:
         // "Traits/D_Fuel.json" typed by a user -> "Traits-D_Fuel.json" as stored.
         var currentFile = NewItemCurrentFile.Trim().Replace('/', '-').Replace('\\', '-');
         NewItemName = NewItemName.Trim();
 
-        // Validated BEFORE the undo snapshot (an audit finding): a refused add used to leave a no-op
+        // Validated BEFORE the undo snapshot: a refused add used to leave a no-op
         // snapshot on the stack, so the user's next Undo "undid" nothing.
         var row = _package.Rows.FirstOrDefault(r => Same(r.CurrentFile, currentFile));
         if (row is not null && row.FileItems.Any(i => Same(i.Name, NewItemName)))

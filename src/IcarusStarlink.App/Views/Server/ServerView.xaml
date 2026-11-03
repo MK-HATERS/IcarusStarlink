@@ -166,7 +166,7 @@
                                 <TextBlock Text="Connect" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-                        <!-- Phase 10: a semantic status badge alongside Disconnect, matching the
+                        <!-- A semantic status badge alongside Disconnect, matching the
                              pill-badge language used for Downloads' Status column. -->
                         <Border Background="{DynamicResource SuccessSoftBrush}" CornerRadius="9" Padding="7,3" Margin="0,0,10,0"
                                 Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}">

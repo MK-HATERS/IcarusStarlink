@@ -73,9 +73,8 @@ public sealed partial class MergeInstallViewModel
     /// <remarks>Internal, not private — RebuildAndInstallAsync's own orchestration (does Install only run when Rebuild really succeeded, does it never run when Rebuild guards out or throws) is exactly the thing worth testing directly against fakes for IRebuildService/IInstallService, without ever reaching InstallAsync's own confirmation.</remarks>
     internal async Task<bool> RebuildAsync()
     {
-        // Gameplay options can apply on their own, with an empty queue, per the spec ("the ability
-        // to add merge options to game with no mods selected") — only block if there's genuinely
-        // nothing to do at all. Queue can hold opaque pak entries too now (folded into the same
+        // Gameplay options can apply on their own, with an empty queue (merge options added to the
+        // game with no mods selected) — only block if there's genuinely nothing to do at all. Queue can hold opaque pak entries too now (folded into the same
         // output by Rebuild, not field-merged), so a queue containing only those is still real work.
         // GameplayOptions.IsAnyActive, not a separately-rederived check — reads the SAME
         // classification GenerateFixedFieldChanges/RequiredCurrentFiles conceptually mirror, so
@@ -267,7 +266,7 @@ public sealed partial class MergeInstallViewModel
             StatusMessage = $"Rebuild failed: {ex.Message}";
             _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
             // Whatever is (or isn't) at _outputPakPath now is not a build the user asked for — the
-            // standalone Copy to game must not offer it (an audit finding: it installed a stale or
+            // standalone Copy to game must not offer it (it used to install a stale or
             // partial pak after a failed rebuild).
             CanCopyToGame = false;
             return false;
@@ -474,7 +473,7 @@ public sealed partial class MergeInstallViewModel
     /// LibraryChangedMessage, and this VM's own handler for that message invalidates manual
     /// conflict picks — right for an external change (a queued mod's content moved under the
     /// picks), wrong here, where the only change is the app's own built pack landing in the
-    /// Library, which no pick refers to. An audit finding: every successful Rebuild silently
+    /// Library, which no pick refers to. Before this, every successful Rebuild silently
     /// discarded the picks, so a second Install of the same queue resolved last-wins instead of
     /// what the user had reviewed. The picks and their status line are carried across it.
     /// </summary>

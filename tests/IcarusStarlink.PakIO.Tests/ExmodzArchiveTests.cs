@@ -142,7 +142,7 @@ public class ExmodzArchiveTests
         Assert.Equal(0, stream.Length);
     }
 
-    /// <summary>Audit finding: Compress-Archive writes directory entries with a trailing backslash; they were read as zero-byte assets and then broke ExmodFolder.Write.</summary>
+    /// <summary>Regression: Compress-Archive writes directory entries with a trailing backslash; they were read as zero-byte assets and then broke ExmodFolder.Write.</summary>
     [Fact]
     public void Read_BackslashTerminatedDirectoryEntries_AreSkippedNotReadAsAssets()
     {

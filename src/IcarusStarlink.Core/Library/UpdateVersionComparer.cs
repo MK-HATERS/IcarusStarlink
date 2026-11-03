@@ -78,8 +78,8 @@ public static partial class UpdateVersionComparer
         }
 
         // A copy newer than the source's (the author's own build, installed before its Nexus
-        // upload): the source's older version isn't an update (user report 2026-11-01: v0.8.0
-        // installed showed "Update v0.7.0").
+        // upload): the source's older version isn't an update (v0.8.0 installed
+        // used to show "Update v0.7.0").
         if (IsNewer(installedVersion, latestVersion))
         {
             return false;

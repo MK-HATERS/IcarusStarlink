@@ -29,8 +29,8 @@ public static class Ue4ssModStart
     /// (UEHelpers and the type files), with no main.lua or main.dll. The bundled UE4SS zip's Mods
     /// folder has eight mods (BPML_GenericFunctions, BPModLoaderMod, CheatManagerEnablerMod,
     /// ConsoleCommandsMod, ConsoleEnablerMod, Keybinds, LineTraceMod, SplitScreenMod), mods.txt,
-    /// mods.json and shared\; only shared\ is not a mod. Taking it out of the game (report
-    /// 2026-10-28: unticked in the Library with "Show UE4SS built-ins" on) broke every Lua mod that
+    /// mods.json and shared\; only shared\ is not a mod. Taking it out of the game (unticked
+    /// in the Library with "Show UE4SS built-ins" on) broke every Lua mod that
     /// uses it, and ticking it again wrote an enabled.txt into it. It is always on: never moved,
     /// never switched, never deleted.
     /// </summary>

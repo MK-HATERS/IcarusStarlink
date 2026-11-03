@@ -69,7 +69,7 @@ public sealed class Ue4ssModConfigFilesTests : IDisposable
     /// MkHaters Tools' layout: config.lua, its shipped defaults config.default.lua, and two Scripts
     /// modules named like configs (mk_config.lua reads the config, mt_config.lua holds the defaults
     /// in code). The main file comes first, the defaults last and marked, the code not at all
-    /// (user 2026-10-27: the File list opened on config.default.lua and offered the modules).
+    /// (the File list used to open on config.default.lua and offer the modules).
     /// </summary>
     [Fact]
     public void Find_MkHatersLayout_MainFirst_DefaultsMarked_CodeModulesLeftOut()
@@ -104,7 +104,7 @@ public sealed class Ue4ssModConfigFilesTests : IDisposable
         Assert.False(Ue4ssModConfigFiles.IsDefaults("config.lua"));
     }
 
-    /// <summary>A shared patch names the files it writes: only settings paths count (review 2026-10-28).</summary>
+    /// <summary>A shared patch names the files it writes: only settings paths count.</summary>
     [Theory]
     [InlineData("config.lua", true)]
     [InlineData("Mod.cfg", true)]

@@ -96,7 +96,7 @@ public static partial class GameplayOptionsApplier
     }
 
     /// <summary>
-    /// The recipe sets that are trades with an NPC vendor, not crafting (real game data, 2026-10-28:
+    /// The recipe sets that are trades with an NPC vendor, not crafting (real game data:
     /// D_Processing's Hunter, Norex_NPC, Farmer_NPC, Fisher_NPC and Chef_NPC rows each have one of
     /// these as their DefaultRecipeSet). Vestige/Crops/Fish_Exchange turn vestiges, crops and fish
     /// into Ren (Common_Vestige: 1 vestige for 1 Ren), Biomass_Exchange turns Biomass into trophies

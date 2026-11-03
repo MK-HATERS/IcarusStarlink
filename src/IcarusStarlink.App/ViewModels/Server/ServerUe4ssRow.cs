@@ -5,8 +5,7 @@ namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
 /// One UE4SS mod in the server's table: the game's copy, the server's copy, how they compare, and
-/// what to do about it (user request 2026-10-23 — the page used to list the same mods twice and
-/// never said a server copy was out of date). ServerOn is the server's own on/off switch.
+/// what to do about it (one row per mod, saying when a server copy is out of date). ServerOn is the server's own on/off switch.
 /// </summary>
 public sealed partial class ServerUe4ssRow : ObservableObject
 {

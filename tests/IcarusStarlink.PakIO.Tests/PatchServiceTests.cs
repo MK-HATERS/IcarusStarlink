@@ -178,7 +178,7 @@ public class PatchServiceTests : IDisposable
     }
 
     /// <summary>
-    /// Format 2 (2026-10-27): a pak mod from nowhere travels as its pak files, a UE4SS mod with no
+    /// Format 2: a pak mod from nowhere travels as its pak files, a UE4SS mod with no
     /// Nexus source as its folder (without its logs and enabled.txt), each with its ids and the
     /// UE4SS mod's config text in the manifest; both come back extracted to a temp folder the
     /// result removes when disposed.
@@ -304,7 +304,7 @@ public class PatchServiceTests : IDisposable
     }
 
     /// <summary>
-    /// Review 2026-10-28: a patch's settings are written into UE4SS mods the player runs (game and
+    /// A patch's settings are written into UE4SS mods the player runs (game and
     /// server) with no question. A "config" that is a script, or Lua that runs code, is taken out
     /// when the patch is read and named; plain settings stay.
     /// </summary>
@@ -340,7 +340,7 @@ public class PatchServiceTests : IDisposable
     }
 
     /// <summary>
-    /// Review 2026-10-28: a Lua config that is data as a whole could still carry code into the
+    /// A Lua config that is data as a whole could still carry code into the
     /// mod's own file, because the import writes the patch's values into that file line by line,
     /// and a value going into a table setting is written as Lua. A string holding Lua, and lines
     /// hidden in a long comment the line reader takes as settings, are refused.

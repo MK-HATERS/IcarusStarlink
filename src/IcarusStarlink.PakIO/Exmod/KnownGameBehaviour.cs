@@ -3,8 +3,7 @@ using System.Text.RegularExpressions;
 namespace IcarusStarlink.PakIO.Exmod;
 
 /// <summary>
-/// What the game really does with some data, tested in game by MkHaters' Hook Scout (the dates and
-/// mods are its notes'), so warnings can tell an edit that breaks something or does nothing from
+/// What the game really does with some data, tested in game, so warnings can tell an edit that breaks something or does nothing from
 /// one that works. One place for these facts: the health check, the Editor page and the mod editor
 /// all read them. A fact only read from the game's code or tables says so in its words.
 /// </summary>
@@ -19,7 +18,7 @@ public static partial class KnownGameBehaviour
         ["D_CharacterGrowth"] = new("D_CharacterGrowth", NewRowsBreak: true,
             "The game can't use rows a mod adds to this table: tames pointed at such a row showed level 0, \"-1\" XP and a broken max level "
             + "(tested in game by MkHaters' Animal Talents 2.0, 2026-10-27). Change the game's own rows here, never add new ones."),
-        // The game logs a mismatch for these too when a mod adds rows; nothing visible went wrong in Hook Scout's tests.
+        // The game logs a mismatch for these too when a mod adds rows; nothing visible went wrong in in-game tests.
         ["D_AIRelationships"] = new("D_AIRelationships", NewRowsBreak: false, "The game logs a row-count mismatch at start; nothing visible went wrong in tests."),
         ["D_RecipeSets"] = new("D_RecipeSets", NewRowsBreak: false, "The game logs a row-count mismatch at start; nothing visible went wrong in tests."),
         ["D_TagQueries"] = new("D_TagQueries", NewRowsBreak: false, "The game logs a row-count mismatch at start; nothing visible went wrong in tests."),

@@ -107,7 +107,7 @@ public class AnyArchiveExtractorTests
     }
 
     /// <summary>
-    /// Review 2026-10-28: 7z and RAR headers hold sizes as unsigned 64-bit numbers, which SharpCompress
+    /// 7z and RAR headers hold sizes as unsigned 64-bit numbers, which SharpCompress
     /// hands back as a long — a crafted one reads negative. Charged as-is, an empty entry declaring
     /// a huge negative size gave the whole budget back and the rest of the archive could unpack far
     /// past the 1 GB cap.

@@ -1,6 +1,6 @@
 namespace IcarusStarlink.Core.Steam;
 
-/// <summary>Auto-detects the real Icarus install path (Phase 7.5) — Settings' "Auto-detect" button, an alternative to manually Browse-ing to it.</summary>
+/// <summary>Auto-detects the real Icarus install path — Settings' "Auto-detect" button, an alternative to manually Browse-ing to it.</summary>
 public interface ISteamInstallLocator
 {
     /// <summary>

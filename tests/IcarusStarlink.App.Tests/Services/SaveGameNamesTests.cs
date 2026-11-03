@@ -3,7 +3,7 @@ using IcarusStarlink.App.Services;
 
 namespace IcarusStarlink.App.Tests.Services;
 
-/// <summary>Researched 2026-10-23 against the game's real tables (3.0.33).</summary>
+/// <summary>Checked against the game's real tables (3.0.33).</summary>
 public sealed class SaveGameNamesTests : IDisposable
 {
     private readonly string _data = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_GameData", Guid.NewGuid().ToString("N"));
@@ -78,7 +78,7 @@ public sealed class SaveGameNamesTests : IDisposable
         Assert.Equal("Caveworm Knife", new SaveGameNames(_data).Talents["Caveworm_Knife"].DisplayName);
     }
 
-    /// <summary>Accolade names showed their escapes: "Rock \'n\' Roll" (2026-10-23).</summary>
+    /// <summary>Accolade names showed their escapes: "Rock \'n\' Roll".</summary>
     [Fact]
     public void LocalizedText_IsUnescaped()
     {
@@ -93,7 +93,7 @@ public sealed class SaveGameNamesTests : IDisposable
         Assert.Equal("Say \"hi\"\\now", accolade.Description);
     }
 
-    /// <summary>Researched 2026-10-23: what each flag is for, from the tables' own fields.</summary>
+    /// <summary>What each flag is for, from the tables' own fields.</summary>
     [Fact]
     public void Flags_AreClassifiedByWhatTheyDo()
     {
@@ -212,7 +212,7 @@ public sealed class SaveGameNamesTests : IDisposable
     }
 
     /// <summary>
-    /// The user's ask (2026-10-28): blueprints by tier. Blueprint trees have no name of their own
+    /// Blueprints by tier. Blueprint trees have no name of their own
     /// and listed as "Tier 2 · Blueprint T2 Crafting", alphabetically. Now each says its bench and
     /// they come Tier 1 to Tier 5, after the talent trees and before Solo, as in the real tables
     /// (Tier 5's archetype comes after Solo there).

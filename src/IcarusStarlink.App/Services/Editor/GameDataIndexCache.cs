@@ -54,7 +54,7 @@ public sealed class GameDataIndexCache
         {
             // A build that faulted (a file locked mid-extraction, say) is retried on the next call
             // rather than cached as a permanent failure until the next successful "Update data
-            // folder" (an audit finding).
+            // folder".
             if (_indexesTask is { IsFaulted: true })
             {
                 _indexesTask = null;

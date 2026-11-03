@@ -26,7 +26,7 @@ public sealed partial class LibraryItemViewModel
             // same folder from scratch, paid on every single mod selection.
             var files = _repository.ListFolderFiles(FolderName);
 
-            // Cleared, not appended (an audit finding): NotifyRepairedFromDisk and a retry after a
+            // Cleared, not appended: NotifyRepairedFromDisk and a retry after a
             // transient failure both re-enter here with the previous list still populated, which
             // doubled every row in the Files tab.
             AssetPaths.Clear();

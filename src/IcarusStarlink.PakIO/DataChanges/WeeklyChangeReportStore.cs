@@ -112,7 +112,7 @@ public sealed class WeeklyChangeReportStore : IWeeklyChangeReportStore
         _history.Sort((a, b) => b.CurrentUpdateAt.CompareTo(a.CurrentUpdateAt));
     }
 
-    /// <summary>Age-based, not count-based, per the user's own "keep a month's worth" framing —
+    /// <summary>Age-based, not count-based ("keep a month's worth") —
     /// deliberately never prunes Current even if it's somehow older than the window (an update
     /// re-run after a long break shouldn't make "Current" disappear).</summary>
     private void Prune()

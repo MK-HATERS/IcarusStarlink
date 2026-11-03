@@ -9,7 +9,7 @@ namespace IcarusStarlink.Catalog.Nexus;
 /// <summary>
 /// Nexus's own public REST API (https://api.nexusmods.com/v1) — base URL, the "apikey" header
 /// name, and every endpoint path below are confirmed against Nexus's own official node-nexus-api
-/// client source during Phase 8 planning, not guessed. The API key is a per-call parameter, not a
+/// client source, not guessed. The API key is a per-call parameter, not a
 /// fixed header baked in at construction time, since it's entered by the user at runtime and can
 /// change (Settings' Authorize/Sign out flow) — a typed HttpClient's own DefaultRequestHeaders
 /// wouldn't fit that.
@@ -370,7 +370,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
     {
         // Nexus's newer v2 GraphQL endpoint — the only place mod search exists at all (v1 has no
         // search endpoint). Query shape and the WILDCARD-as-substring behavior both confirmed by
-        // live probing the real endpoint during planning, not guessed; user input travels as a
+        // live probing the real endpoint, not guessed; user input travels as a
         // GraphQL VARIABLE, never string-interpolated into the query text, so no quoting/injection
         // concerns. Works unauthenticated (also confirmed live) — the key is attached when
         // available anyway, since authenticated requests get the account's own rate limits.
@@ -413,7 +413,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
 
         // mods(filter: { modId }) refuses without a numeric gameId ("gameId is required when
         // filtering by modId"); legacyModsByDomain takes the domain + v1 mod ID pairs this app
-        // already stores. Both checked live against the real endpoint on 2026-10-23.
+        // already stores. Both checked live against the real endpoint.
         var payload = new Dictionary<string, object?>
         {
             ["query"] = "query ById($ids: [CompositeDomainWithIdInput!]!) { legacyModsByDomain(ids: $ids) { nodes { modId name version summary pictureUrl author createdAt updatedAt uploader { memberId } } } }",
@@ -445,7 +445,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         // real endpoint (icarus answered 229 total, page slices genuinely advanced) — not guessed.
         ListModsSortedAsync(apiKey, gameDomain, offset, count, "endorsements", cancellationToken);
 
-    /// <summary>The createdAt-DESC sort answered newest-first on a live probe (2026-10-28: mod 383 published that day came first).</summary>
+    /// <summary>The createdAt-DESC sort answered newest-first on a live probe (a mod published that same day came first).</summary>
     public Task<NexusModPage> ListNewestModsAsync(string? apiKey, string gameDomain, int count, CancellationToken cancellationToken = default) =>
         ListModsSortedAsync(apiKey, gameDomain, offset: 0, count, "createdAt", cancellationToken);
 
@@ -535,7 +535,7 @@ public sealed class NexusApiClient(HttpClient httpClient) : INexusApiClient
         [JsonPropertyName("data")]
         public GraphDataDto? Data { get; init; }
 
-        /// <summary>GraphQL reports a bad query / schema change / rejected key as HTTP 200 with this populated and data null — silently read as "no results" before (an audit finding).</summary>
+        /// <summary>GraphQL reports a bad query / schema change / rejected key as HTTP 200 with this populated and data null — silently read as "no results" before.</summary>
         [JsonPropertyName("errors")]
         public List<GraphErrorDto>? Errors { get; init; }
     }

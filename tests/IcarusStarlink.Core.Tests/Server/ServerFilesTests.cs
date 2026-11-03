@@ -3,8 +3,8 @@ using IcarusStarlink.Core.Server;
 
 namespace IcarusStarlink.Core.Tests.Server;
 
-/// <summary>SteamCMD parsing, mods.txt editing, log events, backups and server mod files — inputs copied from a real Icarus dedicated server install (2026-08/10).</summary>
-public sealed class ServerPhase23Tests : IDisposable
+/// <summary>SteamCMD parsing, mods.txt editing, log events, backups and server mod files — inputs copied from a real Icarus dedicated server install.</summary>
+public sealed class ServerFilesTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
 
@@ -34,7 +34,7 @@ public sealed class ServerPhase23Tests : IDisposable
 
     // ---- Backup folders and retention ----
 
-    /// <summary>The user's real folder is "Server1_dc7ea824" for "Server #1": renaming the profile must find it by the id and carry it over.</summary>
+    /// <summary>A real folder is "Server1_dc7ea824" for "Server #1": renaming the profile must find it by the id and carry it over.</summary>
     [Fact]
     public void BackupFolder_IsFoundByProfileId_AndRenamedToTheCurrentName()
     {
@@ -132,7 +132,7 @@ public sealed class ServerPhase23Tests : IDisposable
         Assert.Null(SteamCmd.ParseProgressPercent("Loading Steam API...OK"));
     }
 
-    /// <summary>The real manifest from the user's server: buildid 25621760, empty UserConfig (= public).</summary>
+    /// <summary>A real server's manifest: buildid 25621760, empty UserConfig (= public).</summary>
     [Fact]
     public void AppManifest_GivesTheInstalledBuildAndBranch()
     {

@@ -54,7 +54,7 @@ public sealed partial class LibraryViewModel
         }
         catch (Exception ex)
         {
-            // Same UI boundary the whole-library sweep already has (an audit finding: without it a
+            // Same UI boundary the whole-library sweep already has (without it a
             // locked .pak sent the exception to the crash-report handler and the click did nothing).
             StatusMessage = $"Couldn't convert '{item.Name}': {ex.Message}";
             _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
@@ -299,7 +299,7 @@ public sealed partial class LibraryViewModel
             }
         }
 
-        // Same open-editor guard CheckModsAgainstCurrentDataAsync uses (an audit finding): rewriting
+        // Same open-editor guard CheckModsAgainstCurrentDataAsync uses: rewriting
         // a folder under an open editor window means its next Save writes the stale in-memory
         // package back over the fresh diff — and marks it locally edited, so it's never refreshed again.
         var foldersWithOpenEditors = _openEditorCountByFolder.Where(kv => kv.Value > 0).Select(kv => kv.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -328,7 +328,7 @@ public sealed partial class LibraryViewModel
                 // keeps that pak as "{folderName}.pak" — so for a collision-suffixed folder
                 // ("CoolMod_P_2" holding "CoolMod_P.EXMOD") the re-conversion wrote a SECOND .EXMOD
                 // beside the original, and the mod vanished from the Library as "more than one
-                // .EXMOD" on the next rescan (an audit finding). Keep the existing package's own name.
+                // .EXMOD" on the next rescan. Keep the existing package's own name.
                 converted.Contents.Package.FileName = ExmodFolder.ReadPackageOnly(folder).FileName;
 
                 var folderName = item.FolderName;

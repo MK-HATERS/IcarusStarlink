@@ -5,7 +5,7 @@ namespace IcarusStarlink.PakIO.Exmod;
 
 /// <summary>
 /// Parses JSON that may contain the same key twice inside one object — which real mod files
-/// genuinely do. Two confirmed examples from the user's own library: a mod whose header lists
+/// genuinely do. Two confirmed examples from real mods: a mod whose header lists
 /// "description" twice (which made the whole mod unreadable and invisible in the Library), and a
 /// Jimk72-authored file whose item lists "ResourceCostMultipliers" twice.
 ///

@@ -5,9 +5,8 @@ namespace IcarusStarlink.PakIO.Tests;
 /// <summary>
 /// Every other UnrealPakServiceTests case runs against a fake IProcessRunner — safe and fast, but
 /// it means real UnrealPak.exe quirks (the mount-point folding behavior, whether -compress
-/// round-trips bytes correctly, the exact response-file mechanics) have only ever been confirmed by
-/// hand-written, disposable scratch console harnesses re-created from memory each time the question
-/// came up again this session. These tests shell out to the REAL bundled UnrealPak.exe via the REAL
+/// round-trips bytes correctly, the exact response-file mechanics) would otherwise only be confirmed
+/// by hand-written, disposable scratch console harnesses. These tests shell out to the REAL bundled UnrealPak.exe via the REAL
 /// ProcessRunner instead, so those quirks are re-verified automatically on every run instead of
 /// needing a human to remember to re-check them by hand.
 ///
@@ -79,7 +78,7 @@ public class RealUnrealPakIntegrationTests : IDisposable
     [Fact]
     public async Task CreateThenList_ExactlyOneStagedFile_FoldsAwayEveryDirectorySegment()
     {
-        // Resolves a real question this session's own RebuildService fix left open: does a
+        // Resolves a real question a RebuildService fix left open: does a
         // genuinely single-file pak fold its ENTIRE directory chain into the mount point (leaving
         // just the bare filename), or only its immediate containing folder? Confirmed here directly
         // against the real binary: the whole chain folds away — "data/Crafting/D_ProcessorRecipes.

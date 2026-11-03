@@ -65,7 +65,7 @@ public sealed partial class MainViewModel : ObservableObject
 
 
     /// <summary>
-    /// The left navigation folded to a strip of icons (user request 2026-10-23): every item keeps its
+    /// The left navigation folded to a strip of icons: every item keeps its
     /// icon and its name as a tooltip, so it still says what's what. Remembered in AppSettings.NavCollapsed.
     /// </summary>
     public bool IsNavCollapsed
@@ -103,8 +103,7 @@ public sealed partial class MainViewModel : ObservableObject
         // pending-downloads list both moved onto Library itself (a downloaded mod already blends
         // straight into Library's own list once it finishes, so a separate "Downloads" page just
         // duplicated the same job).
-        // Grouped by what the user is doing (their ask, 2026-10-23: "the left column could be better
-        // organized"): finding mods, working on their own, the game itself, then the app.
+        // Grouped by what the user is doing: finding mods, working on their own, the game itself, then the app.
         NavItems =
         [
             // Nexus and the IMM Database together — everywhere mods can be found ("nexus" and
@@ -113,10 +112,10 @@ public sealed partial class MainViewModel : ObservableObject
             // What was downloaded and what became of it — its own page, like every mod organizer.
             new NavItem("downloads", "Downloads", typeof(DownloadsViewModel), "Find mods"),
             new NavItem("library", "Library", typeof(LibraryViewModel), "Your mods"),
-            // Changing the game's own items (New mod is for new ones) — the user's own name for it.
+            // Changing the game's own items (New mod is for new ones).
             new NavItem("editor", "Editor", typeof(GameEditorViewModel), "Your mods"),
             new NavItem("merge", "Merge & Install", typeof(MergeInstallViewModel), "Your mods"),
-            // Out of Beta at the user's call (2026-10-23), with the save check, mount editor and points.
+            // Out of Beta, with the save check, mount editor and points.
             new NavItem("saves", "Saves", typeof(SavesViewModel), "Game"),
             // FTP file management for a rented server's mods folder plus the Local server tab.
             new NavItem("server", "Server", typeof(ServerViewModel), "Game"),

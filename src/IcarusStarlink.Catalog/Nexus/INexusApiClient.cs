@@ -53,7 +53,7 @@ public interface INexusApiClient
 
     /// <summary>
     /// Name search over a game's whole mod catalog — the one thing v1 can't do at all, served by
-    /// Nexus's newer v2 GraphQL endpoint (shape confirmed by live probing during planning).
+    /// Nexus's newer v2 GraphQL endpoint (shape confirmed by live probing).
     /// apiKey is genuinely optional here: the endpoint answers unauthenticated (confirmed live),
     /// so search works even before a key is configured — pass the key when there is one.
     /// </summary>
@@ -62,7 +62,7 @@ public interface INexusApiClient
     /// <summary>
     /// The same cards as SearchModsAsync, looked up by mod ID instead of name — what Library's
     /// Update / Find on Nexus use, since a Library mod's name often isn't its Nexus title. Same v2
-    /// GraphQL endpoint (legacyModsByDomain, confirmed live 2026-10-23; works without a key). An ID
+    /// GraphQL endpoint (legacyModsByDomain, confirmed live; works without a key). An ID
     /// Nexus doesn't know is simply missing from the result. The default serves clients without
     /// the lookup: nothing found.
     /// </summary>
@@ -80,7 +80,7 @@ public interface INexusApiClient
     /// <summary>
     /// The game's newest mods, most recently published first (the Database page's "new since your
     /// last visit"). Same v2 GraphQL query as ListAllModsAsync with a createdAt-DESC sort (checked
-    /// live 2026-10-28; a createdAt filter is NOT accepted by the endpoint, so the caller counts).
+    /// live; a createdAt filter is NOT accepted by the endpoint, so the caller counts).
     /// Answers unauthenticated. The default (fakes) returns nothing.
     /// </summary>
     Task<NexusModPage> ListNewestModsAsync(string? apiKey, string gameDomain, int count, CancellationToken cancellationToken = default) =>

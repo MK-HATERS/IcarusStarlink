@@ -10,8 +10,8 @@ public sealed class AppSettingsService : ISettingsService
 
     // True when settings.json EXISTED but couldn't be read at startup, or wasn't valid JSON (see
     // JsonFileStore.Load): Current holds defaults the user never chose, and the first Save would
-    // overwrite their real file with them (an audit finding — a OneDrive/antivirus lock at launch
-    // wiped every setting; a hand-edit with one stray comma did the same, review 2026-10-23).
+    // overwrite their real file with them (a OneDrive/antivirus lock at launch wiped every
+    // setting; a hand-edit with one stray comma did the same).
     // The original is preserved beside the file before that first write so nothing is lost.
     private bool _originalCouldNotBeRead;
 

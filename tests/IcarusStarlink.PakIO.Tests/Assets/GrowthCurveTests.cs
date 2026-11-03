@@ -2,7 +2,7 @@ using IcarusStarlink.PakIO.Assets;
 
 namespace IcarusStarlink.PakIO.Tests.Assets;
 
-/// <summary>The game's own player curves (read from its paks 2026-10-23), evaluated the way the engine does.</summary>
+/// <summary>The game's own player curves (read from its paks), evaluated the way the engine does.</summary>
 public sealed class GrowthCurveTests
 {
     private static GrowthCurveKey Key(float t, float v) => new(t, v, IsCubic: false, IsConstant: false, 0, 0);
@@ -31,7 +31,7 @@ public sealed class GrowthCurveTests
         Assert.Equal(179 + 262 * 3.5, Blueprints.Evaluate(313));
     }
 
-    /// <summary>MKHATERS: 41,867,472 XP is level 313 with Remove Level Cap, the game's own 1,000 or not.</summary>
+    /// <summary>A real character: 41,867,472 XP is level 313 with Remove Level Cap, the game's own 1,000 or not.</summary>
     [Fact]
     public void LevelFor_FollowsTheXpCurve_AndStopsAtTheCap()
     {

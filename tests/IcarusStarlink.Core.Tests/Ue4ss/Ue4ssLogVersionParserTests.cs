@@ -4,8 +4,8 @@ namespace IcarusStarlink.Core.Tests.Ue4ss;
 
 public class Ue4ssLogVersionParserTests
 {
-    // Real first few lines of a UE4SS.log, captured from the user's own real, working install
-    // during Phase 8.5 planning — not synthesized.
+    // Real first few lines of a UE4SS.log, captured from a real, working install — not
+    // synthesized.
     private static readonly string[] RealisticLogLines =
     [
         "[2026-08-17 19:30:33.9418541] Console created",

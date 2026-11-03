@@ -11,7 +11,7 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// no business being packed into the actual merged .pak file Icarus loads: Icarus's engine never
 /// reads it, so packing it is pure wasted space, and identically-named files across unrelated mods
 /// (confirmed live: "Banner.PNG"/"Readme.txt"/"ImageOnly.png" recurring across several real,
-/// unrelated mods in the user's own library) silently overwrite each other for no reason.
+/// unrelated mods) silently overwrite each other for no reason.
 /// </summary>
 public static class GameAssetExtensions
 {

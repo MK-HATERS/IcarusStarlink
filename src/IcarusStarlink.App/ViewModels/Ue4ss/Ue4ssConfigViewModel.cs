@@ -430,8 +430,8 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
         RefreshTargets();
 
         // The targets were only read once at start, so installing UE4SS (or saving a new game
-        // folder) left the tab saying "No UE4SS-settings.ini found" until a restart (review
-        // 2026-10-23). Not while there are unsaved edits: re-reading would throw them away.
+        // folder) left the tab saying "No UE4SS-settings.ini found" until a restart. Not
+        // while there are unsaved edits: re-reading would throw them away.
         WeakReferenceMessenger.Default.Register<Ue4ssLoaderChangedMessage>(this, (recipient, _) => ((Ue4ssConfigViewModel)recipient).RefreshTargetsUnlessEdited());
         WeakReferenceMessenger.Default.Register<SettingsSavedMessage>(this, (recipient, _) => ((Ue4ssConfigViewModel)recipient).RefreshTargetsUnlessEdited());
     }

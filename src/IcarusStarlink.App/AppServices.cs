@@ -173,7 +173,7 @@ internal static class AppServices
         services.AddSingleton<Func<IFtpClient>>(() => new FluentFtpClient());
 
         // Transient, not a singleton — every other ViewModel in this app is constructed once and
-        // reused, but the EXMOD editor is per-open-instance (Phase 7.1: classic IMM's own editor
+        // reused, but the EXMOD editor is per-open-instance (classic IMM's own editor
         // really does support two independent mods open at once). Registered as a factory
         // delegate, not AddTransient<T>, since the folder name it edits is only known at the
         // moment Library's Edit…/New mod… actions fire, not at DI composition time.

@@ -3,7 +3,7 @@ using IcarusStarlink.Catalog.AppUpdate;
 namespace IcarusStarlink.Catalog.Tests.AppUpdate;
 
 /// <summary>
-/// Update channels (user request 2026-10-23): betas ship as GitHub prereleases tagged
+/// Update channels: betas ship as GitHub prereleases tagged
 /// vX.Y.Z-beta.N; the Beta channel also offers them, Stable doesn't, a beta tester is told when a
 /// stable release is ready, and Stable while on a beta offers the way back.
 /// </summary>

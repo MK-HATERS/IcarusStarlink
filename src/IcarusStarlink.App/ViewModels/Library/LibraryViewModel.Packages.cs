@@ -68,8 +68,8 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
-    /// Groups every Library entry and UE4SS mod (staged or on in the game: the user's rule is that a
-    /// download's two halves stay linked either way, 2026-10-28) by the Nexus download they came from; only
+    /// Groups every Library entry and UE4SS mod (staged or on in the game: a download's two halves
+    /// stay linked either way) by the Nexus download they came from; only
     /// groups with two or more parts count. A part recorded before file IDs were (no NexusFileId)
     /// goes with its mod's one download when the Library knows only one; with several it can't tell
     /// which, so the parts without a file ID group only with each other.

@@ -6,7 +6,7 @@ using IcarusStarlink.App.Views;
 namespace IcarusStarlink.App.Tests.Views;
 
 /// <summary>
-/// User report 2026-10-23: typing in the mod editor's "Add a stat" search made the whole editor
+/// Typing in the mod editor's "Add a stat" search made the whole editor
 /// jump, and scrolling its matches scrolled the editor. ScrollChanged bubbles, so a scrollable
 /// control inside the fields was taken for the fields' own scrolling and synced to the editor.
 /// </summary>

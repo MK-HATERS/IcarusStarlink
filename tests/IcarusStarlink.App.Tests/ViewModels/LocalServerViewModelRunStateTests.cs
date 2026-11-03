@@ -6,7 +6,7 @@ using IcarusStarlink.Core.Server;
 namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>
-/// Review 2026-10-23: acting on the right server. Two profiles can share one install (each with its
+/// Acting on the right server. Two profiles can share one install (each with its
 /// own Saved suffix), a restart's update takes minutes, and the page's Running can be another
 /// server's or a few seconds old — none of that may make Start, Stop, Update or a mod change act on
 /// the wrong server or process.

@@ -13,7 +13,7 @@ namespace IcarusStarlink.PakIO;
 /// of sync between a writer and any of its readers. Public (not internal) for that last case
 /// specifically: Storage depends on PakIO already, but has no InternalsVisibleTo grant, and
 /// duplicating this filename as a second string literal would reintroduce exactly the drift risk
-/// this class exists to prevent. UE4SS mods have no equivalent manifest (Phase 8.5) — a mod's real
+/// this class exists to prevent. UE4SS mods have no equivalent manifest — a mod's real
 /// presence in the game's own Mods folder IS its state, nothing else to track.
 /// </summary>
 public static class InstallManifestNames

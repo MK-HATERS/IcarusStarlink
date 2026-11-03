@@ -15,8 +15,8 @@ public sealed record Ue4ssModConfigCarryOverResult(IReadOnlyList<string> Kept, I
 }
 
 /// <summary>
-/// An update of a UE4SS mod keeps the player's settings (user report 2026-10-27: activating a new
-/// Nexus version replaced config.lua with the shipped one, and the settings were only in
+/// An update of a UE4SS mod keeps the player's settings (activating a new
+/// Nexus version used to replace config.lua with the shipped one, and the settings were only in
 /// Backups\UE4SS). The new version's config file is the layout (its comments, order and new
 /// settings at their defaults), and the player's value is written into every setting that still
 /// exists; a setting the new version no longer has (renamed or dropped) is left out and reported

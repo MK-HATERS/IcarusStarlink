@@ -127,8 +127,7 @@ public sealed partial class LibraryViewModel
             }
 
             // No .EXMOD inside — a folder holding a bare .pak or a UE4SS mod gets the same content
-            // sniffing an archive does (an audit finding: it used to fail with "No .EXMOD file
-            // found"). Classified from a COPY: the classifier unpacks any nested archive it finds
+            // sniffing an archive does (it used to fail with "No .EXMOD file found"). Classified from a COPY: the classifier unpacks any nested archive it finds
             // into the folder it's given, and that must never be the user's own folder.
             var tempCopy = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Import_{Guid.NewGuid():N}");
             try

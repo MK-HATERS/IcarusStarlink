@@ -176,7 +176,7 @@ public sealed class LastKnownGoodStore(string rootDirectory, IcarusStarlink.Core
     /// ArcFission Library's own data pak is never touched, nor any other pak Install cleared from
     /// the folder (those are in backupDirectory; the snapshot only holds the merge). The game must
     /// not be running. The snapshot's copies go in first, each replacing its file in one move, and
-    /// only then is a merged file it doesn't have removed: deleting first (as before 2026-10-23) left
+    /// only then is a merged file it doesn't have removed: deleting first (as it used to) left
     /// the game with no merge at all when a copy failed.
     /// </summary>
     public void RestoreMergedPak(LastKnownGoodSnapshot snapshot, string icarusContentPath, string backupDirectory)

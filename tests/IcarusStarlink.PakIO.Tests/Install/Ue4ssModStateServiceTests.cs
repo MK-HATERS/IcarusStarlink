@@ -306,8 +306,8 @@ public class Ue4ssModStateServiceTests : IDisposable
     }
 
     /// <summary>
-    /// Report 2026-10-28: with "Show UE4SS built-ins" on, unticking UE4SS's shared\ folder and
-    /// clicking Apply moved it into staging, breaking every Lua mod that uses it. Apply refuses it
+    /// With "Show UE4SS built-ins" on, unticking UE4SS's shared\ folder and
+    /// clicking Apply used to move it into staging, breaking every Lua mod that uses it. Apply refuses it
     /// whoever asks, and the rest of the batch still goes through.
     /// </summary>
     [Fact]

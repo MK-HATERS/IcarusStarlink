@@ -65,7 +65,7 @@ public interface IDialogService
 
     /// <summary>
     /// A file to open; null when cancelled. Every page's file pickers go through these three
-    /// (review 2026-10-23: 18 view models opened Windows dialogs themselves, so those flows
+    /// (18 view models used to open Windows dialogs themselves, so those flows
     /// couldn't be tested). The defaults answer "cancelled", so a test fake only sets what it needs.
     /// </summary>
     /// <param name="filter">Windows filter text: "Mod files (*.zip;*.pak)|*.zip;*.pak".</param>

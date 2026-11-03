@@ -5,7 +5,7 @@ using IcarusStarlink.Core.Server;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
 
-/// <summary>Phase 4: the Overview tab's automation, tiles and firewall card, against the same fakes — nothing is launched and the real firewall is never touched.</summary>
+/// <summary>The Overview tab's automation, tiles and firewall card, against the same fakes — nothing is launched and the real firewall is never touched.</summary>
 public sealed partial class LocalServerViewModelTests
 {
     private string LogPath => DedicatedServerLayout.LogPath(_install, null, null);
@@ -141,7 +141,7 @@ public sealed partial class LocalServerViewModelTests
     }
 
     /// <summary>
-    /// The review's case: Stop, then an Update that keeps SteamCMD busy for longer than the old
+    /// Stop, then an Update that keeps SteamCMD busy for longer than the old
     /// 3-minute "intended stop" note lasted. The beat that finally sees the server gone must not
     /// call it a crash and start it again.
     /// </summary>

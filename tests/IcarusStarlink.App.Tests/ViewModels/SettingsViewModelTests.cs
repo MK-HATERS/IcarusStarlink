@@ -29,30 +29,26 @@ using IcarusStarlink.PakIO.Pak;
 namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>
-/// SettingsViewModel had zero coverage before this file despite owning several safety/data-
-/// integrity flows — this covers, deliberately, only the three highest-risk ones rather than
-/// chasing every method on a ~1400-line class:
+/// SettingsViewModel owns several safety/data-integrity flows — this covers, deliberately, only
+/// the three highest-risk ones rather than chasing every method on a ~1400-line class:
 ///
 /// 1. UpdateDataFolderAsync (UpdateDataFolderCommand) — the extraction + Weekly Changes report
-///    flow: this app's own headline feature this session, previously verified only by hand
-///    against a real game update, never at the ViewModel layer.
+///    flow, at the ViewModel layer.
 /// 2. VerifyUnrealPakAsync/InstallBundledUnrealPakAsync — the VIEWMODEL's own orchestration
 ///    (status messages, button-label state) of IUnrealPakInstaller, which already has its own
 ///    real tests (UnrealPakInstallerTests) for the installer's own internals — not re-tested here.
-/// 3. InstallOrUpdateUe4ssAsync/UninstallUe4ssAsync — picked as the single riskiest, most complex,
-///    completely-untested method in this class: its own doc comment calls this write "more
-///    sensitive than either target this app has written to before" (a real write into the game's
-///    own Binaries\Win64, replacing its loader), and unlike the UnrealPak flow above, it also
-///    layers on a real HTTP download and zip handling before that write happens.
+/// 3. InstallOrUpdateUe4ssAsync/UninstallUe4ssAsync — the riskiest, most complex method in this
+///    class: its own doc comment calls this write "more sensitive than either target this app has
+///    written to before" (a real write into the game's own Binaries\Win64, replacing its loader),
+///    and unlike the UnrealPak flow above, it also layers on a real HTTP download and zip handling
+///    before that write happens.
 ///
-/// SettingsViewModel had NO IDialogService seam before this file — every one of its six
-/// confirmations (first-launch UnrealPak setup, nxm:// registration, UE4SS install/update/
-/// uninstall, and both app-update confirms) called ThemedMessageBox.Show directly, the same
-/// real-Window-and-blocking-ShowDialog() call SavesViewModelTests' own doc comment describes as
-/// having no live Dispatcher/Application to run against in a test host. Migrating all six to
-/// _dialogService.Confirm (see SettingsViewModel's own diff) is what makes InstallOrUpdateUe4ss/
-/// UninstallUe4ss testable at all here, mirroring SavesViewModel's own migration exactly — same
-/// FakeDialogService shape, copied from SavesViewModelTests.
+/// Every one of SettingsViewModel's six confirmations (first-launch UnrealPak setup, nxm://
+/// registration, UE4SS install/update/uninstall, and both app-update confirms) goes through
+/// IDialogService rather than ThemedMessageBox.Show, the real-Window-and-blocking-ShowDialog()
+/// call SavesViewModelTests' own doc comment describes as having no live Dispatcher/Application
+/// to run against in a test host. That seam is what makes InstallOrUpdateUe4ss/UninstallUe4ss
+/// testable at all here — same FakeDialogService shape, copied from SavesViewModelTests.
 ///
 /// A second, harder-to-remove risk this class alone has (SavesViewModel's constructor does no such
 /// thing): the constructor itself starts several async checks (CheckForGameUpdateAsync,
@@ -65,9 +61,9 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// at their own first line; Task.FromResult(...) — never Task.Run/Task.Delay — everywhere else) so
 /// they complete before the constructor call returns in a normal xunit host (no ambient
 /// SynchronizationContext forces a real thread hop for an already-completed await). This is an
-/// inherent property of the class today, not something introduced by these tests — see this file's
-/// own final report for why EnsureUnrealPakOnLaunchAsync's own dialog-driven first-launch-install
-/// path specifically is deliberately NOT covered here.
+/// inherent property of the class, not something introduced by these tests.
+/// EnsureUnrealPakOnLaunchAsync's own dialog-driven first-launch-install path is deliberately NOT
+/// covered here.
 /// </summary>
 [Collection(MessengerCollection.Name)]
 public sealed class SettingsViewModelTests
@@ -131,7 +127,7 @@ public sealed class SettingsViewModelTests
         }
     }
 
-    /// <summary>Review 2026-10-23: the button rewrote the Data folder while a merge was reading it.</summary>
+    /// <summary>The button rewrote the Data folder while a merge was reading it.</summary>
     [Fact]
     public async Task UpdateDataFolderCommand_WhileOtherWorkRuns_RefusesAndSaysWhat()
     {
@@ -340,13 +336,12 @@ public sealed class SettingsViewModelTests
     }
 
     // =====================================================================================
-    // 3. InstallOrUpdateUe4ssAsync / UninstallUe4ssAsync — the riskiest, most complex,
-    //    completely-untested method in this class before this file: its own doc comment calls
-    //    this write "more sensitive than either target this app has written to before" (a real
-    //    write into the game's own Binaries\Win64, replacing its loader), and it layers a real
-    //    HTTP download + zip handoff on top of that write, unlike UnrealPak's own local-only
-    //    install. Both commands' own confirm dialogs are what required the IDialogService
-    //    migration in the first place.
+    // 3. InstallOrUpdateUe4ssAsync / UninstallUe4ssAsync — the riskiest, most complex method in
+    //    this class: its own doc comment calls this write "more sensitive than either target this
+    //    app has written to before" (a real write into the game's own Binaries\Win64, replacing
+    //    its loader), and it layers a real HTTP download + zip handoff on top of that write,
+    //    unlike UnrealPak's own local-only install. Both commands' own confirm dialogs go through
+    //    IDialogService, which is what makes them testable.
     // =====================================================================================
 
     /// <summary>No check pressed: Install uses the UE4SS dev build built into Starlink, hash-checked, in the dev-build layout with its licence.</summary>
@@ -704,7 +699,7 @@ public sealed class SettingsViewModelTests
         Assert.False(vm.IsInstallingUe4ss);
     }
 
-    /// <summary>Review 2026-10-23: the Library's "Install UE4SS" bar runs this command with Settings not showing, so a refusal only on Settings' status line was no answer at all.</summary>
+    /// <summary>The Library's "Install UE4SS" bar runs this command with Settings not showing, so a refusal only on Settings' status line was no answer at all.</summary>
     [Fact]
     public async Task InstallOrUpdateUe4ssCommand_Refused_AlsoLogsAWarning()
     {
@@ -728,7 +723,7 @@ public sealed class SettingsViewModelTests
         Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message == "UE4SS install failed: locked file");
     }
 
-    /// <summary>Review 2026-10-23: Browse and Auto-detect only fill the box until Save settings, but UE4SS installed into the box's folder.</summary>
+    /// <summary>Browse and Auto-detect only fill the box until Save settings, but UE4SS installed into the box's folder.</summary>
     [Fact]
     public async Task InstallOrUpdateUe4ssCommand_UsesTheSavedGameFolder_NotAnUnsavedOne()
     {
@@ -835,7 +830,7 @@ public sealed class SettingsViewModelTests
     }
 
     /// <summary>
-    /// Seen live 2026-10-28: the first-launch questions ran inside the constructor, so opening
+    /// The first-launch questions ran inside the constructor, so opening
     /// Settings (or an nxm:// link) while one was open resolved the singleton again, built a second
     /// Settings mid-construction, and every question was asked twice. Built through a real DI
     /// container here, with a dialog that resolves Settings while it is open, as the app does.
@@ -960,7 +955,7 @@ public sealed class SettingsViewModelTests
     }
 
     /// <summary>An install that predates the flow and already extracted its data gets no offer — just marked done so the check stops running.</summary>
-    /// <summary>Settings › Maintenance › "Check for updates when Starlink starts" (user request 2026-10-23): off means no look at launch; the button still checks.</summary>
+    /// <summary>Settings › Maintenance › "Check for updates when Starlink starts": off means no look at launch; the button still checks.</summary>
     [Theory]
     [InlineData(true, 1)]
     [InlineData(false, 0)]
@@ -1575,7 +1570,7 @@ public sealed class SettingsViewModelTests
         }
     }
 
-    /// <summary>Same shape as SavesViewModelTests' own FakeDialogService — copied deliberately rather than reinvented, per this session's own established convention.</summary>
+    /// <summary>Same shape as SavesViewModelTests' own FakeDialogService — copied deliberately rather than reinvented.</summary>
     private sealed class FakeDialogService(bool confirmResult) : IDialogService
     {
         public int ConfirmCallCount { get; private set; }

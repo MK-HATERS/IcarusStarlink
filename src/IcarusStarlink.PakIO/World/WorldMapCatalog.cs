@@ -17,7 +17,7 @@ namespace IcarusStarlink.PakIO.World;
 public static partial class WorldMapCatalog
 {
     /// <summary>
-    /// Worlds the game has no name for yet, named by the user ("the new one is a map called ARK").
+    /// Worlds the game has no name for yet, named here (the new one is a map called ARK).
     /// A name from the game (D_Terrains TerrainName) always wins.
     /// </summary>
     private static readonly Dictionary<string, string> KnownNames = new(StringComparer.OrdinalIgnoreCase)

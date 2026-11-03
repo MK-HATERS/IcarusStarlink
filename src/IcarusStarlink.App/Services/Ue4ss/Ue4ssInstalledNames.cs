@@ -6,7 +6,7 @@ namespace IcarusStarlink.App.Services;
 /// <summary>
 /// Which UE4SS mod folder names exist right now: staged (disabled) ones, and the enabled ones in
 /// the game's own Mods folder — a UE4SS mod is in exactly one of the two. Built four slightly
-/// different ways on the Downloads page before (a review on 2026-10-23), and the newer-file check
+/// different ways on the Downloads page before, and the newer-file check
 /// for updates missed every enabled mod.
 /// </summary>
 public sealed class Ue4ssInstalledNames(IUe4ssModRepository repository, ISettingsService? settings)

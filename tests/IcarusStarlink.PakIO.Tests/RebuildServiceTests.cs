@@ -257,7 +257,7 @@ public class RebuildServiceTests : IDisposable
         };
         var service = new RebuildService(pakService);
 
-        // Fatal, not a warning (an audit finding): the warn-only shape let the combined
+        // Fatal, not a warning: the warn-only shape let the combined
         // Rebuild+Install button copy the corrupt pak straight into the game folder. The output
         // is deleted and no manifest is written, so nothing downstream can install it.
         var ex = await Assert.ThrowsAsync<PakIntegrityException>(() =>
@@ -268,7 +268,7 @@ public class RebuildServiceTests : IDisposable
         Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(_outputPakPath)!, InstallManifestNames.PakManifest)));
     }
 
-    /// <summary>Audit finding: a failed -Create used to leave the PREVIOUS build's manifest beside a partial pak, which Install then read as a complete staged build.</summary>
+    /// <summary>A failed -Create used to leave the PREVIOUS build's manifest beside a partial pak, which Install then read as a complete staged build.</summary>
     [Fact]
     public async Task RebuildAsync_CreateFails_LeavesNeitherAStalePakNorAStaleManifestBehind()
     {
@@ -310,7 +310,7 @@ public class RebuildServiceTests : IDisposable
         Assert.True(File.Exists(Path.Combine(stagedBuild, "SomethingElse.pak")));
     }
 
-    /// <summary>Audit finding: the prebuilt-pak extraction loop ran outside the try/finally, so the 2nd pak failing leaked the 1st pak's scratch folder in TEMP.</summary>
+    /// <summary>The prebuilt-pak extraction loop used to run outside the try/finally, so the 2nd pak failing leaked the 1st pak's scratch folder in TEMP.</summary>
     [Fact]
     public async Task RebuildAsync_SecondPrebuiltPakFailsToExtract_FirstPaksScratchFolderIsStillCleanedUp()
     {
@@ -682,7 +682,7 @@ public class RebuildServiceTests : IDisposable
         // Real gap found live: StageAssets used to pack EVERY entry in a mod's own Assets list
         // unconditionally, including a Readme.txt and the "ImageOnly.png" thumbnail this app's own
         // Library reads for display — pure wasted space in the real merged pak, and (confirmed
-        // against the user's own real 49-mod library) prone to silently colliding between
+        // against a real 49-mod library) prone to silently colliding between
         // unrelated mods that happen to share a generic filename like "Readme.txt".
         WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
         var mod = MakeMod("Mod", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
@@ -1031,8 +1031,7 @@ public class RebuildServiceTests : IDisposable
     [Fact]
     public async Task RebuildAsync_QueuedModAlsoTouchesStatsGranted_BuiltInGameplayOptionStillWinsByDefault()
     {
-        // Phase 1 of the EXMOD/merge-options plan made Speed/Player/XP Boost and Disable
-        // Temperatures real FieldChanges instead of a separate post-merge pass — this proves the
+        // Speed/Player/XP Boost and Disable Temperatures are real FieldChanges instead of a separate post-merge pass — this proves the
         // "built-in wins" default this always had is unchanged (a genuine no-regression check), even
         // though the conflict is now visible to MergeEngine.FindConflicts (see
         // GameplayOptionsFieldChangeGeneratorTests for that half).
@@ -1050,7 +1049,7 @@ public class RebuildServiceTests : IDisposable
         var stagedNode = System.Text.Json.Nodes.JsonNode.Parse(stagedJson)!;
         var statsGranted = stagedNode["Rows"]![0]!["StatsGranted"]!.AsObject();
         // The built-in Speed Boost's own real documented value (Level 1 = 455), not the queued
-        // mod's 999 — same default this had before Phase 1, just now a real, visible conflict
+        // mod's 999 — same default this always had, just now a real, visible conflict
         // resolution instead of a silent post-merge overwrite.
         Assert.Equal(455, (int)statsGranted["(Value=\"BaseMovementSpeed_+\")"]!);
     }

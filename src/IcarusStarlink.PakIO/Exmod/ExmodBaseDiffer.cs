@@ -5,10 +5,10 @@ using IcarusStarlink.PakIO.DataChanges;
 namespace IcarusStarlink.PakIO.Exmod;
 
 /// <summary>
-/// "Side-by-side original game data with amber highlights on differences" per the spec — unlike
+/// Side-by-side original game data with amber highlights on differences. Unlike
 /// ExmodFieldChangeMapper.ToFieldChanges (which always leaves FieldChange.OriginalValue null,
 /// since EXMOD itself never records the base value), this reads the real base file per CurrentFile
-/// and reuses TableDiffer.Diff (Phase 1) to populate real OriginalValues, for the EXMOD editor's
+/// and reuses TableDiffer.Diff to populate real OriginalValues, for the EXMOD editor's
 /// own amber-highlight rendering.
 /// </summary>
 public static class ExmodBaseDiffer

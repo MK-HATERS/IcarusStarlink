@@ -8,7 +8,7 @@ namespace IcarusStarlink.PakIO.Pak;
 /// Wraps UnrealPak.exe (Epic's own pak (un)packing tool, not something this app implements itself)
 /// to extract the one pak file this app actually needs: Content\Data\data.pak. Confirmed against a
 /// real Icarus install — the game ships 33 separate pakchunk*-WindowsNoEditor.pak files under
-/// Content\Paks (assets: models/textures/audio, per the user's own Notes5SQL.ini mapping), entirely
+/// Content\Paks (assets: models/textures/audio, per the Notes5SQL.ini mapping), entirely
 /// separate from Content\Data\data.pak, which holds just the gameplay DataTable JSON
 /// (Crafting\D_ProcessorRecipes.json, Traits\D_Fuel.json, ~300 files across ~75 category folders)
 /// that EXMOD mods actually target and this app's diff/merge engine actually reads. Also confirmed:
@@ -53,7 +53,7 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
             // sitting alongside this run's fresh extract would silently misrepresent the game's
             // *current* data. The diff above already captured what changed before this happens.
             //
-            // Swapped by RENAME, never delete-then-move (a real audit finding): a recursive
+            // Swapped by RENAME, never delete-then-move: a recursive
             // Directory.Delete that fails partway — one D_*.json held open by another tool, an
             // antivirus scan — used to leave outputDirectory half-deleted AND the finally below
             // then deleted the complete new extraction too, so one locked file cost the user both
@@ -153,7 +153,7 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         }
     }
 
-    // The real game's own paks mount their content at this path (confirmed against the user's
+    // The real game's own paks mount their content at this path (confirmed against a
     // real, already-installed IMM_Merged_Mod_P.pak via `-List`) — a pak whose files aren't
     // reachable under this mount point won't actually be found by the game at runtime, even
     // though the pak itself would build and extract just fine.
@@ -213,7 +213,7 @@ public sealed class UnrealPakService(IProcessRunner processRunner) : IUnrealPakS
         }
     }
 
-    // Real output format confirmed by running -List against a real installed pak during planning:
+    // Real output format confirmed by running -List against a real installed pak:
     // `LogPakFile: Display: "Rada_CheatMenu/BP/BP_CheatMenuDummy.uasset" offset: 0, size: 9662
     // bytes, sha1: ..., compression: Zlib.` — every real entry line starts this way; the trailing
     // summary lines ("291 files (...)", "Unreal pak executed in ...") don't have a quote right

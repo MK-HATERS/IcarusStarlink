@@ -38,7 +38,7 @@ internal static class JsonFileStore
     /// <summary>
     /// <paramref name="couldNotRead"/> is true only for a file that EXISTS but couldn't be read
     /// (locked by a sync client or antivirus, permission denied) even after a few quick retries —
-    /// never for a missing or malformed one. An audit finding: a transient lock at load used to be
+    /// never for a missing or malformed one. A transient lock at load used to be
     /// indistinguishable from "no file yet", so the defaults handed back here were then written
     /// straight over the real file by the next Save (settings.json losing every setting; a mod's
     /// sidecar losing its Nexus link on a pin toggle). Callers that write back read-modify-write
@@ -54,8 +54,8 @@ internal static class JsonFileStore
     /// <summary>
     /// <paramref name="problem"/> also tells a malformed file (Corrupt) apart from a missing one,
     /// for a caller that rewrites the whole file from what it loaded: settings.json that wasn't
-    /// valid JSON loaded as defaults and the first save replaced it with no copy kept (review
-    /// 2026-10-23). The bool overload above stays Unreadable-only: its callers refuse to save on it,
+    /// valid JSON loaded as defaults and the first save replaced it with no copy kept. The bool
+    /// overload above stays Unreadable-only: its callers refuse to save on it,
     /// and a corrupt file must stay saveable.
     /// </summary>
     public static T Load<T>(string filePath, Func<T> defaultValue, ILogger logger, out ListLoadProblem problem)

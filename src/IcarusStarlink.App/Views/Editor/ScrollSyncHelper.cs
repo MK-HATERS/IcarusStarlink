@@ -36,7 +36,7 @@ public static class ScrollSyncHelper
             // ScrollChanged bubbles: every scrollable thing INSIDE the host (the Add a stat
             // matches list, a multi-line text field, a link's search list) raises it here too.
             // Taking their offsets as the host's made the whole editor jump while typing in the
-            // stat search, and scrolling that list scrolled the editor (user report 2026-10-23).
+            // stat search, and scrolling that list scrolled the editor.
             if (remoteOffsetsInFlight > 0 || !IsHostsOwn(scrollHost, e.OriginalSource))
             {
                 return;

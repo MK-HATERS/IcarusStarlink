@@ -297,7 +297,7 @@ public class NexusApiClientTests
     public async Task SearchModsAsync_RealisticGraphShape_ParsesNodesAndDecodesHtml()
     {
         // The v2 GraphQL wrapper — camelCase fields, {"data":{"mods":{"nodes":[...]}}} — captured
-        // from a live probe of the real endpoint during planning.
+        // from a live probe of the real endpoint.
         var client = CreateClient(new Dictionary<string, string>
         {
             ["https://api.nexusmods.com/v2/graphql"] = """
@@ -322,7 +322,7 @@ public class NexusApiClientTests
     [Fact]
     public async Task GetModsByIdAsync_RealisticGraphShape_ParsesLegacyModsByDomainNodes()
     {
-        // Captured from the real endpoint on 2026-10-23 (no key): unknown IDs are left out.
+        // Captured from the real endpoint (no key): unknown IDs are left out.
         var client = CreateClient(new Dictionary<string, string>
         {
             ["https://api.nexusmods.com/v2/graphql"] = """
@@ -349,7 +349,7 @@ public class NexusApiClientTests
         Assert.Empty(await client.GetModsByIdAsync(null, "icarus", []));
     }
 
-    /// <summary>Audit finding: GraphQL reports a bad query / schema change as HTTP 200 with "errors" and null data, which read as "no results" instead of a failure.</summary>
+    /// <summary>GraphQL reports a bad query / schema change as HTTP 200 with "errors" and null data, which read as "no results" instead of a failure.</summary>
     [Fact]
     public async Task SearchModsAsync_GraphQlErrorsWithNullData_ThrowsInsteadOfReportingNoResults()
     {
@@ -471,7 +471,7 @@ public class NexusApiClientTests
                 },
             });
 
-        // The distinct type matters (an audit finding): a plain InvalidOperationException was
+        // The distinct type matters: a plain InvalidOperationException was
         // indistinguishable from the download endpoint's "not Premium" rejection in the UI.
         var ex = await Assert.ThrowsAsync<NexusRateLimitedException>(() => client.ValidateKeyAsync("some-key"));
 

@@ -138,7 +138,7 @@
             </StackPanel>
         </DataTemplate>
 
-        <!-- Phase 10 redesign: real icons replace the raw emoji markers, and hovering a row
+        <!-- Real icons replace the raw emoji markers, and hovering a row
              reveals inline Pin/Favorite/Edit actions (RowActions, opacity 0→1 on IsMouseOver)
              instead of only the detail pane or the right-click menu below. -->
         <!-- A UE4SS (Lua) mod as a row in the SAME list as pak/EXMOD mods (the separate UE4SS tab is
@@ -429,9 +429,8 @@
                          the same right-click already surfaces the Notes box in the detail pane below.
                          A ContextMenu is its own top-level Popup, not part of this Grid's visual tree, so a
                          plain RelativeSource AncestorType=UserControl lookup from inside it finds nothing —
-                         confirmed the hard way earlier this session with the same shape of bug (a
-                         VisualBrush.Visual binding that silently resolved to nothing). Row's own Tag above
-                         relays the page VM across that boundary: PlacementTarget (a real property WPF sets
+                         the same shape of bug as a VisualBrush.Visual binding that silently
+                         resolves to nothing. Row's own Tag above relays the page VM across that boundary: PlacementTarget (a real property WPF sets
                          to whatever opened the menu, so it stays inside the real visual tree) exposes that
                          Tag back to the MenuItem below. -->
                     <ContextMenu>

@@ -3,7 +3,7 @@ using System.Globalization;
 namespace IcarusStarlink.Catalog;
 
 /// <summary>
-/// Real catalog data (verified against the live Daedalus mods.json during Phase 4 planning) is
+/// Real catalog data (verified against the live Daedalus mods.json) is
 /// inconsistent: "w139", "W184" (different case), a bare "215" with no prefix, and Jimk72's
 /// catalog always uses the literal string "All". This tries to pull a week number out of any of
 /// those; anything else (including "All") is deliberately not an error — it just means "no

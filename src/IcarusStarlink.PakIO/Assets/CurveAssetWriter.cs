@@ -11,8 +11,8 @@ public sealed record WrittenCurve(string PackagePath, byte[] Asset, byte[] Expor
 
 /// <summary>
 /// Makes a mod's own growth curve from one of the game's cooked CurveFloats: the same file with
-/// its keys replaced and its package renamed, so no game asset is replaced (the approach the
-/// user's MkHaters Animal Talents 2.0 uses, there with byte offsets and a rename tool; here with
+/// its keys replaced and its package renamed, so no game asset is replaced (the approach
+/// MkHaters Animal Talents 2.0 uses, there with byte offsets and a rename tool; here with
 /// UAssetAPI, which rewrites every size the new keys change). What happens past the last key
 /// comes with the template: the game's blueprint curve keeps rising (PostInfinityExtrap Linear),
 /// its talent curve stays flat, so the caller picks the template that behaves as wanted.

@@ -63,7 +63,7 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
         var dwmapiPath = Ue4ssGamePaths.ResolveDwmapiPath(icarusContentPath);
         var ue4ssBackupDirectory = Path.Combine(backupDirectory, "UE4SS-Loader");
 
-        // Validated BEFORE anything is backed up or written (an audit finding): the loop below keys
+        // Validated BEFORE anything is backed up or written: the loop below keys
         // its dwmapi.dll placement and its additive-only protection for Mods and UE4SS-settings.ini
         // on the entry's first path segment, so a release zip with an unexpected layout (a single
         // wrapping folder — the shape newer UE4SS builds have shipped — or no UE4SS.dll at all)

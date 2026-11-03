@@ -39,7 +39,7 @@ public sealed class AppUpdateViewModelTests
 
     /// <summary>
     /// A Nexus download is only installed once it can be checked against GitHub's checksum for the
-    /// same version (user's call 2026-10-26). With none to be had, nothing is opened or downloaded.
+    /// same version. With none to be had, nothing is opened or downloaded.
     /// </summary>
     [Fact]
     public async Task FromNexus_WithNoGitHubChecksum_StopsBeforeDownloading()

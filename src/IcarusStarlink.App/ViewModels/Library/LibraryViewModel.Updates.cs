@@ -36,8 +36,7 @@ public sealed partial class LibraryViewModel
     /// not accumulate" rule Install/patch-import already use), carrying pin/favorite/notes across
     /// the swap. A Nexus-sourced mod goes straight to the choice of its Nexus files (the newer
     /// version of the installed file picked), then downloads and installs it in place of this copy
-    /// (user's ask 2026-11-01: it used to open the Nexus page, where Download had to be clicked
-    /// again). Without a Nexus key, or a mod not linked by ID, its card on the Nexus page opens.
+    /// (rather than opening the Nexus page, where Download had to be clicked again). Without a Nexus key, or a mod not linked by ID, its card on the Nexus page opens.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task GetUpdateAsync(LibraryItemViewModel? item)
@@ -272,9 +271,9 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
-    /// The spec's "Nexus search from a library row". A mod linked to Nexus is looked up by its mod
-    /// ID — its Library name is often not its Nexus title, so a name search missed it (user report
-    /// 2026-10-23: Update landed on an empty or wrong search). Unlinked mods still search by name.
+    /// Nexus search from a library row. A mod linked to Nexus is looked up by its mod
+    /// ID — its Library name is often not its Nexus title, so a name search missed it (Update
+    /// landed on an empty or wrong search). Unlinked mods still search by name.
     /// </summary>
     [RelayCommand]
     private void SearchNexusFor(LibraryItemViewModel? item)

@@ -1389,7 +1389,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Audit finding: RebuildAsync's own Library import sends LibraryChangedMessage, and this VM's
+    /// Regression: RebuildAsync's own Library import sends LibraryChangedMessage, and this VM's
     /// handler for that message wiped the manual conflict picks — so a second Install of the same
     /// reviewed queue silently resolved last-wins. Picks must survive the self-sent message.
     /// </summary>
@@ -1445,7 +1445,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
 
 
     // ---------------------------------------------------------------------------------------
-    // Review fixes: game-update guard, build snapshot, queue order, ISL packs, missing mods,
+    // Game-update guard, build snapshot, queue order, ISL packs, missing mods,
     // winners by folder, ArcFission leftovers, install texts, Restore previous install
     // ---------------------------------------------------------------------------------------
 
@@ -1840,7 +1840,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Format 2 export (2026-10-27): a Nexus-sourced pak mod is referenced by its ids with its pak
+    /// Format 2 export: a Nexus-sourced pak mod is referenced by its ids with its pak
     /// names; a mod from nowhere is bundled; the UE4SS mods on in the game come along, one
     /// referenced by its Nexus id and one bundled from the game folder, with their config text.
     /// </summary>
@@ -1983,7 +1983,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Stage 2 (2026-10-27): the mods a patch names that aren't here are one question, then they
+    /// The mods a patch names that aren't here are one question, then they
     /// come through the Downloads page (a data mod by Nexus id, a UE4SS mod too), are matched
     /// again, and the UE4SS mod that just arrived gets the patch's settings.
     /// </summary>
@@ -2117,7 +2117,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Review 2026-10-28: a patch's "config" was any path in the mod folder, and a config.lua with
+    /// A patch's "config" was any path in the mod folder, and a config.lua with
     /// no table layout was taken whole, so a shared patch could write its own Lua into a UE4SS mod
     /// the player already runs (Scripts\main.lua, or code in config.lua). Only settings that are
     /// data are written now; the rest is named.
@@ -2187,7 +2187,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Contains("close the game, then tick them", vm.PatchStatusMessage);
     }
 
-    /// <summary>Review 2026-10-27: the "already imported" memory was a field, so a second import of a patch bundling the same folder name reused the old copy instead of importing the new one.</summary>
+    /// <summary>The "already imported" memory was a field, so a second import of a patch bundling the same folder name reused the old copy instead of importing the new one.</summary>
     [Fact]
     public async Task ImportPatch_Twice_ImportsTheBundledPakAgain()
     {
@@ -2231,7 +2231,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Review 2026-10-28: a friend's patch bundling a mod under a folder name the player already
+    /// A friend's patch bundling a mod under a folder name the player already
     /// had deleted the player's copy (edits, notes, Nexus link) with no backup, before an import
     /// that could still fail. It's backed up first and put back when the import fails.
     /// </summary>
@@ -2275,7 +2275,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.Contains("your copy of 'Mine' was replaced by the patch's (backed up first", vm.PatchStatusMessage);
     }
 
-    /// <summary>Review 2026-10-27: a pak mod with no source and no pak files on disk was marked bundled with nothing to bundle, and the import refused the whole patch. It's left out and named.</summary>
+    /// <summary>A pak mod with no source and no pak files on disk was marked bundled with nothing to bundle, and the import refused the whole patch. It's left out and named.</summary>
     [Fact]
     public async Task ExportPatch_PakModWithNoFilesAndNoSource_IsLeftOutAndNamed()
     {

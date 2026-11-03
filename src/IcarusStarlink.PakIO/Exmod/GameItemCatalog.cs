@@ -27,7 +27,7 @@ public sealed record GameItemInfo(
 
 /// <summary>
 /// The game's items, sorted into the categories the game itself files their icons under
-/// (".../Item_Icons/Armour/ITEM_Envirosuit_1": 3,036 of 3,090 items on 2026-11-03), for the Editor
+/// (".../Item_Icons/Armour/ITEM_Envirosuit_1": 3,036 of 3,090 items), for the Editor
 /// page's list and filters.
 /// </summary>
 public static class GameItemCatalog

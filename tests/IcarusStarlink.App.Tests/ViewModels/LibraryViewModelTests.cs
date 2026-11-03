@@ -33,15 +33,13 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>
 /// LibraryViewModel is the largest ViewModel in the app (~2400 lines) and the primary way a user
-/// imports/organizes/deletes/renames real mod folders on disk — this is its first real test
-/// coverage. Given its size, this deliberately does NOT try to cover every command; it targets the
-/// highest-risk, previously completely-unverified paths: import classification's own ViewModel-level
-/// entry point (deep branch coverage of the classifier itself lives in
-/// Services/ExtractedModClassifierTests.cs), the confirm-then-delete flow including this session's
-/// two new purge calls, the rename write-through, Reload/Refresh rebuilding from the repository's
-/// current state (including an externally-driven LibraryChangedMessage), and GetUpdateAsync — picked
-/// as the single riskiest untested method still on this file (see the comment on its own tests below
-/// for why). Every dependency is a small hand-written fake, one per interface, matching the
+/// imports/organizes/deletes/renames real mod folders on disk. Given its size, this deliberately
+/// does NOT try to cover every command; it targets the highest-risk paths: import classification's
+/// own ViewModel-level entry point (deep branch coverage of the classifier itself lives in
+/// Services/ExtractedModClassifierTests.cs), the confirm-then-delete flow including its two purge
+/// calls, the rename write-through, Reload/Refresh rebuilding from the repository's current state
+/// (including an externally-driven LibraryChangedMessage), and GetUpdateAsync (see the comment on
+/// its own tests below for why). Every dependency is a small hand-written fake, one per interface, matching the
 /// established convention in SavesViewModelTests/LibraryItemViewModelTests/ConflictRowViewModelTests
 /// rather than a mocking framework or a real DI container.
 /// </summary>
@@ -85,7 +83,7 @@ public sealed class LibraryViewModelTests
         }
     }
 
-    /// <summary>Audit finding: a dropped FOLDER holding a bare .pak (no .EXMOD) failed with "No .EXMOD file found" instead of getting the same content sniffing an archive gets.</summary>
+    /// <summary>Regression: a dropped FOLDER holding a bare .pak (no .EXMOD) failed with "No .EXMOD file found" instead of getting the same content sniffing an archive gets.</summary>
     [Fact]
     public async Task ImportPaths_FolderHoldingABarePak_ImportsThroughThePrebuiltPakImporter()
     {
@@ -245,8 +243,8 @@ public sealed class LibraryViewModelTests
     }
 
     // ---------------------------------------------------------------------------------------
-    // DeleteMods (DeleteItem/DeleteAll) — confirm-then-delete, including this session's own two
-    // new purge calls (IPrebuiltPakSourceStore.Delete and the pak-preview-cache folder delete).
+    // DeleteMods (DeleteItem/DeleteAll) — confirm-then-delete, including the two purge calls
+    // (IPrebuiltPakSourceStore.Delete and the pak-preview-cache folder delete).
     // ---------------------------------------------------------------------------------------
 
     [Fact]
@@ -320,7 +318,7 @@ public sealed class LibraryViewModelTests
     /// names both halves — half a mod is a broken mod, and the UE4SS tab's own Delete routes here too.
     /// </summary>
     /// <summary>
-    /// Review 2026-10-28: the Lua half of a download that was off (only in staging) was deleted
+    /// The Lua half of a download that was off (only in staging) was deleted
     /// for good, while the question said the parts are backed up. It's backed up first now.
     /// </summary>
     [Fact]
@@ -343,7 +341,7 @@ public sealed class LibraryViewModelTests
     }
 
     /// <summary>
-    /// Review 2026-10-28: the UE4SS panel's Delete of a mod that is in the game asked, then tried
+    /// The UE4SS panel's Delete of a mod that is in the game asked, then tried
     /// to move it out of the game's Mods folder with the game running (in use: it fails, or a C++
     /// mod stops halfway). Refused now, before the question.
     /// </summary>
@@ -366,7 +364,7 @@ public sealed class LibraryViewModelTests
     }
 
     /// <summary>
-    /// Report 2026-10-28: with "Show UE4SS built-ins" on, UE4SS's own shared\ folder (its Lua
+    /// With "Show UE4SS built-ins" on, UE4SS's own shared\ folder (its Lua
     /// library, not a mod) could be unticked, and Apply moved it out of the game, breaking every Lua
     /// mod that uses it. Its row is locked: no tick changes it (the box, Turn off, Space, a
     /// multi-selection tick), nothing waits for Apply, and Delete refuses it without asking.
@@ -414,7 +412,7 @@ public sealed class LibraryViewModelTests
         Assert.Contains("part of UE4SS", vm.Ue4ssStatusMessage);
     }
 
-    /// <summary>Review 2026-10-28: the UE4SS panel's Apply moved mod folders in and out of the game's Mods folder with the game running (a C++ mod's dll is locked: a move stops halfway).</summary>
+    /// <summary>The UE4SS panel's Apply moved mod folders in and out of the game's Mods folder with the game running (a C++ mod's dll is locked: a move stops halfway).</summary>
     [Fact]
     public void ApplyUe4ssChanges_WhileTheGameRuns_IsRefused()
     {
@@ -455,7 +453,7 @@ public sealed class LibraryViewModelTests
         Assert.Contains("Run Merge & Install", vm.StatusMessage);
     }
 
-    /// <summary>User's ask 2026-11-01: deleting a download with both halves can take just one of them; the other stays.</summary>
+    /// <summary>Deleting a download with both halves can take just one of them; the other stays.</summary>
     [Theory]
     [InlineData(1, "WirelessPower", "")]
     [InlineData(2, "", "WirelessPower")]
@@ -534,7 +532,7 @@ public sealed class LibraryViewModelTests
         Assert.Equal(1, vm.ModCount);
     }
 
-    /// <summary>User report 2026-10-28: Refresh re-read Extracted_Mods only, so a UE4SS mod added to the game's Mods folder outside Starlink never showed in the right panel.</summary>
+    /// <summary>Refresh re-read Extracted_Mods only, so a UE4SS mod added to the game's Mods folder outside Starlink never showed in the right panel.</summary>
     [Fact]
     public void Refresh_ReadsTheUe4ssModsAgainToo()
     {
@@ -597,7 +595,7 @@ public sealed class LibraryViewModelTests
 
         vm.ReloadInstalledUe4ssModsCommand.Execute(null);
 
-        // The user's rule (2026-10-28): a download's Lua half is its own row in the UE4SS panel, linked to its data row.
+        // A download's Lua half is its own row in the UE4SS panel, linked to its data row.
         var ue4ssRows = vm.RootItems.OfType<Ue4ssModRowViewModel>().Select(r => r.Name).ToList();
         Assert.Equal(["ArcFissionLibrary", "ConsoleEnablerMod", "WirelessPower"], ue4ssRows);
 
@@ -615,15 +613,15 @@ public sealed class LibraryViewModelTests
         Assert.True(arcFission.IsInGame);
         Assert.False(vm.HasPendingChanges);
 
-        // Two panels (2026-10-23): data mods on the left, UE4SS mods on the right, each by name.
+        // Two panels: data mods on the left, UE4SS mods on the right, each by name.
         Assert.Equal(["Steadfast Structures", "Wireless Power"], vm.DataRootItems.OfType<LibraryItemViewModel>().Select(i => i.Name));
         Assert.Equal(["ArcFissionLibrary", "ConsoleEnablerMod", "WirelessPower"], vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Select(r => r.Name));
     }
 
     /// <summary>
-    /// The review case (2026-10-28): with its Lua half turned ON (in the game's Mods folder, not
-    /// staged), a download used to split into two unlinked rows, and deleting the data row left the
-    /// Lua half in the game. The user's rule: two linked rows either way, delete takes both.
+    /// With its Lua half turned ON (in the game's Mods folder, not staged), a download used to
+    /// split into two unlinked rows, and deleting the data row left the Lua half in the game. Two
+    /// linked rows either way, delete takes both.
     /// </summary>
     [Fact]
     public void ALuaHalfThatIsOnInTheGame_StaysLinked_AndDeletingTheDataRowTakesItToo()
@@ -649,7 +647,7 @@ public sealed class LibraryViewModelTests
     }
 
     /// <summary>
-    /// Final review 2026-10-28: with the Lua half on in the game now linked, deleting either row
+    /// With the Lua half on in the game now linked, deleting either row
     /// with the game running asked, deleted the data mod after the Yes, then couldn't take the Lua
     /// half out of the game (in use): half a mod left behind. Refused before the question now.
     /// </summary>
@@ -916,7 +914,7 @@ public sealed class LibraryViewModelTests
     }
 
     // ---------------------------------------------------------------------------------------
-    // Two panels (2026-10-23): filter chips, linked halves, each panel's pending bar.
+    // Two panels: filter chips, linked halves, each panel's pending bar.
     // ---------------------------------------------------------------------------------------
 
     private static (LibraryViewModel Vm, TestHarness Harness) BuildPanels()
@@ -1670,15 +1668,12 @@ public sealed class LibraryViewModelTests
     // that same precedent rather than adding a test that fails deterministically in this host.
 
     // ---------------------------------------------------------------------------------------
-    // GetUpdateAsync — picked as the single riskiest, most complex, completely-untested method
-    // in this file (see the class-level doc comment). It deletes-then-reimports a mod's real
-    // folder in place with a backup/restore safety net; its own restore branch has an inline
-    // comment describing "a real bug found live" (metadata silently forgotten on a failed
-    // update) — exactly the kind of asymmetric-risk, no-coverage-at-all logic this pass exists
-    // to close. Only the Database-sourced branch (the actual delete/reimport/rollback machinery)
-    // and the two cheap early-return branches are covered here — see the report for what's
-    // deliberately left out (the Nexus-without-a-pending-download branch, which opens a real
-    // NexusCatalogViewModel).
+    // GetUpdateAsync — the riskiest, most complex method in this file. It deletes-then-reimports
+    // a mod's real folder in place with a backup/restore safety net; its own restore branch has an
+    // inline comment describing "a real bug found live" (metadata silently forgotten on a failed
+    // update). Only the Database-sourced branch (the actual delete/reimport/rollback machinery)
+    // and the two cheap early-return branches are covered here; the Nexus-without-a-pending-
+    // download branch is left out because it opens a real NexusCatalogViewModel.
     // ---------------------------------------------------------------------------------------
 
     [Fact]
@@ -1820,7 +1815,7 @@ public sealed class LibraryViewModelTests
         // folder lookup, instead of the OLD name BackupMod actually saved the backup under —
         // silently reporting "no earlier copy" even when one exists.
         //
-        // Bug 2 (found reviewing the fix for bug 1): fixing bug 1 by switching BOTH lookups to the
+        // Bug 2: fixing bug 1 by switching BOTH lookups to the
         // OLD name instead just traded which one broke — TryGetLatestModBackupPath("ModA_v1")
         // (correct) but then GetFolderPath("ModA_v1") (wrong: that folder was already Delete()d:
         // the current copy lives under "ModA_v2" now). The real fix needed two separate folder-name
@@ -1914,7 +1909,7 @@ public sealed class LibraryViewModelTests
     }
 
     /// <summary>
-    /// User's ask 2026-11-01: Update on a Nexus mod opened the Nexus page, where Download had to be
+    /// Update on a Nexus mod opened the Nexus page, where Download had to be
     /// clicked again. Signed in, it goes straight to the choice of the mod's files (the newer
     /// version of the installed file picked), and the Nexus page isn't opened (the harness's Nexus
     /// factory throws if it is).
@@ -1973,7 +1968,7 @@ public sealed class LibraryViewModelTests
     }
 
     /// <summary>
-    /// Review 2026-10-28: the most common Nexus shape (a pak plus its Lua half) with the Lua half
+    /// The most common Nexus shape (a pak plus its Lua half) with the Lua half
     /// ENABLED — it lives in the game's Mods folder then, not staging. Looking at staging alone
     /// called that download "unclaimed", so Update on the pak half only ever said "already on the
     /// Downloads page" and pointed back at the old file. It must open Nexus (the harness's
@@ -2071,7 +2066,7 @@ public sealed class LibraryViewModelTests
     // =========================================================================================
 
     // ---------------------------------------------------------------------------------------
-    // Library review fixes: Get update records the download, Reinstall original reports
+    // Library fixes: Get update records the download, Reinstall original reports
     // truthfully, sidecars survive a missing Mods folder, failed update checks are counted,
     // and Delete backs the mod up.
     // ---------------------------------------------------------------------------------------

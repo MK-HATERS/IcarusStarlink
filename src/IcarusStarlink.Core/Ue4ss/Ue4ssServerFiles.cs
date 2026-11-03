@@ -2,7 +2,7 @@ namespace IcarusStarlink.Core.Ue4ss;
 
 /// <summary>
 /// What of the game's UE4SS goes onto a dedicated server, the same for a server on this PC and one
-/// reached over FTP (review 2026-10-23: the two picked differently, and the FTP side uploaded the
+/// reached over FTP (the two used to pick differently, and the FTP side uploaded the
 /// game's logs and every mod folder, switched off or not).
 /// </summary>
 public static class Ue4ssServerFiles

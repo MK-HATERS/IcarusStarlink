@@ -91,7 +91,7 @@
                                    TextWrapping="Wrap" MaxWidth="560" Margin="2,0,0,10" HorizontalAlignment="Left"
                                    Visibility="{Binding GameDataOutdatedMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-                        <!-- Collapsed by default (redesign-round-2 pilot) — a routine "set it and
+                        <!-- Collapsed by default — a routine "set it and
                              forget it" action for most users, re-opened only when Icarus actually
                              updates. -->
                         <Expander Style="{StaticResource SectionCardExpanderStyle}" IsExpanded="False" AutomationProperties.Name="Refresh game data">
@@ -267,7 +267,7 @@
                         </StackPanel>
 
                         <!-- Windows keeps one nxm:// handler for every game, and other mod managers take it
-                             when they start (user report 2026-10-23). NxmHandlerWatch acts on this. -->
+                             when they start. NxmHandlerWatch acts on this. -->
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Take them back automatically"
                                   IsChecked="{Binding KeepNxmHandler}" Margin="0,0,0,8" HorizontalAlignment="Left"
                                   ToolTip="When another mod manager takes Nexus download links, Starlink takes them back when it starts or you switch to it. Links for that manager's own games are still passed on to it."/>
@@ -567,7 +567,7 @@
                         <StackPanel>
                         <TextBlock Text="Starlink always keeps a basic log of what you did and what happened (at most 5 MB a file, the newest 14 files). If you run into a bug, export a diagnostics zip (logs + sanitized settings, never API keys or tokens) to attach to your report."
                                    Style="{StaticResource PageBodyTextStyle}" Margin="0,0,0,10" TextWrapping="Wrap"/>
-                        <!-- The two switches do different things (the user asked): one line under each says which. -->
+                        <!-- The two switches do different things: one line under each says which. -->
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Advanced log" IsChecked="{Binding AdvancedLogging}" Margin="0,0,0,2"
                                   ToolTip="Off (Basic): the log records what you did and what happened: imports, merges, installs, fixes, warnings and errors. On (Advanced): every detail too, like each fix made to a mod, the merge order, conflict picks and web requests. Turn it on to chase a bug: it goes back to Basic by itself after 24 hours. Works at once. Either way each file stops at 5 MB and only the newest 14 are kept."/>
                         <TextBlock Text="More detail in the normal log, for chasing a bug when something goes wrong. Goes back to off by itself after 24 hours."

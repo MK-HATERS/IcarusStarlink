@@ -12,7 +12,7 @@ using IcarusStarlink.Core.Ue4ss;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// Phase 3: mods on the local server. Paks: the merged pak Merge &amp; Install builds goes into the
+/// Mods on the local server. Paks: the merged pak Merge &amp; Install builds goes into the
 /// server's Content\Paks\mods (players need the same content mods). UE4SS: verified to load on the
 /// dedicated server through dwmapi.dll, so the loader and chosen Lua mods are copied from the game
 /// install. Every change needs the server stopped, backs up its worlds first, and never deletes —
@@ -506,8 +506,8 @@ public sealed partial class LocalServerViewModel
 
     /// <summary>
     /// A row's "Match settings…": the game's and the server's copies of a mod have different
-    /// config files (user request 2026-10-27: the table said "Same as your game" while the server
-    /// ran other settings). Asks which copy's settings both should use and copies those files the
+    /// config files (so the table doesn't say "Same as your game" while the server runs other
+    /// settings). Asks which copy's settings both should use and copies those files the
     /// other way; a file that is replaced goes to the backups first. Nothing else about the mod
     /// changes; the mod reads the file when it next starts (or sooner, with its own reload).
     /// </summary>

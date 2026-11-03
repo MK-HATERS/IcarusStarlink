@@ -4,7 +4,7 @@ using IcarusStarlink.Diffing;
 namespace IcarusStarlink.Diffing.Tests;
 
 /// <summary>
-/// Regression tests for a real defect found against the user's own mod library: one .EXMOD can
+/// Regression tests for a real defect found against a real mod library: one .EXMOD can
 /// list the same item twice in its own File_Items (laanp-ExtraDeployables lists Prop_PaperTowels
 /// with two different recipes), which used to surface as dozens of "conflicts" of a mod against
 /// itself in the picker.

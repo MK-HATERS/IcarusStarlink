@@ -16,11 +16,11 @@ public sealed record MountGene(string Name, int Value);
 /// <summary>
 /// A saved mount's RecorderBlob (Mounts.json): Unreal tagged properties holding the mount's own
 /// copy of its name, its experience, talents, genetics, lineage and look, read and written with
-/// UeSaveGame (vendored, src/ThirdParty). Mount editor, plan step 4 (2026-10-23).
+/// UeSaveGame (vendored, src/ThirdParty).
 ///
 /// Only ever used on a blob that writes back byte for byte unchanged: TryRead checks that first
 /// and refuses anything else, so a mount this code can't round-trip is never written (it stays
-/// label-only on the page). Every mount on the user's save and its 12 backups (61) passed.
+/// label-only on the page). Every mount on a real save and its 12 backups (61) passed.
 /// </summary>
 public sealed class MountBlob
 {

@@ -2,7 +2,7 @@ namespace IcarusStarlink.PakIO.Safety;
 
 /// <summary>
 /// Guards against path traversal ("zip slip") from untrusted EXMODZ content — an EXMODZ can come
-/// from an internet download (the Phase 4 Downloads tab) or a file a stranger shared, so neither
+/// from an internet download (the Downloads tab) or a file a stranger shared, so neither
 /// its asset entry names nor its "fileName" field can be trusted to stay inside the target
 /// directory or to be a plain filename at all. Public (not internal): Storage and App both depend
 /// on PakIO and have no InternalsVisibleTo grant (see InstallManifestNames' own doc comment for

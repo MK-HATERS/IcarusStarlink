@@ -8,7 +8,7 @@ public readonly record struct DownloadProgress(long BytesReceived, long? TotalBy
 /// <summary>
 /// Streams an HTTP GET's response body straight to a file, rather than buffering the whole body in
 /// memory first. The one place downloads are written to disk: Nexus and IMM Database downloads,
-/// SteamCMD, UnrealPak and UE4SS used to each do it by hand (a review on 2026-10-23), some with no
+/// SteamCMD, UnrealPak and UE4SS used to each do it by hand, some with no
 /// .part file, one buffering the whole file in memory, none noticing a stalled connection.
 /// </summary>
 public static class HttpFileDownloader

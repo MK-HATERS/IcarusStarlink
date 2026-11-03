@@ -773,7 +773,7 @@
         </Setter>
     </Style>
 
-    <!-- Phase 10 redesign: a themed ToolTip so a hint bubble matches the app's own look instead of
+    <!-- A themed ToolTip so a hint bubble matches the app's own look instead of
          the plain OS default — every existing ToolTip="..." usage across the app picks this up
          automatically since it targets the type, no per-usage change needed. -->
     <!-- Every ToolTip in this app is set as a plain string ("ToolTip=&quot;...&quot;"), which WPF
@@ -809,7 +809,7 @@
         </Setter>
     </Style>
 
-    <!-- Redesign round 2: a themed Expander for progressive disclosure — rarer/advanced sections
+    <!-- A themed Expander for progressive disclosure — rarer/advanced sections
          (Merge & Install's options/verify/uninstall/import panels, Settings' Data folder block)
          collapse behind these instead of always competing for space with the primary action.
          Retemplated rather than just re-styled, since stock Expander has no room in its default
@@ -833,7 +833,7 @@
                                  name from automatically, so every usage sets it explicitly. Found live:
                                  without this, every collapsible section's real accessible name was
                                  empty (ControlType.Group/Button, Name='') — the same "icon+text content
-                                 defeats WPF's plain-string Name auto-derivation" gap Phase 10 already
+                                 defeats WPF's plain-string Name auto-derivation" gap already
                                  caught once for buttons, recurring here for a new control. -->
                             <!-- The whole header row is the click target (transparent background, not
                                  just the text). Keyboard focus shows as an accent outline on the
@@ -961,7 +961,7 @@
     </Style>
 
     <!-- A header for an Expander that also shows a dynamic one-line summary of its current state
-         when collapsed (matching the redesign mockup's "state" text) — e.g. "2 active" for Merge
+         when collapsed — e.g. "2 active" for Merge
          options, or "Compare · Copy to game · …" for Advanced actions. Title/state are the header's own
          two TextBlocks; per-usage content supplies the actual text. -->
     <Style x:Key="ExpanderHeaderTitleStyle" TargetType="TextBlock">
@@ -1167,7 +1167,7 @@
         </Style.Triggers>
     </Style>
 
-    <!-- Phase 10 redesign: a small (i) glyph carrying a real ToolTip — Merge & Install's leveled
+    <!-- A small (i) glyph carrying a real ToolTip — Merge & Install's leveled
          options (Speed Boost, Craft Cost, ...) use this next to their label instead of relying on
          hovering the pill selector itself, which has no one obvious hover target.
 
@@ -1205,7 +1205,7 @@
     <!-- A continuously-spinning circular indicator — Library's own in-progress download stub uses
          this rather than the linear ProgressBar (Rebuild's own progress is already a bar; a
          download's real byte-level progress isn't tracked, so an indeterminate spinner is honest
-         about that, and a "circle" is literally what was asked for). Reuses IconRefreshArrow (it's
+         about that). Reuses IconRefreshArrow (it's
          already a circular-arrow shape) instead of hand-authoring a new arc geometry. -->
     <Style x:Key="SpinnerIconStyle" TargetType="{x:Type Path}">
         <Setter Property="Data" Value="{StaticResource IconRefreshArrow}"/>
@@ -1229,7 +1229,7 @@
         </Style.Triggers>
     </Style>
 
-    <!-- Phase 10 redesign: an on/off toggle switch for genuine feature flags (Remove Weight,
+    <!-- An on/off toggle switch for genuine feature flags (Remove Weight,
          Unlimited Ammo, ...) — retemplates CheckBox rather than introducing a new control type, so
          it stays a normal IsChecked binding target everywhere it's used. NOT used for real
          multi-select checkboxes (e.g. Downloads' column-visibility picker), where the checkbox
@@ -1270,7 +1270,7 @@
         </Setter>
     </Style>
 
-    <!-- Phase 10 redesign: a small transparent-until-hover icon button — Library's inline
+    <!-- A small transparent-until-hover icon button — Library's inline
          per-row actions (pin/favorite/edit) and Merge & Install's queue reorder/remove buttons. -->
     <Style x:Key="IconButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="Width" Value="24"/>
@@ -1292,7 +1292,7 @@
         <Setter Property="Cursor" Value="Hand"/>
     </Style>
 
-    <!-- Phase 10 redesign: same shape as IconButtonStyle, but for a ToggleButton — Library's
+    <!-- Same shape as IconButtonStyle, but for a ToggleButton — Library's
          inline Pinned/Favorite row actions (IsChecked bound straight to the row's own bool
          property, no extra RelayCommand needed). -->
     <Style x:Key="IconToggleButtonStyle" TargetType="{x:Type ToggleButton}">
@@ -1317,7 +1317,7 @@
         </Setter>
     </Style>
 
-    <!-- Phase 10 redesign: a 3-way pill selector for Merge & Install's leveled gameplay options
+    <!-- A 3-way pill selector for Merge & Install's leveled gameplay options
          (Speed Boost, Craft Cost, ...) — a ListBox restyled as a capsule, bound the same way the
          ComboBox it replaces was (ItemsSource + two-way SelectedItem against the enum property). -->
     <Style x:Key="LevelPillListBoxStyle" TargetType="{x:Type ListBox}">

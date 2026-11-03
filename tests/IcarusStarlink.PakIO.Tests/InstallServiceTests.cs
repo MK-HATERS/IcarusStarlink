@@ -156,7 +156,7 @@ public class InstallServiceTests : IDisposable
     /// game's ArcFissionLibrary folder (state.lua with it) is copied onto a dedicated server, or an
     /// older copy of the folder is restored. Keeping the state's older pak there made the library take
     /// it as up to date (same fingerprint, no higher pak left) and serve its old tables for good;
-    /// keeping the highest one makes it rebuild once instead (review 2026-10-26).
+    /// keeping the highest one makes it rebuild once instead.
     /// </summary>
     [Fact]
     public async Task InstallAsync_KeepsTheHighestArcFissionDataPak_EvenWhenAStaleStateLuaNamesAnOlderOne()

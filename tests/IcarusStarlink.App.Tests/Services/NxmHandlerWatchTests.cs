@@ -6,7 +6,7 @@ using IcarusStarlink.Core.Settings;
 namespace IcarusStarlink.App.Tests.Services;
 
 /// <summary>
-/// User report 2026-10-23: other mod managers take nxm:// links when they start, and the user kept
+/// Other mod managers take nxm:// links when they start, and players had to keep
 /// re-checking Settings to see whether Starlink still had them.
 /// </summary>
 public class NxmHandlerWatchTests

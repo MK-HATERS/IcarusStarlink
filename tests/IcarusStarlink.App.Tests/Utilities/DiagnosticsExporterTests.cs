@@ -42,7 +42,7 @@ public class DiagnosticsExporterTests : IDisposable
         Assert.Contains(archive.Entries, e => e.FullName == "Logs/icarusstarlink-20260102.log");
     }
 
-    /// <summary>Audit finding: a corrupt settings.json — exactly what a diagnostics zip exists to capture — threw out of the redaction step and aborted the whole export.</summary>
+    /// <summary>Regression: a corrupt settings.json — exactly what a diagnostics zip exists to capture — threw out of the redaction step and aborted the whole export.</summary>
     [Fact]
     public void Export_SettingsJsonIsNotValidJson_StillExportsItVerbatim()
     {

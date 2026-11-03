@@ -51,7 +51,7 @@ public sealed partial class SaveCurrencyViewModel : DirtyRow
 
     public void ApplyToNode()
     {
-        // int, not long (an audit finding): the game stores Count as a 32-bit int.
+        // int, not long: the game stores Count as a 32-bit int.
         if (SaveNumberRules.TryParseCount(CountText, out var count))
         {
             _node["Count"] = (long)count;

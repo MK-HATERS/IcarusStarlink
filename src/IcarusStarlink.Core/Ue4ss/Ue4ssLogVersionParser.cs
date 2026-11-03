@@ -4,7 +4,7 @@ namespace IcarusStarlink.Core.Ue4ss;
 
 /// <summary>
 /// UE4SS.log's first line is always of the form "UE4SS - v3.0.1 Beta #0 - Git SHA #..." — the only
-/// real version marker available for a real installed UE4SS.dll, confirmed against the user's own
+/// real version marker available for a real installed UE4SS.dll, confirmed against a
 /// real, working install (UE4SS.dll itself carries no Win32 file-version resource at all). Pure and
 /// line-oriented rather than tied to reading a real file, so it's directly testable against a
 /// captured fixture.

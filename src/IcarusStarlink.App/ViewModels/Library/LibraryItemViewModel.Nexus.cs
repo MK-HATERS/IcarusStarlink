@@ -11,10 +11,8 @@ namespace IcarusStarlink.App.ViewModels;
 public sealed partial class LibraryItemViewModel
 {
     /// <summary>
-    /// Closes a stale gap: the context menu item was hardcoded disabled since Phase 3.5 ("Available
-    /// once Downloads links mods to their Nexus page"), but NexusModId has existed on LibraryEntry
-    /// since this session's own update-checking work — the data this needs was already there, it
-    /// just was never wired up. Self-contained on this row's own ViewModel (not LibraryViewModel)
+    /// Opens the mod's Nexus page from NexusModId on LibraryEntry (recorded by update checking).
+    /// Self-contained on this row's own ViewModel (not LibraryViewModel)
     /// since opening a URL needs nothing else, and doing it here sidesteps ContextMenu's DataContext
     /// not flowing the same way RelativeSource lookups do elsewhere in this app.
     /// </summary>

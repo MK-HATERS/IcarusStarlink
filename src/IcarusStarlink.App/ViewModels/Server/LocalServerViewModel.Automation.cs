@@ -9,7 +9,7 @@ using IcarusStarlink.Core.Server;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// Phase 4: the Overview tab and automation — crash restarts, the daily restart, update on
+/// The Overview tab and automation — crash restarts, the daily restart, update on
 /// restart, hourly auto-update, start with Starlink and start minimized. Automation runs for EVERY
 /// server in the list, not just the selected one, so each gets its own watch: its own log tail
 /// (who is online, did the last run exit cleanly) and its own ServerAutomation state. The rules

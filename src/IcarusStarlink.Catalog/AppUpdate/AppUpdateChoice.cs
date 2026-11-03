@@ -17,7 +17,7 @@ public enum AppUpdateOffer
 }
 
 /// <summary>
-/// The update channels (user's design, 2026-10-23). Stable offers finished releases only (and,
+/// The update channels. Stable offers finished releases only (and,
 /// while running a beta, the newest one to switch back to). Beta offers whichever is newer of the
 /// newest beta and the newest stable release, so a beta tester also gets the final release.
 /// </summary>

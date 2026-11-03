@@ -9,7 +9,7 @@ public sealed partial class SaveGameNames
     /// <summary>
     /// D_DLCPackageData's rows in order: flags_&lt;SteamID&gt;.dat holds 0-based indexes into it —
     /// the game's cached list of the DLC this account owns (OfflinePackageFlagsSubsystem in the
-    /// game's code; researched 2026-10-23). It was shown as character flags before.
+    /// game's code). It was shown as character flags before.
     /// </summary>
     public IReadOnlyList<string> DlcPackageNames => Cached(ref _dlcPackageNames, () => LoadRowNames(DlcTable));
 

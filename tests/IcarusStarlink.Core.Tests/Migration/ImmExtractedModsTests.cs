@@ -4,7 +4,7 @@ namespace IcarusStarlink.Core.Tests.Migration;
 
 public sealed class ImmExtractedModsTests
 {
-    // Shaped from the user's own real classic-IMM ExtractedMods.json (74 entries), including its
+    // Shaped from a real classic-IMM ExtractedMods.json (74 entries), including its
     // real quirks: a blank author, and a display name that differs from the folder name.
     private const string RealShapeJson = """
         {

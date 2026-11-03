@@ -53,8 +53,8 @@ public sealed class UpdateRunnerTests : IDisposable
     }
 
     /// <summary>
-    /// Regression test: a real bug found live (a user's own bug report — the app just closed and
-    /// never came back after a failed update, read as "install failed" with no explanation) — a
+    /// Regression test: a real bug found live (the app just closed and never came back after a
+    /// failed update, read as "install failed" with no explanation) — a
     /// failed-but-rolled-back update used to never relaunch anything at all. The old install is
     /// genuinely intact and safe to use here (rollback fully restored it), so relaunch must still
     /// be called even though Apply itself threw.
@@ -159,7 +159,7 @@ public sealed class UpdateRunnerTests : IDisposable
         Assert.False(result.Relaunched);
     }
 
-    /// <summary>Review 2026-10-23: when the app didn't close in time the updater exited with no note and no relaunch.</summary>
+    /// <summary>When the app didn't close in time the updater used to exit with no note and no relaunch.</summary>
     [Fact]
     public void GiveUpWaiting_RecordsNotInstalledAndRelaunches()
     {

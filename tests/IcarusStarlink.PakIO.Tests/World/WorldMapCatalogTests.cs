@@ -88,7 +88,7 @@ public sealed class WorldMapCatalogTests
     {
         var maps = Read(GameTables());
 
-        // No D_Terrains row: named by the user (the game has no name for it yet).
+        // No D_Terrains row: named in WorldMapCatalog (the game has no name for it yet).
         var ark = maps.Single(m => m.Id == "Terrain_022");
         Assert.True(ark.InDevelopment);
         Assert.Equal("ARK", ark.Name);

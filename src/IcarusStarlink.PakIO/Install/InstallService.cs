@@ -7,8 +7,8 @@ namespace IcarusStarlink.PakIO.Install;
 /// <summary>
 /// Copies a staged pak into the real game's Content\Paks\mods — the one thing this app ever writes
 /// there. Backup scope is deliberately narrow: only the one file this service is about to
-/// overwrite, not the whole folder. UE4SS mods are a separate concern (IUe4ssModStateService,
-/// Phase 8.5) — this service no longer touches the UE4SS Mods folder at all. Prebuilt/opaque paks
+/// overwrite, not the whole folder. UE4SS mods are a separate concern (IUe4ssModStateService)
+/// — this service no longer touches the UE4SS Mods folder at all. Prebuilt/opaque paks
 /// are folded into the same staged pak by RebuildService itself — matching classic IMM's own real
 /// behavior, so there's only ever the one file for this service to install.
 /// </summary>
@@ -101,7 +101,7 @@ public sealed class InstallService(ISettingsService? settings = null) : IInstall
         var backupPakPath = backUpWhatsThere ? BackUp(targetPakPath, backupDirectory) : null;
 
         // Via a sibling temp file plus rename (AtomicFile), never File.Copy(overwrite) straight onto
-        // the live pak (an audit finding): that truncates the destination first and streams in
+        // the live pak: that truncates the destination first and streams in
         // place, so a copy that fails midway (disk full, antivirus lock, the game launched mid-copy)
         // left a truncated merged pak in the real game folder. The rename is all-or-nothing.
         AtomicFile.Copy(stagedPakPath, targetPakPath);
@@ -128,7 +128,7 @@ public sealed class InstallService(ISettingsService? settings = null) : IInstall
         else if (File.Exists(targetManifestPath))
         {
             // No list beside the staged pak: the game's old one describes the previous build, and
-            // the Library's "In game" read it as this one's (review 2026-10-23). Backed up above.
+            // the Library's "In game" read it as this one's. Backed up above.
             File.Delete(targetManifestPath);
         }
 

@@ -7,7 +7,7 @@ public enum ActivityEntryKind { Info, Success, Warning }
 public sealed record ActivityEntry(string Message, ActivityEntryKind Kind, DateTimeOffset Timestamp);
 
 /// <summary>
-/// Phase 10: a cross-cutting, app-wide feed of recent actions — Rebuild/Install/import/save
+/// A cross-cutting, app-wide feed of recent actions — Rebuild/Install/import/save
 /// completions and the like — surfaced in a persistent panel that stays available across page
 /// navigation, unlike each page's own status line, which disappears the moment you navigate away.
 /// </summary>

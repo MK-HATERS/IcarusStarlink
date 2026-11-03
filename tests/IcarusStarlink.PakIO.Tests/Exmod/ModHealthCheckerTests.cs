@@ -596,7 +596,7 @@ public sealed class ModHealthCheckerTests : IDisposable
 
     /// <summary>
     /// A name no game version ever had, a letter from a game row with the fields it sets: a misspelt
-    /// edit, which in game adds a useless new row instead (Hook Scout's data-mod notes). A really new
+    /// edit, which in game adds a useless new row instead. A really new
     /// row (a name like nothing in the game) isn't flagged.
     /// </summary>
     [Fact]
@@ -690,7 +690,7 @@ public sealed class ModHealthCheckerTests : IDisposable
         Assert.Contains("has no item template", Assert.Single(ModHealthChecker.Check(noTemplate, _data).Issues, i => i.Kind == ModIssueKind.NothingGivesItem).Why);
     }
 
-    /// <summary>The lines the game and the dedicated server write at start (copied from the user's server log, 2026-11-02): the last one per table counts.</summary>
+    /// <summary>The lines the game and the dedicated server write at start (copied from a real server log): the last one per table counts.</summary>
     [Fact]
     public void TheGamesLog_TellsWhichBuiltInTablesGotRowsTheGameWasNotBuiltWith()
     {

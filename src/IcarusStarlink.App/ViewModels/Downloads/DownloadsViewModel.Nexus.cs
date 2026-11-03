@@ -157,7 +157,7 @@ public sealed partial class DownloadsViewModel
         var trackerDisplayName = displayName ?? $"Mod #{nxmUrl.ModId}";
 
         // A second handoff for a file already in flight (a double-click on Nexus's download button
-        // is common) used to download it twice and orphan the first copy (an audit finding).
+        // is common) used to download it twice and orphan the first copy.
         if (_activeDownloadsTracker.Current.Any(d => d.Key == trackerKey))
         {
             PendingDownloadStatusMessage = $"'{trackerDisplayName}' is already downloading.";
@@ -178,7 +178,7 @@ public sealed partial class DownloadsViewModel
             }
 
             // Every server Nexus offers, in its order, until one answers — streamed to a .part file
-            // and renamed into place on completion (an audit finding): writing straight to the final
+            // and renamed into place on completion: writing straight to the final
             // path truncated an already-complete earlier download of the same file the moment a
             // re-download started, so a mid-stream failure left a truncated file that the Pending
             // Downloads row still presented as good.

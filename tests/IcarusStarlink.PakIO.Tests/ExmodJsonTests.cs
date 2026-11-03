@@ -31,7 +31,7 @@ public class ExmodJsonTests
         }
         """;
 
-    /// <summary>Audit finding: a header scalar of the wrong JSON type (numeric version, boolean Level2, numeric-string variantSort) used to make the whole mod unreadable, contradicting the best-effort-header rule.</summary>
+    /// <summary>Regression: a header scalar of the wrong JSON type (numeric version, boolean Level2, numeric-string variantSort) used to make the whole mod unreadable, contradicting the best-effort-header rule.</summary>
     [Fact]
     public void Parse_HeaderScalarsOfTheWrongJsonType_AreCoercedNotRefused()
     {

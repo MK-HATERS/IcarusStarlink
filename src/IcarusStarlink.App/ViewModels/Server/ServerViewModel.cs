@@ -13,9 +13,8 @@ using IcarusStarlink.PakIO;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// Phase 8.5: a narrower revival of the spec's original "Server" nav item — FTP file management
-/// for a dedicated Icarus server's own mods folder, not a full remote-agent/control page (that was
-/// cut from v1 entirely). "Site Manager" (saved connections, FileZilla-style) + a real connection
+/// FTP file management for a dedicated Icarus server's own mods folder, not a full remote
+/// control page. "Site Manager" (saved connections, FileZilla-style) + a real connection
 /// with a directory browser + upload/download/delete.
 /// </summary>
 public sealed partial class ServerViewModel : ObservableObject
@@ -29,14 +28,13 @@ public sealed partial class ServerViewModel : ObservableObject
     private readonly string _outputPakPath;
     private readonly string _pakManifestPath;
 
-    // Confirmed against the user's own real dedicated server (SurvivalServers): the FTP login
-    // root is NOT the game project root — it's one level up, with the actual Content\/Binaries\
-    // tree sitting under a fixed "Icarus" subfolder (alongside IcarusServer.exe, a "Saved" folder,
-    // etc.) — SurvivalServers' own per-game-type convention, not something this user configured.
-    // Below that, it's an exact mirror of the local layout, just with forward slashes. Originally
-    // fixed rather than a per-site field, per the user's own call ("assume a fixed relative path
-    // should be fine") — since widened into FtpSiteProfile.ModsPath/Win64Path (both optional)
-    // once other hosts turned out to lay a dedicated server out differently. These two remain the
+    // Confirmed against a real SurvivalServers dedicated server: the FTP login root is NOT the
+    // game project root — it's one level up, with the actual Content\/Binaries\ tree sitting
+    // under a fixed "Icarus" subfolder (alongside IcarusServer.exe, a "Saved" folder, etc.) —
+    // SurvivalServers' own per-game-type convention, not something the server owner configured.
+    // Below that, it's an exact mirror of the local layout, just with forward slashes. Other hosts
+    // lay a dedicated server out differently, so FtpSiteProfile.ModsPath/Win64Path (both optional)
+    // override these per site. These two remain the
     // fallback for any site that leaves its own override unset, so nothing changes for the site
     // this was originally reverse-engineered against.
     private const string DefaultRemoteModsPath = "Icarus/Content/Paks/mods";

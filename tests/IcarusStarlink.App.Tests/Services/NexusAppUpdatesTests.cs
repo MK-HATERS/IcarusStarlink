@@ -3,7 +3,7 @@ using IcarusStarlink.Catalog.AppUpdate;
 
 namespace IcarusStarlink.App.Tests.Services;
 
-/// <summary>Stable updates from Starlink's Nexus page (user request 2026-10-24), betas from GitHub.</summary>
+/// <summary>Stable updates from Starlink's Nexus page, betas from GitHub.</summary>
 public sealed class NexusAppUpdatesTests
 {
     private static AppUpdateRelease Release(string version, int? nexusFileId = null) => new(version, "", nexusFileId is null ? "https://github.com/x.zip" : "", null, nexusFileId);

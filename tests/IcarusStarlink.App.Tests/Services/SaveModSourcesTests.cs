@@ -15,7 +15,7 @@ public sealed class SaveModSourcesTests
         {
             [Talents] = new(StringComparer.OrdinalIgnoreCase) { ["Workshop_Moa"] = ["Ferani Buyable Beasts"], ["Workshop_Agents_Bow"] = ["Agents"] },
         },
-        // The shipped history: T4_Weapon_Rack was a game talent, since removed (found on the user's save, 2026-10-23).
+        // The shipped history: T4_Weapon_Rack was a game talent, since removed (found on a real save).
         GameRowHistory.Load(null),
         canTellInstalled);
 
@@ -31,7 +31,7 @@ public sealed class SaveModSourcesTests
         Assert.Equal(SaveRowOrigin.RemovedByGame, index.Classify(Talents, "T4_Weapon_Rack")!.Origin);
         Assert.Equal(SaveRowOrigin.Leftover, index.Classify(Talents, "Workshop_Petes_AuxSlot")!.Origin);
 
-        // Review 2026-10-23: a row still in the newest game version (here FirePit, missing only from
+        // A row still in the newest game version (here FirePit, missing only from
         // these test tables, like stale extracted data) is never "removed by the game".
         Assert.Null(index.Classify(Talents, "FirePit"));
 
@@ -40,7 +40,7 @@ public sealed class SaveModSourcesTests
         Assert.True(index.Classify(Talents, "Workshop_Petes_AuxSlot")!.IsRemovable);
     }
 
-    /// <summary>The user's bank held LegendaryWeapon_ApeClub, the template's name; the item row is LegendaryWeapon_Ape_Club (2026-10-23).</summary>
+    /// <summary>A real bank held LegendaryWeapon_ApeClub, the template's name; the item row is LegendaryWeapon_Ape_Club.</summary>
     [Fact]
     public void ItemSavedUnderItsTemplateName_IsMisnamed_NotALeftover()
     {
@@ -59,7 +59,7 @@ public sealed class SaveModSourcesTests
         Assert.Contains("LegendaryWeapon_Ape_Club", source.Label);
     }
 
-    /// <summary>WirelessPower adds its talent through an ArcFission rows.lua (found on the user's setup, 2026-10-23).</summary>
+    /// <summary>WirelessPower adds its talent through an ArcFission rows.lua.</summary>
     [Fact]
     public void ArcFissionRowsLua_IsReadPerTableAndMod()
     {

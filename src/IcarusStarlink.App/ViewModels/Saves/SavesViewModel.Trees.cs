@@ -6,7 +6,7 @@ namespace IcarusStarlink.App.ViewModels;
 public sealed partial class SavesViewModel
 {
     // --- Talents and Workshop as the game's trees (TalentTreeBrowserViewModel), with List as the
-    //     other way to see them, and whole-tree actions (the user's ask, 2026-11-03). ---
+    //     other way to see them, and whole-tree actions. ---
 
     private TalentTreeBrowserViewModel? _talentTrees;
     private TalentTreeBrowserViewModel? _workshopTrees;

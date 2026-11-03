@@ -14,7 +14,7 @@ using IcarusStarlink.PakIO.Assets;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// The Saves page (the spec's save editor, S1: slots + backup/restore + Overview cards +
+/// The Saves page (the save editor: slots + backup/restore + Overview cards +
 /// character/currency editing — layout modeled on Icarus Workshop's own save editor screens:
 /// character cards on an Overview beside an account snapshot, click a card to edit).
 ///
@@ -129,7 +129,7 @@ public sealed partial class SavesViewModel : ObservableObject
     [ObservableProperty]
     private SaveBackupInfo? _selectedBackup;
 
-    /// <summary>0 = Overview, 1 = Characters — set programmatically when an Overview card is clicked, per the spec's "Click a card to edit that character".</summary>
+    /// <summary>0 = Overview, 1 = Characters — set programmatically when an Overview card is clicked, to edit that character.</summary>
     [ObservableProperty]
     private int _selectedTabIndex;
 
@@ -423,7 +423,7 @@ public sealed partial class SavesViewModel : ObservableObject
         }
 
         // Unknown counts as changed: "couldn't check" used to pass as "unchanged" and let Save
-        // write an older copy over whatever the game had written (a review finding).
+        // write an older copy over whatever the game had written.
         if (_loadedStamps is null)
         {
             return true;

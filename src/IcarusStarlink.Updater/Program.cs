@@ -44,8 +44,8 @@ try
 }
 catch (Exception)
 {
-    // A read-only/ACL-denied Logs folder must not kill the updater before it even starts (an audit
-    // finding: that was one more way for "the app closed and never came back") — log to TEMP instead.
+    // A read-only/ACL-denied Logs folder must not kill the updater before it even starts (that
+    // was one more way for "the app closed and never came back") — log to TEMP instead.
     logPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink-updater.log");
 }
 
@@ -85,7 +85,7 @@ bool Relaunch()
         }
 
         // Closed as Starlink starts: its own splash screen takes over (both showing at once looked
-        // like two windows doing the same thing — user report 2026-10-25).
+        // like two windows doing the same thing).
         progressWindow.Dispose();
         Process.Start(new ProcessStartInfo(exe) { WorkingDirectory = installDirectory, UseShellExecute = true });
         return true;

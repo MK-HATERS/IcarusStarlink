@@ -33,7 +33,7 @@ public class SaveCurrencyViewModelTests
         Assert.True(vm.IsDirty);
     }
 
-    /// <summary>Audit finding: a currency Count past int32 (the game's own field type) was written as-is.</summary>
+    /// <summary>Regression: a currency Count past int32 (the game's own field type) was written as-is.</summary>
     [Fact]
     public void ApplyToNode_CountBeyondInt32_KeepsTheOriginalValue()
     {

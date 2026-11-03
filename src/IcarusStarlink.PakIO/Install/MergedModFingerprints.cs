@@ -13,7 +13,7 @@ public sealed record MergedBuildRecord(string PakHash, DateTimeOffset BuiltAtUtc
 
 /// <summary>
 /// What each mod in a merged pak looked like when it was built, so the Library can say a mod
-/// changed since (user request 2026-10-24: a mod updated in Starlink, or edited outside it, still
+/// changed since (without this, a mod updated in Starlink, or edited outside it, still
 /// read "In game" — the installed pak only lists names). Every build adds a record keyed by its
 /// pak's hash; the record that matches the pak really in the game is the one compared against, so
 /// Remove from game, Restore previous install, Roll back and a pak swapped by hand need no

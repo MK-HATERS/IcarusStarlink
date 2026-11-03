@@ -7,10 +7,10 @@ public sealed partial class SaveGameNames
 {
     // --- Flags ---
 
-    /// <summary>What each account flag is for (by row index), from D_AccountFlags' own fields — researched 2026-10-23.</summary>
+    /// <summary>What each account flag is for (by row index), from D_AccountFlags' own fields.</summary>
     public IReadOnlyList<FlagInfo> AccountFlagInfos => Cached(ref _accountFlagInfos, LoadAccountFlagInfos);
 
-    /// <summary>What each character flag is for (by row index): every one turned out to be set by a talent, deprecated, tooltip-only, test or never granted — researched 2026-10-23.</summary>
+    /// <summary>What each character flag is for (by row index): every one turned out to be set by a talent, deprecated, tooltip-only, test or never granted.</summary>
     public IReadOnlyList<FlagInfo> CharacterFlagInfos => Cached(ref _characterFlagInfos, LoadCharacterFlagInfos);
 
     public FlagInfo AccountFlagInfo(int id) => id >= 0 && id < AccountFlagInfos.Count ? AccountFlagInfos[id] : new FlagInfo($"Flag {id}", $"Flag {id}", "Not in the game's flag table (from a mod, or removed).", FlagKind.Unknown);

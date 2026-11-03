@@ -3,8 +3,8 @@ using System.Text.Json.Serialization;
 namespace IcarusStarlink.Catalog.Daedalus;
 
 /// <summary>
-/// Raw shape of one entry in Daedalus's mods.json, verified against the live endpoint during
-/// Phase 4 planning. Deliberately no `required` members: one malformed entry among 500+
+/// Raw shape of one entry in Daedalus's mods.json, verified against the live endpoint.
+/// Deliberately no `required` members: one malformed entry among 500+
 /// shouldn't be able to throw away the whole catalog fetch, so a missing field just comes
 /// through as null/empty rather than failing deserialization of the entire array.
 /// </summary>

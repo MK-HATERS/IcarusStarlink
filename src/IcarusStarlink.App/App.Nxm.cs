@@ -62,8 +62,7 @@ public partial class App
     /// Links that arrived before the window was ready. Touched only on the UI thread (the pipe
     /// handler and the startup block both run there), so no lock. A link that came in while the app
     /// was starting used to be dropped (the second launch had already exited, so it was simply
-    /// gone), and setting the page from the pipe could race SelectDefaultPage on the startup thread
-    /// (review 2026-10-23).
+    /// gone), and setting the page from the pipe could race SelectDefaultPage on the startup thread.
     /// </summary>
     private readonly Queue<string> _nxmUrlsDuringStartup = new();
 

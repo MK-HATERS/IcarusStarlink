@@ -49,7 +49,7 @@ public sealed partial class ModConfigEditorViewModel
         else
         {
             // A number the mod can't read ("1,5", "ten") is refused; one outside the range its
-            // comment gives is only warned about, since the author may mean it (user's call 2026-10-26).
+            // comment gives is only warned about, since the author may mean it.
             var notNumbers = _fields.Where(f => f.IsNumber && f.IsChanged && Ue4ssSettingsDocument.Number(f.Value) is null)
                 .Select(f => $"{f.Key} isn't a number (decimals take a dot: 1.5)");
             var badKeys = _fields.Where(f => f.KeyProblem.Length > 0).Select(f => $"{f.Key}: {f.KeyProblem}");

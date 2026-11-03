@@ -120,7 +120,7 @@ public sealed partial class DownloadsViewModel
         var previous = await FindPreviousCopiesAsync(item);
         var (source, nexusModId) = SourceOf(item);
 
-        // Resolved at use (an audit finding): the stored path is absolute, so moving the app
+        // Resolved at use: the stored path is absolute, so moving the app
         // folder — the "unzip anywhere" portable install — broke every pending entry; the file
         // name is always under this app's own Pending_Downloads folder.
         var localFilePath = ResolveLocalFilePath(item);
@@ -252,8 +252,7 @@ public sealed partial class DownloadsViewModel
         if (item.IsInstalled)
         {
             // The UE4SS folder names this download owned may still be INSTALLED in the game's Mods
-            // folder (an audit of a real report: re-staging saw the name "in use" and landed as a
-            // "_2" copy). Re-staging under the same name is the whole point of a reinstall.
+            // folder (re-staging would see the name "in use" and land as a "_2" copy). Re-staging under the same name is the whole point of a reinstall.
             return new PreviousCopies(
                 [.. item.ActivatedItems.Where(a => a.Kind == PendingDownloadActivationKind.Library).Select(a => a.FolderName)],
                 [.. item.ActivatedItems.Where(a => a.Kind == PendingDownloadActivationKind.Ue4ssMod).Select(a => a.FolderName)]);
@@ -487,8 +486,7 @@ public sealed partial class DownloadsViewModel
     /// <summary>
     /// " Needs: ArcFission Library 1.2.0 or newer — not installed (search Nexus for it); UE4SS — loader."
     /// A best-effort match of each README requirement against what's staged/installed (see
-    /// ModReadmeRequirements) — the user's actual complaint was not being told which OTHER
-    /// download a mod depended on. Logged as a warning too, so it survives leaving the page.
+    /// ModReadmeRequirements) — so the player is told which OTHER download a mod depends on. Logged as a warning too, so it survives leaving the page.
     /// </summary>
     private string DescribeRequirements(IReadOnlyList<string> requirements)
     {

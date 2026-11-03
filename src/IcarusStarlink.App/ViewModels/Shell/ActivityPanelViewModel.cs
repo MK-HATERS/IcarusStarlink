@@ -5,7 +5,7 @@ using IcarusStarlink.Core.Activity;
 
 namespace IcarusStarlink.App.ViewModels;
 
-/// <summary>Phase 10: the persistent activity drawer, toggled via the header's bell button — see IActivityLog's own doc comment for why this exists.</summary>
+/// <summary>The persistent activity drawer, toggled via the header's bell button — see IActivityLog's own doc comment for why this exists.</summary>
 public sealed partial class ActivityPanelViewModel : ObservableObject
 {
     public ObservableCollection<ActivityEntry> Entries { get; }

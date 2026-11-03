@@ -3,8 +3,8 @@ using IcarusStarlink.Core.Ue4ss;
 namespace IcarusStarlink.Core.Tests.Ue4ss;
 
 /// <summary>
-/// An update of a UE4SS mod keeps the player's settings (user report 2026-10-27: a new Nexus
-/// version replaced config.lua with the shipped one), on the new version's layout: new settings
+/// An update of a UE4SS mod keeps the player's settings (a new Nexus
+/// version used to replace config.lua with the shipped one), on the new version's layout: new settings
 /// at their defaults, settings the version no longer has left out and named with the old values.
 /// </summary>
 public sealed class Ue4ssModConfigCarryOverTests : IDisposable
@@ -108,7 +108,7 @@ public sealed class Ue4ssModConfigCarryOverTests : IDisposable
         Assert.Equal(["[A] X"], review.Kept);
     }
 
-    /// <summary>ApplyValues (a shared patch's settings): the local layout takes the values; applied again with nothing new it writes nothing and makes no backup (review 2026-10-27: a patch applied twice piled up identical backups).</summary>
+    /// <summary>ApplyValues (a shared patch's settings): the local layout takes the values; applied again with nothing new it writes nothing and makes no backup (a patch applied twice used to pile up identical backups).</summary>
     [Fact]
     public void ApplyValues_WritesTheValuesIntoTheLocalLayout_AndIsQuietTheSecondTime()
     {

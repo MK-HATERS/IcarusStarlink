@@ -27,7 +27,7 @@ public sealed record PatchCompareRow(string Name, string Kind, string PatchText,
 }
 
 /// <summary>
-/// Share with players (stage 3 of the share-a-mod-list plan, 2026-10-27): a patch made from what
+/// Share with players: a patch made from what
 /// the server runs (its ISL-Merged.txt mod list, its UE4SS mods and their settings) for the host to
 /// hand to players; "Apply a patch" imports one on the Library side (Merge &amp; Install does that part)
 /// and puts its UE4SS mods and settings on this server; "Compare a patch" lines a patch up

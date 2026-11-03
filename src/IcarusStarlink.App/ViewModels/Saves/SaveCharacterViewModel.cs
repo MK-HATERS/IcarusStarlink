@@ -134,8 +134,8 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
 
         // Every flag the game's own table defines, plus any ID the save carries that the table
         // doesn't know (an older/newer game version) — nothing in the save is ever hidden.
-        // Every known ID, then each UNKNOWN set ID individually — never a dense 0..max range (an
-        // audit finding: one corrupt/huge ID in a save meant allocating that many rows and dying).
+        // Every known ID, then each UNKNOWN set ID individually — never a dense 0..max range
+        // (one corrupt/huge ID in a save meant allocating that many rows and dying).
         foreach (var id in SaveFlagIds.KnownThenExtra(names.CharacterFlagNames.Count, unlocked))
         {
             Flags.Add(new SaveFlagViewModel(id, names.CharacterFlagInfo(id), unlocked.Contains(id), _onDirtyChanged));
@@ -154,7 +154,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
             .Select(kv => kv.Key);
 
         // Same display info for a learned and an unlearned talent (tree group, Player/Blueprint/Solo):
-        // without it, ranks given here counted towards no budget and hid under Show (review, 2026-10-23).
+        // without it, ranks given here counted towards no budget and hid under Show.
         foreach (var (rowName, rank) in TalentArray.LearnedThenOthers(TalentArray.Read(_node["Talents"]), learnable))
         {
             Talents.Add(new SaveTalentViewModel(rowName, DisplayInfoFor(names, rowName), rank, _onDirtyChanged));
@@ -193,7 +193,7 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
     public void ApplyTo(JsonObject target)
     {
         target["CharacterName"] = Name;
-        // int, not long (an audit finding): the game stores XP as a 32-bit int, so a value past
+        // int, not long: the game stores XP as a 32-bit int, so a value past
         // 2,147,483,647 "saved" fine here and then wrapped or was discarded in-game.
         if (SaveNumberRules.TryParseCount(XpText, out var xp))
         {

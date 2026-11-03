@@ -8,7 +8,7 @@ using IcarusStarlink.Core.Server;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// Phase 2: install, update and branch-switch the server through SteamCMD (app 2089300, anonymous),
+/// Install, update and branch-switch the server through SteamCMD (app 2089300, anonymous),
 /// and tell the user when Steam has a newer build than the one installed.
 /// </summary>
 public sealed partial class LocalServerViewModel

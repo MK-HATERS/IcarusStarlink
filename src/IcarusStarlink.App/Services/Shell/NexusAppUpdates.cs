@@ -5,7 +5,7 @@ using IcarusStarlink.Core.Nexus;
 namespace IcarusStarlink.App.Services;
 
 /// <summary>
-/// Stable updates from Starlink's own Nexus page (user request 2026-10-24; betas stay on GitHub).
+/// Stable updates from Starlink's own Nexus page (betas stay on GitHub).
 /// The newest MAIN file there is the release; its notes and SHA-256 come from the same version's
 /// release.json on GitHub, which carries the very same zip. Nexus only hands a download link
 /// straight to Premium accounts; anyone else gets one by pressing Mod Manager Download on the page,

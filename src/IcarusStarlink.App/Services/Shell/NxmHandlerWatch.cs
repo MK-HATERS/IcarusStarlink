@@ -13,8 +13,8 @@ using Microsoft.Win32.SafeHandles;
 namespace IcarusStarlink.App.Services;
 
 /// <summary>
-/// Notices another mod manager taking nxm:// links (Windows keeps one handler for every game; the
-/// user's Crimson Desert manager re-registers itself on start — user report 2026-10-23). With
+/// Notices another mod manager taking nxm:// links (Windows keeps one handler for every game; a
+/// Crimson Desert manager, for one, re-registers itself on start). With
 /// Settings › Nexus › "Take them back automatically" on (the default), Starlink takes them back —
 /// the registrar remembers the other app, and links for its games are passed to it
 /// (App.TryForwardOtherGameLink). Otherwise a warning pop-up says which app has them, once per
@@ -76,7 +76,7 @@ public sealed class NxmHandlerWatch(INxmProtocolRegistrar registrar, ISettingsSe
         var current = registrar.CurrentHandlerCommand();
 
         // Another Starlink install has them (two installs open at once): links still open in a
-        // Starlink, and taking them back would trade the key between the two forever (review, 2026-10-23).
+        // Starlink, and taking them back would trade the key between the two forever.
         if (NxmHandlerCommand.IsStarlink(current))
         {
             return;

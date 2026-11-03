@@ -69,7 +69,7 @@ public class Ue4ssConfigViewModelTests : IDisposable
         Assert.Equal(["Game", "Server: Server #1"], vm.Targets.Select(t => t.Name));
     }
 
-    /// <summary>Review 2026-10-23: the targets were read once at start, so a UE4SS installed afterwards never showed up on the tab.</summary>
+    /// <summary>The targets were read once at start, so a UE4SS installed afterwards never showed up on the tab.</summary>
     [Fact]
     public void Ue4ssInstalledLater_ShowsUpWithoutARestart()
     {
@@ -118,7 +118,7 @@ public class Ue4ssConfigViewModelTests : IDisposable
         Assert.Equal(2, Directory.GetFiles(Path.Combine(_root, "Backups", "UE4SS-Settings"), "*.ini", SearchOption.AllDirectories).Length);
     }
 
-    /// <summary>Report 2026-10-28: an "ANSI" UE4SS-settings.ini came back with "é" mangled and a BOM dropped after Save.</summary>
+    /// <summary>An "ANSI" UE4SS-settings.ini came back with "é" mangled and a BOM dropped after Save.</summary>
     [Theory]
     [MemberData(nameof(ModConfigEditorViewModelTests.Encodings), MemberType = typeof(ModConfigEditorViewModelTests))]
     public void Save_KeepsEachFilesEncodingAndBom_ByteForByte(ConfigTextEncoding encoding)
@@ -190,7 +190,7 @@ public class Ue4ssConfigViewModelTests : IDisposable
     /// reading plain numbers can't use; and a slider with a step of 0 wrote "NaN".
     /// </summary>
     /// <summary>
-    /// UE4SS-settings.ini (real, seen in the app 2026-10-28): "Default: &lt;dll_directory&gt;/Mods"
+    /// UE4SS-settings.ini (real): "Default: &lt;dll_directory&gt;/Mods"
     /// describes what blank does. A blank value showed Reset to default, and Reset wrote the
     /// description itself into the file.
     /// </summary>
@@ -243,7 +243,7 @@ public class Ue4ssConfigViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Final review 2026-10-28: Save wrote the copy read when the target was picked, so a change
+    /// Save wrote the copy read when the target was picked, so a change
     /// made to the file since (by hand, or a new setting a UE4SS update added) was put back.
     /// </summary>
     [Fact]

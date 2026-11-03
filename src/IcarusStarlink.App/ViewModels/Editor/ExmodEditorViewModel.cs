@@ -18,10 +18,10 @@ using IcarusStarlink.PakIO.Exmod;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// Phase 7.1's core EXMOD editor — deliberately the first transient (per-open-instance) ViewModel
+/// The core EXMOD editor — deliberately the first transient (per-open-instance) ViewModel
 /// in this app; every other ViewModel is a DI singleton. Classic IMM's own editor really is a
 /// separate .exe that supports two independent sessions open at once, which this window/ViewModel
-/// pairing matches (see the plan's "7.1 — Core editor" section) — LibraryViewModel constructs a
+/// pairing matches — LibraryViewModel constructs a
 /// fresh instance per Edit… / New mod… click via the Func&lt;string, ExmodEditorViewModel&gt;
 /// factory registered in App.xaml.cs, rather than this being resolved as a singleton.
 /// </summary>
@@ -362,9 +362,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     private readonly List<ExmodPaneWindow> _openPaneWindows = [];
 
     /// <summary>
-    /// Detaches whichever view is currently showing into its own floating window — a real gap the
-    /// pre-Phase-10 review flagged and the plan deliberately left cut ("arrangement, not
-    /// capability"): all three views already share one live ExmodEditorViewModel/ExmodPackage, so a
+    /// Detaches whichever view is currently showing into its own floating window: all three views already share one live ExmodEditorViewModel/ExmodPackage, so a
     /// popped-out pane just needs its own fixed-mode window bound to that same instance, not a
     /// second ViewModel or any new sync plumbing. Finds this VM's own hosting Window by scanning
     /// Application.Windows (a ViewModel has no stored back-reference to it) so the pop-out is owned

@@ -42,8 +42,7 @@ public sealed record SaveCheckFinding(SaveCheckSeverity Severity, string Area, s
 }
 
 /// <summary>
-/// The Saves page's save check (plan step 3, approved 2026-10-23), from the rules researched on the
-/// user's save: values the game can't have made, parts that disagree (a learned talent whose unlock
+/// The Saves page's save check: values the game can't have made, parts that disagree (a learned talent whose unlock
 /// is off, a finished mission whose reward is off), and harmless oddities. It reads the editor's
 /// current state, unsaved edits included, so a check before Save checks what Save would write.
 /// DLC and Supporter Edition content is checked against the cached DLC list as notes only.
@@ -61,8 +60,7 @@ public static class SaveChecker
 
         // Character flags given by the account's done missions and research: Olympus' Glacier
         // Extraction mission gives every character Voxel_Meta_Resources_Visible, and it lives in the
-        // profile's Talents, not the character's (a false "no learned talent gives it" seen on the
-        // user's save 2026-10-29).
+        // profile's Talents, not the character's (otherwise a false "no learned talent gives it").
         var grantedByAccount = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var talent in page.WorkshopTalents.Where(t => t.Rank > 0))
         {
@@ -229,8 +227,7 @@ public static class SaveChecker
             }
         }
 
-        // --- DLC and Supporter Edition (the user's call, 2026-10-23: "it'll help everyone, and is
-        //     harmless for people without the DLC"): notes only, never in Fix all, one per pack.
+        // --- DLC and Supporter Edition (harmless for people without the DLC): notes only, never in Fix all, one per pack.
         //     The flags file is the game's cache; the game checks ownership itself when it starts. ---
         var packs = ByRow(page.BinaryFlags);
         if (packs.Count > 0)
@@ -266,7 +263,7 @@ public static class SaveChecker
                 $"Set {entry.DisplayName} to {entry.PointsRequired:N0}", () => entry.PointsText = entry.PointsRequired.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         }
 
-        // Rows the game's tables don't have (RockDog in the user's save): a mod's you have stay; the rest can go.
+        // Rows the game's tables don't have (like RockDog): a mod's you have stay; the rest can go.
         foreach (var entry in page.BestiaryEntries.Where(b => !b.IsInGameTables && b.EffectivePoints > 0))
         {
             findings.Add(NotInGame("Bestiary", entry.DisplayName, "creature", entry.Source, () => entry.PointsText = "0"));

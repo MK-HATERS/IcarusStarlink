@@ -5,9 +5,8 @@ namespace IcarusStarlink.Core.Ue4ss;
 /// a UE4SS mod carries no metadata file of its own (unlike EXMOD), so its folder name on disk is
 /// its only real identity. "Staged" means sitting in this app's own Staged_UE4SS folder — a mod is
 /// either enabled (its folder is in the real game's own Mods folder) or disabled (staged here
-/// instead); see IUe4ssModStateService for the actual enable/disable move logic (Phase 8.5).
-/// UE4SS mods are NOT attached to a Profile or installed alongside the pak — that was the original
-/// Phase 6.5 design, replaced entirely in Phase 8.5.
+/// instead); see IUe4ssModStateService for the actual enable/disable move logic.
+/// UE4SS mods are NOT attached to a Profile or installed alongside the pak.
 /// </summary>
 public interface IUe4ssModRepository
 {

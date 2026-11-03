@@ -318,7 +318,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Equal("Your saved server list couldn't be read.", vm.StatusMessage);
     }
 
-    // ---- Phase 2: SteamCMD ----
+    // ---- SteamCMD ----
 
     [Fact]
     public async Task InstallNewServer_RunsSteamCmdIntoAnEmptyFolderAndAddsTheProfileWithAnIni()
@@ -596,7 +596,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Equal($"SteamCMD: {own}", vm.SteamCmdSummary);
     }
 
-    /// <summary>The user's real server manifest records "LauncherPath" — adopting the server reuses that SteamCMD when none is set up.</summary>
+    /// <summary>A real server manifest records "LauncherPath" — adopting the server reuses that SteamCMD when none is set up.</summary>
     [Fact]
     public void AddExistingServer_ReusesTheSteamCmdThatInstalledIt()
     {
@@ -615,7 +615,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Contains("Using the SteamCMD that installed it", vm.StatusMessage);
     }
 
-    // ---- Phase 3: mods, backups, admins, players ----
+    // ---- Mods, backups, admins, players ----
 
     [Fact]
     public void InstallMergedPak_CopiesThePakAndManifestAndRefusesWhileRunning()
@@ -679,7 +679,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     /// <summary>
     /// An older ArcFission copy that's gone by the time the question is answered (the server's
     /// library or the user took it off) is already done: the page used to say "Couldn't copy the
-    /// pak" although the copy had worked (review 2026-10-26).
+    /// pak" although the copy had worked.
     /// </summary>
     [Fact]
     public void InstallMergedPak_AnOlderArcFissionCopyGoneBeforeTheMove_StillSaysInstalled()
@@ -728,7 +728,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// User request 2026-10-27: the same mod with different settings in the game and on the server
+    /// The same mod with different settings in the game and on the server
     /// read as "Same as your game". The row says so, and Match settings… copies the chosen copy's
     /// config the other way, backing the replaced file up first.
     /// </summary>
@@ -775,7 +775,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// User report 2026-10-23: a mod updated in the game stayed old on the server and the page never
+    /// A mod updated in the game stayed old on the server and the page never
     /// said so. Now the row says "Server out of date", the tab says how many, and Update keeps the
     /// server's own config and on/off.
     /// </summary>
@@ -817,7 +817,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// User report 2026-10-24: unticking a mod on the server, or removing it from the Library, left
+    /// Unticking a mod on the server, or removing it from the Library, left
     /// the row reading as before (even after a restart: unticking only switches it off). The row now
     /// re-reads at once and says off; a mod gone from the game says Remove takes it off.
     /// </summary>
@@ -1049,7 +1049,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     };
 
     /// <summary>
-    /// Stage 3 (2026-10-27): Export for players is a patch of what the server runs — its merged
+    /// Export for players is a patch of what the server runs — its merged
     /// pak's mod list matched to the Library (a mod the Library lacks is named, not exported), and
     /// the UE4SS mods on on the server with the server's own settings.
     /// </summary>
@@ -1163,7 +1163,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.False(vm.HasPatchCompare);
     }
 
-    /// <summary>Review 2026-10-27: Merge &amp; Install refusing the import (a build in progress) used to read as "no importer" and the UE4SS mods still went on the server.</summary>
+    /// <summary>Merge &amp; Install refusing the import (a build in progress) used to read as "no importer" and the UE4SS mods still went on the server.</summary>
     [Fact]
     public async Task ApplyPatchToServer_WhenMergeInstallIsBusy_PutsNothingOnTheServer()
     {
@@ -1187,7 +1187,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(_install), "MkHatersTools")));
     }
 
-    /// <summary>Review 2026-10-27: a pak mod is its own pak file in Paks\mods, never a name in ISL-Merged.txt, so it read as missing everywhere.</summary>
+    /// <summary>A pak mod is its own pak file in Paks\mods, never a name in ISL-Merged.txt, so it read as missing everywhere.</summary>
     [Fact]
     public async Task ComparePatch_PakMod_IsFoundByItsPakFiles()
     {

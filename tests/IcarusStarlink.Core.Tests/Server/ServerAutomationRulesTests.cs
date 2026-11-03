@@ -2,8 +2,8 @@ using IcarusStarlink.Core.Server;
 
 namespace IcarusStarlink.Core.Tests.Server;
 
-/// <summary>Phase 4 rules: when automation restarts, updates or leaves a server alone, and which firewall rules let players in.</summary>
-public sealed class ServerPhase4Tests
+/// <summary>Server automation rules: when automation restarts, updates or leaves a server alone, and which firewall rules let players in.</summary>
+public sealed class ServerAutomationRulesTests
 {
     private static readonly DateTime Day = new(2026, 10, 15);
 
@@ -275,7 +275,7 @@ public sealed class ServerPhase4Tests
         Assert.False(ServerFirewall.ProgramMatches(@"E:\steamlibrary\steamapps\common\icarus\icarus\binaries\win64\icarus-win64-shipping.exe", Exe));
     }
 
-    /// <summary>The user's real PC: an allow-everything "Microsoft Store" rule owned by their account opened nothing for the server, yet showed it open.</summary>
+    /// <summary>Seen on a real PC: an allow-everything "Microsoft Store" rule owned by their account opened nothing for the server, yet showed it open.</summary>
     [Fact]
     public void Check_AnAppScopedRule_NeverOpensTheServersPorts()
     {

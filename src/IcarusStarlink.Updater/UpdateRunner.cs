@@ -15,9 +15,8 @@ public static class UpdateRunner
     public sealed record Result(Outcome Outcome, bool Relaunched, string? BackupDirectory);
 
     /// <summary>
-    /// A real bug found live (a user's own bug report: the app just closed and never came back,
-    /// read as "install failed" with no explanation) — relaunch is now called on EVERY outcome,
-    /// not just a fully successful update. A rolled-back failure leaves installDirectory exactly as
+    /// Relaunch is called on EVERY outcome, not just a fully successful update (otherwise the app
+    /// just closed and never came back, read as "install failed" with no explanation). A rolled-back failure leaves installDirectory exactly as
     /// it was, genuinely safe to relaunch; even the worse RollbackIncomplete case is worth a
     /// best-effort relaunch, since a still-mostly-intact install beats one the user thinks vanished.
     /// relaunch is a caller-supplied callback (real implementation: Process.Start) so this stays
@@ -65,7 +64,7 @@ public static class UpdateRunner
     /// <summary>
     /// The app never closed (stuck on shutdown, or a dialog left open), so nothing was copied. The
     /// updater used to just exit here: no note for the app and no relaunch, so a user who'd closed
-    /// the stuck window was left with no app and no reason (review 2026-10-23). Now it says why and
+    /// the stuck window was left with no app and no reason. Now it says why and
     /// starts the app again; when the old one is in fact still open, the new start just brings it
     /// to the front (single instance).
     /// </summary>

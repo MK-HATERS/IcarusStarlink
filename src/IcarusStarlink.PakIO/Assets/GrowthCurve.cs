@@ -11,7 +11,7 @@ public sealed record GrowthCurveKey(float Time, float Value, bool IsCubic, bool 
 /// A cooked CurveFloat (the game's growth curves: XP per level, talent / blueprint / solo points
 /// per level) evaluated the way the engine does. What happens past the last key matters here: the
 /// game's XP and blueprint curves carry on in a straight line (PostInfinityExtrap = Linear,
-/// checked 2026-10-23), the talent and solo curves stay flat (the default, Constant).
+/// checked), the talent and solo curves stay flat (the default, Constant).
 /// </summary>
 public sealed record GrowthCurve(IReadOnlyList<GrowthCurveKey> Keys, bool LinearBefore, bool LinearAfter)
 {

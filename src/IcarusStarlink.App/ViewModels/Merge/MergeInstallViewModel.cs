@@ -25,8 +25,7 @@ using IcarusStarlink.PakIO.Rebuild;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// Phase 6 (see the plan's "Update (2026-08-21)" section): Profile bar (6.3) + merge queue +
-/// Rebuild (6.1) + Install (6.2). Rebuild only ever writes to a staged pak under IcarusStarlink's
+/// Profile bar + merge queue + Rebuild + Install. Rebuild only ever writes to a staged pak under IcarusStarlink's
 /// own folder; Install is the one action in this whole app that writes into the real game's
 /// Content\Paks\mods — deliberately its own separate, explicit button rather than folded into
 /// Rebuild, so a click there is never accidental.
@@ -99,8 +98,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// folded into the same merged pak instead, see RebuildService). Both live in one list since
     /// both end up in the same output; LoadQueuedPackagesAsync is what splits them back apart for
     /// RebuildService's own two-parameter signature. Mods reach this queue from Library's own
-    /// multi-select + "Add to merge queue" action (AddToQueueByFolderNames) — this page no longer
-    /// carries its own Library browsing pane, per the redesign-round-2 pilot.
+    /// multi-select + "Add to merge queue" action (AddToQueueByFolderNames) — this page has no
+    /// Library browsing pane of its own.
     /// </summary>
     public ObservableCollection<LibraryEntry> Queue { get; } = [];
 

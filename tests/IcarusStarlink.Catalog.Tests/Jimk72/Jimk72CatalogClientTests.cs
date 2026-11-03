@@ -5,8 +5,7 @@ namespace IcarusStarlink.Catalog.Tests.Jimk72;
 public class Jimk72CatalogClientTests
 {
     // Shape (the wrapping {"mods": [...]} object, imageURL/readmeURL casing, always-"All"
-    // compatibility, always-exmodz-only files) matches the live endpoint as verified during
-    // Phase 4 planning.
+    // compatibility, always-exmodz-only files) matches the live endpoint as verified.
     private const string ModInfoJson = """
         {
           "mods": [

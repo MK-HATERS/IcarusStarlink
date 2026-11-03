@@ -26,7 +26,7 @@ public enum SaveRowOrigin
 
     /// <summary>
     /// A banked item named by its item template instead of its item row ("LegendaryWeapon_ApeClub"
-    /// where the game's row is "LegendaryWeapon_Ape_Club", found in the user's bank 2026-10-23):
+    /// where the game's row is "LegendaryWeapon_Ape_Club", found in a real bank):
     /// a real game item written wrongly, probably by a tool, so never taken out as mod junk.
     /// </summary>
     Misnamed,
@@ -42,8 +42,8 @@ public sealed record SaveRowSource(SaveRowOrigin Origin, string Label)
 /// <summary>
 /// Tells apart the save rows the game doesn't have (talents, workshop research, missions, banked
 /// items): which come from a mod in use, which from a Library mod that isn't installed, which the
-/// game removed itself, and which are leftovers from mods the user no longer has (the user's ask,
-/// 2026-10-23: "remove unused/leftover mod junk"; their save had 48 such talents).
+/// game removed itself, and which are leftovers from mods the user no longer has (one real save
+/// had 48 such talents).
 ///
 /// "In use" is what's installed in the game: the paks in Content\Paks\mods (the merge and any
 /// other pak there), read in place. A row is named after the Library mod that adds it: its EXMOD
@@ -78,7 +78,7 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
             if (HasPaksItCantRead(content))
             {
                 // A pak in a subfolder of mods, or loose in Paks beside the game's own: the game loads
-                // it but it isn't read here, so its rows can't be told from leftovers (review, 2026-10-23).
+                // it but it isn't read here, so its rows can't be told from leftovers.
                 canTellInstalled = false;
             }
             else if (!Directory.Exists(mods) || Directory.GetFiles(mods, "*.pak").Length == 0)
@@ -155,7 +155,7 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
         }
 
         // UE4SS mods that add rows the ArcFission way (an ArcFission\rows.lua): WirelessPower adds its
-        // Wireless_Power_Node talent like this, which looked like a leftover before (2026-10-23).
+        // Wireless_Power_Node talent like this, which looked like a leftover before.
         // The game's installed ones count as installed; the Library's own copies name the mod.
         if (settings.Current.IcarusContentPath is { Length: > 0 } contentPath)
         {
@@ -174,7 +174,7 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
         canTellInstalled &= !anyUnreadable && !libraryUnreadable;
 
         // Without the game's own tables, or with them older than the game (an update not refreshed
-        // yet), real game rows would read as leftovers: nothing is called one then (review, 2026-10-23).
+        // yet), real game rows would read as leftovers: nothing is called one then.
         var gameRows = Files.ToDictionary(f => f, GameRowNames, StringComparer.OrdinalIgnoreCase);
         if (RequiredFiles.Any(f => gameRows[f].Count == 0) || IsGameDataOutdated())
         {

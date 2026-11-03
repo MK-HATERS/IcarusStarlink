@@ -6,7 +6,7 @@ using IcarusStarlink.Core.Server;
 namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>
-/// Review 2026-10-28 (running a server): settings and lists overwritten from a stale or blank form,
+/// Running a server: settings and lists overwritten from a stale or blank form,
 /// and server files changed in the gap between an update's stop and its start.
 /// </summary>
 public sealed partial class LocalServerViewModelTests

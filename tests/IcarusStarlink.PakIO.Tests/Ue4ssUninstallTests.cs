@@ -37,7 +37,7 @@ public sealed class Ue4ssUninstallTests : IDisposable
 
     private string ModsFolder => Path.Combine(Win64, "ue4ss", "Mods");
 
-    /// <summary>Builds an install shaped like the user's real one: dwmapi + ue4ss folder, framework mods listed in mods.json, user mods not.</summary>
+    /// <summary>Builds an install shaped like a real one: dwmapi + ue4ss folder, framework mods listed in mods.json, user mods not.</summary>
     private void CreateInstall(string[] frameworkMods, string[] userMods)
     {
         Directory.CreateDirectory(ModsFolder);

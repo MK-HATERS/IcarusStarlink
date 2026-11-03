@@ -43,8 +43,8 @@ public sealed partial class SavesViewModel
     }
 
     /// <summary>
-    /// What Save would change, one line per area, for its confirm (the user's ask, 2026-11-03: a
-    /// stray click is easy to miss in "Unsaved: Characters"). Rank changes say "3 → 0"; a long
+    /// What Save would change, one line per area, for its confirm (a stray click is easy to
+    /// miss in "Unsaved: Characters"). Rank changes say "3 → 0"; a long
     /// list says how many more; at most <paramref name="maxLines"/> lines.
     /// </summary>
     internal List<string> ChangeLines(int maxLines = 12)
@@ -269,7 +269,7 @@ public sealed partial class SavesViewModel
         }
 
         // The page is a singleton that read the save once: if the user played since, writing now
-        // would put that older copy over their newer progress (a review finding).
+        // would put that older copy over their newer progress.
         if (SaveFilesChangedOnDisk())
         {
             RefuseStaleSave();
@@ -331,7 +331,7 @@ public sealed partial class SavesViewModel
 
             // Only now are the edits put into the loaded save: applied before these checks, an
             // aborted save left them in it, and an edit the user then undid was written anyway by
-            // the next Save (a review finding).
+            // the next Save.
             foreach (var character in Characters.Where(c => c.IsDirty))
             {
                 character.ApplyToNode();
@@ -430,7 +430,7 @@ public sealed partial class SavesViewModel
             OnPropertyChanged(nameof(HasUnsavedChanges));
             OnPropertyChanged(nameof(ChangesSummary));
             RefreshBackupsList();
-            // What's left, checked against what was just written (the user's ask, 2026-11-03).
+            // What's left, checked against what was just written.
             RunSaveCheck();
             StatusMessage = "Saved. A backup of the previous state was kept. "
                 + (CheckFindings.Count == 0 ? "The save check finds nothing now." : $"The save check still finds {CheckSummary} (Overview tab).");

@@ -13,10 +13,8 @@ namespace IcarusStarlink.App.Services;
 public sealed record PointsCurveChange(string Field, double Multiplier, bool KeepRising);
 
 /// <summary>
-/// "Change points per level" on the Saves page (the user's ask, 2026-10-23: they modded their own
-/// talent and blueprint points and want the editor to do it): a Library mod, "Starlink Player
-/// Points", made the way MkHaters Animal Talents 2.0 is. For each tree changed, its own cooked
-/// curve under /Game/Starlink/PlayerPoints/ (a copy of one of the game's with the game's keys
+/// "Change points per level" on the Saves page: a Library mod, "Starlink Player Points", made the
+/// way MkHaters Animal Talents 2.0 is. For each tree changed, its own cooked curve under /Game/Starlink/PlayerPoints/ (a copy of one of the game's with the game's keys
 /// scaled) and D_CharacterGrowth's Player row pointed at it, so no game asset is replaced and
 /// Remove Level Cap (MaxLevel, same row) still merges with it. Made again from the game's own
 /// curves each time, so changing it twice never multiplies twice.
@@ -38,8 +36,8 @@ public sealed class PlayerPointsMod(ILibraryRepository library, IBaseGameContent
 
     /// <summary>
     /// The settings the mod was last made with, by field: what the editor starts from, so remaking
-    /// it before it's installed never drops another tree's change or rounds a multiplier (review,
-    /// 2026-10-23: it started from the installed curves, which don't have it yet).
+    /// it before it's installed never drops another tree's change or rounds a multiplier (it used
+    /// to start from the installed curves, which don't have it yet).
     /// </summary>
     public IReadOnlyDictionary<string, PointsCurveChange> LastSettings()
     {

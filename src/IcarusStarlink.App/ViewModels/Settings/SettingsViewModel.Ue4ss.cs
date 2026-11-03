@@ -164,7 +164,7 @@ public sealed partial class SettingsViewModel
     /// <summary>
     /// The game folder UE4SS is installed into, checked and removed from: the SAVED one. Browse and
     /// Auto-detect only fill the box until Save settings (the page's model), but UE4SS used the box,
-    /// so it could install into a folder the rest of the app wasn't using (review 2026-10-23).
+    /// so it could install into a folder the rest of the app wasn't using.
     /// </summary>
     private string? Ue4ssContentPath => string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath) ? null : _settingsService.Current.IcarusContentPath;
 
@@ -173,7 +173,7 @@ public sealed partial class SettingsViewModel
     /// <summary>
     /// A UE4SS refusal or failure: on this page's status line and in the activity log (a pop-up),
     /// since the Library's "Install UE4SS" bar runs these commands with Settings not showing, and
-    /// used to give no answer at all (review 2026-10-23).
+    /// used to give no answer at all.
     /// </summary>
     private void ReportUe4ssProblem(string status, string? logged = null)
     {
@@ -284,7 +284,7 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>
-    /// Phase 8.5: a real, hard-to-reverse write into Binaries\Win64 — the game's own executable
+    /// A real, hard-to-reverse write into Binaries\Win64 — the game's own executable
     /// folder, more sensitive than either target this app has written to before (Content\Paks\mods,
     /// the UE4SS Mods folder). Same gating philosophy as the real pak install and the nxm://
     /// protocol registration: never automatic, and only proceeds behind this explicit confirmation.

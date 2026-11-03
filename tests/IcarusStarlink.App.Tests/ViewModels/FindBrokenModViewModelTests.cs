@@ -133,7 +133,7 @@ public sealed class FindBrokenModViewModelTests : IDisposable
         }
     }
 
-    /// <summary>The row list showed "Accolades/D_Accolades.json — GlassBuildingsCrafted20" (seen in the app, 2026-10-28): it reads in plain words now.</summary>
+    /// <summary>The row list showed "Accolades/D_Accolades.json — GlassBuildingsCrafted20": it reads in plain words now.</summary>
     [Fact]
     public void GameRows_ReadInPlainWords_WithTheItemsInGameName()
     {

@@ -12,7 +12,7 @@ public class ModListTests
     [Fact]
     public void ParseNames_RealManifestShape_SkipsHeaderAndBlankLines()
     {
-        // The exact shape of the user's own real LastMergedMods.txt / IMM_Merged_Mod.txt.
+        // The exact shape of a real LastMergedMods.txt / IMM_Merged_Mod.txt.
         var content = "Includes the following mods:\r\nChance-LitSigns\r\nFood Buff Duration - 2x\r\n\r\n";
 
         Assert.Equal(["Chance-LitSigns", "Food Buff Duration - 2x"], ModListText.ParseNames(content));
@@ -67,7 +67,7 @@ public class ModListTests
     [Fact]
     public void Match_DisplayNameAndFolderStyleNamesMixed_BothMatch()
     {
-        // Classic IMM's real lists mix both — confirmed against the user's own file.
+        // Classic IMM's real lists mix both — confirmed against a real file.
         var entries = new[]
         {
             MakeEntry("Food_Buff_2x", "Food Buff Duration - 2x"),

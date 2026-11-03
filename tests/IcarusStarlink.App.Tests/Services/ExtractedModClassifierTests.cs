@@ -276,7 +276,7 @@ public sealed class ExtractedModClassifierTests : IDisposable
     }
 
     /// <summary>
-    /// Final review 2026-10-28: a single pak was checked to be a real pak, but in a download with
+    /// A single pak was checked to be a real pak, but in a download with
     /// several, a web page (or cut-off file) saved as ".pak" went into the Library and the game.
     /// </summary>
     [Fact]
@@ -364,7 +364,7 @@ public sealed class ExtractedModClassifierTests : IDisposable
     }
 
     /// <summary>
-    /// Review 2026-10-28: a UE4SS zip whose mod folder sits one level down ("Mods\CoolMod\Scripts",
+    /// A UE4SS zip whose mod folder sits one level down ("Mods\CoolMod\Scripts",
     /// with a README beside it) was staged whole — the mod landed as ue4ss\Mods\&lt;download&gt;\Mods\
     /// CoolMod, too deep for UE4SS to load, and the install still said it worked.
     /// </summary>
@@ -405,7 +405,7 @@ public sealed class ExtractedModClassifierTests : IDisposable
     }
 
     /// <summary>
-    /// Review 2026-10-28: a pak with its Lua half beside it ("MyMod_P.pak" + "MyMod\Scripts\main.lua")
+    /// A pak with its Lua half beside it ("MyMod_P.pak" + "MyMod\Scripts\main.lua")
     /// imported the pak and silently dropped the Lua half. One download = one mod: both halves land.
     /// </summary>
     [Fact]

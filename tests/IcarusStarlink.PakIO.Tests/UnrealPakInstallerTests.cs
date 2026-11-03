@@ -151,7 +151,7 @@ public sealed class UnrealPakInstallerTests : IDisposable
         Assert.Single(Directory.GetDirectories(Path.Combine(_appBase, "Tools")));
     }
 
-    /// <summary>Audit finding: extraction straight into InstallRoot wasn't transactional — a corrupt payload left a half-extracted tool behind for VerifyAsync to misreport, and surfaced a raw InvalidDataException.</summary>
+    /// <summary>Regression: extraction straight into InstallRoot wasn't transactional — a corrupt payload left a half-extracted tool behind for VerifyAsync to misreport, and surfaced a raw InvalidDataException.</summary>
     [Fact]
     public async Task Install_CorruptLocalPayload_ThrowsPlainMessageAndLeavesNothingUnderInstallRoot()
     {

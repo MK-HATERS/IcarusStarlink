@@ -9,7 +9,7 @@ namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class SavesViewModel
 {
-    // --- Save check (plan step 3): SaveChecker's findings on the Overview tab, each sure fix one click. ---
+    // --- Save check: SaveChecker's findings on the Overview tab, each sure fix one click. ---
 
     public ObservableCollection<SaveCheckFinding> CheckFindings { get; } = [];
 
@@ -17,12 +17,12 @@ public sealed partial class SavesViewModel
     [ObservableProperty]
     private string _checkSummary = "";
 
-    /// <summary>Fix all also turns on the DLC / Supporters Edition packs the notes name (the user's ask, 2026-10-23). Off by default.</summary>
+    /// <summary>Fix all also turns on the DLC / Supporters Edition packs the notes name. Off by default.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasFixableFindings))]
     private bool _fixAllIncludesDlc;
 
-    /// <summary>Fix all also makes the notes' harmless fixes (the user's ask, 2026-11-03). Off by default; a note whose fix a mod might mind (an unknown flag) stays out.</summary>
+    /// <summary>Fix all also makes the notes' harmless fixes. Off by default; a note whose fix a mod might mind (an unknown flag) stays out.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasFixableFindings))]
     private bool _fixAllIncludesNotes;
@@ -114,7 +114,7 @@ public sealed partial class SavesViewModel
         RunSaveCheck();
     }
 
-    // --- Leftovers from mods (the user's ask, 2026-10-23): every talent, research, mission and
+    // --- Leftovers from mods: every talent, research, mission and
     //     banked item the game doesn't have is labelled with where it comes from (SaveModSources),
     //     and the ones no installed or Library mod gives can be taken out. Taking them out is an
     //     ordinary edit (rank 0 isn't written; an item is dropped), saved with Save like any other. ---
@@ -176,7 +176,7 @@ public sealed partial class SavesViewModel
         }
     }
 
-    /// <summary>Currencies, creatures and accolades the game doesn't have: where they come from (the user's ask, 2026-11-03: Clean up covers every kind).</summary>
+    /// <summary>Currencies, creatures and accolades the game doesn't have: where they come from (Clean up covers every kind).</summary>
     private void ClassifyOtherRows(SaveModSources.Index index)
     {
         foreach (var currency in Currencies.Where(c => !c.IsGameCurrency))

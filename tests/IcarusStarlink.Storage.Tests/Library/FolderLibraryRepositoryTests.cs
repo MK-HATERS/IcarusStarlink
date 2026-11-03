@@ -1012,7 +1012,7 @@ public class FolderLibraryRepositoryTests : IDisposable
     }
 
     /// <summary>
-    /// Audit finding: backups were found with a "{folderName}_*" prefix glob, so mod "Foo" saw every
+    /// Backups used to be found with a "{folderName}_*" prefix glob, so mod "Foo" saw every
     /// backup of "Foo_2" — the exact name ModFolders.MakeUnique gives a re-import — and "restore"
     /// could overwrite Foo with Foo_2's content, while pruning Foo's backups could delete Foo_2's.
     /// </summary>
@@ -1038,7 +1038,7 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.True(repo.HasModBackup(second), "pruning the first mod's backups must never touch the sibling's");
     }
 
-    /// <summary>Audit finding: a sidecar that merely couldn't be read (locked) came back as defaults, and the pin toggle's read-modify-write then saved those defaults — dropping the mod's Nexus link.</summary>
+    /// <summary>A sidecar that merely couldn't be read (locked) came back as defaults, and the pin toggle's read-modify-write then saved those defaults — dropping the mod's Nexus link.</summary>
     [Fact]
     public void UpdateMetadata_SidecarLockedRightNow_ThrowsAndLeavesTheSidecarUntouched()
     {
@@ -1057,7 +1057,7 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.Equal(339, repo.GetAll().Single(e => e.FolderName == folderName).NexusModId);
     }
 
-    /// <summary>Audit finding: Nexus enrichment changed the cached entry's name but not the FTS row, so an opaque pak was unsearchable by its displayed name until restart.</summary>
+    /// <summary>Nexus enrichment changed the cached entry's name but not the FTS row, so an opaque pak was unsearchable by its displayed name until restart.</summary>
     [Fact]
     public void SetNexusMetadata_OpaquePakEntry_IsSearchableByItsNewNameImmediately()
     {

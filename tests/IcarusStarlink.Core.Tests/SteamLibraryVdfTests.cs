@@ -4,7 +4,7 @@ namespace IcarusStarlink.Core.Tests;
 
 public class SteamLibraryVdfTests
 {
-    // Real shape, captured from the user's own libraryfolders.vdf during Phase 7.5 planning
+    // Real shape, captured from a real libraryfolders.vdf
     // (values below are trimmed/re-ordered but the format — tab-indented, backslash-escaped
     // paths, numbered top-level blocks — is exactly as Steam itself writes it).
     private const string RealisticVdf = """

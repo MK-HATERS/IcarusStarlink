@@ -4,7 +4,7 @@ namespace IcarusStarlink.Catalog.Tests.Daedalus;
 
 public class DaedalusCatalogClientTests
 {
-    // Shapes match the live endpoints as verified during Phase 4 planning (field names/casing,
+    // Shapes match the live endpoints as verified (field names/casing,
     // the "215" no-prefix compatibility value, one mod with no categories at all).
     private const string ModsJson = """
         [
@@ -75,7 +75,7 @@ public class DaedalusCatalogClientTests
         return new DaedalusCatalogClient(new HttpClient(handler));
     }
 
-    /// <summary>Audit finding: an explicit JSON null in name/author NRE'd and took the whole Daedalus catalog down; a null description survived the fetch and NRE'd later in the search filter.</summary>
+    /// <summary>An explicit JSON null in name/author NRE'd and took the whole Daedalus catalog down; a null description survived the fetch and NRE'd later in the search filter.</summary>
     [Fact]
     public async Task FetchAsync_EntriesWithExplicitNullFields_AreSkippedOrCoalescedNotFatal()
     {
@@ -108,7 +108,7 @@ public class DaedalusCatalogClientTests
     }
 
     /// <summary>
-    /// Review 2026-10-28: the catalog is other people's JSON. Readme opened its link through the
+    /// The catalog is other people's JSON. Readme used to open its link through the
     /// shell (a file path ran that program) and the picture was a WPF Image source (a \\server
     /// path made Windows log in to that server). Only web links are kept.
     /// </summary>
@@ -144,7 +144,7 @@ public class DaedalusCatalogClientTests
         Assert.Equal("http://example.com/c.md", good.ReadmeUrl);
     }
 
-    /// <summary>Real shape (the live catalog, 2026-10-28): 20 EXMODZ-only mods list "pak": "". A blank must read as "no pak", or it hides the EXMODZ link from every PakUrl ?? ExmodzUrl lookup (the Last Updated date).</summary>
+    /// <summary>Real shape (the live catalog): 20 EXMODZ-only mods list "pak": "". A blank must read as "no pak", or it hides the EXMODZ link from every PakUrl ?? ExmodzUrl lookup (the Last Updated date).</summary>
     [Fact]
     public async Task FetchAsync_BlankPakLink_IsNoPakLink()
     {
@@ -163,7 +163,7 @@ public class DaedalusCatalogClientTests
         Assert.Equal("https://github.com/o/r/raw/main/a.EXMODZ", entry.PakUrl ?? entry.ExmodzUrl);
     }
 
-    /// <summary>Review 2026-10-28: one null in a tag's mod list (other people's JSON) threw and the whole Daedalus catalog read as "unavailable".</summary>
+    /// <summary>One null in a tag's mod list (other people's JSON) used to throw, and the whole Daedalus catalog read as "unavailable".</summary>
     [Fact]
     public async Task FetchAsync_NullInATagsModList_IsSkippedNotFatal()
     {

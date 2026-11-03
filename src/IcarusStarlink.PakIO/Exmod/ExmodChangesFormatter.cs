@@ -7,7 +7,7 @@ namespace IcarusStarlink.PakIO.Exmod;
 
 /// <summary>
 /// Renders a mod's sparse field changes as plain, readable text — "what does this mod actually
-/// change", for Library's read-only Changes tab. Not the EXMOD editor (Phase 7, still editable
+/// change", for Library's read-only Changes tab. Not the EXMOD editor (still editable
 /// with amber diffs); this is view-only, closer to classic IMM's own "Mod Json Viewer".
 /// </summary>
 public static class ExmodChangesFormatter

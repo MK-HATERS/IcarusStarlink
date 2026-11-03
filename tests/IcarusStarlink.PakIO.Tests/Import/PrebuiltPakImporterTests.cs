@@ -29,8 +29,8 @@ public class PrebuiltPakImporterTests : IDisposable
     }
 
     /// <summary>
-    /// Review 2026-10-28: a ".pak" that is really a web page (a catalog link pointing at a page,
-    /// not the file) or a cut-off copy went in as an opaque pak mod, and from there into the game.
+    /// A ".pak" that is really a web page (a catalog link pointing at a page,
+    /// not the file) or a cut-off copy used to go in as an opaque pak mod, and from there into the game.
     /// It's refused with the reason, before anything is written.
     /// </summary>
     [Fact]

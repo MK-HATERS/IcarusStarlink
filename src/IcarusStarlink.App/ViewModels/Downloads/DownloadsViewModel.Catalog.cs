@@ -122,7 +122,7 @@ public sealed partial class DownloadsViewModel
     [ObservableProperty]
     private int _selectedCatalogEntryCount;
 
-    /// <summary>Drives the batch-download button's visibility — a plain int bound through NullToVisibilityConverter would always read "has a value" (an int is never null), the same bug class already caught once this session, so this is a real bool instead.</summary>
+    /// <summary>Drives the batch-download button's visibility — a plain int bound through NullToVisibilityConverter would always read "has a value" (an int is never null), so this is a real bool instead.</summary>
     public bool HasCatalogSelectionForBatch => SelectedCatalogEntryCount >= 2;
 
     partial void OnSelectedCatalogEntryCountChanged(int value) => OnPropertyChanged(nameof(HasCatalogSelectionForBatch));
@@ -366,7 +366,7 @@ public sealed partial class DownloadsViewModel
                     .Select(key => key!.Value)
                     .Distinct()
                     .ToList();
-                // Merged over what's already known, not replaced (an audit finding): the client omits
+                // Merged over what's already known, not replaced: the client omits
                 // any repo whose lookup failed (GitHub's 60/hour unauthenticated cap bites on a 40-repo
                 // refresh), so a wholesale replace blanked dates a previous refresh had resolved.
                 var fetched = await _gitHubRepoDateClient.FetchPushedDatesAsync(repoKeys);
@@ -653,7 +653,7 @@ public sealed partial class DownloadsViewModel
         // Downloads page is the one place every archive lives (Reinstall / Discard work the same)
         // — the way a mod organizer keeps its downloads, per direct user feedback. The file is
         // named after the catalog entry: a .pak that can't be converted is imported as an opaque
-        // entry whose name derives from the pak's own file name (an audit finding).
+        // entry whose name derives from the pak's own file name.
         Directory.CreateDirectory(_pendingDownloadsDirectory);
         var fileId = PendingDownloadEntry.CatalogFileId(catalogEntry.Id);
         var fileName = DownloadFileNameSanitizer.Sanitize($"{catalogEntry.Name}{(isExmodz ? ".EXMODZ" : ".pak")}");
@@ -662,7 +662,7 @@ public sealed partial class DownloadsViewModel
             path => _pendingDownloadStore.Entries.Any(e => e.ModId == 0 && e.FileId == fileId && e.LocalFilePath == path));
         var localPath = Path.Combine(_pendingDownloadsDirectory, fileName);
 
-        // Streamed to disk through a .part file, same as the Nexus path (an audit finding):
+        // Streamed to disk through a .part file, same as the Nexus path:
         // GetByteArrayAsync buffered the whole pak in memory AND put the entire transfer under
         // HttpClient's 100 s timeout, so a large catalog pak on a slow connection failed every time.
         // The Downloading row: the caller's when it installs straight after (it then says

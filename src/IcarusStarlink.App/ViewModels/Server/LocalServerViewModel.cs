@@ -16,9 +16,10 @@ using IcarusStarlink.Core.Server;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// The Server page's "Local server" tab: dedicated servers on THIS PC. Phase 1 of the server plan —
+/// The Server page's "Local server" tab: dedicated servers on THIS PC:
 /// adopt an existing install, edit its launch options and ServerSettings.ini, start / stop /
-/// restart it, and follow its log live. (Installing and updating through SteamCMD is phase 2.)
+/// restart it, and follow its log live. (Installing and updating through SteamCMD is in the
+/// .SteamCmd partial.)
 /// The ini is the source of truth for in-game settings: the form loads from it on select and
 /// writes back to it on Save, keeping every line it doesn't know about.
 /// </summary>

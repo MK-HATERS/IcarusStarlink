@@ -9,7 +9,7 @@ using System.Text.Json.Nodes;
 namespace IcarusStarlink.App.Utilities;
 
 /// <summary>
-/// "Export diagnostics zip (logs + sanitized settings, no API keys/tokens)" per the spec — bundles
+/// "Export diagnostics zip (logs + sanitized settings, no API keys/tokens)" — bundles
 /// a system-info.txt (app version, OS, .NET runtime), every rolled Serilog log file (which, since
 /// LoggingActivityLog exists, includes the session's own activity history and any crash reports
 /// written by CrashReportWriter — both surface here as *.log/crash-*.txt entries, not as separate
@@ -139,7 +139,7 @@ public static class DiagnosticsExporter
         catch (JsonException)
         {
             // A corrupt settings.json is exactly the thing worth shipping in a diagnostics zip — it
-            // used to abort the whole export instead (an audit finding). Nothing in it is secret
+            // used to abort the whole export instead. Nothing in it is secret
             // (see the class doc), so the raw text goes in as-is.
             return json;
         }

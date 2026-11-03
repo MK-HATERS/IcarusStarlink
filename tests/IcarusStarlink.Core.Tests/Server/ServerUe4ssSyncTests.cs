@@ -3,8 +3,8 @@ using IcarusStarlink.Core.Server;
 namespace IcarusStarlink.Core.Tests.Server;
 
 /// <summary>
-/// Comparing a UE4SS mod's game copy with its server copy (user report 2026-10-23). On the user's
-/// real server, files the mods write while running (remembered.txt, logs, caches, .bak) made five
+/// Comparing a UE4SS mod's game copy with its server copy. On a real
+/// server, files the mods write while running (remembered.txt, logs, caches, .bak) made five
 /// identical mods read as "differs"; those are the copy's own, never a difference, and kept on update.
 /// </summary>
 public sealed class ServerUe4ssSyncTests : IDisposable
@@ -76,7 +76,7 @@ public sealed class ServerUe4ssSyncTests : IDisposable
         Assert.Empty(Directory.GetDirectories(serverMods, "*.updating-*"));
     }
 
-    /// <summary>Review 2026-10-23: a file only the server has (state a mod writes there) is the server's: no "differs", kept on update.</summary>
+    /// <summary>A file only the server has (state a mod writes there) is the server's: no "differs", kept on update.</summary>
     [Fact]
     public void FilesOnlyOnTheServer_AreNotADifference_AndStayOnUpdate()
     {
@@ -101,7 +101,7 @@ public sealed class ServerUe4ssSyncTests : IDisposable
     /// <summary>
     /// ArcFission Library's state.lua, status.lua and registry.txt (and core_*.txt) are the game's
     /// own session, written while it runs. They used to be copied onto the server, where a stale
-    /// state.lua names a data pak the server never built (review 2026-10-26). Never copied, the
+    /// state.lua names a data pak the server never built. Never copied, the
     /// server's own kept, never a difference; the library's code and core_off.txt still go.
     /// </summary>
     [Fact]
@@ -145,7 +145,7 @@ public sealed class ServerUe4ssSyncTests : IDisposable
         Assert.Equal(ServerModState.ServerOutOfDate, row.State);
     }
 
-    /// <summary>User request 2026-10-27: the table said "Same as your game" while the server ran other settings. The shipped defaults aren't a setting; line endings don't count.</summary>
+    /// <summary>The table used to say "Same as your game" while the server ran other settings. The shipped defaults aren't a setting; line endings don't count.</summary>
     [Fact]
     public void Compare_SameFiles_DifferentConfig_NamesTheConfig()
     {
@@ -163,7 +163,7 @@ public sealed class ServerUe4ssSyncTests : IDisposable
     }
 
     /// <summary>
-    /// Seen live 2026-10-27: Pet Commander writes Invulnerable.ini (the world's tames) beside its
+    /// Seen live: Pet Commander writes Invulnerable.ini (the world's tames) beside its
     /// config on the server, so the row read "different settings" and Match settings had nothing to
     /// copy. A config-looking file only the server has is the server's own; a config the game has
     /// and the server lacks is a difference.
@@ -183,7 +183,7 @@ public sealed class ServerUe4ssSyncTests : IDisposable
         Assert.Equal([Path.Combine("config", "extra.ini")], ServerUe4ssSync.Compare(game, server, new HashSet<string>()).Single().DifferingConfigs);
     }
 
-    /// <summary>Review 2026-10-27: a config the running server holds open made Compare throw and the whole table empty; that one file reads as differing instead.</summary>
+    /// <summary>A config the running server holds open used to make Compare throw and the whole table empty; that one file reads as differing instead.</summary>
     [Fact]
     public void Compare_AConfigHeldOpenByTheServer_ReadsAsDiffering_NotAsAnError()
     {

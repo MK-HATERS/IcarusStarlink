@@ -227,7 +227,7 @@ public sealed class ModReplacementServiceTests : IDisposable
     }
 
     /// <summary>
-    /// User report 2026-10-27: activating a new Nexus version of a UE4SS mod replaced the player's
+    /// Activating a new Nexus version of a UE4SS mod replaced the player's
     /// config.lua with the shipped one. The update keeps the installed config (and names the new
     /// settings it lacks); the shipped defaults file is the new version's.
     /// </summary>

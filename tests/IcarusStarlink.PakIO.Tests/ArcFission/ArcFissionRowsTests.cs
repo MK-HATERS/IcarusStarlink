@@ -8,7 +8,7 @@ namespace IcarusStarlink.PakIO.Tests.ArcFission;
 /// <summary>
 /// The ArcFission mods' rows read straight from their rows.lua (as ArcFission Library 1.3.0 reads
 /// them), so the merge has them before the game ever ran, and never the library's pak with its
-/// copies of the game's tables. Files shaped like WirelessPower 0.9.5's on the user's setup.
+/// copies of the game's tables. Files shaped like WirelessPower 0.9.5's on a real setup.
 /// </summary>
 public sealed class ArcFissionRowsTests : IDisposable
 {
@@ -158,7 +158,7 @@ public sealed class ArcFissionRowsTests : IDisposable
     /// <summary>
     /// The library checks a row by its Lua name but splices its json as written, so the game knows
     /// the row by the json's "Name". The merge used to name it by the Lua name: two names for one
-    /// row (review 2026-10-26). A json with no Name, or a Name already there, is left out and said.
+    /// row. A json with no Name, or a Name already there, is left out and said.
     /// </summary>
     [Fact]
     public void ToPackage_NamesTheRowByItsJsonName_AsTheGameGetsIt()
@@ -185,7 +185,7 @@ public sealed class ArcFissionRowsTests : IDisposable
     /// <summary>
     /// The library only falls back to rows.lua when the card has no rows at all: rows = true (or a
     /// table) stops its check with an error, and a number names a file that isn't there. Starlink used
-    /// to read rows.lua for any of these and merge rows the game never gets (review 2026-10-26).
+    /// to read rows.lua for any of these and merge rows the game never gets.
     /// </summary>
     [Theory]
     [InlineData("true", "the library stops")]
@@ -208,7 +208,7 @@ public sealed class ArcFissionRowsTests : IDisposable
     /// The library loads these files with Lua's load(), which doesn't skip a UTF-8 byte-order mark
     /// and refuses a non-breaking space outside a string: such a mod's rows never reach the game.
     /// Starlink read them with File.ReadAllText (BOM dropped) and skipped any Unicode space, so it
-    /// merged rows the game never gets (review 2026-10-26). Now it leaves them out and says why.
+    /// merged rows the game never gets. Now it leaves them out and says why.
     /// </summary>
     [Fact]
     public void ARowsFileTheLibraryCantLoad_BomOrNonBreakingSpace_IsLeftOutAndSaid()
@@ -233,7 +233,7 @@ public sealed class ArcFissionRowsTests : IDisposable
     /// <summary>
     /// RowsHash is the SHA-1 of the rows file's bytes, as the library hashes them. It used to hash
     /// the decoded text, so two files differing only in bytes that aren't UTF-8 (a Latin-1 "é" in a
-    /// comment) hashed the same (review 2026-10-26).
+    /// comment) hashed the same.
     /// </summary>
     [Fact]
     public void RowsHash_IsTheSha1OfTheFilesBytes()
@@ -323,7 +323,7 @@ public sealed class ArcFissionRowsTests : IDisposable
     /// <summary>
     /// In Lua ["1"] (text) and [1] (a number) are two different keys, and ipairs only reads [1].
     /// They used to be one key, so a rows list written with ["1"] = row gave the merge a row the
-    /// library never adds (review 2026-10-26).
+    /// library never adds.
     /// </summary>
     [Fact]
     public void LuaData_TextAndNumberKeysAreDifferent_AndOnlyNumbersMakeAList()
@@ -352,7 +352,7 @@ public sealed class ArcFissionRowsTests : IDisposable
     /// <summary>
     /// A Lua string is bytes: "\xC3\xA9" and "\195\169" are the two UTF-8 bytes of é (how Lua's own
     /// %q and many serializers write text). They used to come out as two Latin-1 characters ("Ã©"),
-    /// so a row's text was silently wrong in the merge (review 2026-10-26).
+    /// so a row's text was silently wrong in the merge.
     /// </summary>
     [Fact]
     public void LuaData_EscapedBytesAreUtf8_LikeTheGameReadsThem()
@@ -362,7 +362,7 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.Equal("a\uFFFDb", LuaData.Parse("return \"a\\xFFb\""));
     }
 
-    /// <summary>Lua's own rules for line breaks (review 2026-10-26): every \r\n, \n\r or lone \r in a [[long string]] is one \n, and a lone \r ends a -- comment, so the next field isn't swallowed by it.</summary>
+    /// <summary>Lua's own rules for line breaks: every \r\n, \n\r or lone \r in a [[long string]] is one \n, and a lone \r ends a -- comment, so the next field isn't swallowed by it.</summary>
     [Fact]
     public void LuaData_LineBreaks_AsLuaReadsThem()
     {
@@ -374,7 +374,7 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.Equal(2d, table.Fields["b"]);
     }
 
-    /// <summary>Words aren't numbers: "-Infinity" or "-nan" is an expression Lua refuses in a data file, not a value (review 2026-10-26).</summary>
+    /// <summary>Words aren't numbers: "-Infinity" or "-nan" is an expression Lua refuses in a data file, not a value.</summary>
     [Fact]
     public void LuaData_InfinityAndNanWordsAreRefused()
     {
@@ -388,7 +388,7 @@ public sealed class ArcFissionRowsTests : IDisposable
     /// <summary>
     /// The library checks a card's "library" with its vercmp whatever its type, so library = 2 (a
     /// number) needs library 2 and the mod is left out of the game. It used to be read only as text,
-    /// so a number skipped the check and the merge carried rows the game doesn't have (review 2026-10-26).
+    /// so a number skipped the check and the merge carried rows the game doesn't have.
     /// </summary>
     [Fact]
     public void ACardNeedingANewerLibrary_AsANumber_IsLeftOutToo()

@@ -18,13 +18,11 @@ public sealed partial class ServerViewModel
     /// the same file "Install" copies into the LOCAL game folder) to the server's own mods folder,
     /// replacing whatever's there. The server's mods folder is meant to hold exactly one active
     /// merged pak, so this clears it out first — but always names every file it's about to delete
-    /// (and upload) in the confirmation prompt, per the user's own explicit ask, rather than a bare
-    /// "are you sure?".
+    /// (and upload) in the confirmation prompt, rather than a bare "are you sure?".
     ///
     /// A site already known (from a past attempt) not to support delete skips trying it at all and
-    /// instead warns UP FRONT, before ever touching the server, that old files will remain — the
-    /// user's own explicit preference over silently uploading first and reporting the leftover
-    /// files only afterward, since a dedicated server actively serving players is higher-stakes
+    /// instead warns UP FRONT, before ever touching the server, that old files will remain, rather
+    /// than silently uploading first and reporting the leftover files only afterward, since a dedicated server actively serving players is higher-stakes
     /// than the local game folder if it ends up loading two conflicting merged paks at once. A site
     /// not yet known either way still tries each delete for real (learning the answer for next
     /// time), but never lets one rejected delete abort the whole upload.
@@ -136,7 +134,7 @@ public sealed partial class ServerViewModel
                 // Upload under a temporary name first (the game only loads *.pak), and only once
                 // that has fully arrived delete the old files and rename the new ones into place: a
                 // dropped connection mid-upload used to leave the server with its old paks already
-                // deleted and the new one half there (an audit finding).
+                // deleted and the new one half there.
                 foreach (var name in toUpload)
                 {
                     await _connectedClient.UploadFileAsync(localFor[name], $"{RemoteModsPath}/{UploadingName(name)}");
@@ -321,8 +319,8 @@ public sealed partial class ServerViewModel
     /// <summary>
     /// Uploads the UE4SS mods that are on in the game (Ue4ssServerFiles.ModsOnInGame: the same rule
     /// a local server uses, so switched-off mods and the framework's own stay home) and aren't on
-    /// the server yet, then turns them on in the server's mods.txt (review 2026-10-23: every
-    /// installed mod went up and none was ever switched on there). Additive only: a mod already on
+    /// the server yet, then turns them on in the server's mods.txt (it used to upload
+    /// every installed mod and switch none of them on there). Additive only: a mod already on
     /// the server, and its on/off line, are left as the server has them.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]

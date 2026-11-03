@@ -26,7 +26,7 @@ public sealed class DaedalusCatalogClient(HttpClient httpClient) : IDaedalusCata
 
         // An explicit JSON null in a field deserializes as null despite the DTO's "" default — one
         // such entry used to NRE and take the whole catalog down, and a null description NRE'd
-        // later in the search filter and crashed the app (an audit finding). An entry with no id,
+        // later in the search filter and crashed the app. An entry with no id,
         // name or author is unusable and skipped (the id keys the Library's Downloaded lookup, which
         // throws on a null key); other fields are coalesced.
         return [.. (modsTask.Result ?? [])

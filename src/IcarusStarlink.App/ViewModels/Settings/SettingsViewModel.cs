@@ -131,7 +131,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         // The first-launch questions and the "Update available" offer are NOT started here: they
         // show modal dialogs, and anything that resolved this singleton while one was open (opening
         // Settings, an nxm:// link, GameDataFreshness) re-entered the DI factory mid-construction
-        // and built a second Settings that asked every question again (seen live 2026-10-28).
+        // and built a second Settings that asked every question again.
         // App.xaml.cs starts them once this instance exists (StartFirstLaunchSetup).
         CheckForGameCrashesSinceLastInstall();
         ReportLastAppUpdateOutcome();

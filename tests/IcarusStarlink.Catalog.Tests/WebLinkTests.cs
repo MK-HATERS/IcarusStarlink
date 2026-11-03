@@ -2,7 +2,7 @@ using IcarusStarlink.Catalog.Nexus;
 
 namespace IcarusStarlink.Catalog.Tests;
 
-/// <summary>Links from catalog or Nexus data are opened by the shell or shown as WPF images: only web links may pass (review 2026-10-28).</summary>
+/// <summary>Links from catalog or Nexus data are opened by the shell or shown as WPF images: only web links may pass.</summary>
 public class WebLinkTests
 {
     [Theory]

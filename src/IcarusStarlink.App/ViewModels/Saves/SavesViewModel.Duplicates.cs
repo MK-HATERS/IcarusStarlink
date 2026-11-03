@@ -4,7 +4,7 @@ namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class SavesViewModel
 {
-    // --- Duplicate rows (the user's ask, 2026-11-03): the same talent, currency, flag, creature or
+    // --- Duplicate rows: the same talent, currency, flag, creature or
     //     accolade listed twice in a save file. The game didn't write them; a tool may have. The save
     //     check says so, and its fix merges each into one at the next Save, keeping the highest rank,
     //     count or points any copy had. ---

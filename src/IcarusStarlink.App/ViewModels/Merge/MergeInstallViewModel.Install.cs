@@ -27,7 +27,7 @@ public sealed partial class MergeInstallViewModel
     [ObservableProperty]
     private string? _installStatusMessage;
 
-    // --- Installed vs this list (6.6) ---
+    // --- Installed vs this list ---
     /// <summary>"+ Name" (would be added), "- Name" (would be removed), "= Name" (unchanged) — a preview of what clicking Install would actually do, not run automatically since it needs a real read of the game folder.</summary>
     public ObservableCollection<string> ComparisonEntries { get; } = [];
 
@@ -36,8 +36,8 @@ public sealed partial class MergeInstallViewModel
 
     /// <summary>
     /// Checks for the real installed pak's own file directly, not GetInstalledStateAsync's parsed
-    /// mod-name list — a gameplay-options-only install (an empty queue, per the spec's own "add
-    /// merge options to game with no mods selected") still produces a real pak but lists zero mod
+    /// mod-name list — a gameplay-options-only install (an empty queue: merge options added to the
+    /// game with no mods selected) still produces a real pak but lists zero mod
     /// names in the manifest, which would make a Count-based check wrongly say nothing's installed.
     /// </summary>
     internal Task RefreshHasExistingInstallAsync()
@@ -282,7 +282,7 @@ public sealed partial class MergeInstallViewModel
     /// so both are listed in the same manifest), so a user can see exactly what Install would
     /// change before clicking it. Gameplay options aren't part of this comparison — they're not a
     /// "mod" with a name to diff, they overwrite specific fields regardless of what's currently
-    /// there. UE4SS mods aren't part of this either (Phase 8.5) — see Library's own UE4SS tab,
+    /// there. UE4SS mods aren't part of this either — see Library's own UE4SS tab,
     /// which shows their real state directly.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
@@ -409,7 +409,7 @@ public sealed partial class MergeInstallViewModel
     /// game's mods folder (its confirmation included). Each of those, a build and Roll back refuse
     /// to start meanwhile: the build step used to clear IsRebuilding before the install that
     /// follows it, so Copy to game, Remove from game and Restore stayed clickable while the
-    /// install's question was open and the copy ran (review 2026-10-23).
+    /// install's question was open and the copy ran.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsInstallIdle))]
@@ -543,7 +543,7 @@ public sealed partial class MergeInstallViewModel
             // The build already put this pak in the Library; it's only imported here when that
             // didn't happen (it failed then, or the pak was built before the app started). It used
             // to be imported again on every install, filed under whichever profile was selected by
-            // then and dropping the conflict picks on the way (review 2026-10-23). The pak is in
+            // then and dropping the conflict picks on the way. The pak is in
             // the game by now: a failure here (a locked Library folder) is a note, not "Install
             // failed" with the install left unrecorded.
             string? libraryNote = null;
@@ -636,12 +636,12 @@ public sealed partial class MergeInstallViewModel
         }
     }
 
-    /// <summary>Shown once an install has failed on a locked file, or whenever a staged pak already exists — the spec's own "Copy built pack to game" / Retry affordance.</summary>
+    /// <summary>Shown once an install has failed on a locked file, or whenever a staged pak already exists — the "Copy built pack to game" / Retry affordance.</summary>
     [ObservableProperty]
     private bool _canCopyToGame;
 
     /// <summary>
-    /// The spec's "Copy built pack to game": installs the already-staged pak WITHOUT remerging.
+    /// "Copy built pack to game": installs the already-staged pak WITHOUT remerging.
     /// Mechanically the same as Install's second half — it shares InstallAsync rather than
     /// duplicating it (which also refuses while a build or another install runs) — but reachable
     /// on its own, which matters in the case it exists for: the game held the file open, nothing

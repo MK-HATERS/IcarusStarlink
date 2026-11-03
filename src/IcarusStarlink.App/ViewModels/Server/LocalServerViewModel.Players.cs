@@ -5,7 +5,7 @@ using IcarusStarlink.Core.Server;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// Phase 3: who is online and what happened, read from the server's own log (there is no network
+/// Who is online and what happened, read from the server's own log (there is no network
 /// RCON for Icarus — the log is the only window in). Every server's log is read once, by its
 /// watch (see the .Automation partial); the panels here show the selected server's watch.
 /// </summary>

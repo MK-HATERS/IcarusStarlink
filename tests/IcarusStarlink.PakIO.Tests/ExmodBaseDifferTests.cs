@@ -43,7 +43,7 @@ public class ExmodBaseDifferTests : IDisposable
     [Fact]
     public void DiffAgainstBase_FieldEqualToBase_ProducesNoChange()
     {
-        // TableDiffer.Diff (Phase 1) only ever reports a genuine difference — a field the mod
+        // TableDiffer.Diff only ever reports a genuine difference — a field the mod
         // "changed" back to exactly its base value produces no FieldChange at all. Real, useful
         // for the editor design: it means the editor's own Fields list has to come from the
         // package's own item.Fields directly (unconditionally), not solely from this diff's

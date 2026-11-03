@@ -66,7 +66,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
 
         // Every config file any copy has, the first copy's first (Find puts the main config.lua /
         // config.ini first, so that's what opens). The shipped defaults (config.default.lua) aren't
-        // offered: they're what Reset to default reads, not a file to edit (user's call 2026-10-27).
+        // offered: they're what Reset to default reads, not a file to edit.
         foreach (var file in locations.SelectMany(l => Ue4ssModConfigFiles.Find(l.ModFolder)).Where(f => !f.IsDefaults))
         {
             if (!Files.Any(f => f.RelativePath.Equals(file.RelativePath, StringComparison.OrdinalIgnoreCase)))

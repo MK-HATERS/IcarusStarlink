@@ -51,7 +51,7 @@ public sealed class UpdateVersionComparerTests
     public void HasUpdate_NoLatestKnown_IsFalse(string? latest) =>
         Assert.False(UpdateVersionComparer.HasUpdate(latest, "1.0", "1"));
 
-    /// <summary>Audit finding: a timestamp-style component ("1.20261014153000") passed the numeric regex and then overflowed int.Parse, throwing out of a pure comparison.</summary>
+    /// <summary>A timestamp-style component ("1.20261014153000") passed the numeric regex and then overflowed int.Parse, throwing out of a pure comparison.</summary>
     [Fact]
     public void AreEquivalent_ComponentTooLargeForAnInteger_NeverThrows()
     {
@@ -64,7 +64,7 @@ public sealed class UpdateVersionComparerTests
     public void HasUpdate_NothingKnownOnTheInstalledSide_IsFalse() =>
         Assert.False(UpdateVersionComparer.HasUpdate("1.0", installedVersion: "", recordedSourceVersion: null));
 
-    /// <summary>User report 2026-11-01 (the author's own builds): v0.8.0 installed showed "Update v0.7.0".</summary>
+    /// <summary>The author's own builds: v0.8.0 installed showed "Update v0.7.0".</summary>
     [Theory]
     [InlineData("0.7.0", "0.8.0", false)]
     [InlineData("v1.5.0", "1.6.0", false)]

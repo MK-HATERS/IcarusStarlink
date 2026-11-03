@@ -6,7 +6,7 @@ using IcarusStarlink.Core.Server;
 namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>
-/// User request 2026-10-28: the Mods, Backups, Share, World settings and admin/ban list buttons
+/// The Mods, Backups, Share, World settings and admin/ban list buttons
 /// grey out (with a tooltip saying why) while they can't run, instead of refusing after the click.
 /// The guards inside the commands stay; these tests are about CanExecute and the reason text.
 /// </summary>

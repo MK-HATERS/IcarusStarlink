@@ -4,7 +4,7 @@ namespace IcarusStarlink.Core.Tests.Ue4ss;
 
 public class Ue4ssSettingsDocumentTests
 {
-    // Trimmed from a real dev-build UE4SS-settings.ini (2026-10-17).
+    // Trimmed from a real dev-build UE4SS-settings.ini.
     private const string RealisticIni =
         "[Overrides]\r\n" +
         "; Path to the 'Mods' folder\r\n" +
@@ -234,7 +234,7 @@ public class Ue4ssSettingsDocumentTests
         Assert.Equal("a ; b", Ue4ssSettingsDocument.Parse("[General]\nX = a ; b\n").GetValue("General", "X"));
 
     /// <summary>
-    /// A Lua setting described the way MkHaters Mod Settings reads it (2026-10-27): the Lua kind
+    /// A Lua setting described the way MkHaters Mod Settings reads it: the Lua kind
     /// decides the control, the tags in the note refine it, and the tags leave the text shown.
     /// </summary>
     [Fact]
@@ -268,7 +268,7 @@ public class Ue4ssSettingsDocumentTests
     }
 
     /// <summary>
-    /// MkHaters Cheats / Stability (2026-10-28): "[server]" and "[local]" showed as text in the
+    /// MkHaters Cheats / Stability: "[server]" and "[local]" showed as text in the
     /// description; they're marks now, and taken out of the text like the other tags.
     /// </summary>
     [Fact]
@@ -283,7 +283,7 @@ public class Ue4ssSettingsDocumentTests
     }
 
     /// <summary>
-    /// NearbyCrafting.ini (real, 2026-10-28) writes its ranges and restarts in the comment above:
+    /// NearbyCrafting.ini (real) writes its ranges and restarts in the comment above:
     /// "Valid range: 1.0-500.0 metres", "Changing this setting requires an Icarus restart". The box
     /// showed no range and no "needs a restart".
     /// </summary>
@@ -330,7 +330,7 @@ public class Ue4ssSettingsDocumentTests
         Assert.Equal(label, Ue4ssSettingLabel.FromKey(key));
 
     /// <summary>
-    /// Final review 2026-10-28: the word so far was copied out for every letter of a key, so one
+    /// The word so far used to be copied out for every letter of a key, so one
     /// very long key in a downloaded config (an ini key runs to the '=') took minutes to label on
     /// the UI thread when Edit config opened it.
     /// </summary>

@@ -46,7 +46,7 @@ public sealed class Ue4ssModStateService(IUe4ssModRepository stagingRepository) 
             var started = inGame && (!Ue4ssModStart.IsMod(gameModsFolderPath, name) || Ue4ssModStart.Starts(gameModsFolderPath, name, list));
 
             // UE4SS's own shared\ (its Lua library) is never taken out of the game: every Lua mod
-            // that uses it broke when the Library's untick moved it to staging (2026-10-28). The
+            // that uses it broke when the Library's untick moved it to staging. The
             // panel locks it; this is the last line of defence. One already in staging (moved by
             // that bug) may still go back in.
             if (Ue4ssModStart.IsFrameworkFolder(name) && !desiredEnabled && inGame)

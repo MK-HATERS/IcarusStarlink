@@ -18,7 +18,7 @@ namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class SettingsViewModel
 {
-    // --- Diagnostics & safety (Phase 9) ---
+    // --- Diagnostics & safety ---
     [ObservableProperty]
     private bool _performanceTrackingEnabled;
 
@@ -189,7 +189,7 @@ public sealed partial class SettingsViewModel
         await RefreshBackupsSizeAsync();
     }
 
-    // --- App updates (Phase 9) ---
+    // --- App updates ---
 
     /// <summary>The version baked into this build via the App csproj's own &lt;Version&gt; property — bump that alongside tagging a real GitHub release.</summary>
     public string InstalledAppVersion { get; } =
@@ -372,7 +372,7 @@ public sealed partial class SettingsViewModel
         }
 
         // Shutdown() below would cut a running extraction or UE4SS install off midway (an orphaned
-        // UnrealPak process, a half-written Data folder) — an audit finding.
+        // UnrealPak process, a half-written Data folder).
         if (IsUpdatingDataFolder || IsInstallingUe4ss || IsUninstallingUe4ss)
         {
             AppUpdateStatusMessage = "Wait for the current data extraction / UE4SS change to finish, then click Update again.";
@@ -605,8 +605,8 @@ public sealed partial class SettingsViewModel
         }
 
         // A beta installed by hand keeps the Stable channel, so asking at every launch to go back
-        // to a lower stable release would nag forever, one click from a downgrade (review,
-        // 2026-10-23). Settings › Maintenance still shows the switch-back.
+        // to a lower stable release would nag forever, one click from a downgrade. Settings ›
+        // Maintenance still shows the switch-back.
         if (!IsAppUpdateAvailable || IsSwitchBackToStable)
         {
             return;
@@ -628,7 +628,7 @@ public sealed partial class SettingsViewModel
     /// Right after every update (behind What's new): asks whether to endorse Starlink on Nexus, and
     /// endorses on Yes. Silent when there's no Nexus key, the account already endorsed it, the
     /// account is Starlink's own uploader (Nexus refuses that), or Nexus can't be reached. "Not this
-    /// time" is never sent to Nexus and never remembered: the next update asks again (user's call).
+    /// time" is never sent to Nexus and never remembered: the next update asks again.
     /// </summary>
     private async Task OfferToEndorseStarlinkAsync()
     {

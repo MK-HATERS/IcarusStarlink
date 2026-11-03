@@ -9,8 +9,8 @@ using IcarusStarlink.App.Services;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// The Talents and Workshop tabs' tree view, laid out like the game's own menu (the user's ask,
-/// 2026-11-03): a list of trees on the left, the picked tree drawn with every node where the game
+/// The Talents and Workshop tabs' tree view, laid out like the game's own menu: a
+/// list of trees on the left, the picked tree drawn with every node where the game
 /// puts it (D_Talents Position and Size), the lines between them (RequiredTalents, bent the way
 /// DrawMethodOverride says, through the game's Reroute points), and the rank rows (Novice to
 /// Master, with the points each needs). The nodes are the same rows the list shows, so a change

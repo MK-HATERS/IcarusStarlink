@@ -363,7 +363,7 @@ public sealed partial class SaveGameNames(string dataFolder)
         }
 
         var match = System.Text.RegularExpressions.Regex.Match(raw, "\"((?:[^\"\\\\]|\\\\.)*)\"\\s*\\)\\s*$");
-        // Every escape, not just \": accolades showed "Rock \'n\' Roll" (2026-10-23).
+        // Every escape, not just \": accolades showed "Rock \'n\' Roll".
         return match.Success
             ? System.Text.RegularExpressions.Regex.Replace(match.Groups[1].Value, @"\\(.)", m => m.Groups[1].Value switch { "n" => "\n", "r" => "", "t" => " ", var c => c })
             : raw;

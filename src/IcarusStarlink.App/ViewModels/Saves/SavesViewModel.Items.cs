@@ -26,7 +26,7 @@ public sealed partial class SavesViewModel
 
     /// <summary>
     /// What the Items tab says instead of an empty list; null while it lists something. An empty
-    /// bank is normal (the user's slot, 2026-10-23: MetaInventory.json's Items is []), so it says
+    /// bank is normal (MetaInventory.json's Items is []), so it says
     /// what would show here rather than looking broken.
     /// </summary>
     public string? ItemsEmptyText =>

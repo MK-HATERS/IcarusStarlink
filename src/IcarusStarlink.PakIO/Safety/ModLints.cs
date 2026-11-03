@@ -54,7 +54,7 @@ public static class ModLints
     /// A ".pak" with no pak footer at all: a web page or error text saved under that name (a
     /// catalog link that points at a page, not the file), or a cut-off copy. Refused with the
     /// reason — it used to land in the Library as an opaque pak mod and go into the game with the
-    /// next Merge &amp; Install (review 2026-10-28).
+    /// next Merge &amp; Install.
     /// </summary>
     public static string? CheckIsPak(string pakFilePath) =>
         File.Exists(pakFilePath) && TryReadPakVersion(pakFilePath) is null

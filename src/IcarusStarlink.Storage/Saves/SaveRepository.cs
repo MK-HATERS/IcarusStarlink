@@ -10,7 +10,7 @@ namespace IcarusStarlink.Storage.Saves;
 
 /// <summary>
 /// Real-filesystem side of ISaveRepository. Two format facts this encodes, both confirmed against
-/// the user's own live save rather than assumed: Characters.json is JSON-in-JSON (a
+/// a real live save rather than assumed: Characters.json is JSON-in-JSON (a
 /// "Characters.json" array of ESCAPED JSON STRINGS, each string itself tab-indented CRLF JSON),
 /// and Profile.json is plain JSON. Writes serialize with the game's own style — tab indentation,
 /// CRLF — so a diff of an edited file against the game's own output shows only the edited values.
@@ -161,7 +161,7 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         }
 
         // int32 strLen, null-terminated ASCII SteamID, int32 count, count * int32 IDs — the format
-        // confirmed by parsing the user's real file (strLen counts the null terminator).
+        // confirmed by parsing a real file (strLen counts the null terminator).
         var bytes = File.ReadAllBytes(path);
         if (bytes.Length < 8)
         {
@@ -331,7 +331,7 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
             }
         }
 
-        // The spec's own safety rule, verbatim: "Restore writes a pre_restore safety zip first,
+        // The safety rule: "Restore writes a pre_restore safety zip first,
         // then replaces the slot" — so even a restore of the wrong backup is itself undoable.
         // Same temp-name-then-rename pattern as BackupSlot's own zip write, for the same reason:
         // this is the one safety net an interrupted restore (the very moment this whole method
@@ -372,8 +372,8 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         //
         // Replace, not merge — but only the slot's TOP-LEVEL files (the ones this editor actually
         // writes: Profile.json, Characters.json, Accolades, Bestiary, MetaInventory, Mounts.json,
-        // flags_<id>.dat and the game's own rolling .backup copies). Subfolders are never touched
-        // (an audit finding): the same slot folder holds the account's single-player WORLD saves
+        // flags_<id>.dat and the game's own rolling .backup copies). Subfolders are never touched:
+        // the same slot folder holds the account's single-player WORLD saves
         // (Prospects), map data and loadouts, which the editor never changes, so the old whole-
         // folder swap silently rolled every world back to the backup's moment. Backups made by
         // the earlier whole-folder shape still restore correctly — their subfolder entries are

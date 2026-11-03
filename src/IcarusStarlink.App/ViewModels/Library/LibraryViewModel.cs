@@ -119,8 +119,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     // --- Mods tab column visibility — right-click the column header bar to toggle. Author/Version/
     // Source/Status default on (matches what every row already showed before these were toggleable,
     // so upgrading doesn't change anyone's view); Latest/Imported default off, since they're new and
-    // showing them for everyone by default would be exactly the clutter the toolbar redesign was
-    // trying to reduce elsewhere on this same page. Not persisted across restarts — same "recomputed/
+    // showing them for everyone by default would clutter the page. Not persisted across restarts — same "recomputed/
     // reset each session" precedent the IMM Database tab's own column toggles already established.
 
     [ObservableProperty]
@@ -144,7 +143,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private bool _showImportedColumn;
 
     /// <summary>
-    /// Library's UE4SS tab (Phase 8.5 rework) — the single place to manage UE4SS mods, replacing
+    /// Library's UE4SS tab — the single place to manage UE4SS mods, replacing
     /// the old split between this read-only tab and Merge & Install's own separate Staged/Attached
     /// section. Each row's IsEnabled starts equal to its real current state (present in the game's
     /// own Mods folder or not) and only diverges once toggled — nothing actually moves until Apply.
@@ -549,9 +548,9 @@ public sealed partial class LibraryViewModel : ObservableObject
         }
 
         StatusMessage = "Library refreshed.";
-        // Both panels: the UE4SS mods are read from the game folder and staging again too (user
-        // report 2026-10-28: Refresh only re-read Extracted_Mods, so a mod put in the game's Mods
-        // folder by hand, or a server copy, never showed until the page was left and re-opened).
+        // Both panels: the UE4SS mods are read from the game folder and staging again too. Re-reading
+        // only Extracted_Mods missed a mod put in the game's Mods folder by hand, or a server copy,
+        // until the page was left and re-opened.
         ReloadUe4ssRows(fullResync: true);
     }
 }

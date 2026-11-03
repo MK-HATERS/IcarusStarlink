@@ -2,7 +2,7 @@ namespace IcarusStarlink.Core.Library;
 
 /// <summary>
 /// The plain-text mod-list format shared by classic IMM's own LastMergedMods.txt /
-/// IMM_Merged_Mod.txt and this app's ISL-Merged.txt — confirmed against the user's real files: an
+/// IMM_Merged_Mod.txt and this app's ISL-Merged.txt — confirmed against real files: an
 /// "Includes the following mods:" header line, then one mod display name per line, in merge order.
 /// A build with at least one gameplay option enabled (Stacks/Slots/CraftCost/etc.) adds a second,
 /// separately-headed section after the mods (RebuildService.WriteManifest) — a real build can have

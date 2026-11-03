@@ -26,8 +26,7 @@ public sealed partial class AppUpdateStepRow(AppUpdateStep step, string title) :
 }
 
 /// <summary>
-/// The update window (user request 2026-10-24: "a window that shows status of download and
-/// installing like a real app"): gets the download link (from Nexus for a stable release there,
+/// The update window, showing the download and install like a real app does: gets the download link (from Nexus for a stable release there,
 /// else GitHub), downloads with progress, checks the file, unpacks it and hands over to the
 /// updater, then closes Starlink. Cancel stops it at any point before the hand-over; nothing is
 /// changed until then.
@@ -130,7 +129,7 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         try
         {
             // A zip from Nexus is only installed once it matches GitHub's checksum for the same
-            // version (user's call 2026-10-26): GitHub down or rate-limited, or a version put on
+            // version: GitHub down or rate-limited, or a version put on
             // Nexus before its GitHub release, stops here rather than installing unchecked.
             if (FromNexus && _digest is null)
             {

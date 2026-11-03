@@ -10,7 +10,7 @@ namespace IcarusStarlink.Storage.Nexus;
 /// this whole app's own "no installer, no elevation" philosophy. The exact key structure (a bare
 /// "URL Protocol" value marking the key as a pluggable protocol handler, a quoted "%1" for the
 /// command line) is confirmed against Microsoft's own official documentation for registering a
-/// custom URI scheme handler, fetched during Phase 8.3c planning — not guessed.
+/// custom URI scheme handler — not guessed.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class NxmProtocolRegistrar : INxmProtocolRegistrar

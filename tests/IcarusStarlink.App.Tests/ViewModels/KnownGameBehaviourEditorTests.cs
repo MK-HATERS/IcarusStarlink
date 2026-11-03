@@ -11,7 +11,7 @@ public sealed class KnownGameBehaviourEditorTests
     private static readonly StatChoice Slots = new("BaseInventorySlots_+", "Inventory slots", "flat amount");
     private static readonly StatChoice HealthAura = new("GrantedAuraHealthRegen_?", "Health regen aura", "flat amount");
 
-    /// <summary>The Editor page's Storage card: a storage's spoil-rate stat changes nothing (Hook Scout, 2026-10-23); another stat goes in.</summary>
+    /// <summary>The Editor page's Storage card: a storage's spoil-rate stat changes nothing (tested in game); another stat goes in.</summary>
     [Fact]
     public void AStorageCard_RefusesTheSpoilRateStat()
     {

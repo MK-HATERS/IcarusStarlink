@@ -9,8 +9,8 @@ using CoreIFtpClient = IcarusStarlink.Core.Server.IFtpClient;
 namespace IcarusStarlink.Storage.Server;
 
 /// <summary>
-/// Wraps FluentFTP's real AsyncFtpClient (confirmed API shape via its own source during Phase 8.5
-/// planning, not guessed) — this is the only place in the app that references FluentFTP directly;
+/// Wraps FluentFTP's real AsyncFtpClient (confirmed API shape via its own source, not
+/// guessed) — this is the only place in the app that references FluentFTP directly;
 /// everything else talks to the Core-level IFtpClient/FtpEntry types instead. One instance = one
 /// connection, matching AsyncFtpClient's own lifecycle (construct, Connect, use, Disconnect/Dispose).
 /// </summary>
@@ -90,7 +90,7 @@ public sealed class FluentFtpClient : CoreIFtpClient
 
     // FluentFTP reports a transfer that failed mid-stream (connection reset) or a missing source
     // as FtpStatus.Failed — a RETURN VALUE, not an exception. Dropping it meant every caller logged
-    // "Uploaded"/"Installed the merged pak" over a truncated file on a live server (an audit finding).
+    // "Uploaded"/"Installed the merged pak" over a truncated file on a live server.
     public async Task UploadFileAsync(string localPath, string remotePath, CancellationToken cancellationToken = default)
     {
         var status = await RequireClient().UploadFile(localPath, remotePath, FtpRemoteExists.Overwrite, createRemoteDir: true, token: cancellationToken);
@@ -131,7 +131,7 @@ public sealed class FluentFtpClient : CoreIFtpClient
                 // The CWD is session state: every later RELATIVE path this app sends (its default
                 // Icarus/Content/Paks/mods paths have no leading slash) resolves against it, so
                 // leaving it changed made the very next pak upload land in a nested wrong folder
-                // while the status said "Installed" (an audit finding). Restored no matter what.
+                // while the status said "Installed". Restored no matter what.
                 var previousWorkingDirectory = await client.GetWorkingDirectory(cancellationToken);
                 try
                 {

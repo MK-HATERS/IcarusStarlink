@@ -17,7 +17,7 @@ public static class StartupPrompts
         try
         {
             // Starlink closed while a network check was out (closed right after launch): opening a
-            // window now throws "The Application object is being shut down" (2026-10-26).
+            // window now throws "The Application object is being shut down".
             if (App.IsClosing)
             {
                 return;

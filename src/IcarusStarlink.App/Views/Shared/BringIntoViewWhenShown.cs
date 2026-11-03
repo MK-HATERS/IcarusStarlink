@@ -6,8 +6,7 @@ namespace IcarusStarlink.App.Views;
 /// <summary>
 /// views:BringIntoViewWhenShown.IsEnabled="True" scrolls the surrounding page so the element is
 /// on screen each time it appears. For lists that open under a search box: the mod editor's
-/// "Add a stat" sits at the bottom of the fields, so its matches opened below the window's edge
-/// (user report 2026-10-23).
+/// "Add a stat" sits at the bottom of the fields, so its matches opened below the window's edge.
 /// </summary>
 public static class BringIntoViewWhenShown
 {

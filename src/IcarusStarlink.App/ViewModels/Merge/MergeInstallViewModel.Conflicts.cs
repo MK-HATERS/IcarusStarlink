@@ -55,7 +55,7 @@ public sealed partial class MergeInstallViewModel
     [ObservableProperty]
     private string? _conflictStatusMessage;
 
-    /// <summary>Phase 10: a proactive conflict-count badge on the queue, recomputed in the background whenever Queue changes — Review conflicts still does the same computation synchronously for the authoritative picker flow; this is a best-effort preview, not load-bearing.</summary>
+    /// <summary>A proactive conflict-count badge on the queue, recomputed in the background whenever Queue changes — Review conflicts still does the same computation synchronously for the authoritative picker flow; this is a best-effort preview, not load-bearing.</summary>
     [ObservableProperty]
     private int _conflictCount;
 

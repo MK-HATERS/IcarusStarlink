@@ -3,8 +3,7 @@ using System.Text.Json.Nodes;
 namespace IcarusStarlink.PakIO.Exmod;
 
 /// <summary>
-/// Checks from what the game is known to do (KnownGameBehaviour: tested in game by MkHaters' Hook
-/// Scout): rows added where the game can't use them, stats it ignores, and new items nothing hands out.
+/// Checks from what the game is known to do (KnownGameBehaviour: tested in game): rows added where the game can't use them, stats it ignores, and new items nothing hands out.
 /// </summary>
 public static partial class ModHealthChecker
 {

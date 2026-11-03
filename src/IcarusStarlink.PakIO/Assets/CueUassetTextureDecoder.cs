@@ -3,8 +3,8 @@ using CUE4Parse.UE4.Assets.Exports.Texture;
 namespace IcarusStarlink.PakIO.Assets;
 
 /// <summary>
-/// Real UE4.27 asset parsing via CUE4Parse — confirmed by direct prototyping against the user's
-/// own mod files (JimK_Weapons_Pack_1/2) that a mod's own loose bundled textures decode correctly
+/// Real UE4.27 asset parsing via CUE4Parse — confirmed by direct prototyping against real mod
+/// files (JimK_Weapons_Pack_1/2) that a mod's own loose bundled textures decode correctly
 /// with no .usmap mappings file and no Oodle native DLL needed. Icarus's base-game pak-chunk
 /// assets weren't verified the same way and may behave differently (see IUassetTextureDecoder's
 /// own scope note) — this is deliberately mod-assets-only for now.

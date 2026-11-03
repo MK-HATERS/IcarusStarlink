@@ -8,7 +8,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// <summary>Merge options: the gameplay-option pills and sliders, the summary shown when the panel is folded, and moving options between the page and a profile (custom values the controls can't show are kept).</summary>
 public sealed partial class MergeInstallViewModel
 {
-    // --- Gameplay-toggle merge options (6.4) ---
+    // --- Gameplay-toggle merge options ---
     public static IReadOnlyList<BoostLevel> BoostLevels { get; } = Enum.GetValues<BoostLevel>();
 
     public static IReadOnlyList<XpBoostLevel> XpBoostLevels { get; } = Enum.GetValues<XpBoostLevel>();
@@ -83,8 +83,8 @@ public sealed partial class MergeInstallViewModel
     private static string ShortLabel(object level) =>
         (string)LevelLabelConverter.Convert(level, typeof(string), null, CultureInfo.InvariantCulture);
 
-    // Speed/Player/XP Boost and Disable Temperatures (Category 1 — the ones that became a real
-    // FieldChange in Phase 1 of the EXMOD/merge-options plan) also invalidate any existing manual
+    // Speed/Player/XP Boost and Disable Temperatures (Category 1 — the ones that are a real
+    // FieldChange) also invalidate any existing manual
     // conflict picks and recompute the badge — toggling one of these changes whether the "Built-in
     // gameplay options" synthetic entry even exists, which can change what a stored pick's index
     // means the same way an Add/Remove/Move/Clear on Queue already does. Category 2 options
@@ -105,7 +105,7 @@ public sealed partial class MergeInstallViewModel
     // A profile's value the pills/sliders can't show (Stacks x2.5 from a hand-edited profile or a
     // patch, Speed Crafting 33.3%), kept as it is until the user changes that option: the UI shows
     // the nearest it can (Off, 33%), and the auto-save used to write that over the real value the
-    // moment the profile loaded (review 2026-10-23). Null: the UI's own value is the real one.
+    // moment the profile loaded. Null: the UI's own value is the real one.
     private double? _keptStacksMultiplier;
     private double? _keptSlotsMultiplier;
     private double? _keptSpeedCraftingPercent;

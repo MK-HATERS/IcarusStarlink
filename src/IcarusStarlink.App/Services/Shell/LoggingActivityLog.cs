@@ -16,7 +16,7 @@ namespace IcarusStarlink.App.Services;
 /// <param name="uiDispatcher">
 /// The window's thread. Entries is bound to the activity panel and the toasts, and background work
 /// (downloads, merges, server automation) logs from other threads: changing a bound collection off
-/// the UI thread throws or corrupts the view (review 2026-10-23), so an entry from another thread
+/// the UI thread throws or corrupts the view, so an entry from another thread
 /// is added there. Null (tests) adds it on the calling thread.
 /// </param>
 public sealed class LoggingActivityLog(ActivityLog inner, ILogger<LoggingActivityLog> logger, Dispatcher? uiDispatcher = null) : IActivityLog

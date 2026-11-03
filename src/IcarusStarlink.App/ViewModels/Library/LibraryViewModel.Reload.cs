@@ -162,7 +162,7 @@ public sealed partial class LibraryViewModel
         // repository read) has already replaced this one, leaving the visible Notes field stale
         // relative to what's actually on disk.
         // Evicted only when the mod is GONE from the repository, not merely hidden by the current
-        // search filter (an audit finding): whole-library checks run over AllLibraryItems() below,
+        // search filter: whole-library checks run over AllLibraryItems() below,
         // and a hidden row must keep its fetched "Update available" badge until the filter clears.
         var liveFolders = _repository.GetAll().Select(e => e.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var staleFolderName in _itemsByFolderName.Keys.Where(k => !liveFolders.Contains(k)).ToList())
@@ -231,7 +231,7 @@ public sealed partial class LibraryViewModel
     /// Every mod in the Library, regardless of the current search filter — the set every
     /// "whole-library" action (Check for updates, Check mods against game data, Convert opaque
     /// mods, endorsements, Delete all) is documented to operate on. They used to run over the
-    /// visible rows only (an audit finding): "No possibly stale items remain" while filtered to
+    /// visible rows only: "No possibly stale items remain" while filtered to
     /// "armor" said nothing about the other 40 mods. Rows for hidden mods are created on demand and
     /// kept (see Reload's eviction rule).
     /// </summary>

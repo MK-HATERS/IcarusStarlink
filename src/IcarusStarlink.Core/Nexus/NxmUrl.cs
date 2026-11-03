@@ -4,7 +4,7 @@ namespace IcarusStarlink.Core.Nexus;
 
 /// <summary>
 /// Parses a real nxm:// URL — the protocol Nexus's own "Mod Manager Download" buttons fire,
-/// confirmed against Vortex's own real, production NXMUrl.ts source during Phase 8.3b planning,
+/// confirmed against Vortex's own real, production NXMUrl.ts source,
 /// not guessed: "nxm://{gameDomain}/mods/{modId}/files/{fileId}?key={key}&amp;expires={expires}
 /// &amp;user_id={userId}". Key/expires are present only for a non-premium account — Nexus's own
 /// download_link endpoint only needs them in that case; a premium account's API key alone is

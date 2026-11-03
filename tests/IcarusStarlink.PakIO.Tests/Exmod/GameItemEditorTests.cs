@@ -166,7 +166,7 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.Equal(1, lookup.BuffUsers("Traits-D_Consumable.json", "Bread"));
     }
 
-    /// <summary>Seen in the mod editor's Add a field (2026-10-28): "bIsClientSideOnly" read as "B is client side only".</summary>
+    /// <summary>Seen in the mod editor's Add a field: "bIsClientSideOnly" read as "B is client side only".</summary>
     [Theory]
     [InlineData("bIsClientSideOnly", "Is client side only")]
     [InlineData("Some_Odd_Field", "Some odd field")]
@@ -176,7 +176,7 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.Equal(label, GameItemEditor.FieldText(field, isNumber: false).Label);
     }
 
-    /// <summary>The user asked for a tip on what each setting does: the fields mods change most get a plain name and tip (FieldTips), the editor's own list still first.</summary>
+    /// <summary>Each setting gets a tip on what it does: the fields mods change most get a plain name and tip (FieldTips), the editor's own list still first.</summary>
     [Fact]
     public void CommonlyModdedFields_HaveATip_AndTheEditorsOwnWordsStillWin()
     {

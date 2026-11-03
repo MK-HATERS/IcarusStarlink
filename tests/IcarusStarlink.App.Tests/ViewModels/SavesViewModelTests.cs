@@ -178,7 +178,7 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
-    /// <summary>The user's ask (2026-10-23): a mission and its reward switch each other ON, never off.</summary>
+    /// <summary>A mission and its reward switch each other ON, never off.</summary>
     [Fact]
     public async Task MissionAndItsReward_SwitchEachOtherOn_ButNotOff()
     {
@@ -219,7 +219,7 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
-    /// <summary>The user's ask (2026-10-23): a character with more ranks than points is labelled over budget.</summary>
+    /// <summary>A character with more ranks than points is labelled over budget.</summary>
     [Fact]
     public async Task OverBudget_IsLabelled_OnTheCharacterAndTheTalentsTab()
     {
@@ -329,7 +329,7 @@ public sealed class SavesViewModelTests : IDisposable
         return data;
     }
 
-    /// <summary>The user's ask (2026-11-03): talents laid out like the game's tree, lines through its bends, lit as learned.</summary>
+    /// <summary>Talents laid out like the game's tree, lines through its bends, lit as learned.</summary>
     [Fact]
     public async Task TalentTree_DrawsTheGamesLayout_AndLightsWhatsLearned()
     {
@@ -627,7 +627,7 @@ public sealed class SavesViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Seen on the user's save (2026-10-29): Olympus' Glacier Extraction mission gives every character
+    /// Seen on a real save: Olympus' Glacier Extraction mission gives every character
     /// Voxel_Meta_Resources_Visible, and missions live in the profile's Talents, so the check said "no
     /// learned talent gives it" and offered to turn a real mission reward off. A done mission counts;
     /// an undone one still gets the note.
@@ -727,7 +727,7 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.All(vm.BestiaryEntries.Where(b => b.CanSetMax), b => Assert.True(b.IsComplete));
     }
 
-    /// <summary>The user's ask (2026-10-28): the Talents tab lists trees in the game's order (Survival before Combat) and blueprints Tier 1 to Tier 3, not A to Z by heading.</summary>
+    /// <summary>The Talents tab lists trees in the game's order (Survival before Combat) and blueprints Tier 1 to Tier 3, not A to Z by heading.</summary>
     [Fact]
     public async Task Talents_ListTreesInTheGamesOrder_BlueprintTiersInOrder()
     {
@@ -833,7 +833,7 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
-    /// <summary>The user's ask (2026-10-23): talents and items from mods that are gone can be taken out; a mod's that's installed stay.</summary>
+    /// <summary>Talents and items from mods that are gone can be taken out; a mod's that's installed stay.</summary>
     [Fact]
     public async Task RemoveLeftovers_TakesOutOnlyWhatNoModGives()
     {
@@ -1355,7 +1355,7 @@ public sealed class SavesViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Review finding (2026-10-23): the edits were put into the loaded save BEFORE the late checks,
+    /// Regression: the edits were put into the loaded save BEFORE the late checks,
     /// so after an aborted save an edit the user then undid was still written by the next Save.
     /// </summary>
     [Fact]
@@ -1381,7 +1381,7 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.Equal(500L, saved["XP"]!.GetValue<long>());
     }
 
-    /// <summary>Review finding: "couldn't read the files' times" passed as "unchanged", so Save could write an older copy over the game's newer one.</summary>
+    /// <summary>Regression:"couldn't read the files' times" passed as "unchanged", so Save could write an older copy over the game's newer one.</summary>
     [Fact]
     public async Task SaveWhenTheFilesCantBeChecked_RefusesToWrite()
     {
@@ -1398,7 +1398,7 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.True(vm.HasUnsavedChanges);
     }
 
-    /// <summary>Review finding: Duplicate copied the character as last saved while naming it after the edited one.</summary>
+    /// <summary>Regression:Duplicate copied the character as last saved while naming it after the edited one.</summary>
     [Fact]
     public async Task Duplicate_CopiesTheCharacterAsEdited()
     {
@@ -1416,7 +1416,7 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.Equal(100L, character.Node["XP"]!.GetValue<long>()); // the source's own node isn't changed until Save
     }
 
-    /// <summary>Review finding: when Profile.json couldn't be read the backups list was emptied — exactly when Restore is needed.</summary>
+    /// <summary>Regression:when Profile.json couldn't be read the backups list was emptied — exactly when Restore is needed.</summary>
     [Fact]
     public async Task UnreadableSlot_StillListsItsBackups()
     {
@@ -1428,7 +1428,7 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.NotEmpty(vm.Backups);
     }
 
-    /// <summary>Researched 2026-10-23: "Exotic_stabilized" was never a currency in the game; it was labelled "Stabilized Exotics" as if it were.</summary>
+    /// <summary>"Exotic_stabilized" was never a currency in the game; it was labelled "Stabilized Exotics" as if it were.</summary>
     [Fact]
     public async Task CurrencyTheGameDoesntHave_IsSaidToBeOne()
     {
@@ -1444,8 +1444,8 @@ public sealed class SavesViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// The user's ask (2026-11-03): Clean up takes out every kind of row the game doesn't have and no
-    /// mod you have gives: a currency, a creature (RockDog, in their save), an accolade. A mod's
+    /// Clean up takes out every kind of row the game doesn't have and no mod you have gives: a
+    /// currency, a creature (RockDog, in a real save), an accolade. A mod's
     /// installed currency stays and can't be removed.
     /// </summary>
     [Fact]
@@ -1606,7 +1606,7 @@ public sealed class SavesViewModelTests : IDisposable
         }
     }
 
-    /// <summary>The user's ask (2026-11-03): a currency the game doesn't have can be taken out of the save; a real one can't.</summary>
+    /// <summary>A currency the game doesn't have can be taken out of the save; a real one can't.</summary>
     [Fact]
     public async Task CurrencyTheGameDoesntHave_CanBeTakenOut_FromTheSaveCheck()
     {
@@ -1642,9 +1642,9 @@ public sealed class SavesViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Researched 2026-10-23: flags_&lt;SteamID&gt;.dat is the game's cached list of owned DLC
+    /// flags_&lt;SteamID&gt;.dat is the game's cached list of owned DLC
     /// (D_DLCPackageData rows), not character flags. Each pack is a toggle under its real name
-    /// (the user wants to turn DLC / Supporter Edition content on); toggling one writes the list.
+    /// (so DLC / Supporter Edition content can be turned on); toggling one writes the list.
     /// </summary>
     [Fact]
     public async Task FlagsFile_IsTheOwnedDlcList_ByRealName_AndToggleable()
@@ -1674,7 +1674,7 @@ public sealed class SavesViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// The user's ask (2026-10-23): research that's for a pack shows which ("For the Supporters
+    /// Research that's for a pack shows which ("For the Supporters
     /// Edition"), the save check notes a pack that's off in the cache, and Fix all turns it on only
     /// with its switch on.
     /// </summary>
@@ -1773,7 +1773,7 @@ public sealed class SavesViewModelTests : IDisposable
         repository.Stamps["Characters.json"] = new SaveFileStamp(new DateTime(2026, 2, 2, 0, 0, 0, DateTimeKind.Utc), 999);
     }
 
-    /// <summary>The review finding: Save wrote the pre-play copy over newer progress. Now it refuses, and (when the user agrees) reads the newer save.</summary>
+    /// <summary>Regression: Save wrote the pre-play copy over newer progress. Now it refuses, and (when the user agrees) reads the newer save.</summary>
     [Fact]
     public async Task SaveChangesCommand_SaveChangedOnDiskSinceLoad_WritesNothingAndReloads()
     {
@@ -1879,7 +1879,7 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.False(vm.HasUnsavedChanges);
     }
 
-    // --- Review 2026-10-28 (saves journey) ---
+    // --- Saves journey ---
 
     /// <summary>"1,000,000" in the XP box: Save used to say "Saved." while the XP was skipped, leaving the page "Unsaved" with no reason given.</summary>
     [Fact]
@@ -2275,7 +2275,7 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.Equal(before, repository.Profile["Talents"]!.ToJsonString());
     }
 
-    /// <summary>The user's slot showed a blank Items tab: its bank was simply empty, so the tab says what would be there.</summary>
+    /// <summary>A slot showed a blank Items tab: its bank was simply empty, so the tab says what would be there.</summary>
     [Fact]
     public async Task ItemsTab_SaysWhyItsEmpty_AnEmptyBankOrASearchThatMatchesNothing()
     {

@@ -37,7 +37,7 @@ public class GameplayOptionsApplierTests
         };
 
         // No originalFilesByFile given (the 3-argument overload) — no Defaults are visible, so a row
-        // with no explicit MaxStack of its own stays untouched exactly like before this session's
+        // with no explicit MaxStack of its own stays untouched exactly like before the
         // Defaults-fallback fix. See Apply_StacksMultiplier_DefaultsOnlyRow_* below for the new path.
         GameplayOptionsApplier.Apply(new GameplayOptions { StacksMultiplier = 3 }, tables, new MergeReport());
 
@@ -142,7 +142,7 @@ public class GameplayOptionsApplierTests
     public void Apply_StacksMultiplier_FieldRenamedInGameData_WarnsInsteadOfSilentlyDoingNothing()
     {
         // Simulates a future game update renaming MaxStack — every row present, none carrying the
-        // field this option relies on. Before Phase 2 this just silently did nothing; now it warns.
+        // field this option relies on. This used to silently do nothing; now it warns.
         var tables = Table("Traits-D_Itemable.json", new JsonObject { ["Item_Fiber"] = Row("""{"StackLimit": 200}""") });
         var report = new MergeReport();
 

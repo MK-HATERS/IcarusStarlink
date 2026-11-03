@@ -3,8 +3,7 @@ namespace IcarusStarlink.Core.Nexus;
 /// <summary>
 /// Reads the command line Windows runs for an nxm:// link (HKCU\Software\Classes\nxm\shell\open\
 /// command, e.g. <c>"C:\Tools\Vortex.exe" -d "%1"</c>). Windows holds one nxm:// handler for every
-/// game, so another mod manager registering itself took Icarus links away from Starlink (user
-/// report 2026-10-23: they kept re-checking Settings). Starlink now remembers the handler it
+/// game, so another mod manager registering itself took Icarus links away from Starlink. Starlink now remembers the handler it
 /// replaced and hands it links for other games; these are the string rules behind that.
 /// </summary>
 public static class NxmHandlerCommand
@@ -46,7 +45,7 @@ public static class NxmHandlerCommand
         var rest = text[0] == '"' ? text[(exe.Length + 2)..] : text[exe.Length..];
 
         // Always one argument: a stray quote is percent-encoded, and a bare %1 gets quotes, so a
-        // link can't split into extra arguments for the other app (review, 2026-10-23).
+        // link can't split into extra arguments for the other app.
         var url = nxmUrl.Replace("\"", "%22", StringComparison.Ordinal);
         var arguments = rest.Contains("\"%1\"", StringComparison.Ordinal)
             ? rest.Replace("\"%1\"", $"\"{url}\"", StringComparison.Ordinal)

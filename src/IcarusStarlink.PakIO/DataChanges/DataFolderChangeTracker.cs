@@ -7,8 +7,8 @@ namespace IcarusStarlink.PakIO.DataChanges;
 
 /// <summary>
 /// Compares two Data-folder snapshots (the previous "Update data folder" extraction against the
-/// just-completed one) file by file, reusing TableDiffer — the same engine Phase 1 built for
-/// base-vs-modded diffing generalizes directly to old-week-vs-new-week diffing, since both are
+/// just-completed one) file by file, reusing TableDiffer — the same engine
+/// base-vs-modded diffing uses generalizes directly to old-week-vs-new-week diffing, since both are
 /// "two versions of the same DataTable JSON."
 ///
 /// TableDiffer only ever iterates the *new* side's own rows (see its own doc comment) — a row the

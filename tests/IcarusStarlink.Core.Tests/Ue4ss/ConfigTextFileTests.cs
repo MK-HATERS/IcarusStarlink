@@ -4,7 +4,7 @@ using IcarusStarlink.Core.Ue4ss;
 namespace IcarusStarlink.Core.Tests.Ue4ss;
 
 /// <summary>
-/// Config files keep their own encoding and BOM (report 2026-10-28: a config.lua saved as ANSI in
+/// Config files keep their own encoding and BOM (a config.lua saved as ANSI in
 /// Notepad with "é" in a comment came back as "�" after a Save or a mod update, and some paths
 /// dropped a leading UTF-8 BOM). Every path that reads and writes a config goes through
 /// <see cref="ConfigTextFile"/>; an unchanged file written back is the same bytes.

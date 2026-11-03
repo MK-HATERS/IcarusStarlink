@@ -29,7 +29,7 @@ public class NxmHandlerCommandTests
         Assert.Equal(("C:\\Mgr\\Mgr.exe", "\"nxm://skyrim/mods/1/files/2\""), launch);
     }
 
-    /// <summary>Review 2026-10-23: a bare %1 or a quote in the link must not split it into several arguments.</summary>
+    /// <summary>A bare %1 or a quote in the link must not split it into several arguments.</summary>
     [Fact]
     public void LaunchFor_BarePercentOneAndQuotes_StayOneArgument()
     {

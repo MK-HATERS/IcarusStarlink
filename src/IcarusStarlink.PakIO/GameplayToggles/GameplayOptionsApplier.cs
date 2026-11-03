@@ -39,8 +39,8 @@ public static partial class GameplayOptionsApplier
     private const string ClearForecastRowName = "ClearSky60";
 
     /// <summary>
-    /// Forecasts No Weather leaves alone because a mission is built around the storm (real game data,
-    /// 2026-10-28): IceStorm is the forecast of Tier2_Glacier_Expedition_0 ("EXPEDITION: Disrupt
+    /// Forecasts No Weather leaves alone because a mission is built around the storm (real game
+    /// data): IceStorm is the forecast of Tier2_Glacier_Expedition_0 ("EXPEDITION: Disrupt
     /// perma-storm") and the initial one of Great Hunt GH_IM_A2 ("... Disable to Stop the Weather
     /// Disruption"); Arena_IceMammoth_Blizzard is the Ice Mammoth arena's blizzard (pool
     /// Ice_Arena_Blizzard). Every other forecast draws from the general All_Weather pools.
@@ -90,8 +90,8 @@ public static partial class GameplayOptionsApplier
     /// <summary>
     /// Which real data files each Category-2 (broadcast-to-every-row) option needs loaded —
     /// RebuildService uses this to make sure a file lands in the merged-table set even if no
-    /// queued mod's own FieldChange touches it (options work with zero mods queued too, per the
-    /// spec). Speed Boost/Player Boost/XP Boost/Disable Temperatures are NOT listed here anymore —
+    /// queued mod's own FieldChange touches it (options work with zero mods queued too).
+    /// Speed Boost/Player Boost/XP Boost/Disable Temperatures are NOT listed here anymore —
     /// they're real FieldChanges now (GameplayOptionsFieldChangeGenerator), so their own file need
     /// is already covered by resolvedChanges' own file list in RebuildService.
     /// </summary>

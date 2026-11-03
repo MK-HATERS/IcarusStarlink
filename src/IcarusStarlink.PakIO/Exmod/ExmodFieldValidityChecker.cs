@@ -164,8 +164,8 @@ public static class ExmodFieldValidityChecker
     /// at all. The real, complete field list for a table is the union of both, preferring
     /// Defaults' own value (it's the struct's true declared default) when a field appears in both.
     ///
-    /// "Metadata" is in no table's Defaults at all, and on rows of 76 of the 299 tables (checked
-    /// 2026-10-25): every row has it (DLC gating is Metadata.RequiredFeatureLevel), only left out
+    /// "Metadata" is in no table's Defaults at all, and on rows of 76 of the 299 tables
+    /// (checked): every row has it (DLC gating is Metadata.RequiredFeatureLevel), only left out
     /// of the extraction when empty, so it counts as a field of every table.
     /// </summary>
     private static Dictionary<string, JsonValueKind> BuildFieldKinds(JsonObject? defaults, IEnumerable<JsonObject> rows)

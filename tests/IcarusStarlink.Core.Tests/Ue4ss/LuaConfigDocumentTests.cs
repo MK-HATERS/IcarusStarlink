@@ -4,7 +4,7 @@ namespace IcarusStarlink.Core.Tests.Ue4ss;
 
 public class LuaConfigDocumentTests
 {
-    // Shaped like MkHaters Wildlife's real config.lua (2026-10-18).
+    // Shaped like MkHaters Wildlife's real config.lua.
     private const string Realistic =
         "-- MkHaters Wildlife settings.\r\n" +
         "return {\r\n" +
@@ -105,7 +105,7 @@ public class LuaConfigDocumentTests
     }
 
     /// <summary>
-    /// MkHaters Cheats / Wildlife (real, 2026-10-28): "-- ==== GENERAL ====" headings used to land
+    /// MkHaters Cheats / Wildlife (real): "-- ==== GENERAL ====" headings used to land
     /// in the first setting's description, and nothing was grouped. They name a group now.
     /// </summary>
     [Fact]
@@ -137,7 +137,7 @@ public class LuaConfigDocumentTests
     }
 
     /// <summary>
-    /// MkHaters Cheats AllowGodMode (real, seen in the app 2026-10-28): a sentence wrapped over two
+    /// MkHaters Cheats AllowGodMode (real, seen in the app): a sentence wrapped over two
     /// comment lines showed broken mid-sentence ("the server's" / "setting decides"). It reads as
     /// one line now; a finished sentence or a list item still starts a new line.
     /// </summary>
@@ -275,7 +275,7 @@ public class LuaConfigDocumentTests
     }
 
     /// <summary>
-    /// MkHaters Mod Settings 1.6.0's layout (real lines from Bags and Cheats, 2026-11-01): "-- [section]"
+    /// MkHaters Mod Settings 1.6.0's layout (real lines from Bags and Cheats): "-- [section]"
     /// headings, [tip] / [warning] notes, [name], [pair], [context]. Every setting landed in one group
     /// with "[section] Ammo Bag [tip] Keep the..." and "[name Arrows]" in its description.
     /// </summary>

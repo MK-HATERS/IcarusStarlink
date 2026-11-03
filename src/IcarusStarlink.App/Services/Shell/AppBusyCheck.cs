@@ -5,7 +5,7 @@ namespace IcarusStarlink.App.Services;
 
 /// <summary>
 /// Asks every page what closing the app now would lose, for both the in-app update and the window
-/// closing (they asked differently before, and neither asked most pages: review 2026-10-23 found an
+/// closing (they asked differently before, and neither asked most pages, so an
 /// update could close mid-merge or mid-download). A page answers UnsavedEditsRequestMessage with
 /// edits not saved yet ("your Saves page edits") and BackgroundWorkRequestMessage with work that
 /// must not be cut off ("a merge is being built").

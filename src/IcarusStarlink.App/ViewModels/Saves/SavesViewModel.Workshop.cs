@@ -68,7 +68,7 @@ public sealed partial class SavesViewModel
         OnPropertyChanged(nameof(MissionsSummary));
     }
 
-    // --- Mission <-> reward links (the user's ask, 2026-10-23): marking a mission done turns on
+    // --- Mission <-> reward links: marking a mission done turns on
     // the unlocks it rewards, switching a reward on marks its mission done, and a message says so.
     // Only switching ON carries over: the game never takes a reward back when a mission is undone. ---
 
@@ -148,7 +148,7 @@ public sealed partial class SavesViewModel
         }
 
         // Only a reward that comes from one mission says which mission was done; one that several
-        // missions give ("A or B") marks none (review, 2026-10-23: it marked them all).
+        // missions give ("A or B") marks none (it used to mark them all).
         if (missions.Count != 1)
         {
             return;

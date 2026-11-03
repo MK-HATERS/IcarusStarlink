@@ -10,7 +10,7 @@ namespace IcarusStarlink.Updater;
 /// already treats as app-owned) are removed, and only once the new build has fully landed. That
 /// exception exists for the single-file packaging change (see IcarusStarlink.App.csproj): an
 /// install upgrading from the old 336-file layout would otherwise keep ~320 dead runtime DLLs
-/// forever — inert, but exactly the clutter that change was asked for to get rid of.
+/// forever — inert, but exactly the clutter that change exists to get rid of.
 /// </summary>
 public static class UpdateApplier
 {

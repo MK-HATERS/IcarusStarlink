@@ -49,7 +49,7 @@ public class ModTemplateContentTests
         var itemable = Assert.IsType<System.Text.Json.Nodes.JsonObject>(item.Fields["Itemable"]);
         Assert.Equal("Item_Fancy_Torch", itemable["RowName"]!.GetValue<string>());
 
-        // Every real item this session's own research confirmed always needs Generated_Tags —
+        // Every real item checked always needs Generated_Tags —
         // the template must carry it through the substitution intact, not lose it.
         Assert.True(item.Fields.ContainsKey("Generated_Tags"));
     }

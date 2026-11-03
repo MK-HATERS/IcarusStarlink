@@ -62,7 +62,7 @@ public sealed partial class LibraryItemViewModel
 
             var bytes = _repository.ReadAssetContent(FolderName, value);
 
-            // The spec's "preview text/images" — an image asset used to render as binary noise in
+            // Preview text and images — an image asset used to render as binary noise in
             // the text box, since every non-text file fell through to the byte-count message.
             if (ImageExtensions.Contains(Path.GetExtension(value)) && TryDecodeImage(bytes) is { } image)
             {

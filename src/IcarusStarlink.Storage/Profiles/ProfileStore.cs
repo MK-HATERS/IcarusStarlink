@@ -138,7 +138,7 @@ public sealed class ProfileStore : IProfileStore
             return null;
         }
 
-        // Exact timestamped-name match, never a "{name}_*.json" glob (an audit finding: profile
+        // Exact timestamped-name match, never a "{name}_*.json" glob (profile
         // "Main" saw — and could restore from — every backup of "Main_Test"). See FolderBackup.
         var candidates = FolderBackup.EnumerateFileBackups(_backupsDirectory, name, ".json");
 

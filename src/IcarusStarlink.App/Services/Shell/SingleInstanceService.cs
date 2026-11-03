@@ -8,16 +8,15 @@ namespace IcarusStarlink.App.Services;
 /// <summary>
 /// Ensures only one IcarusStarlink process runs at a time — needed now that a real nxm:// "Mod
 /// Manager Download" click launches this app via the OS, which by default would start a *second*
-/// process rather than talk to the one already running. Standard, well-established .NET pattern
-/// (confirmed against current guidance during Phase 8.3c planning, not assumed): a named Mutex for
-/// "am I the first instance", a named pipe for handing a second launch's own command-line argument
-/// (the nxm:// URL) to the first instance before the second one exits.
+/// process rather than talk to the one already running. Standard, well-established .NET pattern:
+/// a named Mutex for "am I the first instance", a named pipe for handing a second launch's own
+/// command-line argument (the nxm:// URL) to the first instance before the second one exits.
 /// </summary>
 public sealed class SingleInstanceService : IDisposable
 {
     // The mutex is per Windows session already (no Global\ prefix), but pipe names are machine-wide:
     // with two users signed in, the second user's app couldn't create the pipe, and their links went
-    // to the first user's app or nowhere (review 2026-10-23). The session id keeps each user's apart.
+    // to the first user's app or nowhere. The session id keeps each user's apart.
     private const string MutexName = "IcarusStarlink-SingleInstance";
     private static readonly string PipeName = $"IcarusStarlink-NxmHandoff-{Process.GetCurrentProcess().SessionId}";
 
@@ -76,7 +75,7 @@ public sealed class SingleInstanceService : IDisposable
                     // listener loop for every future launch — just go around and wait again. With
                     // a short back-off: a PERSISTENT failure (the pipe name already owned by another
                     // Windows user's session of this app on the same PC) used to spin this loop at
-                    // 100% of a core for the app's whole lifetime (an audit finding).
+                    // 100% of a core for the app's whole lifetime.
                     try
                     {
                         await Task.Delay(TimeSpan.FromSeconds(1), token);

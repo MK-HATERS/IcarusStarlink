@@ -144,7 +144,7 @@ public class ExmodStalenessCheckerTests : IDisposable
     [Fact]
     public void FindLikelyStaleItems_ItemNameReorderedAcrossAssetPrefixAndSuffix_IsNotFlagged()
     {
-        // Real case, traced against the user's own library: row "Reinforced_Int_Floor" correlates
+        // Real case, traced against a real library: row "Reinforced_Int_Floor" correlates
         // with the real bundled asset "APEX_BLD_Floor_Iron_Reinforced_Wood_INT" — same meaningful
         // words ("reinforced"/"int"/"floor"), different order, wrapped in an unrelated category
         // prefix/suffix. A literal substring check misses this entirely.

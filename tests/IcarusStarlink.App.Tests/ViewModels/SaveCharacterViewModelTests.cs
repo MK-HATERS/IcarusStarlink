@@ -82,7 +82,7 @@ public class SaveCharacterViewModelTests
         Assert.True(vm.IsDirty);
     }
 
-    /// <summary>Audit finding: XP was parsed as a long with only a >= 0 check, so a value past int32 (the game's own field type) was written and then wrapped or was discarded in-game.</summary>
+    /// <summary>Regression: XP was parsed as a long with only a >= 0 check, so a value past int32 (the game's own field type) was written and then wrapped or was discarded in-game.</summary>
     [Fact]
     public void ApplyToNode_XpBeyondInt32_KeepsTheOriginalValue()
     {

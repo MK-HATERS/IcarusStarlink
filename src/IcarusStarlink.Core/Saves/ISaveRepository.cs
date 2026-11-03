@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 namespace IcarusStarlink.Core.Saves;
 
 /// <summary>
-/// The save editor's own data layer, built around two safety rules the spec itself leads with:
+/// The save editor's own data layer, built around two safety rules:
 /// every Save* method takes a full slot backup BEFORE writing anything, and Restore writes a
 /// pre_restore safety zip before replacing the slot — so there is no code path that changes
 /// player data without first capturing what was there.
@@ -81,7 +81,7 @@ public interface ISaveRepository
     /// <summary>Zips the entire slot folder into this app's own save_backups cache (never inside the game's folders). Returns the zip path.</summary>
     string BackupSlot(string steamId);
 
-    /// <summary>The user's own deliberate "Backup now": named distinctly ("…_manual_…") and never pruned by the automatic Save/Restore backup cap, so the one backup they took on purpose can't silently vanish after nine more clicks (an audit finding).</summary>
+    /// <summary>The user's own deliberate "Backup now": named distinctly ("…_manual_…") and never pruned by the automatic Save/Restore backup cap, so the one backup they took on purpose can't silently vanish after nine more clicks.</summary>
     string BackupSlotManually(string steamId);
 
     IReadOnlyList<SaveBackupInfo> ListBackups(string steamId);

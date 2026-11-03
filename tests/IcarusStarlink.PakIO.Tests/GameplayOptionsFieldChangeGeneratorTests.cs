@@ -186,7 +186,7 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
     [Fact]
     public void GenerateFixedFieldChanges_AlongsideAQueuedModTouchingTheSameField_MergeEngineNowReportsARealConflict()
     {
-        // The bug this whole generator exists to fix: before Phase 1, GameplayOptionsApplier ran as
+        // The bug this whole generator exists to fix: GameplayOptionsApplier used to run as
         // a separate post-merge pass and silently overwrote whatever a queued mod set on
         // Base_Stats.StatsGranted — nothing in MergeEngine ever saw it as a conflict. Now that the
         // built-in options are a real FieldChange, MergeEngine.FindConflicts sees both candidates.

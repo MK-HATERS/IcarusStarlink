@@ -358,7 +358,7 @@ public sealed class ModReplacementService(
     }
 
     /// <summary>
-    /// The player's settings survive the update (user report 2026-10-27: activating a new Nexus
+    /// The player's settings survive the update (activating a new Nexus
     /// version of a UE4SS mod replaced config.lua with the shipped one, and the settings were only
     /// in Backups\UE4SS). The old copy's config files, kept aside in the scratch folder, go into the
     /// new staged copy over the shipped ones; the shipped defaults file (config.default.lua) stays

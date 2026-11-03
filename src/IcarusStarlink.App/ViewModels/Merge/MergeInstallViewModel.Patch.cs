@@ -20,7 +20,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// <summary>Export and Import patch (a profile shared with friends), and a classic IMM mod list loaded as the queue.</summary>
 public sealed partial class MergeInstallViewModel : IPatchImporter
 {
-    // --- Export/Import patch (6.3; format 2 with sources, paks, UE4SS mods and their settings, 2026-10-27) ---
+    // --- Export/Import patch (format 2 with sources, paks, UE4SS mods and their settings) ---
     [ObservableProperty]
     private bool _isExportingPatch;
 
@@ -225,8 +225,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
     private sealed record Ue4ssImportOutcome(List<string> Lines, List<string> ToTurnOn, List<MissingPatchMod> Missing);
 
     /// <summary>
-    /// "Import + Sync reinstalls listed mods (force refresh; does not skip same version)" per the
-    /// spec — a bundled mod always overwrites whatever's already in the Library under the same
+    /// Import + Sync reinstalls listed mods (force refresh; does not skip same version): a bundled mod always overwrites whatever's already in the Library under the same
     /// folder name, rather than skipping it as "already have it", since the whole point is syncing
     /// exactly what the patch carries. A referenced mod is matched by its Nexus id, then its
     /// catalog id, then (Name, Author) against the local Library; the ones that are missing are

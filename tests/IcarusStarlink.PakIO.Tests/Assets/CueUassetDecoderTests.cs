@@ -9,11 +9,8 @@ namespace IcarusStarlink.PakIO.Tests.Assets;
 /// doesn't check a real mod's own binary content into source control for exactly the same
 /// licensing reason its EXMODZ diff fixtures are hand-synthesized rather than copied verbatim from
 /// a real download (see the Diffing test fixtures' own precedent). A real decode was instead
-/// verified live this session via a disposable scratch console referencing this project directly
-/// against the user's own real mod files — texture/static mesh only; the three added this session
-/// (skeletal mesh, sound, material) could NOT be verified the same way, since none of this
-/// session's own available fixtures happened to include a real skeletal mesh, sound, or material
-/// asset (see this session's own top-level report on that gap).
+/// verified by hand against real mod files — texture/static mesh only; skeletal mesh, sound and
+/// material could NOT be verified the same way, since no real asset of those kinds was available.
 ///
 /// What IS safely testable here, with no real asset needed at all, is the contract every caller
 /// actually depends on: every decoder must never let a bad extension, a missing mod folder, or

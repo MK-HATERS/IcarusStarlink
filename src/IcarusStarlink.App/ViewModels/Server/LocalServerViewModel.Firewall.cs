@@ -10,7 +10,7 @@ using IcarusStarlink.Core.Server;
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// Phase 4: Windows Firewall. Shows whether the ports this server uses get through, counting
+/// Windows Firewall. Shows whether the ports this server uses get through, counting
 /// rules the owner already made (by hand or from Windows' own "allow access" prompt), and adds
 /// only what's missing, with one administrator prompt. The ports start as the profile's own
 /// and can be changed here. Router port forwarding is outside the PC, so it stays a hint.

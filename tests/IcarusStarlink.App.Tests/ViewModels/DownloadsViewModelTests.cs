@@ -28,9 +28,8 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>
 /// End-to-end through the REAL storage layer (Library repository, UE4SS staging, pending-download
-/// store, UE4SS meta store) with only the network and UnrealPak faked — the Downloads view model
-/// had no tests at all, and three real bugs in one week lived in exactly this activation path.
-/// The fixture zips mirror the layouts of real Nexus downloads (see the audit memory): a
+/// store, UE4SS meta store) with only the network and UnrealPak faked — real bugs have lived in
+/// exactly this activation path. The fixture zips mirror the layouts of real Nexus downloads: a
 /// game-folder bundle with a UE4SS mod plus two paks, and a plain zip wrapping an EXMODZ.
 /// </summary>
 [Collection(MessengerCollection.Name)]
@@ -188,7 +187,7 @@ public sealed partial class DownloadsViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// User's ask 2026-11-01: a mod author's own build ("--import build.zip") replaces the installed
+    /// A mod author's own build ("--import build.zip") replaces the installed
     /// Nexus copy, both halves, in place (no "_2"), backed up, and keeps the Nexus link.
     /// </summary>
     [Fact]
@@ -240,7 +239,7 @@ public sealed partial class DownloadsViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Review 2026-10-28: Reinstall on a row whose file was deleted from Pending_Downloads went
+    /// Reinstall on a row whose file was deleted from Pending_Downloads went
     /// through the install, failed, opened nothing useful and ended on "Manual install failed:
     /// Could not find file …". It now says the file is gone and what to do, and leaves the
     /// installed mod alone.
@@ -266,7 +265,7 @@ public sealed partial class DownloadsViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// Review 2026-10-28: recording the Nexus link on a UE4SS mod's sidecar runs inside the install.
+    /// Recording the Nexus link on a UE4SS mod's sidecar runs inside the install.
     /// A sidecar that couldn't be written failed an install that had worked: the mod was taken back
     /// out and the manual install opened. It's bookkeeping, so it's now only a warning.
     /// </summary>
@@ -376,7 +375,7 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         }
     }
 
-    /// <summary>A real review finding: Reinstall deleted the installed mod first, so cancelling the "which one?" question left the user with nothing.</summary>
+    /// <summary>Regression: Reinstall deleted the installed mod first, so cancelling the "which one?" question left the user with nothing.</summary>
     [Fact]
     public async Task Reinstall_CancellingTheChoiceOfAlternatives_KeepsTheInstalledMod()
     {

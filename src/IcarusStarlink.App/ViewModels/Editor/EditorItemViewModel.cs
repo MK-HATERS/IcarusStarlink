@@ -8,7 +8,7 @@ public sealed partial class EditorItemViewModel(string currentFile, string itemN
     public string CurrentFile { get; } = currentFile;
     public string ItemName { get; } = itemName;
 
-    /// <summary>The real game data relative path, e.g. "Traits-D_Fuel.json" -> "Traits/D_Fuel.json" — same convention confirmed throughout Phase 6.</summary>
+    /// <summary>The real game data relative path, e.g. "Traits-D_Fuel.json" -> "Traits/D_Fuel.json" — the real EXMOD CurrentFile convention.</summary>
     public string RealPath => CurrentFile.Replace('-', '/');
 
     /// <summary>The list's heading for this row: the part of the game it changes ("Armour", "Names, weights, stacks", "Recipes").</summary>

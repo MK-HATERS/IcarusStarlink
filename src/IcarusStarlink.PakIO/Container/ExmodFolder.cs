@@ -7,7 +7,7 @@ namespace IcarusStarlink.PakIO.Container;
 
 /// <summary>
 /// Same logical layout as ExmodzArchive, but as loose files on disk rather than a zip — the
-/// "import a folder" case the Library spec calls out.
+/// Library's "import a folder" case.
 ///
 /// Read() and ListAssetPaths() each snapshot the folder's file list once (FindExmodFile and
 /// EnumerateAssetPaths both then work off that same list) rather than each calling
@@ -43,8 +43,8 @@ public static class ExmodFolder
     /// Parses just the .EXMOD JSON (name/author/version/description/Rows/...), skipping every
     /// asset file entirely — for scanning many mods at once (the Library list, its search index)
     /// where loading every mod's multi-MB binary assets into memory just to show a summary row
-    /// would be wasteful. The .EXMOD itself is "tens of KB" per the real samples inspected during
-    /// planning, cheap regardless of how large the mod's compiled assets are.
+    /// would be wasteful. The .EXMOD itself is "tens of KB" in the real samples inspected,
+    /// cheap regardless of how large the mod's compiled assets are.
     /// </summary>
     public static ExmodPackage ReadPackageOnly(string folderPath)
     {

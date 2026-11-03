@@ -252,7 +252,7 @@ public sealed class GameFileFingerprintStore
 
     /// <summary>Writes the store when anything was recorded since the last save.</summary>
     /// <remarks>The write is inside the lock: two saves at once used to share one fixed ".tmp" name,
-    /// and an older snapshot could land after a newer one (review 2026-10-23). A failed write leaves
+    /// and an older snapshot could land after a newer one. A failed write leaves
     /// the store dirty, so the next save tries again.</remarks>
     public void SaveIfChanged()
     {

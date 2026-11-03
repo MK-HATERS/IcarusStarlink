@@ -1,8 +1,7 @@
 namespace IcarusStarlink.Core.Profiles;
 
 /// <summary>
-/// A saved merge list + gameplay options. UE4SS mods are deliberately NOT part of a profile
-/// (Phase 8.5 reworked this from the original "saved merge list + options + UE4SS set" design) —
+/// A saved merge list + gameplay options. UE4SS mods are deliberately NOT part of a profile —
 /// UE4SS mods are enabled/disabled directly via Library's own UE4SS tab, a single global on/off
 /// state independent of which profile is active, not something that round-trips through
 /// save/load/export/import the way the merge queue does.

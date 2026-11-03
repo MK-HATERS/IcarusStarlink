@@ -4,7 +4,7 @@ namespace IcarusStarlink.Core.Ue4ss;
 
 /// <summary>
 /// The version a UE4SS Lua mod states in its own Scripts\main.lua — <c>local VERSION = "1.9.0"</c>
-/// (the user's MkHaters mods and many others do). The Library showed no version for every mod that
+/// (the MkHaters mods and many others do). The Library showed no version for every mod that
 /// didn't come from Nexus; this fills it in. Only the first lines are read: the declaration sits at
 /// the top, and a long script shouldn't be scanned on every reload.
 /// </summary>

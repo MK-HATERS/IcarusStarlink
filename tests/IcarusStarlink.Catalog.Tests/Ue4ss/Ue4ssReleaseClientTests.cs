@@ -16,7 +16,7 @@ public class Ue4ssReleaseClientTests
         new(new HttpClient(new FakeHttpMessageHandler(responsesByUrl, statusCodesByUrl)));
 
     // Real shape, trimmed to the fields this client reads — confirmed via gh api against the real
-    // UE4SS-RE/RE-UE4SS repo during Phase 8.5 planning, including the real "extra" assets
+    // UE4SS-RE/RE-UE4SS repo, including the real "extra" assets
     // (zDEV-/zCustomGameConfigs/zMapGenBP) a naive "first asset" pick would wrongly grab.
     private const string RealisticReleaseJson = """
         {
@@ -100,7 +100,7 @@ public class Ue4ssReleaseClientTests
 
     private const string DevBuildUrl = "https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases/tags/experimental-latest";
 
-    // The real experimental-latest assets (2026-10-17), trimmed: the basic build, the big dev build
+    // The real experimental-latest assets, trimmed: the basic build, the big dev build
     // with debug symbols, and two extras.
     private const string RealisticDevBuildJson = """
         {

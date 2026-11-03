@@ -4,7 +4,7 @@ namespace IcarusStarlink.Updater;
 
 /// <summary>
 /// A small "Installing Icarus Starlink…" window with a moving bar, shown while the updater works
-/// (user request 2026-10-24: once Starlink closed, nothing was on screen until it came back). Plain
+/// (without it, once Starlink closed, nothing was on screen until it came back). Plain
 /// Win32 like NativeMessageBox (this exe has no WPF or WinForms, and is trimmed); it runs its own
 /// message loop on a background thread. Best-effort: if it can't be created the update goes on
 /// without it.

@@ -2,7 +2,7 @@ namespace IcarusStarlink.Core.Library;
 
 /// <summary>
 /// Matches a plain list of mod names (an imported classic-IMM/ISL merge list — see ModListText)
-/// against the Library. Confirmed against the user's real LastMergedMods.txt: classic IMM's lists
+/// against the Library. Confirmed against a real LastMergedMods.txt: classic IMM's lists
 /// mix genuine display names ("Food Buff Duration - 2x") with folder-style names
 /// ("Coracks_Ammo_and_Repair_x100"), so each name is tried against Name, then FolderName, then the
 /// EXMOD's own FileName — all case-insensitive exact matches, never fuzzy (a wrong silent guess

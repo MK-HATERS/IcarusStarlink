@@ -130,7 +130,7 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
     /// <summary>
     /// The row list in plain words: the item's in-game name and the part of the game the row is
     /// ("Canteen — Eating or using"), the row's own name in brackets when it differs. Was
-    /// "Accolades/D_Accolades.json — GlassBuildingsCrafted20" (seen in the app, 2026-10-28).
+    /// "Accolades/D_Accolades.json — GlassBuildingsCrafted20".
     /// </summary>
     private async Task<IReadOnlyList<GameDataItemRef>> LoadGameRowsAsync()
     {

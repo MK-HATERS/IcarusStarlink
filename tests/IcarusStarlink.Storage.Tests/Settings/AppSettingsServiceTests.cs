@@ -16,8 +16,8 @@ public sealed class AppSettingsServiceTests : IDisposable
     }
 
     /// <summary>
-    /// Audit finding: a settings.json that merely couldn't be read at startup (sync client /
-    /// antivirus lock) loaded as defaults, and the first Save then wrote those defaults over the
+    /// A settings.json that merely couldn't be read at startup (sync client /
+    /// antivirus lock) used to load as defaults, and the first Save then wrote those defaults over the
     /// user's real file. The original must be preserved beside it before that happens.
     /// </summary>
     [Fact]
@@ -41,7 +41,7 @@ public sealed class AppSettingsServiceTests : IDisposable
         Assert.Equal(original, File.ReadAllText(preserved));
     }
 
-    /// <summary>Review 2026-10-23: a settings.json that isn't valid JSON (a hand-edit gone wrong) loaded as defaults and was overwritten with no copy kept.</summary>
+    /// <summary>A settings.json that isn't valid JSON (a hand-edit gone wrong) used to load as defaults and be overwritten with no copy kept.</summary>
     [Fact]
     public void Save_AfterTheOriginalWasNotValidJson_PreservesTheOriginalBeforeOverwriting()
     {

@@ -5,9 +5,7 @@ using IcarusStarlink.Core.Settings;
 namespace IcarusStarlink.App.Utilities;
 
 /// <summary>
-/// Optional, off-by-default operation-timing log ("app.perf" per the spec's own "Diagnostics &amp;
-/// safety" section: "Performance tracking off by default (optional app.perf logging)"). A plain
-/// text file, not routed through the app's own Serilog pipeline — this is meant to be a lightweight
+/// Optional, off-by-default operation-timing log (app.perf). A plain text file, not routed through the app's own Serilog pipeline — this is meant to be a lightweight
 /// diagnostic a user can toggle on/off for one session while chasing a slowdown, not part of the
 /// app's regular structured logging.
 /// </summary>

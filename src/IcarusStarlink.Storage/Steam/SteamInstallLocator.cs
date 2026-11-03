@@ -8,14 +8,14 @@ namespace IcarusStarlink.Storage.Steam;
 /// <summary>
 /// Real registry + filesystem I/O side of ISteamInstallLocator — SteamLibraryVdf (Core) holds the
 /// pure, unit-testable parsing logic; this just wires that up to the real Steam install. Confirmed
-/// against the user's own real machine during Phase 7.5 planning: SteamPath is stored under
+/// on a real machine: SteamPath is stored under
 /// HKEY_CURRENT_USER\SOFTWARE\Valve\Steam with forward slashes and a lowercase drive letter (e.g.
 /// "c:/program files (x86)/steam"), not the backslash form Explorer would show.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class SteamInstallLocator(ILogger<SteamInstallLocator> logger) : ISteamInstallLocator
 {
-    /// <summary>Icarus's real Steam App ID — confirmed against the user's own appmanifest_1149460.acf during Phase 5 planning.</summary>
+    /// <summary>Icarus's real Steam App ID — confirmed against a real appmanifest_1149460.acf.</summary>
     private const string IcarusAppId = "1149460";
 
     public string? FindIcarusContentPath()

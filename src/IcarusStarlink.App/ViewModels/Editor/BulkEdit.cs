@@ -61,7 +61,7 @@ public static class BulkEdit
         new(BulkOperation.Add, "Add"),
     ];
 
-    /// <summary>Real cards and fields, checked against the 2026-11-03 game data (as GameItemEditor shows them).</summary>
+    /// <summary>Real cards and fields, checked against the game data (as GameItemEditor shows them).</summary>
     public static readonly IReadOnlyList<EditorBulkShortcut> Shortcuts =
     [
         new("Stack size", "Itemable", new("Itemable", "MaxStack")),

@@ -3,8 +3,8 @@ namespace IcarusStarlink.App.Tests;
 /// <summary>
 /// Fake pak contents that pass the import's "is this a real pak" check (ModLints.CheckIsPak): the
 /// given bytes, then a pak footer with the magic and version 11 (UE 4.27), as
-/// PrebuiltPakImporterTests.WriteMinimalPak builds. Every pak of a download is checked since
-/// 2026-10-28, so tests' stand-in bytes ("pak1", [1, 2, 3]) need the footer.
+/// PrebuiltPakImporterTests.WriteMinimalPak builds. Every pak of a download is checked, so tests'
+/// stand-in bytes ("pak1", [1, 2, 3]) need the footer.
 /// </summary>
 internal static class TestPaks
 {

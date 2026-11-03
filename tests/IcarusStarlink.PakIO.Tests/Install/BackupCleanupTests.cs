@@ -247,7 +247,7 @@ public class BackupCleanupTests : IDisposable
             RootFileNames().Order(StringComparer.Ordinal));
     }
 
-    /// <summary>The newest pak backup pairs with the mod list backed up a few seconds after it, as the user's real backups show (214049 / 214051).</summary>
+    /// <summary>The newest pak backup pairs with the mod list backed up a few seconds after it, as real backups show (214049 / 214051).</summary>
     [Fact]
     public void FindNewestMergedPakBackup_PairsTheModListMadeRightAfterThePak()
     {

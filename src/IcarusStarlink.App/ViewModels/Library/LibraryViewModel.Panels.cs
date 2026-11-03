@@ -33,7 +33,7 @@ public sealed partial class LibraryFilterChip(string key, string label, string k
 }
 
 /// <summary>
-/// The Library as two panels (user's design, 2026-10-23): data mods (EXMOD/pak, put in the game by
+/// The Library as two panels: data mods (EXMOD/pak, put in the game by
 /// Merge &amp; Install) on the left, UE4SS mods (turned on and off by Apply) on the right, each with
 /// its own list, count and "not in the game yet" bar. A mod with both halves (MkHaters Bags and
 /// MkHatersBags) stays two rows, one per panel, each with its own tick; hovering one lights up the

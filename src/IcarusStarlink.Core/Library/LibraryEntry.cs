@@ -96,7 +96,7 @@ public sealed class LibraryEntry
     /// <summary>
     /// Set when this opaque pak was imported alongside a sibling ISL-Merged.txt manifest — meaning
     /// it's a previously-Rebuild-and-Installed IcarusStarlink pak, re-imported as its own Library
-    /// entry (RebuildService/InstallService's own established behavior since Phase 6.2). Holds the
+    /// entry (RebuildService/InstallService's own established behavior). Holds the
     /// display Name of every mod folded into it, read straight from that manifest — drives Merge &amp;
     /// Install's queue rules ("skip mods already inside it", "pack can replace individuals") and the
     /// 📦 glyph. Null for every other entry, including a plain prebuilt pak with no such manifest.

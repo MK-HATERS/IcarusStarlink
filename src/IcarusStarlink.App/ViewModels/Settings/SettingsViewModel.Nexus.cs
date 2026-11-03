@@ -118,8 +118,8 @@ public sealed partial class SettingsViewModel
     private void OpenNexusApiKeyPage() => UrlOpener.TryOpen("https://www.nexusmods.com/users/myaccount?tab=api");
 
     /// <summary>
-    /// A real, live validation against Nexus's own API — "just like a new user would," per the
-    /// user's own explicit ask, not a hardcoded test key. Only saves the key to Windows Credential
+    /// A real, live validation against Nexus's own API, just as a new user's key would be checked,
+    /// not a hardcoded test key. Only saves the key to Windows Credential
     /// Manager once Nexus itself has confirmed it's genuinely valid.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
@@ -205,7 +205,7 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>
-    /// Phase 8.3c: a real, hard-to-reverse registry write (this app becomes the OS's nxm:// handler
+    /// A real, hard-to-reverse registry write (this app becomes the OS's nxm:// handler
     /// for this Windows account), so this is the one place it can happen — never automatic, and
     /// gated behind the user's own explicit Yes in the confirmation dialog below, not just having
     /// clicked the button in the first place.

@@ -48,7 +48,7 @@ public partial class LibraryView : UserControl
     /// A shared-size column can't be star-sized (see the panels' own comment), so each panel's widths
     /// are set here from the room it has: Name grows up to a cap, and whatever is left goes to the
     /// empty column before the row buttons — the other columns stay next to the name instead of
-    /// being pushed across a wide window (user report 2026-10-23: a 1,200px gap after every name).
+    /// being pushed across a wide window (a 1,200px gap after every name).
     /// </summary>
     private bool _columnWidthsHooked;
 
@@ -77,7 +77,7 @@ public partial class LibraryView : UserControl
             // A column next to the name growing after the lists are shown (the Nexus check's "Update
             // v1.2" badge widens Status) changes neither list's size nor its extent, since neither
             // scrolls sideways: the fill column kept its old width and pushed the row buttons past the
-            // panel's edge until the window was resized (user report 2026-11-01). Only a sum of the
+            // panel's edge until the window was resized. Only a sum of the
             // other columns is compared here, so a layout pass that changed none costs nothing.
             LayoutUpdated += (_, _) =>
             {
@@ -282,7 +282,7 @@ public partial class LibraryView : UserControl
         {
             // One selection across both panels: picking a row in one clears the other's, or a row
             // left selected there wouldn't fire again when clicked, and Enter/F2 acted on the other
-            // panel's mod (review, 2026-10-23).
+            // panel's mod.
             if (e.NewValue is not null)
             {
                 ClearTreeViewSelection(ReferenceEquals(sender, Ue4ssTree) ? LibraryTree : Ue4ssTree);

@@ -136,7 +136,7 @@ public class UnrealPakServiceTests : IDisposable
     }
 
     /// <summary>
-    /// Audit finding: the old delete-then-move swap could lose BOTH extractions. A recursive delete
+    /// Regression: the old delete-then-move swap could lose BOTH extractions. A recursive delete
     /// that hit one locked file left the old Data folder half-deleted, and the finally then removed
     /// the complete new extraction. The rename-based swap must leave the old data fully intact
     /// when it can't be swapped out.

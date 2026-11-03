@@ -57,7 +57,7 @@ public class Ue4ssModRowViewModelTests
     }
 
     /// <summary>
-    /// User report 2026-11-01 (MkHatersCheats): a v0.8.0 build copied over a Nexus download whose
+    /// A v0.8.0 build copied over a Nexus download whose
     /// recorded version is older showed "Update v0.7.0". It's "Your build" until Nexus catches up.
     /// </summary>
     [Fact]
@@ -81,7 +81,7 @@ public class Ue4ssModRowViewModelTests
     }
 
     /// <summary>
-    /// Seen in the dev build 2026-11-01 (MkHatersAnimalTalents): tracked to its addon file (2.1.1),
+    /// A mod tracked to its addon file (2.1.1),
     /// while the page's "Only" file is 2.2, the version installed. Not "Your build", and no update.
     /// </summary>
     [Fact]

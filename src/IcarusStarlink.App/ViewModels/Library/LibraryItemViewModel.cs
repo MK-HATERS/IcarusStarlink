@@ -366,7 +366,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         OnPropertyChanged(nameof(ModIssuesTooltip));
     }
 
-    /// <summary>Phase 10: an opaque .pak entry has no .EXMOD to edit — the inline row Edit action hides itself rather than opening an editor with nothing to show.</summary>
+    /// <summary>An opaque .pak entry has no .EXMOD to edit — the inline row Edit action hides itself rather than opening an editor with nothing to show.</summary>
     public bool CanEdit => !IsOpaquePak;
 
     partial void OnIsOpaquePakChanged(bool value)
@@ -599,7 +599,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
             OnPropertyChanged(nameof(IsFavorite));
         }
 
-        // Never over text the user is mid-typing (an audit finding): a LibraryChangedMessage from
+        // Never over text the user is mid-typing: a LibraryChangedMessage from
         // an unrelated import/update arriving inside the 500 ms notes-save debounce used to revert
         // the box to the on-disk text, and the still-pending save then wrote that stale text back.
         // The pending save is the newer truth; it lands on its own.

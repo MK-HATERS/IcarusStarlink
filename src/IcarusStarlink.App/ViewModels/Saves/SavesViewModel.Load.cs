@@ -49,7 +49,7 @@ public sealed partial class SavesViewModel
 
     private async Task LoadSlotAsync()
     {
-        // A section that fails to load must not leave the last slot's mission links behind (review, 2026-10-23).
+        // A section that fails to load must not leave the last slot's mission links behind.
         _rewardsOfMission.Clear();
         _missionsOfReward.Clear();
         Characters.Clear();
@@ -241,8 +241,7 @@ public sealed partial class SavesViewModel
         }
         catch (Exception ex)
         {
-            // A load that threw partway left a half-populated but fully SAVEABLE state (an audit
-            // finding): Save rebuilt Profile.json's Talents/UnlockedFlags from the (empty)
+            // A load that threw partway left a half-populated but fully SAVEABLE state: Save rebuilt Profile.json's Talents/UnlockedFlags from the (empty)
             // collections and wiped the account's research. Nothing from a failed load is writable.
             // Only Profile.json itself (or its file stamps) gets here now; every other section
             // skips itself (LoadSection).

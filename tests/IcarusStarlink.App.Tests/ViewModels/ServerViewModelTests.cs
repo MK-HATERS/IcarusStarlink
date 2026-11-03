@@ -364,7 +364,7 @@ public sealed class ServerViewModelTests
     }
 
     /// <summary>
-    /// Audit finding: RememberDeleteCapability wrote _connectedSite (the object captured at
+    /// Regression: RememberDeleteCapability wrote _connectedSite (the object captured at
     /// Connect) back to the store wholesale, so a field edited and saved AFTER connecting was
     /// silently reverted to its pre-connect value the moment a delete taught SupportsDelete.
     /// </summary>

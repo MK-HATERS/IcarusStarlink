@@ -10,8 +10,8 @@ namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class SavesViewModel
 {
-    // --- Points used and available (the user's ask, 2026-10-23: their own points are modded, so
-    //     budgets come from the curves as installed, mods and Remove Level Cap included). ---
+    // --- Points used and available (points can be modded, so budgets come from the curves as
+    //     installed, mods and Remove Level Cap included). ---
 
     private Task _pendingPlayerGrowth = Task.CompletedTask;
 
@@ -175,7 +175,7 @@ public sealed partial class SavesViewModel
     /// <summary>"Level 313", beside the Characters tab's XP box; null while the curve isn't read.</summary>
     public string? SelectedLevelDisplay => SelectedLevel is { } level ? $"Level {level:N0}" : null;
 
-    /// <summary>The Characters tab's Level box (the user's ask, 2026-11-03): type a level and the XP box gets the least XP that reaches it, off the installed XP curve.</summary>
+    /// <summary>The Characters tab's Level box: type a level and the XP box gets the least XP that reaches it, off the installed XP curve.</summary>
     public string SelectedLevelText
     {
         get => SelectedLevel?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
@@ -255,7 +255,7 @@ public sealed partial class SavesViewModel
             ? string.Join(", ", over.Select(b => $"{b.Label} by {b.Used - b.Available:N0}"))
             : null;
 
-    /// <summary>The banner on the Talents tab when the selected character has more ranks than points (the user's ask, 2026-10-23).</summary>
+    /// <summary>The banner on the Talents tab when the selected character has more ranks than points.</summary>
     public string? OverBudgetNote =>
         SelectedCharacter is { } character && OverBudgetOf(character) is { } over
             ? $"Over budget: {over}. You keep every rank, but nothing more can be bought in those trees in game."

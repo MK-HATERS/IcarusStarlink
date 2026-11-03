@@ -31,8 +31,7 @@ public sealed partial class SavesViewModel
 
     partial void OnFlagSearchTextChanged(string value) => RefreshFlagFilter();
 
-    // The Unlocks tab (was Flags), grouped by what each flag is for (SaveGameNames.FlagInfo,
-    // researched 2026-10-23): only mission rewards and bonus talent points are worth editing;
+    // The Unlocks tab (was Flags), grouped by what each flag is for (SaveGameNames.FlagInfo): only mission rewards and bonus talent points are worth editing;
     // markers and prompts sit under Advanced; flags nothing uses hide unless asked for.
 
     /// <summary>Mission rewards that unlock blueprints / workshop items (account).</summary>
@@ -76,8 +75,8 @@ public sealed partial class SavesViewModel
 
     /// <summary>
     /// For each mission reward: the blueprints it gates that the selected character has already
-    /// learned. With the flag off they still count in game (the user's report, 2026-10-23: rewards
-    /// shown off here were unlocked on the in-game blueprint screen), so the row says so.
+    /// learned. With the flag off they still count in game (rewards shown
+    /// off here were unlocked on the in-game blueprint screen), so the row says so.
     /// </summary>
     private void UpdateLearnedNotes()
     {
@@ -97,8 +96,8 @@ public sealed partial class SavesViewModel
         }
 
         // DLC packs: the file is only the game's cache of what it last saw; the game also checks
-        // DLC itself (Steam, or an unlocker), so a pack that's off here can still be on in game
-        // (the user's report, 2026-10-23). The save's own content from a pack says so.
+        // DLC itself (Steam, or an unlocker), so a pack that's off here can still be on in game.
+        // The save's own content from a pack says so.
         var researched = WorkshopTalents.Where(t => t.Rank > 0).ToDictionary(t => t.RowName, t => t.DisplayName, StringComparer.OrdinalIgnoreCase);
         foreach (var pack in BinaryFlags)
         {
@@ -146,10 +145,9 @@ public sealed partial class SavesViewModel
 
     /// <summary>
     /// The slot's flags_&lt;SteamID&gt;.dat is the game's cached list of the DLC this account owns
-    /// (0-based D_DLCPackageData rows; OfflinePackageFlagsSubsystem saves and loads it — researched
-    /// 2026-10-23). It used to be read as character-flag names ("Talent_RepairBench" for Dangerous
-    /// Horizons). Each pack is a toggle under its real name: the user wants to be able to turn DLC
-    /// and Supporter Edition content on (2026-10-23). The game may rewrite the file from its own
+    /// (0-based D_DLCPackageData rows; OfflinePackageFlagsSubsystem saves and loads it). It used to
+    /// be read as character-flag names ("Talent_RepairBench" for Dangerous Horizons). Each pack is a
+    /// toggle under its real name, so DLC and Supporter Edition content can be turned on. The game may rewrite the file from its own
     /// ownership check when it starts — the page says so.
     /// </summary>
     private void BuildBinaryFlags()

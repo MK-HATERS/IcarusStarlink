@@ -54,7 +54,7 @@ public sealed partial class SavesViewModel
         RefreshPointsEditors();
     }
 
-    /// <summary>Marks every talent and research row that's for a DLC or the Supporters Edition (the user's ask, 2026-10-23).</summary>
+    /// <summary>Marks every talent and research row that's for a DLC or the Supporters Edition.</summary>
     private void ApplyPackNotes() => ApplyPackNotes(Characters.SelectMany(c => c.Talents).Concat(WorkshopTalents));
 
     private void ApplyPackNotes(IEnumerable<SaveTalentViewModel> talents)

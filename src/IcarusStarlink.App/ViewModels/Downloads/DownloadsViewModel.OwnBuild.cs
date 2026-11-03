@@ -19,8 +19,8 @@ public sealed partial class DownloadsViewModel
     /// by name) are backed up and swapped out, the config's settings carried over with new ones
     /// marked, both halves kept linked, and the Nexus link kept, so the Library can show "Your
     /// build" while it is newer than Nexus. Nothing is downloaded. For mod authors who test builds
-    /// before they're released (user's ask 2026-11-01: builds used to be copied straight into
-    /// Starlink's folders and the game's Mods folder, which skipped all of that). Returns the status line.
+    /// before they're released (copying a build straight into Starlink's folders and the game's
+    /// Mods folder skips all of that). Returns the status line.
     /// </summary>
     public async Task<string> ImportOwnBuildAsync(string path)
     {

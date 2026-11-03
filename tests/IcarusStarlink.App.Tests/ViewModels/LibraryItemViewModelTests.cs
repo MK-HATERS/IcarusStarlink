@@ -19,8 +19,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// one that succeeds, and clean up the temp .wav file a decoded sound writes to disk the moment a
 /// different asset is selected. Every decoder here is a fake recording its own call count/args —
 /// same "fake every interface dependency, verify the real orchestration logic around them" approach
-/// OpaquePakAssetPreviewServiceTests already uses for its own decoder fallback chain. No existing
-/// LibraryItemViewModel/LibraryViewModel tests existed before this session to mirror instead.
+/// OpaquePakAssetPreviewServiceTests already uses for its own decoder fallback chain.
 /// </summary>
 public sealed class LibraryItemViewModelTests : IDisposable
 {
@@ -80,13 +79,13 @@ public sealed class LibraryItemViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// The live report: Ferani's Steadfast Structures, downloaded through the in-app Nexus catalog,
+    /// A real case: Ferani's Steadfast Structures, downloaded through the in-app Nexus catalog,
     /// declares "1.0" inside its EXMOD while the Nexus page says "1" — the old ordinal compare showed
     /// "Update available: v1" forever, with nothing to update to. NexusVersion null here, exactly
     /// like an entry activated before activation started recording it.
     /// </summary>
     /// <summary>
-    /// Audit finding: a LibraryChangedMessage from an unrelated import arriving inside the 500 ms
+    /// Regression: a LibraryChangedMessage from an unrelated import arriving inside the 500 ms
     /// notes-save debounce made Update() revert the Notes box to the on-disk text, and the still-
     /// pending save then wrote that stale text back over what the user had typed.
     /// </summary>

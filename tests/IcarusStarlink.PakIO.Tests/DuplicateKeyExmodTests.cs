@@ -5,7 +5,7 @@ namespace IcarusStarlink.PakIO.Tests;
 /// <summary>
 /// Real mods repeat a key inside one JSON object. Before this was handled, such a mod threw and
 /// was skipped entirely — invisible in the Library and unusable — despite working fine in classic
-/// IMM. Both shapes here are taken from the user's own library.
+/// IMM. Both shapes here are taken from real mods.
 /// </summary>
 public sealed class DuplicateKeyExmodTests
 {

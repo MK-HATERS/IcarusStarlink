@@ -11,7 +11,7 @@ namespace IcarusStarlink.App.ViewModels;
 public sealed partial class ServerViewModel
 {
     /// <summary>
-    /// "Reconnect, not relogin" per the spec — if a password was saved on a previous Connect (or
+    /// Reconnect, not relogin — if a password was saved on a previous Connect (or
     /// via Save), this needs nothing further from the user at all. Typing a password here first
     /// always saves it, matching Save's own behavior, so connecting once is enough to make every
     /// future connect password-free too.
@@ -371,8 +371,7 @@ public sealed partial class ServerViewModel
 
         _connectedSite.SupportsDelete = supportsDelete;
 
-        // Saved onto the CURRENT stored profile, not the object captured at Connect (an audit
-        // finding): _connectedSite predates any Save the user made since connecting, so writing it
+        // Saved onto the CURRENT stored profile, not the object captured at Connect: _connectedSite predates any Save the user made since connecting, so writing it
         // back wholesale silently reverted a just-saved ModsPath/Host/Port edit to its pre-connect
         // value. Only the learned fact is applied; everything else stays as last saved.
         var stored = _siteStore.GetAll().FirstOrDefault(s => s.Id == _connectedSite.Id) ?? _connectedSite;

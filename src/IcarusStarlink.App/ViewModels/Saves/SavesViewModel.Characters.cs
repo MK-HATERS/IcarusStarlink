@@ -7,7 +7,7 @@ namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class SavesViewModel
 {
-    /// <summary>Real MetaRow keys → the names the game's own UI uses (per the spec's own list: "Ren, Exotics, Red, Biomass, Uranium, Licence, Respec"). An unrecognized key still shows, under its raw name — same preserve-everything philosophy as the repository.</summary>
+    /// <summary>Real MetaRow keys → the names the game's own UI uses ("Ren, Exotics, Red, Biomass, Uranium, Licence, Respec"). An unrecognized key still shows, under its raw name — same preserve-everything philosophy as the repository.</summary>
     private static readonly Dictionary<string, string> CurrencyLabels = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Credits"] = "Ren",
@@ -20,7 +20,7 @@ public sealed partial class SavesViewModel
         ["Refund"] = "Respec Points",
     };
 
-    /// <summary>MetaResources entries taken out, written at the next Save (the user's ask, 2026-11-03: their save carried Exotic_stabilized, which the game never had).</summary>
+    /// <summary>MetaResources entries taken out, written at the next Save (a save can carry one the game never had, like Exotic_stabilized).</summary>
     private readonly List<SaveCurrencyViewModel> _removedCurrencies = [];
 
     /// <summary>Takes a currency the game doesn't have out of the save. A real one, or a mod's you have, can't be: set it to 0 instead.</summary>
@@ -73,7 +73,7 @@ public sealed partial class SavesViewModel
         OnPropertyChanged(nameof(CanSetLevel));
     }
 
-    /// <summary>The spec's "Click a card to edit that character" — Overview card → Characters tab with that character selected.</summary>
+    /// <summary>Click a card to edit that character — Overview card → Characters tab with that character selected.</summary>
     [RelayCommand]
     private void EditCharacter(SaveCharacterViewModel? character)
     {

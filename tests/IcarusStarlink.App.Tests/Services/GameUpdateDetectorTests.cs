@@ -8,7 +8,7 @@ namespace IcarusStarlink.App.Tests.Services;
 /// <summary>The game build from Steam's appmanifest (the real file's shape), found from the Content folder; data.pak's hash when there's none.</summary>
 public sealed class GameUpdateDetectorTests : IDisposable
 {
-    /// <summary>The user's real E:\SteamLibrary\steamapps\appmanifest_1149460.acf, as Steam writes it (TargetBuildID after buildid).</summary>
+    /// <summary>A real E:\SteamLibrary\steamapps\appmanifest_1149460.acf, as Steam writes it (TargetBuildID after buildid).</summary>
     private const string RealManifest = """
         "AppState"
         {
@@ -82,7 +82,7 @@ public sealed class GameUpdateDetectorTests : IDisposable
         public Task<PakVerifyResult> VerifyPakAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
-    /// <summary>A Steam library like the user's: &lt;root&gt;\steamapps\common\Icarus\Icarus\Content, the manifest in steamapps.</summary>
+    /// <summary>A typical Steam library:&lt;root&gt;\steamapps\common\Icarus\Icarus\Content, the manifest in steamapps.</summary>
     private string SteamLibrary(string manifestText)
     {
         var content = Path.Combine(_root, "SteamLibrary", "steamapps", "common", "Icarus", "Icarus", "Content");

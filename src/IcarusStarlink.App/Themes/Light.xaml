@@ -13,7 +13,7 @@
     <SolidColorBrush x:Key="NavItemHoverBrush" Color="#ECECEF"/>
     <SolidColorBrush x:Key="NavItemSelectedBrush" Color="#E3E8FD"/>
 
-    <!-- Phase 10 redesign additions — see Icarus.xaml's own comment for why these exist. InfoBrush
+    <!-- Extra brushes — see Icarus.xaml's own comment for why these exist. InfoBrush
          is teal rather than blue here specifically, since this theme's own AccentBrush is already
          blue — a blue info color would be indistinguishable from an accented/primary element. -->
     <SolidColorBrush x:Key="CardRaisedBackgroundBrush" Color="#EDEDF0"/>

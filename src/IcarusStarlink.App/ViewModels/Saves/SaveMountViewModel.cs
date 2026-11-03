@@ -10,8 +10,7 @@ namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
 /// One saved mount. The list's own fields (Mounts.json MountName / MountLevel) are always
-/// editable; the mount's real data, its RecorderBlob, is edited through MountBlob (plan step 4,
-/// 2026-10-23): its own copy of the name (kept the same as the list's, which used to drift apart),
+/// editable; the mount's real data, its RecorderBlob, is edited through MountBlob: its own copy of the name (kept the same as the list's, which used to drift apart),
 /// experience to match a new level, talents, genetics, lineage and look. Inside editing is only
 /// offered when the blob writes back byte for byte unchanged (checked on load); otherwise the
 /// mount stays label-only, as before. Species (MountType) is never changed: the species, its
@@ -52,7 +51,7 @@ public sealed partial class SaveMountViewModel : DirtyRow
     private string _levelText;
 
     /// <summary>
-    /// Shown, never edited (a review finding): changing the species label alone made a mount whose
+    /// Shown, never edited: changing the species label alone made a mount whose
     /// list entry said one species while the game still had the other, with that species' talents.
     /// </summary>
     public string TypeRowName { get; }
@@ -253,7 +252,7 @@ public sealed partial class SaveMountViewModel : DirtyRow
         ? $"Talents {TalentsUsed:N0} of {available:N0}{(TalentsUsed > available ? " (over)" : "")}"
         : $"Talents {TalentsUsed:N0}";
 
-    /// <summary>The over-budget label (the user's ask for characters, 2026-10-23, here for tames too).</summary>
+    /// <summary>The over-budget label (as for characters).</summary>
     public string? OverBudget => TalentsAvailable is { } available && TalentsUsed > available
         ? $"Over budget by {TalentsUsed - available:N0}: the game keeps the ranks, but nothing more can be bought until under."
         : null;
@@ -285,8 +284,8 @@ public sealed partial class SaveMountViewModel : DirtyRow
 
     /// <summary>
     /// A new level gets the experience that level needs, so the game doesn't put it back; the
-    /// mount's own level gets its own experience back, progress into the level included (review,
-    /// 2026-10-23: typing a level and back reset it to the level's start).
+    /// mount's own level gets its own experience back, progress into the level included
+    /// (typing a level and back used to reset it to the level's start).
     /// </summary>
     private void ApplyLevelToExperience()
     {

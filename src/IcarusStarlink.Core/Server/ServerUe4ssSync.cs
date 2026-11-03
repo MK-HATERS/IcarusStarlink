@@ -33,8 +33,8 @@ public sealed record ServerUe4ssComparison(
 }
 
 /// <summary>
-/// Keeps a dedicated server's UE4SS mods in step with the game's (user request 2026-10-23: the
-/// Server page showed the same mods twice and never said a server copy was out of date — a mod
+/// Keeps a dedicated server's UE4SS mods in step with the game's (the
+/// Server page used to show the same mods twice and never said a server copy was out of date — a mod
 /// updated in the game stayed old on the server). Compares by the version main.lua states, then
 /// by file contents; the server's own config files, enabled.txt and logs never count as a
 /// difference, and an update keeps them.
@@ -77,11 +77,11 @@ public static class ServerUe4ssSync
     /// the server's copy doesn't run the same: different text (line endings aside), or the server
     /// lacks the file. A config-looking file only the server has is the server's own, never a
     /// difference: Pet Commander writes its Invulnerable.ini (the world's tames by id) beside its
-    /// config where the world runs, so it's on the server and not in the game (seen live
-    /// 2026-10-27: it read as "different settings" that Match settings couldn't copy, since the
-    /// game had nothing to copy). The shipped defaults (config.default.lua) are the mod's, not a
-    /// setting, and never count. User request 2026-10-27: the Server page said "Same as your game"
-    /// while the server ran different settings.
+    /// config where the world runs, so it's on the server and not in the game (it used
+    /// to read as "different settings" that Match settings couldn't copy, since the game had
+    /// nothing to copy). The shipped defaults (config.default.lua) are the mod's, not a setting,
+    /// and never count. Without this the Server page said "Same as your game" while the server ran
+    /// different settings.
     /// </summary>
     public static IReadOnlyList<string> ConfigDifferences(string gameMod, string serverMod)
     {
@@ -177,7 +177,7 @@ public static class ServerUe4ssSync
     /// <summary>
     /// The server has every file the game's copy ships, byte for byte (config, logs and the like
     /// aside). Files only on the server are its own (state a mod writes there: players.json,
-    /// remembered.txt) and never a difference (review 2026-10-23: they read as "differs" and an
+    /// remembered.txt) and never a difference (they used to read as "differs" and an
     /// update took them off the live server).
     /// </summary>
     public static bool ServerHasGameFiles(string game, string server)
@@ -219,8 +219,8 @@ public static class ServerUe4ssSync
 
     /// <summary>
     /// The files that belong to one copy, not to the mod: its config, and what it writes while it
-    /// runs (logs, caches, backups, its remembered.txt — seen on the user's server 2026-10-23, where
-    /// these alone made five identical mods read as different). Never a difference; kept on update.
+    /// runs (logs, caches, backups, its remembered.txt — seen on a real server, where these
+    /// alone made five identical mods read as different). Never a difference; kept on update.
     /// </summary>
     private static HashSet<string> LocalFiles(string modFolder)
     {
@@ -286,8 +286,7 @@ public static class ServerUe4ssSync
 
     /// <summary>
     /// Hashes by path, size and time written: the Server page compares on every visit and after
-    /// every action, and hashing a merged pak of hundreds of MB each time froze the page (review,
-    /// 2026-10-23). A file that changes gets a new size or time, so it's hashed again.
+    /// every action, and hashing a merged pak of hundreds of MB each time froze the page. A file that changes gets a new size or time, so it's hashed again.
     /// </summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Path, long Length, DateTime Written), byte[]> Hashes = new();
 
@@ -344,7 +343,7 @@ public static class ServerUe4ssSync
 
         // Kept from the server's copy: its config, what the mod writes while running (logs, state
         // .txt files like remembered.txt, which the game's copy has too), and anything the game's
-        // copy doesn't ship at all (players.json, data files a mod writes: review 2026-10-23, those
+        // copy doesn't ship at all (players.json, data files a mod writes: those
         // used to be taken off the live server by an update).
         var local = LocalFiles(target);
         var keptFiles = Directory.EnumerateFiles(target, "*", SearchOption.AllDirectories)

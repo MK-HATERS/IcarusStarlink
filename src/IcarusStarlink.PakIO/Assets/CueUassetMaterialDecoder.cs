@@ -35,7 +35,7 @@ namespace IcarusStarlink.PakIO.Assets;
 ///     TextureParameterValues/VectorParameterValues). Whether Icarus's own UE4.27 cook carries that
 ///     data was never confirmed live, so if a resolved Parent is ITSELF another UMaterialInstance
 ///     rather than a plain UMaterial, it's genuinely uncertain whether the fallback recovers
-///     anything. Confirmed empty against 6 real mod-local materials this session either way, which
+///     anything. Confirmed empty against 6 real mod-local materials either way, which
 ///     is consistent with both explanations for that mod-local (UMaterialInstance) case; only a
 ///     real live test against a resolved base-game Parent (once IBaseGameContentProvider can reach
 ///     one) can confirm the UMaterial path's more promising behavior in practice.

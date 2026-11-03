@@ -143,7 +143,7 @@ public static partial class GameItemEditor
         ["RequiredMillijoules"] = ("Crafting work", "Higher = takes longer to craft; lower = faster."),
         ["ExperienceMultiplier"] = ("Crafting XP multiplier", "Higher = more XP for crafting it; 1 = as designed."),
         // D_Generator: the Biofuel Generator makes 5000 from fuel at a ratio of 7500; raising a
-        // ratio from 10 to 450 made a biofuel can last 45 times longer (MkHaters Salt Collector, in game).
+        // ratio from 10 to 450 made a biofuel can last 45 times longer (tested in game).
         ["GenerationRate"] = ("Output", "How much it makes: power for a generator, water for a pump. Higher = more output."),
         ["GenerationRatio"] = ("Fuel efficiency", "How much it makes from each bit of fuel. Higher = fuel lasts longer; lower = burns fuel faster."),
         ["MaximumStoredUnits"] = ("Holds", "How much it holds (1000 = 1 litre). Higher = holds more."),
@@ -498,7 +498,7 @@ public static partial class GameItemEditor
     /// <summary>
     /// The item's storages: one card per D_InventoryInfo row its inventory row lists ("Storage", or
     /// "Storage · Input" when it has several). Shared by every item whose inventory lists that row
-    /// (the benches' "Processor" storage: 40 items on 2026-11-03).
+    /// (the benches' "Processor" storage: 40 items).
     /// </summary>
     private static List<EditableSection> StorageSections(GameTableIndex game, ExmodPackage? mod, GameItemLookup lookup, string inventoryFile, string inventoryRow, string gameInventoryRow)
     {

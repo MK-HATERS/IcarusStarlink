@@ -15,11 +15,10 @@ using Microsoft.Extensions.Logging;
 namespace IcarusStarlink.PakIO.Rebuild;
 
 /// <summary>
-/// Composes pieces built across earlier phases into one pipeline: ExmodFieldChangeMapper (Phase
-/// 2) reads each queued mod's own sparse changes, MergeEngine/MultiFileMerger (Phase 1) resolve
-/// and apply them against real base data, DataTableJson (Weekly Changes/Phase 5) bridges real
-/// DataTable JSON's array shape to the keyed shape those expect, and IUnrealPakService (Phase 5,
-/// extended for this) packs the result. Nothing here re-implements any of that — this is glue.
+/// Composes existing pieces into one pipeline: ExmodFieldChangeMapper reads each queued mod's own
+/// sparse changes, MergeEngine/MultiFileMerger resolve and apply them against real base data,
+/// DataTableJson (shared with Weekly Changes) bridges real DataTable JSON's array shape to the
+/// keyed shape those expect, and IUnrealPakService packs the result. Nothing here re-implements any of that — this is glue.
 /// </summary>
 public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<RebuildService>? logger = null) : IRebuildService
 {
@@ -51,7 +50,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
         var prebuiltPakScratchDirectories = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            // Inside the try (an audit finding): with the loop outside it, the 2nd pak's extraction
+            // Inside the try: with the loop outside it, the 2nd pak's extraction
             // throwing (a corrupt pak, a non-zero exit) leaked the 1st pak's already-extracted
             // scratch folder under TEMP forever — the finally below is what guarantees cleanup.
             foreach (var prebuiltPakPath in allPrebuiltPaks)
@@ -285,7 +284,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
         // Remove Weight — GameplayOptionsApplier.Apply) apply as a genuinely final pass over the
         // already-merged result — matching classic IMM's own documented behavior ("these new
         // options are added after the mods are all merged") — and deliberately still work this
-        // way after Phase 1 moved Category 1 (Speed/Player/XP Boost, Disable Temperatures) into
+        // way although Category 1 (Speed/Player/XP Boost, Disable Temperatures) is
         // a real FieldChange: Category 2 is a COMPOUNDING operation (new = current merged value
         // × factor), not a "pick one candidate value" resolution, so routing it through
         // MergeEngine the same way would silently break that compounding (a queued mod also
@@ -316,7 +315,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
     /// taken up front so nothing is extracted twice. A pak file the field-level merge already
     /// produced is skipped: copying the pak's own raw copy back in would undo that merge.
     ///
-    /// Before 2026-10-23 every EXMOD asset was staged first and every pak's files copied over them,
+    /// Formerly every EXMOD asset was staged first and every pak's files copied over them,
     /// so a prebuilt pak won a collision even when it sat earlier in the queue (and the warning
     /// named it as the winner either way). A collision involving a prebuilt pak or the merged tables
     /// is a MergeReport warning naming the real winner; two EXMOD mods bundling the same file are
@@ -417,8 +416,8 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
         string outputPakPath, string stagingDirectory, int mergedTableCount, MergeReport report, CancellationToken cancellationToken)
     {
         // A failed -Create can leave a partial pak at outputPakPath, and the PREVIOUS build's manifest
-        // would still sit beside it — Install reads that pair as "a complete staged build" (an audit
-        // finding: a stale queue installed under a partial pak). Both are cleared first so the slot
+        // would still sit beside it — Install reads that pair as "a complete staged build" (a
+        // stale queue installed under a partial pak). Both are cleared first so the slot
         // holds either a verified pak plus its own manifest, or nothing.
         var staleManifestPath = Path.Combine(Path.GetDirectoryName(outputPakPath)!, InstallManifestNames.PakManifest);
         Directory.CreateDirectory(Path.GetDirectoryName(outputPakPath)!);
@@ -615,7 +614,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
     /// correctly, catching a corruption class presence-checking alone never could (a truncated
     /// write, a disk error mid-Create). The VERIFICATION itself failing to run (tool error) is
     /// still only a warning, same as its sibling — but a pak UnrealPak itself hashes as corrupt is
-    /// not a successful rebuild (an audit finding): the old warn-only shape let the combined
+    /// not a successful rebuild: the old warn-only shape let the combined
     /// Rebuild+Install button copy a corrupt pak straight into the game folder. The output is
     /// deleted and the rebuild fails outright, so nothing downstream can install it.
     /// </summary>

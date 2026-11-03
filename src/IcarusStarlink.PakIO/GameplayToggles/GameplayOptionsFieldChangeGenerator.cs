@@ -72,7 +72,7 @@ public static class GameplayOptionsFieldChangeGenerator
         // stat, later mods over earlier ones: this change wins the field by default (it's last), so
         // it must be a complete StatsGranted that keeps what those mods set. It used to start from
         // the game's alone, so turning on Player Boost reset a queued mod's stats (laanp's
-        // WaypointTeleport: no fall damage, no sprains) to the game's (review 2026-10-26).
+        // WaypointTeleport: no fall damage, no sprains) to the game's.
         var originalStatsGranted = baseStatsRow[StatsGrantedField] as JsonObject;
         var newStatsGranted = originalStatsGranted?.DeepClone() as JsonObject ?? [];
         foreach (var modChanges in earlierChanges ?? [])

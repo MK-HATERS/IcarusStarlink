@@ -210,7 +210,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     }
 
     /// <summary>
-    /// "New mod…" per the spec — a blank EXMOD (zero Rows) so the editor has something to open
+    /// "New mod…" — a blank EXMOD (zero Rows) so the editor has something to open
     /// straight into and build up, rather than reading from an existing folder/zip the way every
     /// other Import does. name.Replace(' ', '_') derives the EXMOD's own FileName, matching the
     /// convention real EXMOD authors already use — ExmodFolder.Write's own validation (via
@@ -315,7 +315,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
 
     /// <summary>
     /// The read half of every read-modify-write on a sidecar. A sidecar that exists but can't be
-    /// read right now (sync client, antivirus) must abort the write (an audit finding): saving the
+    /// read right now (sync client, antivirus) must abort the write: saving the
     /// defaults Load hands back would silently drop the mod's Nexus link / source / catalog ID on
     /// something as small as a pin toggle. The IOException reaches the UI's existing "Save failed"
     /// status path.
@@ -485,7 +485,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
                 }
             });
 
-        // The FTS index is a derived view too (an audit finding): the cached entry's displayed
+        // The FTS index is a derived view too: the cached entry's displayed
         // name/author changed above for an opaque/converted pak, but the index row still carried the
         // pak's file name, so the mod was unsearchable by the name the Library showed until restart.
         var cached = _cachedEntries.Find(e => e.FolderName == folderName);

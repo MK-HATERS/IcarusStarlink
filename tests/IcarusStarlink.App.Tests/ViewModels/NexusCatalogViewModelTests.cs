@@ -172,7 +172,7 @@ public class NexusCatalogViewModelTests
     }
 
     /// <summary>
-    /// User report 2026-10-23: Library's Update filled the Nexus search with the mod's Library
+    /// Library's Update filled the Nexus search with the mod's Library
     /// name, which often isn't its Nexus title, so the mod wasn't found. The ID (or a pasted mod
     /// link) now finds that exact mod.
     /// </summary>

@@ -25,7 +25,7 @@ public sealed partial class SettingsViewModel
 
     /// <summary>
     /// Runs the first-launch questions, then the launch "Update available" check (after setup,
-    /// not alongside it, an audit finding: both show modal dialogs, and an update accepted
+    /// not alongside it: both show modal dialogs, and an update accepted
     /// mid-setup shut the app down over a running data extraction). Called once by App.xaml.cs
     /// after this singleton is built, never from the constructor: a question open during
     /// construction let anything that resolved Settings (opening the page, an nxm:// link,
@@ -49,8 +49,7 @@ public sealed partial class SettingsViewModel
 
     /// <summary>
     /// Every prerequisite in one place, in dependency order, so a fresh install is usable without
-    /// a trip through Settings — a real complaint ("shouldn't all prerequisites be done at first
-    /// launch?"): the game folder was never asked for at all, so the Launch game / UE4SS folder /
+    /// a trip through Settings. Without it the game folder was never asked for at all, so the Launch game / UE4SS folder /
     /// Game folder quick-links sat greyed out with no hint why, and nothing ever offered the first
     /// data extraction either. Each step is quiet when already satisfied, so a configured install
     /// sees nothing.
