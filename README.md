@@ -43,7 +43,7 @@ message saying so. Your Icarus game install itself is never touched.
 
 ## What it does
 
-[Library](#library) · [Check mods against game data](#check-mods-against-game-data) · [Merge & Install](#merge--install) · [Weekly Changes](#weekly-changes) · [Map](#map) · [Downloads & Nexus](#downloads--nexus) · [UE4SS](#ue4ss) · [Server](#server) · [Saves](#saves) · [Migration & verification](#migration--verification) · [Also](#also)
+[Library](#library) · [Check mods against game data](#check-mods-against-game-data) · [Editor](#editor) · [Merge & Install](#merge--install) · [Weekly Changes](#weekly-changes) · [Map](#map) · [Downloads & Nexus](#downloads--nexus) · [UE4SS](#ue4ss) · [Server](#server) · [Saves](#saves) · [Migration & verification](#migration--verification) · [Also](#also)
 
 ### Library
 
@@ -83,6 +83,25 @@ counts as a dependency, not a problem. A mod's own cooked files (meshes, materia
 checked too: every game file they use must still be where they look for it. Where the game only
 moved one (same name, same contents, another folder), the fix points the mod to the new place;
 what the game removed is listed for the mod's author to update.
+
+It also knows what the game really does with some data, from tests in the game (MkHaters' Hook
+Scout): a row name that's probably a typo of a game row (it would add a useless row instead of
+changing the game's), new rows in a table the game can't use them in (`D_CharacterGrowth`: tames
+show level 0), stats the game ignores where they are (an aura stat on a placed item, a bag's
+spoil-rate stat), and new items nothing hands out. A dedicated server's own log is quoted as proof
+where it says the same. The editors refuse those rows and stats when you add them, and say why.
+
+### Editor
+
+Change the game's own items without writing a mod by hand: every one of the game's 3,090 items with
+its icon, sorted into the categories the game files them under, with filters (what it has, the bench
+that makes it, what the mod you save to already changes). Each item shows the game rows it uses as
+cards: numbers, on/off settings, drop-downs for links (what food spoils into, a recipe's bench),
+storage slots, a recipe's ingredients (add or take out), a workshop price. Change as many items as you
+like and save them all into one mod; only what you changed goes in. A shared row (one decay row is
+used by 1,895 items) gets the item's own copy unless you choose to change it for all. **Change many
+at once**: tick items (or a Quick pick: stack size, weight, durability, storage slots…), set,
+multiply or add, check every item's new value in a preview (type over any), then put it in.
 
 ### Merge & Install
 
@@ -174,8 +193,8 @@ the built-in default.
 
 ### Saves
 
-A full player save editor: characters (name, XP, duplicate/delete a slot), currencies,
-talents (character and account-wide Workshop research), account/character/binary unlock flags,
+A full player save editor: characters (name, XP or level, duplicate/delete a slot), currencies,
+talents (character and account-wide Workshop research, drawn as the game's own trees or as lists), account/character/binary unlock flags,
 Bestiary encounter progress (with each creature's picture), Accolade completion, the account-wide
 item bank (with real item/creature icons resolved straight from the base game's own compiled
 content, not text-only), and
@@ -307,7 +326,32 @@ keys or tokens) makes it much faster to track down.
 
 ## Changelog
 
-### 4.3.0 (latest)
+### 4.4.0 (latest)
+
+**Added**
+- **Editor page, rebuilt**:
+  - Every one of the game's 3,090 items is listed (it stopped at 400), each with its icon. Category chips (Armour, Weapons, Consumables, Deployables…, as the game files its own icons) count what each would show. **Has** and **Made at** narrow the list to items with a part you want to change, or made at one bench. Search also finds what the game says about an item.
+  - With one of your mods under Save to, the items it already changes have a dot, and a filter shows just those.
+  - **Change as many items as you like, then save once**: each item keeps what you typed when you pick another (a pencil marks it in the list). Your changes lists them by item: click one to show it again, or throw one item's changes away. Save writes them all into the one mod.
+  - **Change many items at once**: tick items, or click a Quick pick (Stack size, Weight, Durability, Spoil time, Buff length, Storage slots, Ingredients, Research cost) to tick the listed items that have it. Set, multiply (×0.5, ×1.5, ×2, ×3 or any number) or add; a preview shows every item's value now and after. Type over any item's new value to give it something else, or untick it. Shared rows get their own copies unless you choose otherwise. It goes into Your changes, with Undo.
+  - New on the item cards: tick boxes for on/off settings (Weather damages it, Needs shelter, Blocked by walls…), drop-downs for links (what food spoils into, a recipe's bench, a bench's recipe list), **storage slots** (crates, benches and furnaces, own copy and all), and a recipe's ingredients can be **added and taken out**.
+  - The item list loads in the background the first time the page opens.
+- **Mod checks from tests in the game** (MkHaters' Hook Scout): a row name that's probably a typo of a game row, new rows in a table the game can't use them in (`D_CharacterGrowth`), stats the game ignores where they are (aura stats on placed items, a bag's spoil-rate stat), and new items nothing hands out. A dedicated server's log is quoted as proof where it says the same. The Editor and the mod editor refuse those rows and stats when you add them, and say why. Field notes say what heat and aura ranges, blocking by walls and automatic shut-off really do in game.
+- **Saves**: Talents, Workshop, Missions and a mount's talents can be shown as the game's own trees (nodes where the game places them, the lines between them, learned ones lit, Fit and a size slider), or as lists. A character's Level can be set directly. Save's confirm lists what changes.
+- **Saves**: Clean up also takes out currencies, creatures and accolades the game doesn't have and no mod gives; a currency the game doesn't have can be removed. The save check offers more fixes (a creature over its max, a talent learned without the one before it, unknown flags), and the same entry listed twice is merged.
+
+**Fixed**
+- Game text ending in a space showed as a change nobody made in the Editor.
+- "Needs power" read wrong (a stone furnace has it on while burning fuel): it's "Requires energy" now.
+- Backups: the newest backup is always the one kept (two installs in the same second could keep the older pak).
+- A mount's talent count no longer lags one rank behind.
+
+### Earlier versions
+
+Click a version to open its notes.
+
+<details>
+<summary><b>4.3.0</b></summary>
 
 **Added**
 - **Update** on a Nexus mod (data or UE4SS) opens the list of the mod's Nexus files straight away, the newer version of yours already picked, then downloads and installs it in place of your copy. No trip to the Nexus page and a second Download click. Without a Nexus key it still opens the Nexus page.
@@ -321,9 +365,7 @@ keys or tokens) makes it much faster to track down.
 - An older version on Nexus is no longer offered as an "update" to a newer copy you have (a v0.8.0 mod showed "Update v0.7.0").
 - Map: typing in the search no longer lags.
 
-### Earlier versions
-
-Click a version to open its notes.
+</details>
 
 <details>
 <summary><b>4.2.0</b></summary>
