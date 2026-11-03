@@ -9,7 +9,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
     <PackageReference Include="SharpCompress" Version="1.0.0" />
     <!-- Real UE4.27 asset parsing for CueUassetTextureDecoder — confirmed via a real prototype
-         against the user's own mod files that a mod's loose bundled .uasset/.uexp/.ubulk textures
+         against real mod files that a mod's loose bundled .uasset/.uexp/.ubulk textures
          decode correctly with no mappings (.usmap) file and no Oodle native DLL needed. -->
     <PackageReference Include="CUE4Parse" Version="1.2.2.202608" />
     <PackageReference Include="CUE4Parse-Conversion" Version="1.2.2.202608" />

@@ -130,8 +130,8 @@
          self-contained win-x64 release from 492 files down to 336 with zero functional loss. -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <!-- Publish-only (a plain `dotnet build` is unaffected): bundles every managed assembly and the
-         self-contained runtime into IcarusStarlink.exe. Per user request after seeing the
-         release zip — 336 loose files at the root, down to the handful of native libraries WPF,
+         self-contained runtime into IcarusStarlink.exe: from 336 loose files at the release
+         zip's root down to the handful of native libraries WPF,
          SkiaSharp and SQLite genuinely need beside the exe (deliberately NOT
          IncludeNativeLibrariesForSelfExtract: that extracts them to a temp folder on first run, a
          known antivirus false-positive trigger on top of what a single-file bundle already is).
