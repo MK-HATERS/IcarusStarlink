@@ -45,6 +45,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
 {
     private readonly ILibraryRepository _repository;
     private readonly OwnModWriter _writer;
+    private readonly IMessenger _messenger;
 
     /// <summary>The target mod's .EXMOD stamp when its values were read for the cards (TargetPackage); Save refuses when it moved on.</summary>
     private DateTime? _shownStamp;
@@ -55,26 +56,28 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
     /// <param name="activityLog">Saves and failed saves also go to the app-wide activity feed (null in tests).</param>
     /// <param name="iconDecoder">The game's item icons for the list (null in tests: no icons).</param>
-    public GameEditorViewModel(ILibraryRepository repository, string dataFolder, IActivityLog? activityLog = null, IBaseGameIconDecoder? iconDecoder = null)
+    /// <param name="messenger">The app's messages (the shared messenger unless a test gives its own).</param>
+    public GameEditorViewModel(ILibraryRepository repository, string dataFolder, IActivityLog? activityLog = null, IBaseGameIconDecoder? iconDecoder = null, IMessenger? messenger = null)
     {
         _repository = repository;
-        _writer = new OwnModWriter(repository);
+        _messenger = messenger ?? WeakReferenceMessenger.Default;
+        _writer = new OwnModWriter(repository, _messenger);
         _activityLog = activityLog;
         _dataFolder = dataFolder;
         _icons = iconDecoder is null ? null : new GameIconLoader(iconDecoder);
         NewModAuthor = Environment.UserName;
         // Game data changes under the page when Refresh game data runs.
-        WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).ResetGameData());
-        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).RefreshTargets());
+        _messenger.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).ResetGameData());
+        _messenger.Register<LibraryChangedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).RefreshTargets());
         // Typed values live only on this page until Save: closing the app would drop them unasked.
-        WeakReferenceMessenger.Default.Register<UnsavedEditsRequestMessage>(this, (recipient, message) =>
+        _messenger.Register<UnsavedEditsRequestMessage>(this, (recipient, message) =>
         {
             if (((GameEditorViewModel)recipient).PendingCount > 0)
             {
                 message.Reply("typed changes on the Editor page");
             }
         });
-        WeakReferenceMessenger.Default.Register<OpenGameItemMessage>(this, (recipient, message) => ((GameEditorViewModel)recipient).Open(message.ItemName, message.TargetFolder));
+        _messenger.Register<OpenGameItemMessage>(this, (recipient, message) => ((GameEditorViewModel)recipient).Open(message.ItemName, message.TargetFolder));
         RefreshTargets();
     }
 
@@ -168,33 +171,73 @@ public sealed partial class GameEditorViewModel : ObservableObject
     {
         if (SavedModFolder is { } folder)
         {
-            WeakReferenceMessenger.Default.Send(new TurnOnModMessage(folder));
+            _messenger.Send(new TurnOnModMessage(folder));
         }
     }
 
-    /// <summary>Lazily: the page may never be opened in a session.</summary>
+    /// <summary>Lazily: the page may never be opened in a session. Null while the list loads in the background (that thread has the index to itself).</summary>
     private GameTableIndex? Game
     {
         get
         {
-            if (_game is null && Directory.Exists(_dataFolder))
+            if (_loading is not null)
             {
-                _game = new GameTableIndex(_dataFolder);
-                if (_game.CurrentFileFor("D_ItemsStatic") is null)
-                {
-                    _game = null;
-                }
+                return null;
             }
 
+            _game ??= OpenGameData(_dataFolder);
             return _game;
         }
     }
 
-    /// <summary>Called when the page is shown: loads the item list the first time.</summary>
+    private static GameTableIndex? OpenGameData(string dataFolder) =>
+        Directory.Exists(dataFolder) && new GameTableIndex(dataFolder) is var game && game.CurrentFileFor("D_ItemsStatic") is not null ? game : null;
+
+    /// <summary>The first load of the item list (3,090 items read from the game's tables, ~0.8 s), off the UI thread.</summary>
+    private Task<(GameTableIndex? Game, IReadOnlyList<GameItemInfo> Items)>? _loading;
+
+    public const string LoadingMessage = "Reading the game's items…";
+
+    /// <summary>Called when the page is shown: starts loading the item list in the background the first time (the page says so meanwhile).</summary>
+    public async Task EnsureLoadedAsync()
+    {
+        if (_allItems.Count > 0 || _loading is not null)
+        {
+            return;
+        }
+
+        var dataFolder = _dataFolder;
+        var gameReady = _game;
+        _loading = Task.Run(() =>
+        {
+            var game = gameReady ?? OpenGameData(dataFolder);
+            return (game, game is null ? (IReadOnlyList<GameItemInfo>)[] : GameItemCatalog.List(game));
+        });
+        NoDataMessage = LoadingMessage;
+        try
+        {
+            var (game, items) = await _loading;
+            FinishLoading(game, items);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or System.Text.Json.JsonException)
+        {
+            _loading = null;
+            NoDataMessage = $"Couldn't read the game's items: {ex.Message}. Run Refresh game data in Settings, then open the Editor again.";
+        }
+    }
+
+    /// <summary>The item list now (Open from the mod editor, tests): waits for a background load already running instead of reading the tables twice.</summary>
     public void EnsureLoaded()
     {
         if (_allItems.Count > 0)
         {
+            return;
+        }
+
+        if (_loading is { } running)
+        {
+            var (loadedGame, loadedItems) = running.GetAwaiter().GetResult();
+            FinishLoading(loadedGame, loadedItems);
             return;
         }
 
@@ -204,8 +247,26 @@ public sealed partial class GameEditorViewModel : ObservableObject
             return;
         }
 
+        FinishLoading(game, GameItemCatalog.List(game));
+    }
+
+    private void FinishLoading(GameTableIndex? game, IReadOnlyList<GameItemInfo> items)
+    {
+        _loading = null;
+        if (_allItems.Count > 0)
+        {
+            return; // the other way in got there first
+        }
+
+        _game = game;
+        if (game is null)
+        {
+            NoDataMessage = "No game data yet. Run Refresh game data in Settings first; the Editor reads the game's items from it.";
+            return;
+        }
+
         NoDataMessage = null;
-        _allItems = [.. GameItemCatalog.List(game).Select(info => new EditorItemEntry(info, _icons))];
+        _allItems = [.. items.Select(info => new EditorItemEntry(info, _icons))];
         foreach (var entry in _allItems)
         {
             entry.PropertyChanged += OnEntryPropertyChanged;
@@ -411,6 +472,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
                 ReloadKeepingTyped("aren't in that mod's new version");
                 StatusMessage = "Not saved: that mod was changed somewhere else (an open mod editor?) since it was shown here. Its current values are shown now, with your typed changes on top; Save again to save them."
                     + (StatusMessage is { } dropped ? $" {dropped}" : "");
+                _activityLog?.Log("Editor: not saved, the mod was changed somewhere else. Its current values are shown with your changes on top: Save again.", ActivityEntryKind.Warning);
                 return;
             }
 
@@ -572,6 +634,22 @@ public sealed partial class GameEditorViewModel : ObservableObject
     private void ResetGameData()
     {
         var shown = _shownItem?.Name;
+        if (_loading is { } running)
+        {
+            // The first load was still reading the old tables: let it end, and don't use what it read
+            // (it finds the list rebuilt below and leaves it).
+            try
+            {
+                running.GetAwaiter().GetResult();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or System.Text.Json.JsonException)
+            {
+                // The new data is read again below.
+            }
+
+            _loading = null;
+        }
+
         _game = null;
         _allItems = [];
         _itemChoices = null;

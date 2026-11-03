@@ -457,6 +457,59 @@ public sealed class GameEditorViewModelTests : IDisposable
         Assert.Equal("Envirosuit", spoils.NewValue()!.GetValue<string>()); // as the game spells it
     }
 
+    /// <summary>The page reads the game's items in the background the first time it shows, saying so meanwhile.</summary>
+    [Fact]
+    public async Task TheItemList_LoadsInTheBackground_SayingSo()
+    {
+        var vm = new GameEditorViewModel(_library, DataFolder);
+
+        var loading = vm.EnsureLoadedAsync();
+        Assert.Equal(GameEditorViewModel.LoadingMessage, vm.NoDataMessage);
+        Assert.False(vm.ShowPickPrompt);
+        await loading;
+
+        Assert.Null(vm.NoDataMessage);
+        Assert.Equal(["Envirosuit", "Stone"], Names(vm));
+        Assert.True(vm.ShowPickPrompt);
+    }
+
+    /// <summary>"Open in Editor" while the list is still loading waits for it (the tables aren't read twice, nothing is listed twice).</summary>
+    [Fact]
+    public async Task OpenDuringTheBackgroundLoad_WaitsForIt()
+    {
+        var vm = new GameEditorViewModel(_library, DataFolder);
+        var loading = vm.EnsureLoadedAsync();
+
+        vm.Open("Envirosuit");
+        await loading;
+
+        Assert.Equal("Envirosuit", vm.SelectedItem?.Name);
+        Assert.Equal(["Envirosuit", "Stone"], Names(vm));
+        Assert.True(vm.HasItem);
+    }
+
+    /// <summary>The page listens and speaks on the messenger it's given (the app's shared one by default).</summary>
+    [Fact]
+    public void ThePage_UsesTheMessengerItIsGiven()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new GameEditorViewModel(_library, DataFolder, messenger: messenger);
+        vm.EnsureLoaded();
+        _library.CreateBlankMod("Mine", "Me");
+
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        Assert.Equal(["A new mod"], vm.Targets.Select(t => t.Display));
+
+        messenger.Send(new LibraryChangedMessage());
+        Assert.Equal(["A new mod", "Mine"], vm.Targets.Select(t => t.Display));
+
+        var asked = new UnsavedEditsRequestMessage();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "50";
+        messenger.Send(asked);
+        Assert.Contains("typed changes on the Editor page", asked.Responses);
+    }
+
     private void WriteEnvirosuitRecipe() => Write("Crafting/D_ProcessorRecipes.json", """
         {"RowStruct":"S","Defaults":{},"Rows":[
           {"Name":"Envirosuit_Recipe","RecipeSets":[{"RowName":"Character","DataTableName":"D_RecipeSets"}],

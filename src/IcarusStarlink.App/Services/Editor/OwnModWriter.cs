@@ -13,7 +13,8 @@ namespace IcarusStarlink.App.Services;
 /// mod's .EXMOD changed since the caller read it (the other editor saved into it meanwhile), so
 /// one editor never silently overwrites what the other saved.
 /// </summary>
-public sealed class OwnModWriter(ILibraryRepository repository)
+/// <param name="messenger">Where the Library change is announced (the shared messenger by default).</param>
+public sealed class OwnModWriter(ILibraryRepository repository, IMessenger? messenger = null)
 {
     /// <summary>When the mod's .EXMOD was last written; default when it has none yet.</summary>
     public DateTime StampOf(string folderName, string fileName)
@@ -38,7 +39,7 @@ public sealed class OwnModWriter(ILibraryRepository repository)
         ExmodFolder.Write(repository.GetFolderPath(folderName), new ExmodPackageContents(package, []));
         newStamp = StampOf(folderName, package.FileName);
         repository.MarkLocallyEdited(folderName);
-        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        (messenger ?? WeakReferenceMessenger.Default).Send(new LibraryChangedMessage());
         return true;
     }
 }
