@@ -24,18 +24,11 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Restore
-        run: dotnet restore IcarusStarlink.slnx
-
+      # NuGet's own restore-time audit (direct and transitive packages), with any advisory turned
+      # into an error. Unlike "dotnet list package --vulnerable", it honours the reviewed
+      # NuGetAuditSuppress entries in Directory.Build.props, so only those exact advisories pass.
       - name: Check for vulnerable packages
-        shell: pwsh
-        run: |
-          $output = dotnet list IcarusStarlink.slnx package --vulnerable --include-transitive 2>&1 | Tee-Object -Variable lines
-          $lines | ForEach-Object { Write-Output $_ }
-          if ($lines -match "has the following vulnerable packages") {
-            Write-Error "One or more NuGet packages have a known vulnerability — see the listing above."
-            exit 1
-          }
+        run: dotnet restore IcarusStarlink.slnx --force -p:NuGetAudit=true -p:NuGetAuditMode=all -p:WarningsAsErrors="NU1901%3BNU1902%3BNU1903%3BNU1904"
 
   secret-scan:
     runs-on: ubuntu-latest
