@@ -548,7 +548,11 @@ public sealed partial class LocalServerViewModelTests
         store.Profiles.Add(new DedicatedServerProfile { Name = "Second", InstallFolder = other, AutoUpdate = true, AutoRestartOnCrash = false });
         var (vm, _, processes, _) = Build(existingStore: store);
         processes.RunningFor = p => p.Name == "First" ? new RunningServer(9, DateTime.Now) : new RunningServer(20, DateTime.Now);
-        vm.Tick();
+        // Awaited, not Tick(): selecting the profile during Build already started a tick, and a
+        // second Tick() queued behind it could leave Running null when Update starts (no stop, so
+        // no hourly check in the gap: CI failed here twice).
+        await vm.TickAsync();
+        Assert.NotNull(vm.Running);
         var answer = new TaskCompletionSource<int?>();
         SteamCmd.CheckHook = _ => answer.Task;
         Task? beat = null;
