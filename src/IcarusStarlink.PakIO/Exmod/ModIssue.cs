@@ -31,6 +31,10 @@ public sealed record ModIssue(
         ModIssueKind.UnknownField => SuggestedRow is null ? [ModIssueFix.UseGame, ModIssueFix.KeepMod] : [ModIssueFix.RenameField, ModIssueFix.UseGame, ModIssueFix.KeepMod],
         ModIssueKind.WrongType => [ModIssueFix.KeepMod],
         ModIssueKind.SharedTextKey => [ModIssueFix.OwnTextKey, ModIssueFix.KeepMod],
+        ModIssueKind.MisspeltRow => [ModIssueFix.RenameRow, ModIssueFix.RemoveRow, ModIssueFix.KeepMod],
+        ModIssueKind.RowsInBuiltInTable => [ModIssueFix.RemoveRow, ModIssueFix.KeepMod],
+        // Known from the game, but only the mod's author can do it another way (a UE4SS part, a recipe, the tags).
+        ModIssueKind.NoEffect or ModIssueKind.NothingGivesItem => [ModIssueFix.KeepMod],
         // A link inside a field, or in the mod's own row: no game value to go back to, only to look at.
         ModIssueKind.BrokenLink when GameValue is null => [ModIssueFix.KeepMod],
         _ when MergedValue is not null => [ModIssueFix.Merge, ModIssueFix.UseGame, ModIssueFix.KeepMod],
@@ -56,6 +60,10 @@ public sealed record ModIssue(
         ModIssueKind.UnknownField => "ISL-111",
         ModIssueKind.WrongType => "ISL-112",
         ModIssueKind.SharedTextKey => "ISL-113",
+        ModIssueKind.MisspeltRow => "ISL-114",
+        ModIssueKind.RowsInBuiltInTable => "ISL-115",
+        ModIssueKind.NoEffect => "ISL-116",
+        ModIssueKind.NothingGivesItem => "ISL-117",
         _ => "ISL-100",
     };
 

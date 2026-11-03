@@ -256,7 +256,12 @@ internal static class AppServices
             () => sp.GetRequiredService<IWeeklyChangeReportStore>().History
                 .SelectMany(report => report.ChangedFiles).SelectMany(file => file.FieldChanges),
             Path.Combine(appDataDirectory, "Library_Meta", "Fix_Choices"),
-            sp.GetRequiredService<IBaseGameContentProvider>() as IGameAssetCatalog)));
+            sp.GetRequiredService<IBaseGameContentProvider>() as IGameAssetCatalog,
+            // Where the game says, at each start, which built-in tables got rows they can't use.
+            () => sp.GetRequiredService<IDedicatedServerProfileStore>().GetAll()
+                .Where(p => !string.IsNullOrWhiteSpace(p.InstallFolder))
+                .Select(p => DedicatedServerLayout.LogPath(p.InstallFolder, p.SavedDirSuffix, p.LogFileName))
+                .Append(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Icarus", "Saved", "Logs", "Icarus.log")))));
         // How every copy of a mod is replaced: Downloads' Activate/Reinstall, Library's Get update and Reinstall original.
         services.AddSingleton(sp => new ModReplacementService(
             sp.GetRequiredService<ILibraryRepository>(),

@@ -34,6 +34,7 @@ public static partial class ModHealthChecker
     /// <param name="gameHistory">Old values from recent game updates (build once per pass, share across mods).</param>
     /// <param name="decisions">This mod's remembered choices: a kept value stops being flagged, any other choice becomes automatic.</param>
     /// <param name="assetIssues">What the mod's cooked files use that the game doesn't have (AssetReferenceIssues.From), listed with the rest.</param>
+    /// <param name="loggedMismatches">What the game's (or server's) last Icarus.log said about built-in tables: shown as proof with rows added there.</param>
     /// <param name="fromPrebuiltPak">
     /// The mod was converted from a prebuilt pak, which ships whole tables: a shorter list or a
     /// missing field there is the old game version's, not a choice. In a hand-made mod, which
@@ -54,7 +55,8 @@ public static partial class ModHealthChecker
         IReadOnlySet<string>? rowsOtherModsAdd = null,
         IReadOnlySet<string>? rowsSeveralModsAdd = null,
         GameRowHistory? rowHistory = null,
-        IReadOnlyList<ModIssue>? assetIssues = null)
+        IReadOnlyList<ModIssue>? assetIssues = null,
+        IReadOnlyList<KnownGameBehaviour.LoggedMismatch>? loggedMismatches = null)
     {
         // Which table a link field points into, and whether a row is there (share one across a pass).
         gameIndex ??= new GameTableIndex(dataFolder);
@@ -280,16 +282,27 @@ public static partial class ModHealthChecker
                 continue;
             }
 
-            // A row no game version ever had is the mod's own, never a renamed one.
-            var hadIt = rowHistory?.Find(stale.CurrentFile, stale.ItemName);
-            if (rowHistory is { VersionCount: > 0 } && hadIt is null)
-            {
-                continue;
-            }
-
             var fields = package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, stale.CurrentFile, StringComparison.OrdinalIgnoreCase))
                 ?.FileItems.Where(i => string.Equals(i.Name, stale.ItemName, StringComparison.OrdinalIgnoreCase)).SelectMany(i => i.Fields.Keys).Distinct() ?? Enumerable.Empty<string>();
             var suggestion = baseTableCache.TryGetValue(stale.CurrentFile, out var baseTable) && baseTable is not null ? StaleItemFixSuggester.Suggest(stale.ItemName, fields, baseTable) : null;
+
+            // A row no game version ever had is the mod's own, never a renamed one; but one letter or
+            // two from a game row with that row's fields, it's that row misspelt: a misspelt name
+            // adds a new row nothing uses instead of changing the game's.
+            var hadIt = rowHistory?.Find(stale.CurrentFile, stale.ItemName);
+            if (rowHistory is { VersionCount: > 0 } && hadIt is null)
+            {
+                if (suggestion is { CanAutoApply: true })
+                {
+                    missingRows.Add(AddedRowKey(stale.CurrentFile, stale.ItemName));
+                    issues.Add(new(ModIssueKind.MisspeltRow, stale.CurrentFile, stale.ItemName, null, null, null, null, suggestion.SuggestedItemName,
+                        ModIssueFix.KeepMod, IsSure: false,
+                        $"No version of the game ever had a row called '{stale.ItemName}', but it has '{suggestion.SuggestedItemName}', a letter or two different, "
+                        + "with the fields this sets. A misspelt name doesn't change the game's row: it adds a new row nothing uses. Rename it if that row is what was meant."));
+                }
+
+                continue;
+            }
             if (suggestion is null)
             {
                 // No likely new name, but the history proves the game had this row and removed it:
@@ -344,6 +357,11 @@ public static partial class ModHealthChecker
         // Tables, fields and text keys the game can't use as the mod writes them; not on rows
         // already listed as old or missing (they go as a whole).
         issues.AddRange(FormatIssues(package, gameIndex).Where(i => !oldRows.Contains(AddedRowKey(i.CurrentFile, i.ItemName))
+            && !missingRows.Contains(AddedRowKey(i.CurrentFile, i.ItemName))));
+
+        // What the game is known (tested in game) to break on or ignore, and new items missing what
+        // every game item of their kind has.
+        issues.AddRange(BehaviourIssues(package, gameIndex, loggedMismatches, checkNewItems: !fromPrebuiltPak, rowsOtherModsAdd, rowHistory).Where(i => !oldRows.Contains(AddedRowKey(i.CurrentFile, i.ItemName))
             && !missingRows.Contains(AddedRowKey(i.CurrentFile, i.ItemName))));
 
         // What the mod's cooked files use that the game doesn't have (AssetReferenceIssues): its

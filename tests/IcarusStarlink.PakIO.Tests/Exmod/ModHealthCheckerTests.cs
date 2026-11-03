@@ -298,7 +298,7 @@ public sealed class ModHealthCheckerTests : IDisposable
 
         var report = ModHealthChecker.Check(package, _data);
 
-        Assert.DoesNotContain(report.Issues, i => i.ItemName == "My_Bag");
+        Assert.DoesNotContain(report.Issues, i => i.ItemName == "My_Bag" && i.Kind is ModIssueKind.MissingRow or ModIssueKind.MisspeltRow or ModIssueKind.OldGameRow);
         var renamed = Assert.Single(report.Issues, i => i.Kind == ModIssueKind.MissingRow);
         Assert.Equal("Wood_Floo", renamed.ItemName);
         Assert.Equal("Wood_Floor", renamed.SuggestedRow);
@@ -592,6 +592,122 @@ public sealed class ModHealthCheckerTests : IDisposable
         var cheese = table["Rows"]!.AsArray().Single(r => r!["Name"]!.ToString() == "Cheese")!;
         cheese["Manual_Tags"]!["GameplayTags"]!.AsArray().Add(new JsonObject { ["TagName"] = "FieldGuide.Food" });
         File.WriteAllText(path, table.ToJsonString());
+    }
+
+    /// <summary>
+    /// A name no game version ever had, a letter from a game row with the fields it sets: a misspelt
+    /// edit, which in game adds a useless new row instead (Hook Scout's data-mod notes). A really new
+    /// row (a name like nothing in the game) isn't flagged.
+    /// </summary>
+    [Fact]
+    public void ARowNameOneLetterFromAGameRow_IsAProbablyMisspeltEdit()
+    {
+        var history = GameRowHistory.Load(localFile: null);
+
+        var issue = Assert.Single(ModHealthChecker.Check(Mod((Items, "Wod_Floor", "Weight", 5)), _data, rowHistory: history).Issues);
+        Assert.Equal(ModIssueKind.MisspeltRow, issue.Kind);
+        Assert.Equal("Wood_Floor", issue.SuggestedRow);
+        Assert.Equal("ISL-114", issue.Code);
+        Assert.Contains(ModIssueFix.RenameRow, issue.Choices);
+        Assert.False(issue.IsSure);
+        Assert.Contains("adds a new row nothing uses", issue.Why);
+
+        Assert.DoesNotContain(ModHealthChecker.Check(Mod((Items, "MkHaters_Lantern", "Weight", 5)), _data, rowHistory: history).Issues, i => i.Kind == ModIssueKind.MisspeltRow);
+    }
+
+    /// <summary>Tested in game (Animal Talents 2.0): new rows in D_CharacterGrowth load but the game can't use them; editing its own rows is fine. The game's log is quoted as proof.</summary>
+    [Fact]
+    public void NewRowsInABuiltInTable_AreFlagged_WithTheGamesLogAsProof()
+    {
+        Write("Character/D_CharacterGrowth.json", new JsonArray { new JsonObject { ["Name"] = "Player", ["MaxLevel"] = 60 } });
+        var package = Mod(("Character-D_CharacterGrowth.json", "Player", "MaxLevel", 70), ("Character-D_CharacterGrowth.json", "MkHaters_Wolf_Growth", "MaxLevel", 50));
+        var logged = new[] { new KnownGameBehaviour.LoggedMismatch("D_CharacterGrowth", 7, 6, "line") };
+
+        var issue = Assert.Single(ModHealthChecker.Check(package, _data, loggedMismatches: logged).Issues);
+
+        Assert.Equal(ModIssueKind.RowsInBuiltInTable, issue.Kind);
+        Assert.Equal("MkHaters_Wolf_Growth", issue.ItemName);
+        Assert.Contains("level 0", issue.Why);
+        Assert.Contains("7 rows loaded, 6 built in", issue.Why);
+        Assert.Equal([ModIssueFix.RemoveRow, ModIssueFix.KeepMod], issue.Choices);
+    }
+
+    /// <summary>Tested in game: an aura stat on a placed item gives no aura (on a character's gear it isn't flagged); a bag's spoil-rate stat changes nothing.</summary>
+    [Fact]
+    public void StatsTheGameIgnores_AreListedAsChangingNothing()
+    {
+        var rows = new JsonArray
+        {
+            new JsonObject { ["Name"] = "Wood_Bed", ["Deployable"] = new JsonObject { ["RowName"] = "Bed" } },
+            new JsonObject { ["Name"] = "Envirosuit", ["Weight"] = 100 },
+        };
+        Write("Items/D_ItemsStatic.json", rows);
+        Write("Inventory/D_InventoryInfo.json", new JsonArray { new JsonObject { ["Name"] = "Food_Bag", ["Stats"] = new JsonObject() } });
+        static JsonObject Stat(string name) => new() { [$"(Value=\"{name}\")"] = 25 };
+        var package = Mod(
+            (Items, "Wood_Bed", "AdditionalStats", Stat("GrantedAuraHealthRegen_?")),
+            (Items, "Envirosuit", "AdditionalStats", Stat("GrantedAuraHealthRegen_?")),
+            ("Inventory-D_InventoryInfo.json", "Food_Bag", "Stats", Stat(KnownGameBehaviour.SpoilRateStat)));
+
+        var noEffect = ModHealthChecker.Check(package, _data).Issues.Where(i => i.Kind == ModIssueKind.NoEffect).ToList();
+
+        Assert.Equal(["Food_Bag", "Wood_Bed"], noEffect.Select(i => i.ItemName).Order());
+        Assert.Contains("no aura", noEffect.Single(i => i.ItemName == "Wood_Bed").Why);
+        Assert.Contains("spoil", noEffect.Single(i => i.ItemName == "Food_Bag").Why);
+        Assert.All(noEffect, i => Assert.Equal([ModIssueFix.KeepMod], i.Choices));
+    }
+
+    /// <summary>
+    /// A new item nothing hands out: no template at all, or a template no recipe or reward names.
+    /// (A missing Traits tag isn't flagged: 20 items in 75 real mods lack one and work, e.g. Larkwell's care packages.)
+    /// </summary>
+    [Fact]
+    public void NewItems_ThatNobodyCanGet_AreListed()
+    {
+        var rows = new JsonArray();
+        for (var i = 0; i < 5; i++)
+        {
+            rows.Add(new JsonObject { ["Name"] = $"Tool_{i}", ["Durable"] = new JsonObject { ["RowName"] = "Tool_Durability" }, ["Generated_Tags"] = Tags("Traits.Durable") });
+        }
+
+        Write("Items/D_ItemsStatic.json", rows);
+        Write("Items/D_ItemTemplate.json", new JsonArray { new JsonObject { ["Name"] = "Tool_0", ["ItemStaticData"] = new JsonObject { ["RowName"] = "Tool_0" } } });
+        var item = new JsonObject { ["RowName"] = "Tool_Durability" };
+        var template = new JsonObject { ["RowName"] = "MkHaters_Tool" };
+
+        var unmade = Mod((Items, "MkHaters_Tool", "Durable", item), (Items, "MkHaters_Tool", "Generated_Tags", Tags("Item.Tool")),
+            ("Items-D_ItemTemplate.json", "MkHaters_Tool", "ItemStaticData", template));
+        var issues = ModHealthChecker.Check(unmade, _data).Issues;
+        Assert.Contains("Nothing in this mod hands it out", Assert.Single(issues, i => i.Kind == ModIssueKind.NothingGivesItem).Why);
+        Assert.Equal("ISL-117", issues.Single(i => i.Kind == ModIssueKind.NothingGivesItem).Code);
+
+        var crafted = Mod((Items, "MkHaters_Tool", "Durable", item.DeepClone()), (Items, "MkHaters_Tool", "Generated_Tags", Tags("Traits.Durable")),
+            ("Items-D_ItemTemplate.json", "MkHaters_Tool", "ItemStaticData", template.DeepClone()),
+            (Recipes, "MkHaters_Tool_Recipe", "Outputs", new JsonArray { new JsonObject { ["Element"] = new JsonObject { ["RowName"] = "MkHaters_Tool", ["DataTableName"] = "D_ItemTemplate" }, ["Count"] = 1 } }));
+        Assert.DoesNotContain(ModHealthChecker.Check(crafted, _data).Issues, i => i.Kind == ModIssueKind.NothingGivesItem);
+
+        var noTemplate = Mod((Items, "MkHaters_Tool", "Durable", item.DeepClone()), (Items, "MkHaters_Tool", "Generated_Tags", Tags("Traits.Durable")));
+        Assert.Contains("has no item template", Assert.Single(ModHealthChecker.Check(noTemplate, _data).Issues, i => i.Kind == ModIssueKind.NothingGivesItem).Why);
+    }
+
+    /// <summary>The lines the game and the dedicated server write at start (copied from the user's server log, 2026-11-02): the last one per table counts.</summary>
+    [Fact]
+    public void TheGamesLog_TellsWhichBuiltInTablesGotRowsTheGameWasNotBuiltWith()
+    {
+        var log = Path.Combine(_data, "Icarus.log");
+        Directory.CreateDirectory(_data);
+        File.WriteAllLines(log,
+        [
+            "[2026.11.01-14.42.48:084][  0]LogTemp: Error: URecipeSetsTable row count doesn't match the generated enum, this probably means the generated code is out of date. JSON: 70 | Code: 68",
+            "[2026.11.02-15.46.53:864][  0]LogTemp: Error: UAIRelationshipsTable row count doesn't match the generated enum, this probably means the generated code is out of date. JSON: 19 | Code: 16",
+            "[2026.11.02-15.46.54:889][  0]LogTemp: Error: URecipeSetsTable row count doesn't match the generated enum, this probably means the generated code is out of date. JSON: 69 | Code: 68",
+            "[2026.11.02-15.46.55:000][  0]LogInit: something else",
+        ]);
+
+        var found = KnownGameBehaviour.ReadLoggedMismatches(log).OrderBy(f => f.Table).ToList();
+
+        Assert.Equal(["D_AIRelationships:19/16", "D_RecipeSets:69/68"], found.Select(f => $"{f.Table}:{f.Loaded}/{f.BuiltIn}"));
+        Assert.Empty(KnownGameBehaviour.ReadLoggedMismatches(Path.Combine(_data, "missing.log")));
     }
 
     private ExmodPackage Mod(params (string File, string Row, string Field, JsonNode? Value)[] changes)

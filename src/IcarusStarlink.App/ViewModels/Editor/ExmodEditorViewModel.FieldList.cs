@@ -50,7 +50,8 @@ public sealed partial class ExmodEditorViewModel
                 var baseValue = BaseValueFor(selected.CurrentFile, selected.ItemName, fieldName, item);
                 var originalValue = LookupOrFallback(_originalValuesByKey, selected.CurrentFile, selected.ItemName, fieldName, item);
                 AddFieldRow(new EditorFieldViewModel(fieldName, item.Fields, baseValue, originalValue, StatChoicesForFields(),
-                    ChoicesFor(selected.CurrentFile, fieldName, item.Fields.GetValueOrDefault(fieldName) ?? baseValue)), selected);
+                    ChoicesFor(selected.CurrentFile, fieldName, item.Fields.GetValueOrDefault(fieldName) ?? baseValue),
+                    StatWithNoEffect(selected.CurrentFile, selected.ItemName, item, fieldName)), selected);
             }
         }
         finally
@@ -204,7 +205,8 @@ public sealed partial class ExmodEditorViewModel
         var baseValue = BaseValueFor(SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
         var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
         AddFieldRow(new EditorFieldViewModel(NewFieldName, item.Fields, baseValue, originalValue, StatChoicesForFields(),
-            ChoicesFor(SelectedItem.CurrentFile, NewFieldName, parsedValue ?? baseValue)), SelectedItem).KeepInView = true;
+            ChoicesFor(SelectedItem.CurrentFile, NewFieldName, parsedValue ?? baseValue),
+            StatWithNoEffect(SelectedItem.CurrentFile, SelectedItem.ItemName, item, NewFieldName)), SelectedItem).KeepInView = true;
         ShowFields();
         RefreshAddableFields();
         Recount(SelectedItem);
@@ -253,6 +255,12 @@ public sealed partial class ExmodEditorViewModel
         if (row is not null && row.FileItems.Any(i => Same(i.Name, NewItemName)))
         {
             StatusMessage = $"'{NewItemName}' already exists in '{currentFile}'.";
+            return;
+        }
+
+        if (NewRowRefused(currentFile, NewItemName) is { } refused)
+        {
+            StatusMessage = refused;
             return;
         }
 

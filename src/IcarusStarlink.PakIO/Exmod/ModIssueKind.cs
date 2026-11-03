@@ -69,4 +69,20 @@ public enum ModIssueKind
     /// ("&lt;Row&gt;-&lt;Field&gt;", SuggestedRow); the words stay.
     /// </summary>
     SharedTextKey,
+
+    /// <summary>
+    /// A new row whose name no game version ever had, one or two letters from a game row with the
+    /// same fields: most likely that row misspelt. A misspelt name doesn't change the game's row, it
+    /// adds a new one nothing uses. SuggestedRow is the game row.
+    /// </summary>
+    MisspeltRow,
+
+    /// <summary>Rows added to a table the game has built into its code, where it can't use new rows (KnownGameBehaviour.BuiltInTables).</summary>
+    RowsInBuiltInTable,
+
+    /// <summary>A value the game is known (tested in game) to ignore where it is: an aura stat on a placed item, a bag's spoil-rate stat. Only listed.</summary>
+    NoEffect,
+
+    /// <summary>A new item nothing in the mod hands out (no recipe, workshop item, reward…), or with no item template at all. Only listed.</summary>
+    NothingGivesItem,
 }

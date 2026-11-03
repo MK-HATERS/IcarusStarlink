@@ -27,9 +27,10 @@ namespace IcarusStarlink.App.Services;
 /// public call takes the same lock, so the lazily-filled table index is never filled by two
 /// threads at once, and two writers never back up and rewrite the same .EXMOD together.
 /// </summary>
+/// <param name="gameLogs">The Icarus.log files to read the game's start-up complaints from (the dedicated servers', the game's): shown as proof with rows a mod adds where the game can't use them.</param>
 public sealed class ModFixService(
     ILibraryRepository repository, string dataFolder, Func<IEnumerable<FieldChange>>? gameHistory = null, string? decisionsDirectory = null,
-    IGameAssetCatalog? gameAssets = null)
+    IGameAssetCatalog? gameAssets = null, Func<IEnumerable<string>>? gameLogs = null)
     : IcarusStarlink.Core.Memory.IIdleReleasable
 {
     private static readonly JsonSerializerOptions DecisionJson = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
@@ -120,8 +121,36 @@ public sealed class ModFixService(
                 rowsOtherModsAdd: libraryAddedRows,
                 rowsSeveralModsAdd: (libraryAddedRows as LibraryAddedRowSet)?.AddedBySeveral,
                 rowHistory: RowHistory,
-                assetIssues: AssetIssues(folderName, assetPaths, (libraryAddedRows as LibraryAddedRowSet)?.Packages));
+                assetIssues: AssetIssues(folderName, assetPaths, (libraryAddedRows as LibraryAddedRowSet)?.Packages),
+                loggedMismatches: LoggedMismatches());
         }
+    }
+
+    private IReadOnlyList<KnownGameBehaviour.LoggedMismatch> _logged = [];
+    private string _loggedStamp = "";
+
+    /// <summary>What the newest of the game's logs said about built-in tables, re-read when a log changes. Under _gate.</summary>
+    private IReadOnlyList<KnownGameBehaviour.LoggedMismatch> LoggedMismatches()
+    {
+        var logs = (gameLogs?.Invoke() ?? []).Where(File.Exists).Select(p => (Path: p, Written: File.GetLastWriteTimeUtc(p))).OrderBy(l => l.Written).ToList();
+        var stamp = string.Join("|", logs.Select(l => $"{l.Path}@{l.Written.Ticks}"));
+        if (stamp != _loggedStamp)
+        {
+            // The newest log's word per table: an older start may have had other mods on.
+            var byTable = new Dictionary<string, KnownGameBehaviour.LoggedMismatch>(StringComparer.OrdinalIgnoreCase);
+            foreach (var log in logs)
+            {
+                foreach (var found in KnownGameBehaviour.ReadLoggedMismatches(log.Path))
+                {
+                    byTable[found.Table] = found;
+                }
+            }
+
+            _logged = [.. byTable.Values];
+            _loggedStamp = stamp;
+        }
+
+        return _logged;
     }
 
     /// <summary>What the mod's cooked files use that the game doesn't have (nothing when the game's content can't be read). Under _gate.</summary>

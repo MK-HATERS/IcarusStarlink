@@ -79,6 +79,25 @@ public sealed class ExmodEditorViewModelTests : IDisposable
         Assert.False(editor.ShowPickItemPrompt); // nothing listed to pick
     }
 
+    /// <summary>Tested in game (Animal Talents 2.0): the game can't use rows a mod adds to D_CharacterGrowth, so a new one is refused with why; its own rows can still be changed.</summary>
+    [Fact]
+    public void AddItem_ANewRowInATableTheGameHasBuiltIn_IsRefused_ButItsOwnRowsAreFine()
+    {
+        Write("Character/D_CharacterGrowth.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Player","MaxLevel":60}]}""");
+        var editor = OpenMod();
+        editor.NewItemCurrentFile = "Character/D_CharacterGrowth.json";
+        editor.NewItemName = "MkHaters_Wolf_Growth";
+
+        editor.AddItemCommand.Execute(null);
+
+        Assert.Single(editor.Items);
+        Assert.StartsWith("Not added: The game can't use rows a mod adds", editor.StatusMessage);
+
+        editor.NewItemName = "Player";
+        editor.AddItemCommand.Execute(null);
+        Assert.Equal(2, editor.Items.Count);
+    }
+
     [Fact]
     public void AddItem_TheSameRowInAnotherCase_IsRefused_NotAddedASecondTime()
     {

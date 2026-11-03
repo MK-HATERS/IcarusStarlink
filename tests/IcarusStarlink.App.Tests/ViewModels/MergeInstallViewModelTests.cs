@@ -875,7 +875,7 @@ public sealed class MergeInstallViewModelTests : IDisposable
         libraryRepository.FolderPaths["AddOn"] = CreateExmodFolder("AddOn",
             ItemsMod("AddOn", """{"Name": "Canteen", "Consumable": {"RowName": "Lemonade", "DataTableName": "D_Consumable"}}"""), out _);
         libraryRepository.FolderPaths["DrinksMod"] = CreateExmodFolder("DrinksMod",
-            ItemsMod("DrinksMod", """{"Name": "Lemonade_Item", "Weight": 1}""", drinks: """{"Name": "Lemonade"}"""), out _);
+            ItemsMod("DrinksMod", """{"Name": "Bread", "Weight": 1}""", drinks: """{"Name": "Lemonade"}"""), out _);
         var vm = CreateViewModel(libraryRepository: libraryRepository, dataFolder: WriteGameData(), withHealthCheck: true);
         vm.Queue.Add(libraryRepository.AllEntries[0]);
 

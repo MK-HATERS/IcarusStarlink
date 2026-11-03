@@ -108,6 +108,8 @@ public static partial class GameItemEditor
         ["RequiresEnergy"] = ("Requires energy", "On = it needs energy to work: power, or the fuel it burns (the stone furnace has this on)."),
         ["Destroyed_At_Zero"] = ("Destroyed at zero durability", "On = it's destroyed when its durability runs out."),
         ["RemoveOnly"] = ("Take out only", "On = things can only be taken out of this inventory, not put in."),
+        ["bCanBeObstructed"] = ("Blocked by walls", "On = walls stop its heat (the game's own). Off = heat goes through walls in every direction: in game a large heater then warmed up to 100 m away and overheated players 35 m away."),
+        ["bAllowAutoRestart"] = ("Restarts by itself", "On = it switches back on when its supply comes back. Off = once it has switched itself off for lack of supply, someone has to switch it on again."),
     };
 
     /// <summary>

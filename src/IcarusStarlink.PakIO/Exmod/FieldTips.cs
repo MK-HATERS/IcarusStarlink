@@ -131,11 +131,18 @@ public static class FieldTips
         // Decay (D_Decayable)
         ["SpoiledItem"] = ("Spoils into", "What it turns into once it spoils. Empty = it just goes away."),
 
+        // Auras (D_ModifierStates), tested in game by MkHaters' Hook Scout (2026-11-01)
+        ["AuraRange"] = ("Aura range", "How far the aura reaches, in centimetres (1000 = 10 m). A mod's range works: a heater's warmth set to 3000 reached a player 26 m away. Auras reach through walls."),
+
         // Power, water, generators
         ["GenerationRate"] = ("Output rate", "How much it makes. Higher = more."),
         ["ResourceFlowRate"] = ("Flow rate", "How fast power or water moves through it. Higher = more."),
         ["AutoActivate"] = ("Starts by itself", "On = it starts working as soon as it can."),
-        ["RequiresEnergy"] = ("Needs power", "On = it only works with power."),
+        // Not "needs power": it's on by default, and the stone furnace keeps it on while burning fuel.
+        ["RequiresEnergy"] = ("Requires energy", "On = it needs energy to work: power, or the fuel it burns (the stone furnace has this on)."),
+        // Tested in game (MkHaters' Hook Scout, 2026-10-28): a water trough that joined power before water switched off for good.
+        ["AutoShutoffFlowPercent"] = ("Turns off below", "It switches itself off when it gets less than this share of what it needs (99 = almost any shortfall). Seen in game: a device needing power and water that got one before the other switched off and stayed off."),
+        ["bAllowAutoRestart"] = ("Restarts by itself", "On = it switches back on when its supply comes back. Off = once it has switched itself off for lack of supply, someone has to switch it on again."),
         ["bRequiresShelter"] = ("Needs shelter", "On = it only works indoors or under cover."),
 
         // Farming (D_FarmingSeeds)
@@ -143,8 +150,11 @@ public static class FieldTips
         ["FatigueModifier"] = ("Tired plant buff", "Links to the buff the plant gets after each harvest: slower growth and less yield until it's replanted."),
 
         // Heat (D_Thermal)
-        ["InnerRadius"] = ("Full heat range", "Within this distance you get the full warming or cooling. Higher = bigger."),
-        ["OuterRadius"] = ("Heat reach", "How far its warming or cooling reaches at all. Higher = further."),
+        // Heat tested in game by MkHaters' Hook Scout (2026-11-01): a campfire at 600 / 1500 gave full heat to 5 m, some at 10 m, none at 15 m.
+        ["InnerRadius"] = ("Full heat range", "Within this distance you get the full warming or cooling, in centimetres (600 = 6 m). Higher = bigger. Walls stop it unless Blocked by walls is off."),
+        ["OuterRadius"] = ("Heat reach", "How far its warming or cooling reaches at all, in centimetres (1500 = 15 m). Higher = further. Seen in game: a very wide heater gave players overheating 35 m away."),
+        ["bCanBeObstructed"] = ("Blocked by walls", "On = walls stop its heat (the game's own). Off = heat goes through walls in every direction: in game a large heater then warmed up to 100 m away and overheated players 35 m away."),
+        ["EffectFalloff"] = ("Heat falloff", "How the heat fades between full range and reach. Higher keeps the full heat further out (2 kept more than 1 in game)."),
         ["TemperatureChange"] = ("Temperature change", "How much it warms (above 0) or cools (below 0) around it."),
 
         // Armour (D_Armour)

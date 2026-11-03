@@ -202,10 +202,12 @@ public sealed partial class EditorFieldViewModel : ObservableObject
     /// </summary>
     public bool HasUnwrittenText => _textNotWritten || Stats.Any(s => !s.IsDropped && s.Error is not null);
 
+    /// <param name="statWithNoEffect">For a stats list: why a stat would do nothing on this row (KnownGameBehaviour, tested in game), or null; "Add stat" refuses it with that reason.</param>
     public EditorFieldViewModel(string fieldName, Dictionary<string, JsonNode?> fields, JsonNode? baseValue, JsonNode? originalValue, IReadOnlyList<StatChoice>? statChoices = null,
-        FieldChoices? choices = null)
+        FieldChoices? choices = null, Func<string, string?>? statWithNoEffect = null)
     {
         FieldName = fieldName;
+        _statWithNoEffect = statWithNoEffect;
         _fields = fields;
         _baseValue = baseValue;
         _originalValue = originalValue;
@@ -243,6 +245,11 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         else if (Kind == EditorFieldKind.Choice)
         {
             Hint = WithTip("The values the game uses for this.");
+        }
+        else if (Kind == EditorFieldKind.Raw && baseValue is JsonArray && (current ?? baseValue) is JsonArray)
+        {
+            // A list on a game row (benches, tags, allowed seeds…): the mod's list is the whole list in game.
+            Hint = WithTip("A mod's list replaces the game's whole list: keep the game's entries and add yours, or the ones left out are gone in game.");
         }
 
         if (Kind == EditorFieldKind.Stats)
@@ -424,8 +431,15 @@ public sealed partial class EditorFieldViewModel : ObservableObject
         ValueText = obj.ToJsonString(ExmodJson.DisplayOptions);
     }
 
+    private readonly Func<string, string?>? _statWithNoEffect;
+
     private string? AddStat(StatChoice choice)
     {
+        if (_statWithNoEffect?.Invoke(choice.Name) is { } why)
+        {
+            return why;
+        }
+
         var key = GameStats.StatKeyFor(choice.Name);
         if (Stats.FirstOrDefault(s => s.Key == key) is { } existing)
         {

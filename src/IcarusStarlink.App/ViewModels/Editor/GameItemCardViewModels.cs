@@ -438,6 +438,12 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
             return "That stat is already here.";
         }
 
+        // Tested in game: some stats do nothing where they'd go (a storage's spoil rate).
+        if (KnownGameBehaviour.StatWithNoEffect(Section.Table, group, stat.Name, placedItem: false) is { } why)
+        {
+            return why;
+        }
+
         Add(new GameItemFieldViewModel(new EditableField(new EditPath(group, [key]), stat.Label, $"Added by you: a {stat.Kind}. Higher = more, lower = less; 0 = no bonus. ↺ takes it out again.", EditableKind.Number, null, null, false))
         {
             ValueText = "0",

@@ -391,6 +391,10 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Fields the game doesn't have**: a typo, or a field a game update renamed or removed, so the change does nothing. When only the case differs, matching the game's spelling is a sure fix. A close name is offered as a suggestion; taking the field out changes nothing in game.
             - **Values of the wrong kind**: text where the game has a number, say; the game may ignore it. Only listed.
             - **Text under another row's key**: a row copied without giving its name or description its own text key, so the game can show one text in place of the other. **Give it its own key** keeps the words.
+            - **Probably misspelt row names**: a row name no version of the game ever had, a letter or two from one of its rows with the same fields. A misspelt name doesn't change the game's row, it adds a new row nothing uses. **Rename** it if the game's row is what was meant.
+            - **New rows the game can't use**: rows added to a table the game has built into its code (D_CharacterGrowth). Tested in game: tames pointed at such a row showed level 0 and "-1" XP. When a dedicated server's log says the same at its start, that's quoted as proof. The mod editor won't add a new row there.
+            - **Changes the game ignores**: tested in game, these do nothing where the mod puts them: an aura stat on a placed item (beds, heaters: only characters get auras from stats) and a spoil-rate stat on a bag or storage. Only listed; **Add stat** refuses them in both editors.
+            - **New items nobody can get**: a new item with no item template, or one nothing in the mod hands out (no recipe, workshop item, reward or loot). Unless another mod does, players can't get it. Only listed.
 
             Every one shows the mod's value next to the game's, with the suggested fix already chosen; change any, or set a whole kind at once. **Apply** backs the mod up first (**Restore latest backup** undoes it). The author's own changes are never listed or touched.
 

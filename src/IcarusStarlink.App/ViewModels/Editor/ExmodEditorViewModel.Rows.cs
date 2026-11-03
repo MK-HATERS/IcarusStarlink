@@ -115,6 +115,30 @@ public sealed partial class ExmodEditorViewModel
             : $"Took {removed} row(s) out of this mod. Undo (Ctrl+Z) puts them back; Save to keep it.";
     }
 
+    /// <summary>
+    /// Why a new row can't go into this table (the game has it built into its code and can't use rows
+    /// a mod adds: KnownGameBehaviour, tested in game), or null. A row the game already has is an edit, never refused.
+    /// </summary>
+    private string? NewRowRefused(string currentFile, string rowName)
+    {
+        if (!KnownGameBehaviour.BuiltInTables.TryGetValue(GameTableIndex.TableNameOf(currentFile), out var builtIn) || !builtIn.NewRowsBreak)
+        {
+            return null;
+        }
+
+        JsonObject? gameRow;
+        try
+        {
+            gameRow = GameTables.Row(currentFile, rowName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or FormatException)
+        {
+            gameRow = null;
+        }
+
+        return gameRow is null ? $"Not added: {builtIn.What}" : null;
+    }
+
     /// <summary>Ctrl+D — clones the selected item's own fields into a new item under the same file, named "&lt;Name&gt;_Copy" (or "_Copy2"/"_Copy3"/... if that's already taken).</summary>
     [RelayCommand]
     private void DuplicateItem()
@@ -138,6 +162,12 @@ public sealed partial class ExmodEditorViewModel
         {
             newName = $"{sourceItem.Name}_Copy{suffix}";
             suffix++;
+        }
+
+        if (NewRowRefused(row.CurrentFile, newName) is { } refused)
+        {
+            StatusMessage = refused;
+            return;
         }
 
         PushUndoSnapshot();

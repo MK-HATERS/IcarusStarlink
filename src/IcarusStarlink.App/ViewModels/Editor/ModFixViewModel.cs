@@ -91,6 +91,9 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
         : Issue.Kind == ModIssueKind.UnknownTable ? $"names '{Issue.CurrentFile}'"
         : Issue.Kind == ModIssueKind.UnknownField ? $"sets '{Issue.FieldName}' to {ModFixViewModel.Describe(Issue.ModValue)}"
         : Issue.Kind == ModIssueKind.SharedTextKey ? TextAndKey(Issue.ModValue)
+        : Issue.Kind == ModIssueKind.MisspeltRow ? $"adds '{Issue.ItemName}'"
+        : Issue.Kind == ModIssueKind.RowsInBuiltInTable ? $"adds '{Issue.ItemName}'"
+        : Issue.Kind == ModIssueKind.NothingGivesItem ? $"adds the item '{Issue.ItemName}'"
         : ModFixViewModel.OnlyIn(Issue.ModValue, Issue.GameValue) ?? ModFixViewModel.Describe(Issue.ModValue);
 
     /// <summary>"'Rope' under key Item_Fiber-DisplayName".</summary>
@@ -106,11 +109,16 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
         : Issue.Kind == ModIssueKind.UnknownTable ? (Issue.SuggestedRow is null ? "has no such table" : $"has it as '{Issue.SuggestedRow}'")
         : Issue.Kind == ModIssueKind.UnknownField ? (Issue.SuggestedRow is null ? "has no such field" : $"calls it '{Issue.SuggestedRow}'")
         : Issue.Kind == ModIssueKind.SharedTextKey ? $"another row has other words under that key; its own is {Issue.SuggestedRow}"
+        : Issue.Kind == ModIssueKind.MisspeltRow ? $"has '{Issue.SuggestedRow}'"
+        : Issue.Kind == ModIssueKind.RowsInBuiltInTable ? "can't use new rows in this table"
+        : Issue.Kind == ModIssueKind.NoEffect ? "ignores it here"
+        : Issue.Kind == ModIssueKind.NothingGivesItem ? "nothing hands it out"
         : ModFixViewModel.OnlyIn(Issue.GameValue, Issue.ModValue) ?? ModFixViewModel.Describe(Issue.GameValue);
 
     /// <summary>A renamed row has no values to compare, only the names; nor has a link with no game value to go back to, nor a table, field or text key the game reads under another name.</summary>
     public bool ShowValues => Issue.Kind is not (ModIssueKind.MissingRow or ModIssueKind.OldGameRow or ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart
-            or ModIssueKind.UnknownTable or ModIssueKind.UnknownField or ModIssueKind.SharedTextKey)
+            or ModIssueKind.UnknownTable or ModIssueKind.UnknownField or ModIssueKind.SharedTextKey
+            or ModIssueKind.MisspeltRow or ModIssueKind.RowsInBuiltInTable or ModIssueKind.NothingGivesItem)
         && !(Issue.Kind == ModIssueKind.BrokenLink && Issue.GameValue is null);
 
     /// <summary>"ASS/DEP/SM_X.uasset" or "/Game/ASS/DEP/M_X" → "SM_X" / "M_X".</summary>
@@ -508,6 +516,11 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.UnknownField => -5,
         ModIssueKind.WrongType => -4,
         ModIssueKind.SharedTextKey => 3,
+        // What breaks in game first, then what does nothing.
+        ModIssueKind.RowsInBuiltInTable => -7,
+        ModIssueKind.MisspeltRow => -1,
+        ModIssueKind.NoEffect => 1,
+        ModIssueKind.NothingGivesItem => 2,
         _ => 4,
     };
 
@@ -526,6 +539,10 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.UnknownField => "Fields the game doesn't have",
         ModIssueKind.WrongType => "Values of the wrong kind",
         ModIssueKind.SharedTextKey => "Text under another row's key",
+        ModIssueKind.MisspeltRow => "Probably misspelt row names",
+        ModIssueKind.RowsInBuiltInTable => "New rows the game can't use",
+        ModIssueKind.NoEffect => "Changes the game ignores",
+        ModIssueKind.NothingGivesItem => "New items nobody can get",
         _ => kind.ToString(),
     };
 
@@ -544,13 +561,18 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.UnknownField => "The mod sets fields these tables don't have, so the game ignores them and the change does nothing: a typo, or a field a game update renamed or removed. Where only the case differs, the fix matches the game's spelling. A close name is offered, but check it is what the author meant. Taking a field out changes nothing in game.",
         ModIssueKind.WrongType => "The mod sets these to another kind of value than the game has (text where the game has a number, say), so the game may ignore them. Nothing to fix automatically; the mod's author has to correct it.",
         ModIssueKind.SharedTextKey => "Each text in the game has its own key (row name and field). These texts use another row's key with other words, usually a row copied without changing its key, so the game can show one text in place of the other. The fix gives each its own key; the words stay the same.",
+        ModIssueKind.MisspeltRow => "A row name the game never had, a letter or two from one of its rows with the same fields. A misspelt name doesn't change the game's row: the game adds a new row that nothing uses, so the change does nothing. Rename it to the game's row if that's what was meant; keep it if it really is a new row.",
+        ModIssueKind.RowsInBuiltInTable => "The game has some tables built into its code and can't use rows a mod adds to them. Tested in game (MkHaters' Animal Talents): tames pointed at a new growth row showed level 0 and \"-1\" XP. Changing the game's own rows there works; adding rows needs a UE4SS part instead.",
+        ModIssueKind.NoEffect => "Tested in game (MkHaters' Hook Scout): the game doesn't use these values where the mod puts them, so they change nothing. Only the mod's author can do it another way (most need a UE4SS part).",
+        ModIssueKind.NothingGivesItem => "New items only reach players through an item template that a recipe, the workshop, a reward or loot hands out. Nothing in these mods does, so unless another mod does, nobody can get them.",
         _ => "",
     };
 
     internal static string ChoiceLabel(ModIssueFix fix, ModIssue issue) => fix switch
     {
         ModIssueFix.UseGame => issue.Kind is ModIssueKind.SameAsGame or ModIssueKind.UnknownField ? "Take it out" : "Use the game's",
-        ModIssueFix.KeepMod => issue.Kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart or ModIssueKind.UnknownTable or ModIssueKind.WrongType ? "Leave it as it is" : "Keep the mod's",
+        ModIssueFix.KeepMod => issue.Kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart or ModIssueKind.UnknownTable or ModIssueKind.WrongType
+            or ModIssueKind.NoEffect or ModIssueKind.NothingGivesItem or ModIssueKind.RowsInBuiltInTable ? "Leave it as it is" : "Keep the mod's",
         ModIssueFix.Merge => "Merge both",
         ModIssueFix.RenameRow => $"Rename to {issue.SuggestedRow}",
         ModIssueFix.RemoveRow => "Remove the row",

@@ -127,11 +127,24 @@ public sealed partial class ExmodEditorViewModel
         RefreshBaseDiff();
         var baseValue = BaseValueFor(selected.CurrentFile, selected.ItemName, field.FieldName, item);
         AddFieldRow(new EditorFieldViewModel(field.FieldName, item.Fields, baseValue, value, StatChoicesForFields(),
-            ChoicesFor(selected.CurrentFile, field.FieldName, value)), selected).KeepInView = true;
+            ChoicesFor(selected.CurrentFile, field.FieldName, value),
+            StatWithNoEffect(selected.CurrentFile, selected.ItemName, item, field.FieldName)), selected).KeepInView = true;
         ShowFields();
         AddFieldSearch = "";
         RefreshAddableFields();
         Recount(selected);
         StatusMessage = $"Added {field.Label} with the game's value. Change it here; left as it is, it changes nothing in game.";
+    }
+
+    /// <summary>
+    /// For a stats list on this row: why a stat would do nothing there (KnownGameBehaviour, tested in
+    /// game: an aura stat on a placed item, a storage's spoil rate), so "Add stat" can say so instead.
+    /// </summary>
+    private Func<string, string?> StatWithNoEffect(string currentFile, string itemName, ExmodFileItem item, string fieldName)
+    {
+        var table = GameTableIndex.TableNameOf(currentFile);
+        var deployable = item.Fields.GetValueOrDefault("Deployable") ?? BaseValueFor(currentFile, itemName, "Deployable", item);
+        var placed = deployable?["RowName"] is JsonValue v && v.TryGetValue<string>(out var row) && row is { Length: > 0 } and not "None";
+        return stat => KnownGameBehaviour.StatWithNoEffect(table, fieldName, stat, placed);
     }
 }
