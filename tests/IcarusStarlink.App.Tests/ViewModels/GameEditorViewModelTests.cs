@@ -397,6 +397,131 @@ public sealed class GameEditorViewModelTests : IDisposable
         Assert.Equal("50", Weight(vm).ValueText);
     }
 
+    /// <summary>A placeable item with a spoiling row: its on/off fields (only the ones with plain meaning) and what it spoils into.</summary>
+    private void WriteDeployableStone()
+    {
+        Write("Items/D_ItemsStatic.json", """
+            {"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"},"Decayable":{"RowName":"None","DataTableName":"D_Decayable"},"Armour":{"RowName":"None","DataTableName":"D_Armour"},"Deployable":{"RowName":"None","DataTableName":"D_Deployable"}},"Rows":[
+              {"Name":"Envirosuit","Itemable":{"RowName":"Item_Envirosuit"},"Decayable":{"RowName":"Decay_General"},"Armour":{"RowName":"IO_Undersuit"}},
+              {"Name":"Stone","Itemable":{"RowName":"Item_Stone"},"Decayable":{"RowName":"Decay_Stone"},"Deployable":{"RowName":"Deploy_Stone"}}
+            ]}
+            """);
+        Write("Traits/D_Deployable.json", """{"RowStruct":"S","Defaults":{"EffectedByWeather":true,"bMustBeOutside":false,"bUseActorPooling":true},"Rows":[{"Name":"Deploy_Stone","bMustBeOutside":true}]}""");
+        Write("Traits/D_Decayable.json", """{"RowStruct":"S","Defaults":{"SpoiledItem":{"RowName":"None","DataTableName":"D_ItemTemplate"}},"Rows":[{"Name":"Decay_General","DecayTime":300},{"Name":"Decay_Stone","DecayTime":300,"SpoiledItem":{"RowName":"Stone"}}]}""");
+        Write("Items/D_ItemTemplate.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone","ItemStaticData":{"RowName":"Stone"}},{"Name":"Envirosuit","ItemStaticData":{"RowName":"Envirosuit"}}]}""");
+    }
+
+    /// <summary>On/off fields are tick boxes (only ones with plain meaning: not actor pooling), the table's default counts, and turning one off is saved as false.</summary>
+    [Fact]
+    public void OnOffFields_AreTickBoxes_AndSaveAsTrueOrFalse()
+    {
+        WriteDeployableStone();
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Stone");
+
+        var placing = vm.Sections.Single(s => s.Section.Key == "Deployable");
+        Assert.Equal(["Must be outside", "Weather damages it"], placing.Fields.Where(f => f.IsToggle).Select(f => f.Label).Order());
+        var weather = placing.Fields.Single(f => f.Label == "Weather damages it");
+        Assert.True(weather.IsOn);
+        Assert.Equal("game: on (table default)", weather.GameText);
+
+        weather.IsOn = false;
+        Assert.Equal(1, vm.PendingCount);
+        vm.NewModName = "Weatherproof";
+        vm.SaveCommand.Execute(null);
+
+        var row = Read(_library, Assert.Single(_library.GetAll()).FolderName).Rows.Single(r => r.CurrentFile == "Traits-D_Deployable.json").FileItems.Single();
+        Assert.Equal("Deploy_Stone", row.Name);
+        Assert.False(row.Fields["EffectedByWeather"]!.GetValue<bool>());
+    }
+
+    /// <summary>What it spoils into is a drop-down of item templates by their in-game names; a name that isn't a row can't be saved.</summary>
+    [Fact]
+    public void SpoilsInto_IsADropDown_OfRealRows()
+    {
+        WriteDeployableStone();
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Stone");
+
+        var spoils = vm.Sections.Single(s => s.Section.Key == "Decayable").Fields.Single(f => f.Label == "Spoils into");
+        Assert.True(spoils.IsLink);
+        Assert.Equal(["None", "Stone", "Envirosuit"], spoils.LinkChoices!.Select(c => c.Name));
+        Assert.Equal("Xigo Envirosuit  (Envirosuit)", spoils.LinkChoices!.Single(c => c.Name == "Envirosuit").Display);
+
+        spoils.LinkValue = null; // a search typed into the drop-down that matches nothing
+        Assert.Equal("Stone", spoils.ValueText);
+        spoils.ValueText = "Not_A_Row";
+        Assert.Equal("Pick one from the list.", spoils.Error);
+        spoils.LinkValue = "envirosuit";
+        Assert.Null(spoils.Error);
+        Assert.Equal("Envirosuit", spoils.NewValue()!.GetValue<string>()); // as the game spells it
+    }
+
+    private void WriteEnvirosuitRecipe() => Write("Crafting/D_ProcessorRecipes.json", """
+        {"RowStruct":"S","Defaults":{},"Rows":[
+          {"Name":"Envirosuit_Recipe","RecipeSets":[{"RowName":"Character","DataTableName":"D_RecipeSets"}],
+           "Inputs":[{"Element":{"RowName":"Stone","DataTableName":"D_ItemsStatic"},"Count":4},{"Element":{"RowName":"Leather","DataTableName":"D_ItemsStatic"},"Count":2}],
+           "Outputs":[{"Element":{"RowName":"Envirosuit","DataTableName":"D_ItemTemplate"},"Count":1}]}
+        ]}
+        """);
+
+    /// <summary>An ingredient's ✕ takes it out, "Add ingredient" adds one: Save writes the recipe's whole new list, numbers as typed.</summary>
+    [Fact]
+    public void Ingredients_TakenOutAndAdded_SaveAsTheWholeNewList()
+    {
+        WriteEnvirosuitRecipe();
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        var recipe = vm.Sections.Single(s => s.Section.Key == "Recipe:Envirosuit_Recipe");
+        Assert.True(recipe.CanEditIngredients);
+
+        var leather = recipe.Fields.Single(f => f.Label == "Needs Leather");
+        leather.DropCommand.Execute(null);
+        Assert.False(leather.ShowDrop);
+        recipe.Fields.Single(f => f.Label == "Needs Stone").ValueText = "3";
+
+        recipe.IngredientPicker!.ItemSearch = "stone";
+        recipe.IngredientPicker.SelectedItem = recipe.IngredientPicker.MatchingItems.Single();
+        recipe.IngredientPicker.AddItemCommand.Execute(null);
+        Assert.Equal("Already an ingredient: change its number instead.", recipe.IngredientPicker.ItemError);
+
+        recipe.IngredientPicker.ItemSearch = "xigo";
+        recipe.IngredientPicker.SelectedItem = recipe.IngredientPicker.MatchingItems.Single();
+        recipe.IngredientPicker.AddItemCommand.Execute(null);
+        recipe.Fields.Single(f => f.Label == "Needs Xigo Envirosuit").ValueText = "5";
+
+        Assert.Equal(3, vm.PendingCount);
+        Assert.Contains(vm.PendingChanges, c => c.Text.EndsWith("Needs Leather: taken out", StringComparison.Ordinal));
+
+        vm.NewModName = "Cheaper suit";
+        vm.SaveCommand.Execute(null);
+
+        var inputs = (System.Text.Json.Nodes.JsonArray)Read(_library, Assert.Single(_library.GetAll()).FolderName)
+            .Rows.Single(r => r.CurrentFile == "Crafting-D_ProcessorRecipes.json").FileItems.Single().Fields["Inputs"]!;
+        Assert.Equal(["Stone:3", "Envirosuit:5"], inputs.Select(e => $"{e!["Element"]!["RowName"]}:{e["Count"]}"));
+        Assert.Equal("D_ItemsStatic", inputs[1]!["Element"]!["DataTableName"]!.GetValue<string>());
+    }
+
+    /// <summary>↺ on a taken-out ingredient puts it back (and so does its × in Your changes): nothing left to save.</summary>
+    [Fact]
+    public void ATakenOutIngredient_GoesBackIn()
+    {
+        WriteEnvirosuitRecipe();
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        var leather = vm.Sections.Single(s => s.Section.Key == "Recipe:Envirosuit_Recipe").Fields.Single(f => f.Label == "Needs Leather");
+
+        leather.DropCommand.Execute(null);
+        Assert.True(leather.DiffersFromGame);
+        leather.UseGameValueCommand.Execute(null);
+        Assert.Equal(0, vm.PendingCount);
+
+        leather.DropCommand.Execute(null);
+        vm.PendingChanges.Single().Field.UndoChangeCommand.Execute(null);
+        Assert.False(leather.IsDropped);
+        Assert.Equal(0, vm.PendingCount);
+    }
+
     /// <summary>Found by a bulk edit on the 2026-11-03 game data: 47 items' text ends in a space ("…exposure resistance. "), and opening one showed a change nobody made.</summary>
     [Fact]
     public void GameTextEndingInASpace_IsNotAChange()

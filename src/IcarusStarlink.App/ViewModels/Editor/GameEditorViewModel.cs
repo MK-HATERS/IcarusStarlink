@@ -345,7 +345,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
         var work = edited
             .Select(e => (e.Name,
-                Changes: e.Cards.SelectMany(s => s.Fields.Where(f => f.IsPending).Select(f => new GameItemChange(s.Section.Key, f.Field.Path, f.NewValue()))).ToList(),
+                Changes: e.Cards.SelectMany(s => s.Changes()).ToList(),
                 OwnCopies: e.Cards.Where(s => s.IsShared && s.OwnCopy).Select(s => s.Section.Key).ToHashSet()))
             .Where(w => w.Changes.Count > 0)
             .ToList();
@@ -574,7 +574,9 @@ public sealed partial class GameEditorViewModel : ObservableObject
         var shown = _shownItem?.Name;
         _game = null;
         _allItems = [];
+        _itemChoices = null;
         _statChoices = null;
+        _linkChoices.Clear();
         QuickStarts.Clear();
         EnsureLoaded();
 

@@ -115,19 +115,39 @@ public sealed partial class GameEditorViewModel
     private List<GameItemSectionViewModel> BuildCards(GameTableIndex game, GameItemView view)
     {
         _statChoices ??= GameStats.StatChoices(game);
-        return [.. view.Sections.Select(section => new GameItemSectionViewModel(section, _statChoices, UpdatePending, game))];
+        return [.. view.Sections.Select(section => new GameItemSectionViewModel(section, _statChoices, UpdatePending, game, LinkChoicesFor, ItemChoices))];
+    }
+
+    /// <summary>The game's items, for a recipe card's "Add ingredient" (rebuilt with the list on Refresh game data).</summary>
+    private IReadOnlyList<ItemChoice> ItemChoices() => _itemChoices ??= [.. _allItems.Select(i => i.Info.Item)];
+
+    private IReadOnlyList<ItemChoice>? _itemChoices;
+
+    /// <summary>Table → the rows its drop-downs offer, built once per table (2,000+ item templates).</summary>
+    private readonly Dictionary<string, IReadOnlyList<LinkChoice>> _linkChoices = new(StringComparer.OrdinalIgnoreCase);
+
+    private IReadOnlyList<LinkChoice> LinkChoicesFor(string table)
+    {
+        if (!_linkChoices.TryGetValue(table, out var choices))
+        {
+            choices = Game is { } game ? [.. GameItemCatalog.LinkChoices(game, table).Select(c => new LinkChoice(c.Name, c.Display))] : [];
+            _linkChoices[table] = choices;
+        }
+
+        return choices;
     }
 
     /// <summary>Puts what was typed on <paramref name="from"/> (and each card's own-copy choice) onto the same item's new cards; returns how many typed values had no place there.</summary>
     private static int CarryTyped(IReadOnlyList<GameItemSectionViewModel> from, IReadOnlyList<GameItemSectionViewModel> to)
     {
-        var typed = from.SelectMany(s => s.Fields.Where(f => f.IsTyped).Select(f => (Section: s.Section.Key, Path: f.Field.Path.Key, f.ValueText))).ToList();
+        var typed = from.SelectMany(s => s.Fields.Where(f => f.IsTyped).Select(f => (Section: s.Section.Key, Path: f.Field.Path.Key, f.ValueText, f.IsDropped))).ToList();
         var carried = 0;
-        foreach (var (section, path, text) in typed)
+        foreach (var (section, path, text, dropped) in typed)
         {
             if (to.FirstOrDefault(s => s.Section.Key == section)?.Fields.FirstOrDefault(f => f.Field.Path.Key == path) is { } field)
             {
                 field.ValueText = text;
+                field.IsDropped = dropped && field.CanDrop;
                 carried++;
             }
         }
@@ -211,7 +231,7 @@ public sealed partial class GameEditorViewModel
     }
 
     private static List<EditorPendingChange> Lines(IEnumerable<GameItemSectionViewModel> cards) =>
-        [.. cards.SelectMany(s => s.Fields.Where(f => f.IsPending).Select(f => new EditorPendingChange($"{s.Title} · {f.Label}: {f.ValueText}" + SharedNote(s), f)))];
+        [.. cards.SelectMany(s => s.Fields.Where(f => f.IsPending).Select(f => new EditorPendingChange($"{s.Title} · {f.Label}: {(f.IsDropped ? "taken out" : f.ValueText)}" + SharedNote(s), f)))];
 
     private static string SharedNote(GameItemSectionViewModel section) =>
         section.IsShared && !section.Section.IsOwnCopy ? (section.OwnCopy ? "  (its own copy)" : $"  (all {section.Section.SharedBy:N0} items)") : "";

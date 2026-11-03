@@ -119,6 +119,37 @@ public static class GameItemCatalog
         return string.Equals(bench, "Character", StringComparison.OrdinalIgnoreCase) ? $"By hand ({name})" : name;
     }
 
+    /// <summary>
+    /// The rows a link can point at, for the Editor's drop-downs: "None" (nothing) first, then each
+    /// row by its in-game name where it has one (an item template by its item's name, a bench by
+    /// its own), else its row name.
+    /// </summary>
+    public static IReadOnlyList<(string Name, string Display)> LinkChoices(GameTableIndex game, string table)
+    {
+        if (game.CurrentFileFor(table) is not { } file)
+        {
+            return [];
+        }
+
+        var choices = new List<(string Name, string Display)>();
+        foreach (var (name, node) in game.Rows(file) ?? [])
+        {
+            var title = table switch
+            {
+                "D_RecipeSets" => BenchName(game, name),
+                "D_ItemTemplate" => ItemTitle(game, RowNameOf(node?["ItemStaticData"]) ?? name),
+                "D_ItemsStatic" => ItemTitle(game, name),
+                _ => null,
+            };
+            choices.Add((name, title is { Length: > 0 } t && t != name ? $"{t}  ({name})" : name));
+        }
+
+        return [("None", "(nothing)"), .. choices.OrderBy(c => c.Display, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static string? ItemTitle(GameTableIndex game, string itemName) =>
+        RowNameOf(game.Row(ItemsStatic, itemName)?["Itemable"]) is { } itemable ? Text(game.Row(ItemableFile, itemable)?["DisplayName"]) : null;
+
     /// <summary>Every D_ItemsStatic item, sorted by row name, with what the list and its filters need.</summary>
     public static IReadOnlyList<GameItemInfo> List(GameTableIndex game)
     {
@@ -193,6 +224,17 @@ public static class GameItemCatalog
                     && RowNameOf(game.Row(file, link)?["Modifier"]?["Modifier"]) is { } buff)
                 {
                     rows.Add(new GameRowRef(ModifierStates, buff)); // the Editor's "Its buff" card
+                }
+                else if (field.Equals("Inventory", StringComparison.OrdinalIgnoreCase) && game.Row(file, link)?["Inventories"] is JsonArray storages)
+                {
+                    // The Editor's "Storage" cards: the D_InventoryInfo rows the inventory row lists.
+                    foreach (var storage in storages.OfType<JsonObject>())
+                    {
+                        if (RowNameOf(storage) is { } info && game.CurrentFileFor(storage["DataTableName"]?.GetValue<string>() ?? "D_InventoryInfo") is { } infoFile)
+                        {
+                            rows.Add(new GameRowRef(infoFile, info));
+                        }
+                    }
                 }
             }
 

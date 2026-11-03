@@ -36,6 +36,117 @@ public sealed class GameItemEditorTests : IDisposable
 
     private static EditableField Field(EditableSection section, string label) => section.Fields.Single(f => f.Label == label);
 
+    /// <summary>
+    /// Crates as the game builds them: the item's inventory row (D_Inventory) only lists storages
+    /// (D_InventoryInfo), where the slots are. Crate_A and Crate_C share one inventory row; all three
+    /// crates list the same storage, like the 40 benches sharing "Processor".
+    /// </summary>
+    private void WriteCrates()
+    {
+        void W(string relative, string json)
+        {
+            var path = Path.Combine(_root, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
+        }
+
+        W("Items/D_ItemsStatic.json", """
+            {"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"},"Inventory":{"RowName":"None","DataTableName":"D_Inventory"}},"Rows":[
+              {"Name":"Crate_A","Inventory":{"RowName":"Inv_AC"}},
+              {"Name":"Crate_B","Inventory":{"RowName":"Inv_B"}},
+              {"Name":"Crate_C","Inventory":{"RowName":"Inv_AC"}}
+            ]}
+            """);
+        W("Traits/D_Inventory.json", """
+            {"RowStruct":"S","Defaults":{"Inventories":[]},"Rows":[
+              {"Name":"Inv_AC","Inventories":[{"RowName":"Shared_Info","DataTableName":"D_InventoryInfo"}]},
+              {"Name":"Inv_B","Inventories":[{"RowName":"Shared_Info","DataTableName":"D_InventoryInfo"}]}
+            ]}
+            """);
+        W("Inventory/D_InventoryInfo.json", """{"RowStruct":"S","Defaults":{"StartingSlots":20,"RemoveOnly":false},"Rows":[{"Name":"Shared_Info","InventoryID":{"Value":"General"},"StartingSlots":20}]}""");
+    }
+
+    /// <summary>The slots live one link further than the item's inventory row: a Storage card shows them, shared by every crate listing that storage.</summary>
+    [Fact]
+    public void Storage_FollowsTheInventoryRow_ToItsSlots()
+    {
+        WriteCrates();
+
+        var view = GameItemEditor.Describe(_game, null, "Crate_A")!;
+
+        var storage = Assert.Single(view.Sections, s => s.Key == "Storage:0");
+        Assert.Equal("Storage", storage.Title);
+        Assert.Equal("Shared_Info", storage.RowName);
+        Assert.Equal(3, storage.SharedBy);
+        Assert.Equal(20, Field(storage, "Slots").GameValue!.GetValue<int>());
+        Assert.Equal(EditableKind.Toggle, Field(storage, "Take out only").Kind);
+        Assert.DoesNotContain(view.KeptAsGames, k => k.StartsWith("Inventory", StringComparison.Ordinal)); // shown, not "kept as the game's"
+        Assert.Contains("Crate_A", GameItemCatalog.ItemsChangedBy(GameItemCatalog.List(_game), ModWithRow("Inventory-D_InventoryInfo.json", "Shared_Info")));
+    }
+
+    private static ExmodPackage ModWithRow(string file, string row)
+    {
+        var mod = EmptyMod();
+        mod.Rows.Insert(0, new ExmodFileRow { CurrentFile = file, FileItems = [new ExmodFileItem { Name = row, Fields = { ["StartingSlots"] = 1 } }] });
+        return mod;
+    }
+
+    /// <summary>Its own copy: the storage is copied, and so is the inventory row Crate_C shares, so only Crate_A gets 30 slots.</summary>
+    [Fact]
+    public void Storage_OwnCopy_CopiesTheStorageAndTheSharedInventoryRow()
+    {
+        WriteCrates();
+        var slots = Field(Section(null, "Crate_A", "Storage:0"), "Slots");
+        var mod = EmptyMod();
+
+        GameItemEditor.Apply(_game, mod, "Crate_A", [new GameItemChange("Storage:0", slots.Path, JsonValue.Create(30))], new HashSet<string> { "Storage:0" });
+
+        Assert.Equal(30, Item(mod, "Inventory-D_InventoryInfo.json", "Shared_Info_Crate_A")!.Fields["StartingSlots"]!.GetValue<int>());
+        Assert.Null(Item(mod, "Inventory-D_InventoryInfo.json", "Shared_Info"));
+        Assert.Equal("Inv_AC_Crate_A", Item(mod, "Items-D_ItemsStatic.json", "Crate_A")!.Fields["Inventory"]!["RowName"]!.GetValue<string>());
+        Assert.Equal("Shared_Info_Crate_A", Item(mod, "Traits-D_Inventory.json", "Inv_AC_Crate_A")!.Fields["Inventories"]![0]!["RowName"]!.GetValue<string>());
+
+        var after = Section(mod, "Crate_A", "Storage:0");
+        Assert.True(after.IsOwnCopy);
+        Assert.Equal(30, Field(after, "Slots").CurrentValue!.GetValue<int>());
+        Assert.Equal(20, Field(Section(mod, "Crate_C", "Storage:0"), "Slots").CurrentValue!.GetValue<int>());
+        Assert.Equal(20, Field(Section(mod, "Crate_B", "Storage:0"), "Slots").CurrentValue!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Storage_ChangedForAll_ChangesTheSharedStorageOnly()
+    {
+        WriteCrates();
+        var slots = Field(Section(null, "Crate_A", "Storage:0"), "Slots");
+        var mod = EmptyMod();
+
+        GameItemEditor.Apply(_game, mod, "Crate_A", [new GameItemChange("Storage:0", slots.Path, JsonValue.Create(30))], new HashSet<string>());
+
+        var row = Assert.Single(mod.Rows.Where(r => r.CurrentFile != "EndOfMod")).FileItems.Single();
+        Assert.Equal("Shared_Info", row.Name);
+        Assert.Equal(30, row.Fields["StartingSlots"]!.GetValue<int>());
+    }
+
+    /// <summary>A recipe's bench is a drop-down of D_RecipeSets rows; picking another writes just that link's row name.</summary>
+    [Fact]
+    public void ARecipesBench_IsALink_AndChangingItWritesTheNewBench()
+    {
+        var recipe = Section(null, "Food_Bread", "Recipe:Bread");
+        var bench = Field(recipe, "Made at");
+        Assert.Equal(EditableKind.Link, bench.Kind);
+        Assert.Equal("D_RecipeSets", bench.LinkTable);
+        Assert.Equal("Kitchen_Stove", bench.GameValue!.GetValue<string>());
+
+        var mod = EmptyMod();
+        GameItemEditor.Apply(_game, mod, "Food_Bread", [new GameItemChange("Recipe:Bread", bench.Path, JsonValue.Create("Crafting_Bench"))], new HashSet<string>());
+
+        var sets = (JsonArray)Item(mod, "Crafting-D_ProcessorRecipes.json", "Bread")!.Fields["RecipeSets"]!;
+        Assert.Equal("Crafting_Bench", sets[0]!["RowName"]!.GetValue<string>());
+        Assert.Equal("D_RecipeSets", sets[0]!["DataTableName"]!.GetValue<string>());
+        Assert.Equal("Kitchen stove  (Kitchen_Stove)", GameItemCatalog.LinkChoices(_game, "D_RecipeSets").Single(c => c.Name == "Kitchen_Stove").Display);
+        Assert.Equal(("None", "(nothing)"), GameItemCatalog.LinkChoices(_game, "D_RecipeSets")[0]);
+    }
+
     /// <summary>A bulk edit shares one lookup across items (812 deployables: 14.5 s → 90 ms): it must describe every item exactly as a fresh one does.</summary>
     [Fact]
     public void ASharedLookup_DescribesEveryItemAsAFreshOneDoes()

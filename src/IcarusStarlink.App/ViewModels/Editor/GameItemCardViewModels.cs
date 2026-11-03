@@ -6,6 +6,12 @@ using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.App.ViewModels;
 
+/// <summary>A row a drop-down can point at: its row name, and how the list shows it ("Crafting Bench  (Crafting_Bench)").</summary>
+public sealed record LinkChoice(string Name, string Display)
+{
+    public override string ToString() => Display;
+}
+
 /// <summary>One value on the Editor page: the game's, and the one being typed.</summary>
 public sealed partial class GameItemFieldViewModel : ObservableObject
 {
@@ -15,9 +21,11 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     private readonly bool _wholeNumber;
 
     /// <param name="decimalField">Whether the game's table has fractions in this field anywhere (GameTableIndex.IsDecimalField); null: unknown, judge by this value.</param>
-    public GameItemFieldViewModel(EditableField field, bool? decimalField = null)
+    /// <param name="linkChoices">For a drop-down: the rows it can point at.</param>
+    public GameItemFieldViewModel(EditableField field, bool? decimalField = null, IReadOnlyList<LinkChoice>? linkChoices = null)
     {
         Field = field;
+        LinkChoices = linkChoices;
         _gameText = EditorValueText.Display(field.GameValue);
         _startText = EditorValueText.Display(field.CurrentValue ?? field.GameValue);
         _valueText = _startText;
@@ -48,13 +56,55 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
 
     public bool IsText => Field.Kind == EditableKind.Text;
 
+    public bool IsNumber => Field.Kind == EditableKind.Number;
+
+    /// <summary>On or off: a tick box instead of a text box.</summary>
+    public bool IsToggle => Field.Kind == EditableKind.Toggle;
+
+    /// <summary>A row of another table: a drop-down instead of a text box.</summary>
+    public bool IsLink => Field.Kind == EditableKind.Link;
+
+    /// <summary>Typed into a box (a number or text).</summary>
+    public bool ShowsTextBox => !IsToggle && !IsLink;
+
+    /// <summary>The rows a drop-down can point at (null for other kinds).</summary>
+    public IReadOnlyList<LinkChoice>? LinkChoices { get; }
+
+    /// <summary>The drop-down's pick. While a search typed into it matches no row it reads null: that isn't a pick, the value stays.</summary>
+    public string? LinkValue
+    {
+        get => ValueText.Trim();
+        set
+        {
+            if (value is not null)
+            {
+                ValueText = value;
+            }
+        }
+    }
+
+    /// <summary>The tick box: "true" / "false" underneath, like the game's JSON.</summary>
+    public bool IsOn
+    {
+        get => string.Equals(ValueText.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+        set => ValueText = value ? "true" : "false";
+    }
+
     /// <summary>Takes whole numbers only (a stat, a stack size): a bulk multiply rounds for it.</summary>
     internal bool IsWholeNumber => _wholeNumber;
 
-    public string GameText => Field.GameValue is null ? "game: not set" : $"game: {_gameText}{(Field.Inherited ? " (table default)" : "")}";
+    public string GameText => Field.GameValue is null ? "game: not set" : $"game: {ShownAs(_gameText)}{(Field.Inherited ? " (table default)" : "")}";
+
+    /// <summary>A link by its in-game name, an on/off value in words; anything else as it is.</summary>
+    private string ShownAs(string text) => Field.Kind switch
+    {
+        EditableKind.Toggle => string.Equals(text, "true", StringComparison.OrdinalIgnoreCase) ? "on" : "off",
+        EditableKind.Link => LinkChoices?.FirstOrDefault(c => string.Equals(c.Name, text, StringComparison.OrdinalIgnoreCase))?.Display ?? text,
+        _ => text,
+    };
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(DiffersFromGame), nameof(IsPending), nameof(Error), nameof(ValueHint))]
+    [NotifyPropertyChangedFor(nameof(DiffersFromGame), nameof(IsPending), nameof(Error), nameof(ValueHint), nameof(IsOn), nameof(LinkValue))]
     private string _valueText;
 
     /// <summary>False while the page's "Only changed values" hides it (set when that's switched, never while typing, so a field doesn't vanish under the cursor).</summary>
@@ -96,19 +146,39 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     }
 
     /// <summary>Orange border: what the game will see differs from the game's own value.</summary>
-    public bool DiffersFromGame => ValueText.Trim() != _gameText.Trim();
+    public bool DiffersFromGame => IsDropped || ValueText.Trim() != _gameText.Trim();
 
     /// <summary>Typed here and not saved yet.</summary>
-    public bool IsPending => IsTyped && Error is null;
+    public bool IsPending => IsDropped || (IsTyped && Error is null);
 
     /// <summary>Differs from what was shown, valid or not (a half-typed number is kept when switching items too).</summary>
-    public bool IsTyped => ValueText.Trim() != _startText.Trim(); // game text can end in a space ("…resistance. "): not a change
+    public bool IsTyped => IsDropped || ValueText.Trim() != _startText.Trim(); // game text can end in a space ("…resistance. "): not a change
+
+    /// <summary>An entry of a list (a recipe ingredient) that can be taken out with its ×.</summary>
+    public bool CanDrop { get; init; }
+
+    /// <summary>Taken out of its list (a recipe ingredient): saved as the list without it; ↺ puts it back.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DiffersFromGame), nameof(IsPending), nameof(Error), nameof(ShowDrop))]
+    private bool _isDropped;
+
+    /// <summary>The × beside an ingredient: there while it's in the list.</summary>
+    public bool ShowDrop => CanDrop && !IsDropped;
+
+    /// <summary>For an entry added here: the row it names and that row's table ("Stone", "D_ItemsStatic").</summary>
+    internal (string Row, string Table)? AddedEntry { get; init; }
+
+    /// <summary>The × beside an ingredient: takes it out of the recipe.</summary>
+    [RelayCommand]
+    private void Drop() => IsDropped = true;
 
     /// <summary>A value the game doesn't have (a stat the mod adds), emptied by ↺: it comes out of the mod again.</summary>
     private bool IsRemoved => Field.GameValue is null && ValueText.Trim().Length == 0;
 
     public string? Error =>
-        Field.Kind != EditableKind.Number || IsRemoved ? null
+        IsDropped ? null
+        : IsLink ? (LinkChoices is { Count: > 0 } choices && !choices.Any(c => string.Equals(c.Name, ValueText.Trim(), StringComparison.OrdinalIgnoreCase)) ? "Pick one from the list." : null)
+        : Field.Kind != EditableKind.Number || IsRemoved ? null
         : !EditorValueText.TryParseNumber(ValueText, out var n) ? "Needs a number, like 50 or 0.5."
         : _wholeNumber && n != Math.Floor(n) ? (IsStat(Field) ? "Needs a whole number: stats have no fractions in the game, like 15." : "Needs a whole number here, like 50.")
         : null;
@@ -120,6 +190,12 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     [RelayCommand]
     private void UseGameValue()
     {
+        if (IsDropped)
+        {
+            IsDropped = false; // back in the list
+            return;
+        }
+
         if (Field.GameValue is null && RemoveAdded is { } remove)
         {
             remove(this);
@@ -136,6 +212,12 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     [RelayCommand]
     private void UndoChange()
     {
+        if (IsDropped)
+        {
+            IsDropped = false;
+            return;
+        }
+
         if (RemoveAdded is { } remove)
         {
             remove(this);
@@ -158,6 +240,18 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
             return JsonValue.Create(ValueText);
         }
 
+        if (IsToggle)
+        {
+            return JsonValue.Create(IsOn);
+        }
+
+        if (IsLink)
+        {
+            // As the game spells the row (the list's name, whatever case was typed).
+            var name = ValueText.Trim();
+            return JsonValue.Create(LinkChoices?.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase))?.Name ?? name);
+        }
+
         EditorValueText.TryParseNumber(ValueText, out var number); // Save checks Error first
         return number == Math.Floor(number) && Math.Abs(number) < int.MaxValue ? JsonValue.Create((long)number) : JsonValue.Create(number);
     }
@@ -168,16 +262,121 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
 {
     private readonly Action _changed;
 
-    public GameItemSectionViewModel(EditableSection section, IReadOnlyList<StatChoice> stats, Action changed, GameTableIndex? game = null)
+    /// <param name="linkChoices">The rows each table's drop-downs offer (the page keeps them per table).</param>
+    /// <param name="items">The game's items, for a recipe card's "Add ingredient".</param>
+    public GameItemSectionViewModel(EditableSection section, IReadOnlyList<StatChoice> stats, Action changed, GameTableIndex? game = null,
+        Func<string, IReadOnlyList<LinkChoice>>? linkChoices = null, Func<IReadOnlyList<ItemChoice>>? items = null)
     {
         Section = section;
         Picker = new StatPickerViewModel(stats, AddStat);
         _changed = changed;
+        if (CanEditIngredients && items is not null)
+        {
+            IngredientPicker = new ItemPickerViewModel(items, AddIngredient);
+        }
+
         foreach (var field in section.Fields)
         {
             var decimalField = field.Kind == EditableKind.Number ? game?.IsDecimalField(section.CurrentFile, field.Path.Top, GameItemFieldViewModel.DecimalSteps(field.Path)) : null;
-            Add(new GameItemFieldViewModel(field, decimalField));
+            Add(new GameItemFieldViewModel(field, decimalField, field.LinkTable is { } table ? linkChoices?.Invoke(table) : null)
+            {
+                CanDrop = CanEditIngredients && IsIngredient(field.Path),
+            });
         }
+    }
+
+    private const string Ingredients = "Inputs";
+
+    /// <summary>A recipe card with an ingredient list: ingredients can be added and taken out.</summary>
+    public bool CanEditIngredients =>
+        Section.Key.StartsWith(GameItemEditor.RecipeSection + ":", StringComparison.Ordinal) && Section.Lists?.ContainsKey(Ingredients) == true;
+
+    /// <summary>"Add ingredient" (recipe cards only).</summary>
+    public ItemPickerViewModel? IngredientPicker { get; }
+
+    public bool HasIngredientPicker => IngredientPicker is not null;
+
+    private static bool IsIngredient(EditPath path) => path.Top == Ingredients && path.Steps.Count == 2 && path.Steps[0] is int;
+
+    private string? AddIngredient(ItemChoice item)
+    {
+        var current = Section.Lists![Ingredients];
+        bool Names(GameItemFieldViewModel f, string row) =>
+            f.AddedEntry?.Row is { } added ? string.Equals(added, row, StringComparison.OrdinalIgnoreCase)
+            : IsIngredient(f.Field.Path) && !f.IsDropped && string.Equals(current.ElementAtOrDefault((int)f.Field.Path.Steps[0])?["Element"]?["RowName"]?.GetValue<string>(), row, StringComparison.OrdinalIgnoreCase);
+        if (Fields.Any(f => Names(f, item.Name)))
+        {
+            return "Already an ingredient: change its number instead.";
+        }
+
+        // The same table the recipe's other ingredients name (D_ItemsStatic in the game's recipes).
+        var table = current.OfType<JsonObject>().Select(e => e["Element"]?["DataTableName"]?.GetValue<string>()).FirstOrDefault(t => t is not null) ?? "D_ItemsStatic";
+        var index = current.Count + Fields.Count(f => f.AddedEntry is not null);
+        Add(new GameItemFieldViewModel(new EditableField(new EditPath(Ingredients, [index, "Count"]), $"Needs {item.Title}",
+            "Added by you: how many it takes. ↺ takes it out again.", EditableKind.Number, null, null, false), decimalField: false)
+        {
+            ValueText = "1",
+            AddedEntry = (item.Name, table),
+            RemoveAdded = field =>
+            {
+                Fields.Remove(field);
+                _changed();
+            },
+        });
+        AllHidden = false;
+        _changed();
+        return null;
+    }
+
+    /// <summary>
+    /// What Save writes for this card: each changed value, except that a list with entries taken out
+    /// or added is written whole (the entries kept, their numbers as typed, the new ones after).
+    /// </summary>
+    internal IEnumerable<GameItemChange> Changes()
+    {
+        var rewritten = Fields.Where(f => f.IsDropped || f.AddedEntry is not null).Select(f => f.Field.Path.Top).ToHashSet(StringComparer.Ordinal);
+        foreach (var field in Fields.Where(f => f.IsPending && !rewritten.Contains(f.Field.Path.Top)))
+        {
+            yield return new GameItemChange(Section.Key, field.Field.Path, field.NewValue());
+        }
+
+        foreach (var top in rewritten)
+        {
+            yield return new GameItemChange(Section.Key, new EditPath(top, []), RewrittenList(top));
+        }
+    }
+
+    private JsonArray RewrittenList(string top)
+    {
+        var current = Section.Lists?.GetValueOrDefault(top) ?? [];
+        var list = new JsonArray();
+        for (var i = 0; i < current.Count; i++)
+        {
+            var entryFields = Fields.Where(f => f.Field.Path.Top == top && f.AddedEntry is null && f.Field.Path.Steps.Count == 2 && f.Field.Path.Steps[0] is int at && at == i).ToList();
+            if (entryFields.Any(f => f.IsDropped) || current[i]?.DeepClone() is not JsonObject entry)
+            {
+                continue;
+            }
+
+            foreach (var field in entryFields.Where(f => f.IsPending))
+            {
+                entry[(string)field.Field.Path.Steps[1]] = field.NewValue() ?? field.Field.GameValue?.DeepClone();
+            }
+
+            list.Add(entry);
+        }
+
+        foreach (var added in Fields.Where(f => f.Field.Path.Top == top && f.AddedEntry is not null))
+        {
+            var (row, table) = added.AddedEntry!.Value;
+            list.Add(new JsonObject
+            {
+                ["Element"] = new JsonObject { ["RowName"] = row, ["DataTableName"] = table },
+                [(string)added.Field.Path.Steps[1]] = added.NewValue(),
+            });
+        }
+
+        return list;
     }
 
     public EditableSection Section { get; }
@@ -257,7 +456,7 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
     {
         field.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(GameItemFieldViewModel.ValueText))
+            if (e.PropertyName is nameof(GameItemFieldViewModel.ValueText) or nameof(GameItemFieldViewModel.IsDropped))
             {
                 _changed();
             }

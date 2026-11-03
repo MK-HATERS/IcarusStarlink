@@ -51,6 +51,9 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Each card is one game row the item uses:** Name, icon, weight · Armour · Eating or using it · Its buff · Durability · Decay and spoiling · Tool damage · Recipe · Workshop price. Every number says what lower and higher do, and shows the game's value on the right; an orange border means yours differs. ↺ puts the game's value back. **Only changed values** hides the values still at the game's.
             - **Shared rows:** a card marked "shared by N items" is used by other items too (the basic Envirosuit's decay row is shared by 1,895 items). Choose **Give this item its own copy** (the default: only this item changes) or **Change it for all**.
             - **Stats:** armour, module and buff cards can **Add stat**: any stat the game knows, like cold resistance or max health.
+            - **On/off and choices:** a few on/off settings are tick boxes (Weather damages it, Must be outside, Needs shelter, Requires energy, Destroyed at zero durability, Take out only). What food **Spoils into**, a recipe's **Made at** bench and a bench's **Recipe list** are drop-downs of the game's rows by their in-game names (type to find one).
+            - **Recipes:** ✕ beside an ingredient takes it out (↺ puts it back); **Add ingredient** searches the game's items. The recipe is saved with its whole new ingredient list.
+            - **Storage:** a crate, bench or furnace has a **Storage** card per storage (Processor, Fuel…) with its **Slots**. Storages are often shared (40 benches share one): the usual choice applies, its own copy or change it for all.
             - Models, sounds and how an item is picked up or used are kept as the game's; changing those needs new art.
 
             **Saving**

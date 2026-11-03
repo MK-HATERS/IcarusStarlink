@@ -7,6 +7,12 @@ public enum EditableKind
 {
     Number,
     Text,
+
+    /// <summary>On or off (a tick box).</summary>
+    Toggle,
+
+    /// <summary>A row of another table (a drop-down): EditableField.LinkTable says which.</summary>
+    Link,
 }
 
 /// <summary>Where a value sits in a row: a top-level field, then object keys / list indexes ("ArmourStats" › "(Value=\"BaseOxygenSlots_+\")").</summary>
@@ -16,12 +22,14 @@ public sealed record EditPath(string Top, IReadOnlyList<object> Steps)
 }
 
 /// <summary>One value of a game item the Editor page shows: the game's, and what it is now (the game's, or a mod's).</summary>
-public sealed record EditableField(EditPath Path, string Label, string Description, EditableKind Kind, JsonNode? GameValue, JsonNode? CurrentValue, bool Inherited);
+/// <param name="LinkTable">For a Link: the table its rows come from ("D_RecipeSets").</param>
+public sealed record EditableField(EditPath Path, string Label, string Description, EditableKind Kind, JsonNode? GameValue, JsonNode? CurrentValue, bool Inherited, string? LinkTable = null);
 
 /// <summary>One game row an item uses, as a section of the Editor page.</summary>
+/// <param name="Lists">The row's lists of amounts as they are now (a recipe's "Inputs"), by field: adding or taking out an entry rewrites the whole list from this.</param>
 public sealed record EditableSection(
     string Key, string Title, string CurrentFile, string RowName, string GameRowName, int SharedBy,
-    IReadOnlyList<EditableField> Fields, IReadOnlyList<string> StatGroups)
+    IReadOnlyList<EditableField> Fields, IReadOnlyList<string> StatGroups, IReadOnlyDictionary<string, JsonArray>? Lists = null)
 {
     /// <summary>The mod already gave the item its own copy of this row.</summary>
     public bool IsOwnCopy => !string.Equals(RowName, GameRowName, StringComparison.OrdinalIgnoreCase);
@@ -60,6 +68,10 @@ public static partial class GameItemEditor
     public const string RecipeSection = "Recipe";
     public const string WorkshopSection = "Workshop";
 
+    /// <summary>A storage of the item ("Storage:0"): a D_InventoryInfo row its D_Inventory row lists (slots live there).</summary>
+    public const string StorageSection = "Storage";
+    private const string InventoryField = "Inventory";
+
     [GeneratedRegex("(?<=[a-z0-9])(?=[A-Z])")]
     private static partial Regex CamelBoundary();
 
@@ -80,6 +92,33 @@ public static partial class GameItemEditor
         ["ToolDamage"] = "Tool damage",
         ["FirearmData"] = "Firearm",
         ["Buildable"] = "Building",
+    };
+
+    /// <summary>
+    /// The on/off fields shown as tick boxes: ones whose meaning is plain from the game data. The
+    /// rest (actor pooling, client prediction, kill cam…) are engine plumbing, left as the game's.
+    /// FieldTips words the ones it knows.
+    /// </summary>
+    private static readonly Dictionary<string, (string Label, string Description)> Toggles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["EffectedByWeather"] = ("Weather damages it", "On = storms can damage it when it isn't sheltered."),
+        ["bMustBeOutside"] = ("Must be outside", "On = it can only be placed outdoors."),
+        ["bRequiresShelter"] = ("Needs shelter", "On = it only works indoors or under cover."),
+        // Not "needs power": it's on by default, and the stone furnace keeps it on while burning fuel.
+        ["RequiresEnergy"] = ("Requires energy", "On = it needs energy to work: power, or the fuel it burns (the stone furnace has this on)."),
+        ["Destroyed_At_Zero"] = ("Destroyed at zero durability", "On = it's destroyed when its durability runs out."),
+        ["RemoveOnly"] = ("Take out only", "On = things can only be taken out of this inventory, not put in."),
+    };
+
+    /// <summary>
+    /// The links shown as drop-downs, a row of another table each: ones a player would want to
+    /// point elsewhere. Animation, audio, mesh links and the like stay as the game's.
+    /// </summary>
+    private static readonly Dictionary<string, (string Label, string Description)> Links = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["SpoiledItem"] = ("Spoils into", "What it turns into once it spoils."),
+        ["DefaultRecipeSet"] = ("Recipe list", "The list of recipes it works from (a furnace's own list, a bench's)."),
+        ["RecipeSets"] = ("Made at", "The bench, or By hand, where this recipe is crafted."),
     };
 
     private static readonly HashSet<string> InheritedWorthShowing = new(StringComparer.OrdinalIgnoreCase)
@@ -137,13 +176,24 @@ public static partial class GameItemEditor
             var gameRowName = game.GameRowName(file, rowName) ?? gameStatic[field]?["RowName"]?.GetValue<string>() ?? rowName;
             var shared = game.HasRow(file, rowName) ? lookup.UsersOf(field, rowName) : 1;
             var section = BuildSection(game, mod, field, SectionTitles.GetValueOrDefault(field, Humanize(field)), file, rowName, gameRowName, Math.Max(shared, 1));
+
+            // An inventory row only lists its storages (D_InventoryInfo): slots live one link further.
+            var storages = field.Equals(InventoryField, StringComparison.OrdinalIgnoreCase)
+                ? StorageSections(game, mod, lookup, file, rowName, gameRowName)
+                : [];
             if (section.Fields.Count == 0 && section.StatGroups.Count == 0)
             {
-                kept.Add(shared > 1 ? $"{Humanize(field)} ({table}, shared by {shared:N0} items)" : $"{Humanize(field)} ({table})");
+                if (storages.Count == 0)
+                {
+                    kept.Add(shared > 1 ? $"{Humanize(field)} ({table}, shared by {shared:N0} items)" : $"{Humanize(field)} ({table})");
+                }
+
+                sections.AddRange(storages);
                 continue;
             }
 
             sections.Add(section);
+            sections.AddRange(storages);
 
             // The buff a consumable gives lives in its own table, linked from the consumable row.
             if (field.Equals("Consumable", StringComparison.OrdinalIgnoreCase)
@@ -200,8 +250,8 @@ public static partial class GameItemEditor
             var rowName = section.RowName;
             if (ownCopySections.Contains(section.Key) && section.SharedBy > 1 && !section.IsOwnCopy)
             {
-                rowName = section.Key == BuffSection
-                    ? GiveBuffOwnCopy(game, mod, itemName, section, lines)
+                rowName = section.Key == BuffSection ? GiveBuffOwnCopy(game, mod, itemName, section, lines)
+                    : section.Key.StartsWith(StorageSection + ":", StringComparison.Ordinal) ? GiveStorageOwnCopy(game, mod, itemName, section, lines)
                     : GiveOwnCopy(game, mod, itemName, section.Key, section.CurrentFile, section.RowName, section.GameRowName, section.SharedBy, lines);
 
                 // The item now links to other rows (the buff's copy also gives it its own consumable
@@ -215,6 +265,12 @@ public static partial class GameItemEditor
                 var field = section.Fields.FirstOrDefault(f => f.Path.Key == change.Path.Key);
                 var before = field?.CurrentValue;
                 SetValue(game, mod, section.CurrentFile, rowName, section.GameRowName, change.Path, change.Value);
+                if (change.Path.Steps.Count == 0 && change.Value is JsonArray list)
+                {
+                    lines.Add($"{section.Table} › {rowName} · {FieldText(change.Path.Top, isNumber: false).Label}: now {list.Count} entr{(list.Count == 1 ? "y" : "ies")}");
+                    continue;
+                }
+
                 var label = field?.Label ?? GameStats.StatLabel(change.Path.Steps.LastOrDefault() as string ?? change.Path.Top);
                 lines.Add($"{section.Table} › {rowName} · {label}: {Show(before)} → {Show(change.Value ?? field?.GameValue)}");
             }
@@ -240,10 +296,13 @@ public static partial class GameItemEditor
         var defaults = game.Defaults(file);
         var fields = new List<EditableField>();
         var statGroups = new List<string>();
+        var lists = new Dictionary<string, JsonArray>(StringComparer.OrdinalIgnoreCase);
 
         var keys = effective.Select(kv => kv.Key).Concat(gameRow.Select(kv => kv.Key))
             // A table default only matters for the fields people change (weight, stack size…); the rest is noise like "aura range 100".
             .Concat((defaults ?? []).Where(kv => IsNumber(kv.Value) && InheritedWorthShowing.Contains(kv.Key)).Select(kv => kv.Key))
+            // An on/off field or a link the Editor offers counts even where the row leaves it at the table's default.
+            .Concat((defaults ?? []).Where(kv => (IsBool(kv.Value) && Toggles.ContainsKey(kv.Key)) || (kv.Value is JsonObject && Links.ContainsKey(kv.Key))).Select(kv => kv.Key))
             .Where(k => k != "Name")
             .Distinct(StringComparer.Ordinal);
         foreach (var top in keys)
@@ -253,6 +312,24 @@ public static partial class GameItemEditor
             var original = gameRow[top] ?? defaults?[top];
             switch (current ?? original)
             {
+                case JsonValue v when IsBool(v) && Toggles.TryGetValue(top, out var toggle):
+                    fields.Add(new EditableField(new EditPath(top, []), toggle.Label, toggle.Description, EditableKind.Toggle, original, current, inherited && !gameRow.ContainsKey(top)));
+                    break;
+                case JsonObject link when Links.TryGetValue(top, out var linkText) && link.ContainsKey("RowName"):
+                    // A link object: the row name inside it changes, its table stays.
+                    fields.Add(new EditableField(new EditPath(top, ["RowName"]), linkText.Label, linkText.Description, EditableKind.Link,
+                        (original as JsonObject)?["RowName"], link["RowName"], false, LinkTableOf(link, defaults?[top])));
+                    break;
+                case JsonArray links when Links.TryGetValue(top, out var listText) && links.All(e => e is JsonObject o && o.ContainsKey("RowName")):
+                    // A list of links (a recipe's benches): one drop-down per entry.
+                    for (var i = 0; i < links.Count; i++)
+                    {
+                        var entry = (JsonObject)links[i]!;
+                        fields.Add(new EditableField(new EditPath(top, [i, "RowName"]), links.Count == 1 ? listText.Label : $"{listText.Label} ({i + 1})", listText.Description, EditableKind.Link,
+                            ((original as JsonArray)?.ElementAtOrDefault(i) as JsonObject)?["RowName"], entry["RowName"], false, LinkTableOf(entry, null)));
+                    }
+
+                    break;
                 case JsonValue v when IsNumber(v):
                     var (label, description) = TryKnown(top, out var known) ? known : (Humanize(top), $"The game's value is shown on the right. Higher = more {Humanize(top).ToLowerInvariant()}, lower = less.");
                     fields.Add(new EditableField(new EditPath(top, []), label, description, EditableKind.Number, original, current, inherited && !gameRow.ContainsKey(top)));
@@ -292,6 +369,7 @@ public static partial class GameItemEditor
                     break;
                 case JsonArray array:
                     // Lists of amounts: a recipe's ingredients, a workshop item's costs.
+                    lists[top] = (JsonArray)array.DeepClone();
                     for (var i = 0; i < array.Count; i++)
                     {
                         if (array[i] is not JsonObject entry)
@@ -315,7 +393,7 @@ public static partial class GameItemEditor
             }
         }
 
-        return new EditableSection(key, title, file, rowName, gameRowName, sharedBy, fields, statGroups);
+        return new EditableSection(key, title, file, rowName, gameRowName, sharedBy, fields, statGroups, lists);
     }
 
     private static (string Label, string Description) EntryText(GameTableIndex game, string list, string what)
@@ -412,6 +490,70 @@ public static partial class GameItemEditor
         var modifier = (JsonObject?)(Effective(game, mod, consumableFile, consumable)?["Modifier"]?.DeepClone()) ?? [];
         modifier["Modifier"] = new JsonObject { ["RowName"] = copyName };
         GetOrAddItem(mod, consumableFile, consumable).Fields["Modifier"] = modifier;
+        return copyName;
+    }
+
+    /// <summary>
+    /// The item's storages: one card per D_InventoryInfo row its inventory row lists ("Storage", or
+    /// "Storage · Input" when it has several). Shared by every item whose inventory lists that row
+    /// (the benches' "Processor" storage: 40 items on 2026-11-03).
+    /// </summary>
+    private static List<EditableSection> StorageSections(GameTableIndex game, ExmodPackage? mod, GameItemLookup lookup, string inventoryFile, string inventoryRow, string gameInventoryRow)
+    {
+        var storages = new List<EditableSection>();
+        if (Effective(game, mod, inventoryFile, inventoryRow)?["Inventories"] is not JsonArray list)
+        {
+            return storages;
+        }
+
+        var gameList = game.Row(inventoryFile, gameInventoryRow)?["Inventories"] as JsonArray;
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (list[i] is not JsonObject entry || entry["RowName"]?.GetValue<string>() is not { } info || info == "None"
+                || game.CurrentFileFor(entry["DataTableName"]?.GetValue<string>() ?? "D_InventoryInfo") is not { } infoFile)
+            {
+                continue;
+            }
+
+            // A row only the mod has is the item's own copy: its game values come from the row it copied.
+            var gameInfo = game.GameRowName(infoFile, info) ?? (gameList?.ElementAtOrDefault(i) as JsonObject)?["RowName"]?.GetValue<string>() ?? info;
+            var shared = game.HasRow(infoFile, info) ? lookup.InventoryInfoUsers(inventoryFile, info) : 1;
+            var id = (Effective(game, mod, infoFile, info) ?? game.Row(infoFile, gameInfo))?["InventoryID"]?["Value"]?.GetValue<string>();
+            var title = list.Count == 1 ? "Storage" : $"Storage · {(id is { Length: > 0 } ? Humanize(id) : (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture))}";
+            var section = BuildSection(game, mod, $"{StorageSection}:{i}", title, infoFile, info, gameInfo, Math.Max(shared, 1));
+            if (section.Fields.Count > 0)
+            {
+                storages.Add(section);
+            }
+        }
+
+        return storages;
+    }
+
+    /// <summary>
+    /// A storage shared with other items: copies its D_InventoryInfo row for the item, gives the item
+    /// its own inventory row too when that's shared, and points the item's inventory at the copy.
+    /// </summary>
+    private static string GiveStorageOwnCopy(GameTableIndex game, ExmodPackage mod, string itemName, EditableSection storage, List<string> lines)
+    {
+        var copyName = CopyRow(game, mod, storage.CurrentFile, storage.RowName, storage.GameRowName, itemName);
+        lines.Add($"{storage.Table} › {copyName}: {itemName}'s own copy of the storage {storage.GameRowName} (shared by {storage.SharedBy:N0} items)");
+
+        var inventoryFile = game.CurrentFileFor("D_Inventory") ?? "Traits-D_Inventory.json";
+        var inventory = LinkOf(game, mod, itemName, InventoryField) ?? throw new ArgumentException($"'{itemName}' has no inventory row to carry the storage.");
+        if (game.HasRow(inventoryFile, inventory) && CountUsers(game, mod, InventoryField, inventory) is var users and > 1)
+        {
+            inventory = GiveOwnCopy(game, mod, itemName, InventoryField, inventoryFile, inventory, game.GameRowName(inventoryFile, inventory)!, users, lines);
+        }
+
+        var list = (JsonArray?)Effective(game, mod, inventoryFile, inventory)?["Inventories"]?.DeepClone() ?? [];
+        var index = int.Parse(storage.Key[(StorageSection.Length + 1)..], System.Globalization.CultureInfo.InvariantCulture);
+        if (list.ElementAtOrDefault(index) is JsonObject entry)
+        {
+            entry["RowName"] = copyName;
+        }
+
+        GetOrAddItem(mod, inventoryFile, inventory).Fields["Inventories"] = list;
         return copyName;
     }
 
@@ -557,6 +699,12 @@ public static partial class GameItemEditor
     }
 
     private static bool IsNumber(JsonNode? node) => ScaleRules.TryReadNumber(node, out _);
+
+    private static bool IsBool(JsonNode? node) => node is JsonValue v && v.GetValueKind() is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False;
+
+    /// <summary>The table a link points into: its own DataTableName, else the table default's.</summary>
+    private static string? LinkTableOf(JsonObject link, JsonNode? fallback) =>
+        link["DataTableName"]?.GetValue<string>() ?? (fallback as JsonObject)?["DataTableName"]?.GetValue<string>();
 
     private static string Show(JsonNode? value) =>
         value is JsonValue v && v.TryGetValue<string>(out var s) ? (NsLocText.TextOf(s) ?? s) : value?.ToJsonString() ?? "(none)";

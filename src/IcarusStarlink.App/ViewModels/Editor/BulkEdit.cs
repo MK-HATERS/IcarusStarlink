@@ -69,6 +69,7 @@ public static class BulkEdit
         new("Durability", "Durable", new("Durable", "Max_Durability")),
         new("Spoil time", "Decayable", new("Decayable", "SpoilTime")),
         new("Buff length", "Consumable", new("Consumable", "Modifier/ModifierLifetime")),
+        new("Storage slots", "Inventory", new(GameItemEditor.StorageSection, "StartingSlots")),
         new("Ingredients", GameItemCatalog.RecipeKey, new(GameItemEditor.RecipeSection, "Inputs/*/Count")),
         new("Research cost", GameItemCatalog.WorkshopKey, new(GameItemEditor.WorkshopSection, "ResearchCost/*/Amount")),
     ];

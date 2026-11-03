@@ -18,6 +18,7 @@ public sealed class GameItemLookup(GameTableIndex game, ExmodPackage? mod)
     private readonly Dictionary<string, Dictionary<string, int>> _usersByField = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string?> _buffByConsumable = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, int>? _buffUsers;
+    private Dictionary<string, int>? _infoUsers;
     private Dictionary<string, List<string>>? _recipesByProduct;
     private Dictionary<string, int>? _recipeOrder;
     private Dictionary<string, string>? _workshopByProduct;
@@ -62,6 +63,36 @@ public sealed class GameItemLookup(GameTableIndex game, ExmodPackage? mod)
         }
 
         return _buffUsers.GetValueOrDefault(buff);
+    }
+
+    /// <summary>How many items (with the mod's changes) have this storage (D_InventoryInfo row) in their inventory row's list; an item counts once.</summary>
+    public int InventoryInfoUsers(string inventoryFile, string info)
+    {
+        if (_infoUsers is null)
+        {
+            _infoUsers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var infosByRow = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in EffectiveLinks("Inventory"))
+            {
+                if (row is null or "None")
+                {
+                    continue;
+                }
+
+                if (!infosByRow.TryGetValue(row, out var infos))
+                {
+                    infosByRow[row] = infos = [.. ((GameItemEditor.EffectiveRow(Game, Mod, inventoryFile, row)?["Inventories"] as JsonArray) ?? [])
+                        .Select(e => RowNameOf(e)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)];
+                }
+
+                foreach (var used in infos)
+                {
+                    _infoUsers[used] = _infoUsers.GetValueOrDefault(used) + 1;
+                }
+            }
+        }
+
+        return _infoUsers.GetValueOrDefault(info);
     }
 
     /// <summary>The buff a consumable row gives (with the mod's changes); null for none.</summary>

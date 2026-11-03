@@ -456,6 +456,9 @@
                                                                                     <DataTrigger Binding="{Binding IsText}" Value="True">
                                                                                         <Setter Property="Width" Value="*"/>
                                                                                     </DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding IsLink}" Value="True">
+                                                                                        <Setter Property="Width" Value="*"/>
+                                                                                    </DataTrigger>
                                                                                 </Style.Triggers>
                                                                             </Style>
                                                                         </ColumnDefinition.Style>
@@ -469,6 +472,9 @@
                                                                                     <DataTrigger Binding="{Binding IsText}" Value="True">
                                                                                         <Setter Property="Width" Value="0"/>
                                                                                     </DataTrigger>
+                                                                                    <DataTrigger Binding="{Binding IsLink}" Value="True">
+                                                                                        <Setter Property="Width" Value="0"/>
+                                                                                    </DataTrigger>
                                                                                 </Style.Triggers>
                                                                             </Style>
                                                                         </ColumnDefinition.Style>
@@ -479,9 +485,35 @@
                                                                     <RowDefinition Height="Auto"/>
                                                                 </Grid.RowDefinitions>
                                                                 <TextBlock Text="{Binding Label}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"
-                                                                           ToolTip="{Binding Label}"/>
+                                                                           ToolTip="{Binding Label}">
+                                                                    <TextBlock.Style>
+                                                                        <!-- Based on the app's own TextBlock style: a bare Style dropped its colour (labels went near-black). -->
+                                                                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding IsDropped}" Value="True">
+                                                                                    <Setter Property="TextDecorations" Value="Strikethrough"/>
+                                                                                    <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </TextBlock.Style>
+                                                                </TextBlock>
+                                                                <!-- On/off: a tick box; a link: a drop-down of the rows it can point at (type to find one). -->
+                                                                <CheckBox Grid.Column="1" IsChecked="{Binding IsOn}" VerticalAlignment="Center" AutomationProperties.Name="{Binding Label}"
+                                                                          Visibility="{Binding IsToggle, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                                <ComboBox Grid.Column="1" ItemsSource="{Binding LinkChoices}" SelectedValuePath="Name" DisplayMemberPath="Display"
+                                                                          SelectedValue="{Binding LinkValue}" IsEditable="True" IsTextSearchEnabled="True" TextSearch.TextPath="Display"
+                                                                          AutomationProperties.Name="{Binding Label}"
+                                                                          Visibility="{Binding IsLink, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                                    <ComboBox.ItemsPanel>
+                                                                        <ItemsPanelTemplate>
+                                                                            <VirtualizingStackPanel/>
+                                                                        </ItemsPanelTemplate>
+                                                                    </ComboBox.ItemsPanel>
+                                                                </ComboBox>
                                                                 <TextBox Grid.Column="1" Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="{Binding Label}"
-                                                                         AcceptsReturn="{Binding IsText}" TextWrapping="Wrap">
+                                                                         AcceptsReturn="{Binding IsText}" TextWrapping="Wrap"
+                                                                         Visibility="{Binding ShowsTextBox, Converter={StaticResource BoolToVisibilityConverter}}">
                                                                     <TextBox.Style>
                                                                         <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
                                                                             <Setter Property="BorderThickness" Value="1"/>
@@ -497,6 +529,9 @@
                                                                                     <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                                                                                     <Setter Property="BorderThickness" Value="2"/>
                                                                                 </DataTrigger>
+                                                                                <DataTrigger Binding="{Binding IsDropped}" Value="True">
+                                                                                    <Setter Property="IsEnabled" Value="False"/>
+                                                                                </DataTrigger>
                                                                             </Style.Triggers>
                                                                         </Style>
                                                                     </TextBox.Style>
@@ -507,8 +542,11 @@
                                                                     <TextBlock Text="{Binding GameText}" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" MaxWidth="180" TextTrimming="CharacterEllipsis"
                                                                                ToolTip="{Binding GameText}"/>
                                                                     <Button Content="&#x21BA;" Command="{Binding UseGameValueCommand}" Margin="6,0,0,0" Padding="5,0"
-                                                                            ToolTip="Back to the game's value" AutomationProperties.Name="Back to the game's value"
+                                                                            ToolTip="Back to the game's value (a taken-out ingredient goes back in)" AutomationProperties.Name="Back to the game's value"
                                                                             Visibility="{Binding DiffersFromGame, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                                    <Button Content="&#x2715;" Command="{Binding DropCommand}" Margin="6,0,0,0" Padding="5,0"
+                                                                            ToolTip="Take this ingredient out of the recipe (↺ puts it back)" AutomationProperties.Name="{Binding Label, StringFormat='Take out {0}'}"
+                                                                            Visibility="{Binding ShowDrop, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                                 </StackPanel>
                                                                 <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3">
                                                                     <TextBlock Text="{Binding Description}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
@@ -522,6 +560,26 @@
 
                                                 <ContentControl Margin="0,0,0,0" Content="{Binding Picker}" ContentTemplate="{StaticResource StatPickerTemplate}"
                                                                 Visibility="{Binding CanAddStat, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                <!-- A recipe's ingredients: search an item, add it (1 to start); ✕ beside one takes it out. -->
+                                                <Border Margin="0,4,0,0" Padding="10,8" CornerRadius="4" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                                                        Visibility="{Binding HasIngredientPicker, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                    <StackPanel DataContext="{Binding IngredientPicker}">
+                                                        <TextBlock Text="Add ingredient" FontWeight="SemiBold"/>
+                                                        <Grid Margin="0,6,0,0">
+                                                            <TextBox Text="{Binding ItemSearch, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search items to add as an ingredient"/>
+                                                            <TextBlock Text="Search: stone, fiber, iron ingot…" Style="{StaticResource PlaceholderTextStyle}"
+                                                                       Visibility="{Binding ItemSearch, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                                                        </Grid>
+                                                        <ListBox ItemsSource="{Binding MatchingItems}" SelectedItem="{Binding SelectedItem}" DisplayMemberPath="Display" MaxHeight="150" Margin="0,4,0,0"
+                                                                 AutomationProperties.Name="Items to add"
+                                                                 Visibility="{Binding HasMatchingItems, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                        <DockPanel Margin="0,6,0,0">
+                                                            <Button DockPanel.Dock="Right" Content="Add ingredient" Command="{Binding AddItemCommand}" Padding="8,2"/>
+                                                            <TextBlock Text="{Binding ItemError}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" FontSize="12" VerticalAlignment="Center"
+                                                                       Visibility="{Binding ItemError, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                                        </DockPanel>
+                                                    </StackPanel>
+                                                </Border>
                                             </StackPanel>
                                         </Expander>
                                     </DataTemplate>

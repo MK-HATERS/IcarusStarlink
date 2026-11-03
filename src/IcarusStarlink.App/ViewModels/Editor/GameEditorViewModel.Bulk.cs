@@ -311,7 +311,7 @@ public sealed partial class GameEditorViewModel
     }
 
     private IEnumerable<(GameItemSectionViewModel Card, GameItemFieldViewModel Field, BulkFieldKey Key)> NumberFields(string itemName) =>
-        CardsFor(itemName).SelectMany(card => card.Fields.Where(f => !f.IsText).Select(f => (card, f, BulkFieldKey.Of(card.Section.Key, f.Field.Path))));
+        CardsFor(itemName).SelectMany(card => card.Fields.Where(f => f.IsNumber && !f.IsDropped).Select(f => (card, f, BulkFieldKey.Of(card.Section.Key, f.Field.Path))));
 
     /// <summary>The values the ticked items have, most shared first.</summary>
     private void RefreshBulkFields()
