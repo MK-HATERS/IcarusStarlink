@@ -142,6 +142,9 @@ public sealed partial class SaveGameNames(string dataFolder)
             _templateStaticRows = null;
             _workshopItemNames = null;
             _missionNames = null;
+            _talentLayouts = null;
+            _talentRankGates = null;
+            _talentIconPaths = null;
         }
     }
 
@@ -175,6 +178,9 @@ public sealed partial class SaveGameNames(string dataFolder)
             _ = GeneticValues;
             _ = Lineages;
             _ = TemplateStaticRows;
+            _ = TalentLayouts;
+            _ = TalentRankGates;
+            _ = TalentIconPaths;
             _ = RowNameSet(TalentsTable);
             _ = RowNameSet(ItemsStaticTable);
             _tables.Clear();

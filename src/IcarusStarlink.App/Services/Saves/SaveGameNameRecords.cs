@@ -4,7 +4,14 @@ namespace IcarusStarlink.App.Services;
 /// <param name="IsDefaultUnlocked">The row's own bDefaultUnlocked — the game grants it from the start WITHOUT writing it into the save, so the editor must show it as unlocked even at rank 0.</param>
 /// <param name="Cost">Workshop research only: "50 Ren" (D_WorkshopItems ResearchCost).</param>
 /// <param name="Order">Its row's place in D_Talents: missions are listed in the game's own order (a map's first area first).</param>
-public sealed record TalentInfo(string DisplayName, string Description, string Tree, int MaxRank, bool IsDefaultUnlocked, string? Cost = null, int Order = int.MaxValue);
+public sealed record TalentInfo(string DisplayName, string Description, string Tree, int MaxRank, bool IsDefaultUnlocked, string? Cost = null, int Order = int.MaxValue)
+{
+    /// <summary>The same cost as numbers ("Ren", 50), so the Workshop tab can add up what's left.</summary>
+    public IReadOnlyList<CostPart> CostParts { get; init; } = [];
+}
+
+/// <summary>One currency of a research cost: "Ren", 50.</summary>
+public sealed record CostPart(string Currency, int Amount);
 
 /// <param name="Display">The tree's own name ("Resources"); for a blueprint tier, the bench it's for ("Crafting Bench").</param>
 /// <param name="ArchetypeDisplay">Its archetype's ("Survival", "Tier 1", "Olympus", "Envirosuits").</param>

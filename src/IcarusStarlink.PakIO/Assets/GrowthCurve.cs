@@ -90,6 +90,22 @@ public sealed record GrowthCurve(IReadOnlyList<GrowthCurveKey> Keys, bool Linear
         return Last.Value;
     }
 
+    /// <summary>The least XP that reaches <paramref name="level"/> on an XP curve: LevelFor(XpFor(n)) is n (up to the cap). Past the last key it goes on at the curve's slope.</summary>
+    public long XpFor(int level)
+    {
+        if (level <= 0)
+        {
+            return 0;
+        }
+
+        var xp = level > Last.Time && SlopeAfter > 0
+            ? Last.Value + (level - Last.Time) * SlopeAfter
+            : Evaluate(level);
+        // A float key a hair over the whole number would round past it: take the lower one when it still reaches the level.
+        var lower = (long)Math.Ceiling(xp - 1e-3);
+        return LevelFor(lower, int.MaxValue) >= level ? lower : (long)Math.Ceiling(xp);
+    }
+
     /// <summary>The level this much XP reaches on an XP curve (whole levels), at most <paramref name="maxLevel"/>.</summary>
     public int LevelFor(double xp, int maxLevel)
     {

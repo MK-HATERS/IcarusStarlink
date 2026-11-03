@@ -56,8 +56,13 @@ public sealed partial class SavesViewModel
             requests.Add((creature.ImagePath, true, bitmap => creature.Icon = bitmap));
         }
 
-        _pendingIconLoad = LoadIconsAsync(requests, _iconLoadGeneration);
+        var generation = _iconLoadGeneration;
+        _pendingIconLoad = LoadIconsAsync(requests, () => generation == _iconLoadGeneration);
+        QueueWorkshopIcons();
     }
+
+    /// <summary>One decode at a time across every icon queue (rows, a talent tree, the workshop): see LoadIconsAsync.</summary>
+    private readonly SemaphoreSlim _iconDecodeGate = new(1, 1);
 
     /// <summary>
     /// Resolves every request ONE AT A TIME — deliberately not Task.WhenAll'd — both because
@@ -72,11 +77,11 @@ public sealed partial class SavesViewModel
     /// trail on in the background for a while after a slot loads; that's real but bounded (no UI
     /// thread time, one background thread, nothing blocks on it) rather than a correctness problem.
     /// </summary>
-    private async Task LoadIconsAsync(IReadOnlyList<(string? IconPath, bool Trim, Action<BitmapImage> SetIcon)> requests, int generation)
+    private async Task LoadIconsAsync(IReadOnlyList<(string? IconPath, bool Trim, Action<BitmapImage> SetIcon)> requests, Func<bool> stillWanted)
     {
         foreach (var (iconPath, trim, setIcon) in requests)
         {
-            if (generation != _iconLoadGeneration)
+            if (!stillWanted())
             {
                 return;
             }
@@ -89,13 +94,26 @@ public sealed partial class SavesViewModel
             var cacheKey = trim ? "trimmed:" + iconPath : iconPath;
             if (!_iconCache.TryGetValue(cacheKey, out var bitmap))
             {
-                var pngBytes = await Task.Run(() =>
-                    _baseGameIconDecoder.TryDecodeIconToPng(iconPath) is { } png ? (trim ? PngTrim.TrimTransparentBorder(png) : png) : null);
-                bitmap = pngBytes is null ? null : TryDecodeImage(pngBytes);
-                _iconCache[cacheKey] = bitmap;
+                // Several queues run at once now (rows, a tree, the workshop): the gate keeps the
+                // content provider to one decode at a time, as before.
+                await _iconDecodeGate.WaitAsync();
+                try
+                {
+                    if (!_iconCache.TryGetValue(cacheKey, out bitmap))
+                    {
+                        var pngBytes = await Task.Run(() =>
+                            _baseGameIconDecoder.TryDecodeIconToPng(iconPath) is { } png ? (trim ? PngTrim.TrimTransparentBorder(png) : png) : null);
+                        bitmap = pngBytes is null ? null : TryDecodeImage(pngBytes);
+                        _iconCache[cacheKey] = bitmap;
+                    }
+                }
+                finally
+                {
+                    _iconDecodeGate.Release();
+                }
             }
 
-            if (generation != _iconLoadGeneration)
+            if (!stillWanted())
             {
                 return;
             }

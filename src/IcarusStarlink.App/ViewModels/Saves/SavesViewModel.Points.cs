@@ -40,6 +40,8 @@ public sealed partial class SavesViewModel
 
         OnPropertyChanged(nameof(TalentRanksSummary));
         OnPropertyChanged(nameof(SelectedLevelDisplay));
+        OnPropertyChanged(nameof(SelectedLevelText));
+        OnPropertyChanged(nameof(CanSetLevel));
         OnPropertyChanged(nameof(PointsNotes));
         OnPropertyChanged(nameof(HasPointsNotes));
         BuildPointsEditors();
@@ -173,6 +175,52 @@ public sealed partial class SavesViewModel
     /// <summary>"Level 313", beside the Characters tab's XP box; null while the curve isn't read.</summary>
     public string? SelectedLevelDisplay => SelectedLevel is { } level ? $"Level {level:N0}" : null;
 
+    /// <summary>The Characters tab's Level box (the user's ask, 2026-11-03): type a level and the XP box gets the least XP that reaches it, off the installed XP curve.</summary>
+    public string SelectedLevelText
+    {
+        get => SelectedLevel?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
+        set => SetSelectedLevel(value);
+    }
+
+    /// <summary>Why the typed level wasn't used; null when it was.</summary>
+    [ObservableProperty]
+    private string? _levelError;
+
+    /// <summary>The XP curve is read, so a level can be turned into XP.</summary>
+    public bool CanSetLevel => _playerGrowth?.Experience is not null && SelectedCharacter is not null;
+
+    private void SetSelectedLevel(string text)
+    {
+        if (SelectedCharacter is not { } character || _playerGrowth is not { Experience: { } xpCurve } growth)
+        {
+            return;
+        }
+
+        if (!int.TryParse(text.Trim().Replace(",", "", StringComparison.Ordinal), System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var level) || level < 0)
+        {
+            LevelError = "Enter a whole level, 0 or more.";
+            return;
+        }
+
+        if (growth.MaxLevel > 0 && level > growth.MaxLevel)
+        {
+            LevelError = $"Levels go up to {growth.MaxLevel:N0} with what's installed (Remove Level Cap in Merge & Install raises that).";
+            return;
+        }
+
+        var xp = xpCurve.XpFor(level);
+        if (xp > int.MaxValue)
+        {
+            LevelError = "That level needs more XP than the game can store.";
+            return;
+        }
+
+        LevelError = null;
+        character.XpText = xp.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        OnPropertyChanged(nameof(SelectedLevelText));
+    }
+
     private int? LevelOf(SaveCharacterViewModel character) =>
         _playerGrowth is { Experience: { } xpCurve } growth && long.TryParse(character.XpText, out var xp)
             ? xpCurve.LevelFor(xp, growth.MaxLevel > 0 ? growth.MaxLevel : int.MaxValue)
@@ -210,8 +258,15 @@ public sealed partial class SavesViewModel
     /// <summary>The banner on the Talents tab when the selected character has more ranks than points (the user's ask, 2026-10-23).</summary>
     public string? OverBudgetNote =>
         SelectedCharacter is { } character && OverBudgetOf(character) is { } over
-            ? $"Over budget: {over}. The game keeps every rank you have, but those trees show no points left, so nothing more can be bought there in game until you're under. Raise the budget with Change points per level (How these points work, below), or lower ranks here."
+            ? $"Over budget: {over}. You keep every rank, but nothing more can be bought in those trees in game."
             : null;
+
+    /// <summary>"How these points work" is open: the over-budget banner's button opens it.</summary>
+    [ObservableProperty]
+    private bool _showPointsNotes;
+
+    [RelayCommand]
+    private void OpenPointsNotes() => ShowPointsNotes = true;
 
     private void RefreshOverBudget()
     {
@@ -228,7 +283,7 @@ public sealed partial class SavesViewModel
 
     private int RanksSpent(string model) => (SelectedCharacter?.Talents ?? []).Where(t => t.Model == model).Sum(t => t.Rank);
 
-    /// <summary>"Level 313 · Talents 583 of 111 (over) · Blueprints 701 of 1,096 · Solo 45 of 30 (over)" for the selected character.</summary>
+    /// <summary>"Level 313 · Talents 583 used / 111 available (472 over) · Blueprints 701 used / 1,096 available · ..." for the selected character.</summary>
     public string TalentRanksSummary
     {
         get
@@ -247,7 +302,7 @@ public sealed partial class SavesViewModel
                 }
 
                 var available = (int)Math.Floor(curve.Evaluate(level)) + bonus;
-                return $"{label} {used:N0} of {available:N0}{(used > available ? " (over)" : "")}";
+                return $"{label} {used:N0} used / {available:N0} available{(used > available ? $" ({used - available:N0} over)" : "")}";
             }
 
             return $"Level {level:N0} · {Part("Talents", "Player", growth.TalentPoints, TalentPointBonus)} · "
@@ -299,7 +354,7 @@ public sealed partial class SavesViewModel
             notes.Add(growth.CurvesFromMods.Count > 0
                 ? $"From an installed mod: {string.Join(", ", growth.CurvesFromMods)}. The rest are the game's own."
                 : "All four curves are the game's own; no installed mod changes them.");
-            if (TalentRanksSummary.Contains("(over)", StringComparison.Ordinal))
+            if (OverBudgetOf(character) is not null)
             {
                 notes.Add("Over: more ranks than the budget. The save keeps every rank and the game doesn't take any away; the tree just shows no points left to spend.");
             }

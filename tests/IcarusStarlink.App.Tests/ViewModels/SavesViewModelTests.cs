@@ -253,11 +253,334 @@ public sealed class SavesViewModelTests : IDisposable
             Assert.Equal("Talents by 24", alpha.OverBudget);
             vm.SelectedCharacter = alpha;
             Assert.StartsWith("Over budget: Talents by 24.", vm.OverBudgetNote);
+            Assert.Contains("Talents 100 used / 76 available (24 over)", vm.TalentRanksSummary);
             Assert.Contains(vm.CheckFindings, f => f.Message.Contains("Talents by 24"));
+
+            vm.OpenPointsNotesCommand.Execute(null);
+            Assert.True(vm.ShowPointsNotes);
+
+            // The Level box: the least XP for a level, off the same curve.
+            Assert.True(vm.CanSetLevel);
+            Assert.Equal("51", vm.SelectedLevelText);
+            vm.SelectedLevelText = "50";
+            Assert.Equal("3954902", alpha.XpText); // 50/51 of the way to 4,034,000, rounded up
+            Assert.Equal("50", vm.SelectedLevelText);
+            Assert.Null(vm.LevelError);
+            vm.SelectedLevelText = "1001";
+            Assert.Contains("up to 1,000", vm.LevelError);
+            Assert.Equal("3954902", alpha.XpText);
+            vm.SelectedLevelText = "ten";
+            Assert.NotNull(vm.LevelError);
 
             alpha.Talents.Single(t => t.RowName == "Some_Talent").Rank = 70;
             Assert.Null(alpha.OverBudget);
             Assert.Null(vm.OverBudgetNote);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>
+    /// A small Survival · Resources tree the way D_Talents writes it: A (3 ranks, Novice), a Reroute
+    /// bend, B behind it (Apprentice, needs 4 points in the tree, line across then down); and one
+    /// Workshop tree with two researches and their costs.
+    /// </summary>
+    private string CreateTalentTreeData()
+    {
+        var data = CreateGameDataFolder();
+        Directory.CreateDirectory(Path.Combine(data, "Talents"));
+        Directory.CreateDirectory(Path.Combine(data, "MetaWorkshop"));
+        File.WriteAllText(Path.Combine(data, "Talents", "D_TalentArchetypes.json"), """
+            { "Rows": [
+                { "Name": "Survival", "Model": { "RowName": "Player" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Survival\")" },
+                { "Name": "Workshop_Armors", "Model": { "RowName": "Workshop" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Armors\")" } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "Talents", "D_TalentTrees.json"), """
+            { "Rows": [
+                { "Name": "Survival_Resources", "Archetype": { "RowName": "Survival" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Resources\")" },
+                { "Name": "Workshop_Armors", "Archetype": { "RowName": "Workshop_Armors" } } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "Talents", "D_TalentRanks.json"), """
+            { "Rows": [ { "Name": "Novice", "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Novice\")" },
+                        { "Name": "Apprentice", "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Apprentice\")", "Investment": 4 } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "Talents", "D_Talents.json"), """
+            { "Defaults": { "Size": { "X": 64, "Y": 64 }, "RequiredRank": { "RowName": "None" }, "DrawMethodOverride": "Unspecified" },
+              "Rows": [
+                { "Name": "Talent_A", "TalentTree": { "RowName": "Survival_Resources" }, "Icon": "/Game/UI/Talents/T_A.T_A",
+                  "Position": { "X": 50, "Y": 50 }, "Size": { "X": 128, "Y": 128 }, "Rewards": [ {}, {}, {} ], "RequiredRank": { "RowName": "Novice" } },
+                { "Name": "Re_route_1", "TalentType": "Reroute", "TalentTree": { "RowName": "Survival_Resources" },
+                  "Position": { "X": 500, "Y": 114 }, "Size": { "X": 0, "Y": 0 }, "RequiredTalents": [ { "RowName": "Talent_A" } ] },
+                { "Name": "Talent_B", "TalentTree": { "RowName": "Survival_Resources" }, "DrawMethodOverride": "XThenY",
+                  "Position": { "X": 650, "Y": 450 }, "Size": { "X": 128, "Y": 128 }, "Rewards": [ {} ], "RequiredRank": { "RowName": "Apprentice" },
+                  "RequiredTalents": [ { "RowName": "Re_route_1" } ] },
+                { "Name": "Workshop_Suit", "TalentTree": { "RowName": "Workshop_Armors" }, "ExtraData": { "RowName": "WI_Suit", "DataTableName": "D_WorkshopItems" },
+                  "Position": { "X": 500, "Y": 450 }, "Size": { "X": 250, "Y": 250 } },
+                { "Name": "Workshop_Helmet", "TalentTree": { "RowName": "Workshop_Armors" }, "ExtraData": { "RowName": "WI_Helmet", "DataTableName": "D_WorkshopItems" },
+                  "Position": { "X": 900, "Y": 450 }, "Size": { "X": 250, "Y": 250 }, "RequiredTalents": [ { "RowName": "Workshop_Suit" } ] } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "MetaWorkshop", "D_WorkshopItems.json"), """
+            { "Rows": [
+                { "Name": "WI_Suit", "Item": { "RowName": "ItemStatic_Fiber" }, "ResearchCost": [ { "Meta": { "RowName": "Credits" }, "Amount": 100 }, { "Meta": { "RowName": "Exotic1" }, "Amount": 50 } ] },
+                { "Name": "WI_Helmet", "Item": { "RowName": "ItemStatic_Fiber" }, "ResearchCost": [ { "Meta": { "RowName": "Credits" }, "Amount": 200 } ] } ] }
+            """);
+        return data;
+    }
+
+    /// <summary>The user's ask (2026-11-03): talents laid out like the game's tree, lines through its bends, lit as learned.</summary>
+    [Fact]
+    public async Task TalentTree_DrawsTheGamesLayout_AndLightsWhatsLearned()
+    {
+        var character = MakeCharacter("Alpha", 0);
+        character["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "Talent_A", ["Rank"] = 3 });
+        var repository = new FakeSaveRepository { Characters = [character], Profile = MakeProfile(nextChrSlot: 1) };
+        var decoder = new FakeBaseGameIconDecoder { PngBytesToReturn = MinimalPng };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateTalentTreeData()), baseGameIconDecoder: decoder);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            vm.SelectedCharacter = vm.Characters.Single();
+
+            var tree = Assert.Single(vm.TalentTrees.Trees);
+            Assert.Same(tree, vm.TalentTrees.SelectedTree);
+            Assert.Equal("Survival · Resources", tree.Group);
+            Assert.Equal(3, tree.Nodes.Count); // A, the bend, B
+            Assert.Equal(2, tree.Links.Count);
+            var a = tree.Nodes.Single(n => n.Talent?.RowName == "Talent_A");
+            var b = tree.Nodes.Single(n => n.Talent?.RowName == "Talent_B");
+            var bend = tree.Nodes.Single(n => !n.IsTalent);
+            // Rank column + margin on the left; A sits at the game's X 50.
+            Assert.True(b.Left - a.Left == 600 && b.Top - a.Top == 400);
+            // XThenY: from the bend across, then down to B.
+            var toB = tree.Links.Single(l => l.To == b);
+            Assert.Equal([bend.Center, new System.Windows.Point(b.Center.X, bend.Center.Y), b.Center], toB.Points);
+
+            Assert.True(a.IsLit);
+            Assert.False(bend.IsLit);
+            Assert.False(b.IsLit);
+            Assert.All(tree.Links, l => Assert.False(l.IsLit));
+            Assert.Equal(["Novice", "Apprentice"], tree.Bands.Select(r => r.Name));
+            Assert.False(tree.Bands.Single(r => r.Name == "Apprentice").IsReached); // 3 of 4
+
+            b.Talent!.RankUpCommand.Execute(null);
+
+            Assert.True(bend.IsLit);
+            Assert.All(tree.Links, l => Assert.True(l.IsLit));
+            Assert.True(tree.Bands.Single(r => r.Name == "Apprentice").IsReached);
+            Assert.True(tree.IsComplete);
+            Assert.Equal("All 2 at their highest rank", tree.Summary);
+
+            await vm.WaitForTalentIconsAsync();
+            Assert.NotNull(a.Talent!.Icon);
+            Assert.Contains("/Game/UI/Talents/T_A.T_A", decoder.RequestedPaths);
+
+            vm.TalentSearchText = "Talent_B";
+            vm.TalentTrees.ApplySearch(vm.TalentSearchText);
+            Assert.True(a.IsDimmed);
+            Assert.False(b.IsDimmed);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Max and Reset on a tree change every row in it, listed or not (unlearned ones are hidden from the list by default).</summary>
+    [Fact]
+    public async Task MaxAndResetTalentGroup_ChangeTheWholeTree()
+    {
+        var character = MakeCharacter("Alpha", 0);
+        character["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "Talent_A", ["Rank"] = 1 });
+        var repository = new FakeSaveRepository { Characters = [character], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateTalentTreeData()));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var alpha = vm.Characters.Single();
+            vm.SelectedCharacter = alpha;
+            Assert.Equal(["Talent_A"], vm.FilteredTalents.Select(t => t.RowName));
+            Assert.Equal("1 of 2 learned, 0 at their highest rank", SaveGroupCounts.DescribeTree(vm.TalentGroupRows("Survival · Resources")));
+
+            vm.MaxTalentGroupCommand.Execute("Survival · Resources");
+            Assert.Equal([3, 1], alpha.Talents.Where(t => t.Group == "Survival · Resources").OrderBy(t => t.RowName).Select(t => t.Rank));
+            Assert.True(vm.HasUnsavedChanges);
+
+            vm.ResetTalentGroupCommand.Execute("Survival · Resources");
+            Assert.All(alpha.Talents, t => Assert.Equal(0, t.Rank));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Undo on one tree puts back only that tree; Fit scales the picked tree to the space it's given.</summary>
+    [Fact]
+    public async Task UndoTree_PutsBackOnlyThatTree_AndFitScalesToTheSpace()
+    {
+        var character = MakeCharacter("Alpha", 0);
+        character["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "Talent_A", ["Rank"] = 1 });
+        var repository = new FakeSaveRepository { Characters = [character], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateTalentTreeData()));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            vm.SelectedCharacter = vm.Characters.Single();
+            var tree = vm.TalentTrees.SelectedTree!;
+            Assert.False(tree.HasChanges);
+
+            vm.MaxTalentGroupCommand.Execute(tree.Group);
+            vm.WorkshopTalents.First(t => t.RowName == "Workshop_Suit").IsDone = true;
+            Assert.True(tree.HasChanges);
+            Assert.Equal("4 points in this tree: every row open", tree.PointsNote);
+
+            vm.TalentTrees.UndoTreeCommand.Execute(tree);
+
+            Assert.False(tree.HasChanges);
+            Assert.Equal([1, 0], tree.Talents.OrderBy(t => t.RowName).Select(t => t.Rank));
+            Assert.Equal("1 point in this tree: Apprentice needs 4", tree.PointsNote);
+            Assert.True(vm.WorkshopTalents.First(t => t.RowName == "Workshop_Suit").IsDirty); // another tab's change stays
+
+            vm.TalentTrees.FitTo(tree.Width / 4, tree.Height);
+            Assert.Equal(0.25, vm.TalentTrees.Zoom, 3);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Missions as the game's mission chains: a tree per map, and marking them all done turns their rewards on.</summary>
+    [Fact]
+    public async Task MissionTrees_ATreePerMap_AndMarkAllDoneTurnsRewardsOn()
+    {
+        var data = CreateGameDataFolder();
+        Directory.CreateDirectory(Path.Combine(data, "Flags"));
+        Directory.CreateDirectory(Path.Combine(data, "Talents"));
+        File.WriteAllText(Path.Combine(data, "Flags", "D_AccountFlags.json"), """
+            { "Rows": [ { "Name": "GrantedBlueprint_Bait", "BlueprintUnlocks": [ { "RowName": "Bait" } ],
+                          "RewardedFromMissions": [ { "RowName": "Tier3_Ext", "DataTableName": "D_ProspectList" } ] } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "Talents", "D_TalentArchetypes.json"), """
+            { "Rows": [ { "Name": "Prospect_Olympus", "Model": { "RowName": "Prospect" }, "DisplayName": "NSLOCTEXT(\"a\", \"b\", \"Olympus\")" } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "Talents", "D_TalentTrees.json"), """
+            { "Rows": [ { "Name": "Prospect_Olympus", "Archetype": { "RowName": "Prospect_Olympus" } } ] }
+            """);
+        File.WriteAllText(Path.Combine(data, "Talents", "D_Talents.json"), """
+            { "Rows": [
+                { "Name": "Prospect_OLY_First", "TalentTree": { "RowName": "Prospect_Olympus" }, "Position": { "X": 0, "Y": 0 }, "Size": { "X": 200, "Y": 200 } },
+                { "Name": "Prospect_RL_Ext", "ExtraData": { "RowName": "Tier3_Ext", "DataTableName": "D_ProspectList" }, "TalentTree": { "RowName": "Prospect_Olympus" },
+                  "Position": { "X": 600, "Y": 0 }, "Size": { "X": 200, "Y": 200 }, "RequiredTalents": [ { "RowName": "Prospect_OLY_First" } ] } ] }
+            """);
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 0) };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(data));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var tree = Assert.Single(vm.MissionTrees.Trees);
+            Assert.Equal("Olympus", tree.Group);
+            Assert.Equal(2, tree.Nodes.Count);
+            Assert.Single(tree.Links);
+            Assert.Empty(vm.WorkshopTrees.Trees);
+
+            vm.MissionTrees.MaxCommand.Execute(tree.Group);
+
+            Assert.All(tree.Talents, t => Assert.Equal(1, t.Rank));
+            Assert.True(Assert.Single(vm.AccountFlags).IsUnlocked);
+            Assert.True(Assert.Single(tree.Links).IsLit);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Save's confirm says what changes: ranks as "3 → 0", research and unlocks by name.</summary>
+    [Fact]
+    public async Task ChangeLines_SayWhatChanges()
+    {
+        var character = MakeCharacter("Alpha", 0);
+        character["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "Talent_A", ["Rank"] = 3 });
+        var repository = new FakeSaveRepository { Characters = [character], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateTalentTreeData()));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var alpha = vm.Characters.Single();
+            alpha.Talents.Single(t => t.RowName == "Talent_A").Rank = 0;
+            vm.WorkshopTalents.Single(t => t.RowName == "Workshop_Suit").IsDone = true;
+
+            Assert.Equal(["Alpha: Talent_A 3 → 0", "Workshop: researched Fiber"], vm.ChangeLines());
+            Assert.Equal(["… and 2 more"], vm.ChangeLines(maxLines: 1));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>A mount's talent changes go through its blob, which can refuse; Undo goes back to the saved rank.</summary>
+    [Fact]
+    public void MountTalent_RankGoesThroughTheBlob_AndRevertGoesBack()
+    {
+        var accepted = new List<int>();
+        var refuse = false;
+        ITreeTalent talent = new MountTalentViewModel("Wolf_Bite", "Bite", "Wolf", 3, false, 1, rank =>
+        {
+            if (refuse)
+            {
+                return false;
+            }
+
+            accepted.Add(rank);
+            return true;
+        }, "Creature_Wolf");
+
+        talent.Rank = 5; // capped at 3
+        Assert.Equal(3, talent.Rank);
+        Assert.True(talent.IsMaxed);
+        Assert.True(talent.IsDirty);
+
+        refuse = true;
+        talent.RankDownCommand.Execute(null);
+        Assert.Equal(3, talent.Rank);
+
+        refuse = false;
+        talent.Revert();
+        Assert.Equal(1, talent.Rank);
+        Assert.False(talent.IsDirty);
+        Assert.Equal([3, 1], accepted);
+        Assert.Equal("Wolf", talent.Group);
+    }
+
+    /// <summary>Workshop: "Only not researched", "Research all shown" (only what's listed), and what's left to pay.</summary>
+    [Fact]
+    public async Task Workshop_FilterResearchAllShown_AndLeftToResearch()
+    {
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 0) };
+        var vm = CreateViewModel(repository, gameNames: new SaveGameNames(CreateTalentTreeData()));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            Assert.Equal("Left to research: 300 Ren + 50 Exotics", vm.WorkshopLeftToResearch);
+            Assert.True(Assert.Single(vm.WorkshopTrees.Trees).Nodes.All(n => n.IsTalent));
+            Assert.Single(vm.WorkshopTrees.Trees.Single().Links);
+
+            vm.WorkshopSearchText = "Workshop_Suit";
+            vm.ResearchShownWorkshopCommand.Execute(null);
+            Assert.Equal(["Workshop_Suit"], vm.WorkshopTalents.Where(t => t.Rank > 0).Select(t => t.RowName));
+            Assert.Equal("Left to research: 200 Ren", vm.WorkshopLeftToResearch);
+            Assert.True(vm.WorkshopTalents.Single(t => t.RowName == "Workshop_Suit").IsSingleRank);
+
+            vm.WorkshopSearchText = "";
+            vm.ShowUnresearchedOnly = true;
+            Assert.Equal(["Workshop_Helmet"], vm.FilteredWorkshop.Select(t => t.RowName));
+
+            vm.ClearWorkshopGroupCommand.Execute(vm.WorkshopTalents.First().Group);
+            Assert.All(vm.WorkshopTalents, t => Assert.Equal(0, t.Rank));
         }
         finally
         {

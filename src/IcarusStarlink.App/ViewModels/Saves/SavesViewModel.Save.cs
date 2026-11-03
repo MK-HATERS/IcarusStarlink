@@ -42,6 +42,89 @@ public sealed partial class SavesViewModel
     }
 
     /// <summary>
+    /// What Save would change, one line per area, for its confirm (the user's ask, 2026-11-03: a
+    /// stray click is easy to miss in "Unsaved: Characters"). Rank changes say "3 → 0"; a long
+    /// list says how many more; at most <paramref name="maxLines"/> lines.
+    /// </summary>
+    internal List<string> ChangeLines(int maxLines = 12)
+    {
+        const int perLine = 4;
+        var lines = new List<string>();
+
+        static string Some(IReadOnlyList<string> items) =>
+            items.Count <= perLine ? string.Join(", ", items) : $"{string.Join(", ", items.Take(perLine))} (+{items.Count - perLine:N0} more)";
+
+        static string Rank(SaveTalentViewModel t) => $"{t.DisplayName} {t.OriginalRank} → {t.Rank}";
+
+        void OnOff(string area, IEnumerable<(string Name, bool On)> changed, string onWord, string offWord)
+        {
+            var list = changed.ToList();
+            var on = list.Where(c => c.On).Select(c => c.Name).ToList();
+            var off = list.Where(c => !c.On).Select(c => c.Name).ToList();
+            var parts = new List<string>();
+            if (on.Count > 0)
+            {
+                parts.Add($"{onWord} {Some(on)}");
+            }
+
+            if (off.Count > 0)
+            {
+                parts.Add($"{offWord} {Some(off)}");
+            }
+
+            if (parts.Count > 0)
+            {
+                lines.Add($"{area}: {string.Join("; ", parts)}");
+            }
+        }
+
+        foreach (var character in Characters.Where(c => c.IsDirty))
+        {
+            var talents = character.Talents.Where(t => t.IsDirty).Select(Rank).ToList();
+            var other = character.IsDirty && (talents.Count == 0 || character.Flags.Any(f => f.IsDirty) || character.Cosmetics.Any(c => c.IsDirty));
+            lines.Add(talents.Count > 0
+                ? $"{character.Name}: {Some(talents)}{(other ? ", and its other details" : "")}"
+                : $"{character.Name}: name, XP, looks or unlocks");
+        }
+
+        if (Currencies.Where(c => c.IsDirty).Select(c => c.Label).ToList() is { Count: > 0 } currencies)
+        {
+            lines.Add($"Currencies: {Some(currencies)}");
+        }
+
+        OnOff("Workshop", WorkshopTalents.Where(t => t.IsDirty && !IsMission(t)).Select(t => (t.DisplayName, t.Rank > 0)), "researched", "cleared");
+        OnOff("Missions", WorkshopTalents.Where(t => t.IsDirty && IsMission(t)).Select(t => (t.DisplayName, t.Rank > 0)), "done", "not done");
+        OnOff("Unlocks", AccountFlags.Where(f => f.IsDirty).Select(f => (f.Name, f.IsUnlocked)), "on", "off");
+        if (BinaryFlags.Any(f => f.IsDirty))
+        {
+            lines.Add("Owned DLC");
+        }
+
+        void Count(string area, int count, string what)
+        {
+            if (count > 0)
+            {
+                lines.Add($"{area}: {count:N0} {what}");
+            }
+        }
+
+        Count("Accolades", Accolades.Count(a => a.IsDirty), "changed");
+        Count("Bestiary", BestiaryEntries.Count(b => b.IsDirty), "creatures changed");
+        if (_metaInventoryDirty)
+        {
+            lines.Add("Items: the bank changed");
+        }
+
+        if (_mountsListDirty || Mounts.Any(m => m.IsDirty))
+        {
+            var mounts = Mounts.Where(m => m.IsDirty).Select(m => m.Name).ToList();
+            lines.Add(mounts.Count > 0 ? $"Mounts: {Some(mounts)}{(_mountsListDirty ? ", and the list" : "")}" : "Mounts: the list");
+        }
+
+        return lines.Count <= maxLines ? lines : [.. lines.Take(maxLines - 1), $"… and {lines.Count - maxLines + 1:N0} more"];
+    }
+
+    /// <summary>
     /// The edited number boxes Save couldn't write ("Alpha: XP", "Ren"): exactly the boxes showing
     /// a red border and a line under them (each row's XpError / NumberError, by SaveNumberRules,
     /// the same rules each row's ApplyToNode uses: a whole number, 0 or more; an appearance value
@@ -109,12 +192,14 @@ public sealed partial class SavesViewModel
         OnPropertyChanged(nameof(HasPointsNotes));
         RefreshPointsEditors();
         OnPropertyChanged(nameof(WorkshopSummary));
+        OnPropertyChanged(nameof(WorkshopLeftToResearch));
         OnPropertyChanged(nameof(MissionsSummary));
         OnPropertyChanged(nameof(HasUnsavedChanges));
         OnPropertyChanged(nameof(HasAnyUnsavedEdits));
         OnPropertyChanged(nameof(OwnedDlcSummary));
         NotifyFlagSummaries();
         OnPropertyChanged(nameof(SelectedLevelDisplay));
+        OnPropertyChanged(nameof(SelectedLevelText));
     }
 
     /// <summary>
@@ -181,8 +266,11 @@ public sealed partial class SavesViewModel
         // Via IDialogService, not ThemedMessageBox.Show directly — same reasoning as
         // RestoreBackupAsync's own confirm: this method's real write needs to be testable without
         // a live WPF Dispatcher, including the late re-check immediately below.
+        var changes = ChangeLines();
         var confirm = _dialogService.Confirm(
-            "Write your edits into the player save?\n\nA full backup of the slot is taken automatically first (Restore can undo this).",
+            "Write your edits into the player save?\n\n"
+            + (changes.Count > 0 ? $"What changes:\n{string.Join("\n", changes.Select(c => $"• {c}"))}\n\n" : "")
+            + "A full backup of the slot is taken automatically first (Restore can undo this).",
             "Save player data", ThemedConfirmSeverity.Question);
         if (!(confirm))
         {

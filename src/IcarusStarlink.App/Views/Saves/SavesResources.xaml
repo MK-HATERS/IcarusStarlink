@@ -12,6 +12,9 @@
          otherwise sits ~1,600 px from the name it belongs to. -->
     <sys:Double x:Key="SaveRowMaxWidth">1000</sys:Double>
 
+    <!-- Talent and research rows: narrower, so the rank isn't a long way from its name. -->
+    <sys:Double x:Key="SaveTalentRowMaxWidth">720</sys:Double>
+
     <!-- A row id ("Exploration_Base_Health") beside or under its readable name: the same faint size everywhere. -->
     <Style x:Key="SaveRawIdRunStyle" TargetType="Run">
         <Setter Property="FontSize" Value="10.5"/>
@@ -103,6 +106,45 @@
         </Setter>
     </Style>
 
+    <!-- Talents and Workshop groups: the same Expander, counting the whole tree (the page passes
+         itself to the count), plus the list's two whole-tree buttons (SaveGroupActions). -->
+    <Style x:Key="SaveActionGroupItemStyle" TargetType="GroupItem">
+        <Setter Property="Margin" Value="0,0,0,6"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="GroupItem">
+                    <Expander IsExpanded="True" views:SaveGroupExpansion.Remember="True" AutomationProperties.Name="{Binding Name}"
+                              views:GroupColor.Index="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource TemplatedParent}}">
+                        <Expander.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <Border Style="{StaticResource GroupStripeStyle}"/>
+                                <TextBlock Text="{Binding Name}" Style="{StaticResource GroupTitleStyle}"/>
+                                <TextBlock Style="{StaticResource ExpanderHeaderStateStyle}">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource SaveGroupCountConverter}">
+                                            <Binding/>
+                                            <Binding Path="Tag" RelativeSource="{RelativeSource AncestorType=ItemsControl}"/>
+                                            <Binding Path="DataContext" RelativeSource="{RelativeSource AncestorType=ItemsControl}"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                                <Button Content="{Binding (views:SaveGroupActions.MaxLabel), RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                        Command="{Binding (views:SaveGroupActions.MaxCommand), RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                        CommandParameter="{Binding Name}" Padding="8,1" Margin="12,0,0,0" FontSize="11.5" VerticalAlignment="Center"
+                                        ToolTip="Every row in this group to its highest rank, listed or not. Nothing is written until you save."/>
+                                <Button Content="{Binding (views:SaveGroupActions.ResetLabel), RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                        Command="{Binding (views:SaveGroupActions.ResetCommand), RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                        CommandParameter="{Binding Name}" Padding="8,1" Margin="6,0,0,0" FontSize="11.5" VerticalAlignment="Center"
+                                        ToolTip="Every row in this group back to 0, listed or not. Nothing is written until you save."/>
+                            </StackPanel>
+                        </Expander.Header>
+                        <ItemsPresenter/>
+                    </Expander>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- The Bestiary's biome group: the same Expander, plus "Complete all" for that biome's
          listed creatures (CompleteBestiaryGroupCommand, with the group's name). -->
     <Style x:Key="SaveBestiaryGroupItemStyle" TargetType="GroupItem">
@@ -172,6 +214,106 @@
     </Style>
 
     <!-- −, the rank, + : a character's talents, the account's research, a mount's talents. -->
+    <!-- A talent on the tree view (TalentTreeView): its icon (or its name when it has none), its
+         rank under it, lit when learned, green when at its highest rank, a dot when changed.
+         Sizes are in the game's tree units: the tree is scaled as a whole. Blueprint and research
+         icons are item art (dark on clear), so they sit on the light tile the Items tab uses. -->
+    <Style x:Key="TalentNodeButtonStyle" TargetType="Button">
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid x:Name="Root">
+                        <Border x:Name="Frame" CornerRadius="16" BorderThickness="6" Background="{DynamicResource CardRaisedBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}">
+                            <Grid Margin="10">
+                                <Image x:Name="Icon" Source="{Binding Talent.Icon}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                <TextBlock x:Name="Label" Text="{Binding Talent.DisplayName}" TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Center"
+                                           FontSize="{Binding BadgeFontSize}" Foreground="{DynamicResource ForegroundBrush}" Visibility="Collapsed"/>
+                            </Grid>
+                        </Border>
+                        <Border x:Name="Badge" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16" CornerRadius="8" Padding="10,0"
+                                Background="{DynamicResource ContentBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="3">
+                            <TextBlock Text="{Binding Talent.RankDisplay}" FontSize="{Binding BadgeFontSize}" FontFamily="Consolas" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource ForegroundBrush}"/>
+                        </Border>
+                        <Ellipse x:Name="Changed" Width="26" Height="26" Fill="{DynamicResource AccentBrush}" Stroke="{DynamicResource ContentBackgroundBrush}" StrokeThickness="4"
+                                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-8,-8,0,0" Visibility="Collapsed"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <DataTrigger Binding="{Binding Talent.Model}" Value="Blueprint">
+                            <Setter TargetName="Frame" Property="Background" Value="{StaticResource SaveIconTileBrush}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Talent.Model}" Value="Workshop">
+                            <Setter TargetName="Frame" Property="Background" Value="{StaticResource SaveIconTileBrush}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Talent.Icon}" Value="{x:Null}">
+                            <Setter TargetName="Icon" Property="Visibility" Value="Collapsed"/>
+                            <Setter TargetName="Label" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="Frame" Property="Background" Value="{DynamicResource CardRaisedBackgroundBrush}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Talent.IsSingleRank}" Value="True">
+                            <Setter TargetName="Badge" Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsLit}" Value="False">
+                            <Setter TargetName="Frame" Property="Opacity" Value="0.4"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsLit}" Value="True">
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            <Setter TargetName="Badge" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Talent.IsMaxed}" Value="True">
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource SuccessBrush}"/>
+                            <Setter TargetName="Badge" Property="BorderBrush" Value="{DynamicResource SuccessBrush}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Talent.IsDirty}" Value="True">
+                            <Setter TargetName="Changed" Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Frame" Property="Opacity" Value="1"/>
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource ForegroundBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource ForegroundBrush}"/>
+                        </Trigger>
+                        <DataTrigger Binding="{Binding IsDimmed}" Value="True">
+                            <Setter TargetName="Root" Property="Opacity" Value="0.15"/>
+                        </DataTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Tree / List on the Talents and Workshop tabs: two halves of one button. -->
+    <Style x:Key="SaveViewModeButtonStyle" TargetType="RadioButton">
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="Frame" Padding="12,3" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}" Background="Transparent"
+                            CornerRadius="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Frame" Property="Background" Value="{DynamicResource NavItemHoverBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Frame" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource ForegroundBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <DataTemplate x:Key="RankStepperTemplate">
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
             <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
@@ -184,10 +326,11 @@
     <!-- A talent or research row: its name and row name, where a mod's comes from, the pack it
          needs, its research cost when it has one, and the rank stepper. -->
     <DataTemplate x:Key="SaveTalentRowTemplate">
-        <!-- The star column stops at SaveRowMaxWidth and stays left: a Stretch'd MaxWidth would centre. -->
+        <!-- The star column stops at SaveTalentRowMaxWidth and stays left: a Stretch'd MaxWidth
+             would centre. Narrower than other rows, so the rank sits near the name it belongs to. -->
         <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" MaxWidth="{StaticResource SaveRowMaxWidth}"/>
+                <ColumnDefinition Width="*" MaxWidth="{StaticResource SaveTalentRowMaxWidth}"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
         <DockPanel Margin="2">
@@ -202,13 +345,50 @@
                 </Style>
             </DockPanel.Style>
             <Ellipse Style="{StaticResource ChangedMarkStyle}"/>
-            <ContentControl DockPanel.Dock="Right" Content="{Binding}" ContentTemplate="{StaticResource RankStepperTemplate}" Focusable="False"/>
+            <!-- One rank (a blueprint, a research): a switch. More: − 2/3 +. -->
+            <Grid DockPanel.Dock="Right" VerticalAlignment="Center">
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource RankStepperTemplate}" Focusable="False"
+                                Visibility="{Binding IsMultiRank, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding IsDone}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                          AutomationProperties.Name="{Binding DisplayName}"
+                          Visibility="{Binding IsSingleRank, Converter={StaticResource BoolToVisibilityConverter}}"/>
+            </Grid>
             <TextBlock DockPanel.Dock="Right" Text="{Binding Cost}" VerticalAlignment="Center" Margin="0,0,14,0" FontSize="11.5"
                        Foreground="{DynamicResource SecondaryForegroundBrush}"
                        Visibility="{Binding Cost, Converter={StaticResource NullToVisibilityConverter}}"/>
+            <!-- The game's picture, once it's loaded (blueprint and research icons are item art: the light tile). -->
+            <Border DockPanel.Dock="Left" Width="30" Height="30" Margin="0,0,10,0" CornerRadius="5"
+                    Visibility="{Binding Icon, Converter={StaticResource NullToVisibilityConverter}}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="{DynamicResource CardRaisedBackgroundBrush}"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Model}" Value="Blueprint">
+                                <Setter Property="Background" Value="{StaticResource SaveIconTileBrush}"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Model}" Value="Workshop">
+                                <Setter Property="Background" Value="{StaticResource SaveIconTileBrush}"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Image Source="{Binding Icon}" Stretch="Uniform" Margin="3" RenderOptions.BitmapScalingMode="HighQuality"/>
+            </Border>
             <StackPanel VerticalAlignment="Center">
+                <!-- The row id shows only while the row is hovered: the name is what's read. -->
                 <TextBlock FontSize="12.5">
-                    <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}" Style="{StaticResource SaveRawIdRunStyle}"/>
+                    <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding RowName, Mode=OneWay}">
+                        <Run.Style>
+                            <Style TargetType="Run" BasedOn="{StaticResource SaveRawIdRunStyle}">
+                                <Setter Property="Foreground" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Run.Style>
+                    </Run>
                 </TextBlock>
                 <TextBlock Text="{Binding Source.Label}" FontSize="11" TextWrapping="Wrap" Style="{StaticResource SaveRowSourceStyle}"/>
                 <TextBlock Text="{Binding PackNote}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"

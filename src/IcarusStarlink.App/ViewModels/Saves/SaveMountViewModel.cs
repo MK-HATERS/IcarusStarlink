@@ -209,7 +209,8 @@ public sealed partial class SaveMountViewModel : DirtyRow
 
         foreach (var (row, info) in rows.OrderBy(r => names.TalentTrees.GetValueOrDefault(r.Info.Tree)?.Display ?? "").ThenBy(r => r.Info.DisplayName))
         {
-            TalentRows.Add(new MountTalentViewModel(row, info.DisplayName, names.TalentTrees.GetValueOrDefault(info.Tree)?.Display ?? "", info.MaxRank,
+            var treeInfo = names.TalentTrees.GetValueOrDefault(info.Tree);
+            TalentRows.Add(new MountTalentViewModel(row, info.DisplayName, treeInfo?.Display ?? "", info.MaxRank,
                 info.IsDefaultUnlocked, ranks.GetValueOrDefault(row), rank =>
                 {
                     if (!blob.SetTalentRank(row, rank))
@@ -218,10 +219,21 @@ public sealed partial class SaveMountViewModel : DirtyRow
                     }
 
                     MarkInsideDirty();
+                    return true;
+                }, info.Tree, treeInfo?.Order ?? int.MaxValue, info.Description, names.TalentIconPaths.GetValueOrDefault(row)));
+        }
+
+        // The summary counts the new rank: the blob callback above runs before the row takes it.
+        foreach (var talent in TalentRows)
+        {
+            talent.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(MountTalentViewModel.Rank))
+                {
                     OnPropertyChanged(nameof(TalentSummary));
                     OnPropertyChanged(nameof(OverBudget));
-                    return true;
-                }));
+                }
+            };
         }
 
         OnPropertyChanged(nameof(TalentSummary));
@@ -368,6 +380,11 @@ public sealed partial class SaveMountViewModel : DirtyRow
             _originalLevel = level;
         }
 
+        foreach (var talent in TalentRows)
+        {
+            talent.MarkSaved();
+        }
+
         if (Blob is { } blob)
         {
             _cleanBlob = blob.Write();
@@ -397,43 +414,114 @@ public sealed partial class MountGeneViewModel(string row, string title, int val
     private void Down() => Value = Math.Max(0, Value - 1);
 }
 
-/// <summary>One talent of a mount's trees, with its rank (0 = not learned).</summary>
-public sealed partial class MountTalentViewModel(string row, string displayName, string tree, int maxRank, bool isDefaultUnlocked, int rank, Func<int, bool> setRank) : ObservableObject
+/// <summary>One talent of a mount's trees, with its rank (0 = not learned). Every rank change goes through the mount's blob (setRank), which can refuse.</summary>
+/// <param name="tree">Its tree's name ("Wolf"), shown beside it in the list.</param>
+/// <param name="treeRow">Its D_Talents tree row ("Creature_Wolf"), for the tree view's layout.</param>
+public sealed partial class MountTalentViewModel(string row, string displayName, string tree, int maxRank, bool isDefaultUnlocked, int rank, Func<int, bool> setRank,
+    string treeRow = "", int treeOrder = int.MaxValue, string description = "", string? iconPath = null) : ObservableObject, ITreeTalent
 {
+    private int _originalRank = rank;
+
     public string Row { get; } = row;
+
+    public string RowName => Row;
 
     public string DisplayName { get; } = displayName;
 
-    public string Tree { get; } = tree;
+    public string Description { get; } = description;
+
+    /// <summary>The tree's name ("Wolf").</summary>
+    public string TreeName { get; } = tree;
+
+    public string Tree { get; } = treeRow;
+
+    /// <summary>The tree view puts a mount's trees under their own names.</summary>
+    public string Group => TreeName.Length > 0 ? TreeName : Tree;
+
+    public int GroupOrder { get; } = treeOrder;
+
+    /// <summary>The node template's light tile is for item art; a creature talent's icon isn't.</summary>
+    public string Model => "Creature";
 
     public int MaxRank { get; } = maxRank;
 
     public bool IsDefaultUnlocked { get; } = isDefaultUnlocked;
 
+    public string? IconPath { get; } = iconPath;
+
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(RankDisplay), nameof(CanRankUp))]
+    private System.Windows.Media.ImageSource? _icon;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RankDisplay), nameof(CanRankUp), nameof(IsUnlockedInGame), nameof(IsMaxed), nameof(IsDirty))]
     private int _rank = rank;
 
     public string RankDisplay => Rank == 0 && IsDefaultUnlocked ? "Default" : MaxRank > 0 ? $"{Rank}/{MaxRank}" : Rank.ToString();
 
+    public bool IsUnlockedInGame => Rank > 0 || IsDefaultUnlocked;
+
+    public bool IsMaxed => MaxRank > 0 && Rank >= MaxRank;
+
+    /// <summary>One rank only: the tree view leaves the rank off its node.</summary>
+    public bool IsSingleRank => MaxRank == 1 && !IsDefaultUnlocked;
+
+    public bool IsDirty => Rank != _originalRank;
+
     /// <summary>Below its highest rank (or no cap known): the shared rank stepper greys + out otherwise.</summary>
     public bool CanRankUp => MaxRank == 0 || Rank < MaxRank;
+
+    /// <summary>Through the blob: a rank it refuses stays as it was.</summary>
+    int ITreeTalent.Rank
+    {
+        get => Rank;
+        set => SetRankTo(value);
+    }
+
+    System.Windows.Input.ICommand ITreeTalent.RankUpCommand => RankUpCommand;
+
+    System.Windows.Input.ICommand ITreeTalent.RankDownCommand => RankDownCommand;
+
+    public void Revert() => SetRankTo(_originalRank);
+
+    /// <summary>After a save: what's there now is the new "unchanged".</summary>
+    internal void MarkSaved()
+    {
+        _originalRank = Rank;
+        OnPropertyChanged(nameof(IsDirty));
+    }
+
+    internal bool SetRankTo(int value)
+    {
+        value = Math.Max(0, MaxRank > 0 ? Math.Min(value, MaxRank) : value);
+        if (value == Rank)
+        {
+            return true;
+        }
+
+        if (!setRank(value))
+        {
+            return false;
+        }
+
+        Rank = value;
+        return true;
+    }
 
     [RelayCommand]
     private void RankUp()
     {
-        if (CanRankUp && setRank(Rank + 1))
+        if (CanRankUp)
         {
-            Rank++;
+            SetRankTo(Rank + 1);
         }
     }
 
     [RelayCommand]
     private void RankDown()
     {
-        if (Rank > 0 && setRank(Rank - 1))
+        if (Rank > 0)
         {
-            Rank--;
+            SetRankTo(Rank - 1);
         }
     }
 }

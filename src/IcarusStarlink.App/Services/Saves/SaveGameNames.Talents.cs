@@ -362,8 +362,11 @@ public sealed partial class SaveGameNames
                 tree,
                 maxRank,
                 defaultUnlocked,
-                cost,
-                order));
+                cost is null ? null : string.Join(" + ", cost.Select(c => $"{c.Amount:N0} {c.Currency}")),
+                order)
+            {
+                CostParts = cost ?? [],
+            });
         }
 
         return talents;

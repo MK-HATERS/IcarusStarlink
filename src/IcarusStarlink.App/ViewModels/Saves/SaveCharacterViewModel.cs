@@ -163,14 +163,17 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
 
     internal static TalentDisplayInfo DisplayInfoFor(SaveGameNames names, string rowName) =>
         names.Talents.TryGetValue(rowName, out var info)
-            ? DisplayInfoFor(names, info)
+            ? DisplayInfoFor(names, info) with { IconPath = names.TalentIconPaths.GetValueOrDefault(rowName) }
             : TalentDisplayInfo.Fallback(rowName);
 
     internal static TalentDisplayInfo DisplayInfoFor(SaveGameNames names, TalentInfo info)
     {
         var tree = names.TalentTrees.GetValueOrDefault(info.Tree);
         return new TalentDisplayInfo(info.DisplayName, info.Description, info.Tree, info.MaxRank, info.IsDefaultUnlocked,
-            tree?.Group ?? info.Tree, tree?.Model ?? "", info.Cost, tree?.Order ?? int.MaxValue, info.Order);
+            tree?.Group ?? info.Tree, tree?.Model ?? "", info.Cost, tree?.Order ?? int.MaxValue, info.Order)
+        {
+            CostParts = info.CostParts,
+        };
     }
 
     partial void OnNameChanged(string value) => _onDirtyChanged();

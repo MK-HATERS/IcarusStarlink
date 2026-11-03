@@ -47,6 +47,8 @@ public sealed partial class SavesViewModel
     [ObservableProperty]
     private SaveMountViewModel? _selectedMount;
 
+    partial void OnSelectedMountChanged(SaveMountViewModel? value) => SyncMountTrees();
+
     private Task _pendingMountGrowth = Task.CompletedTask;
 
     internal Task WaitForMountGrowthAsync() => _pendingMountGrowth;
@@ -87,6 +89,8 @@ public sealed partial class SavesViewModel
             }
         }
 
+        // The rows were built again (a mount's trees come with its growth): draw them again.
+        SyncMountTrees();
         RunSaveCheck();
     }
 

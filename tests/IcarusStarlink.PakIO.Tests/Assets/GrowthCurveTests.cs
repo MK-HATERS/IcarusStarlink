@@ -41,6 +41,22 @@ public sealed class GrowthCurveTests
         Assert.Equal(51, Experience.LevelFor(4_034_000, 50_000));
     }
 
+    /// <summary>The Characters tab's Level box: the least XP for a level, which LevelFor reads back as that level.</summary>
+    [Fact]
+    public void XpFor_IsTheLeastXpThatReachesTheLevel()
+    {
+        Assert.Equal(0, Experience.XpFor(0));
+        Assert.Equal(2400, Experience.XpFor(1));
+        Assert.Equal(4_034_000, Experience.XpFor(51));
+        Assert.Equal(4_034_000 + 262L * 144_000, Experience.XpFor(313));
+        foreach (var level in new[] { 1, 2, 25, 49, 50, 51, 52, 313, 1000 })
+        {
+            var xp = Experience.XpFor(level);
+            Assert.Equal(level, Experience.LevelFor(xp, int.MaxValue));
+            Assert.Equal(level - 1, Experience.LevelFor(xp - 1, int.MaxValue));
+        }
+    }
+
     [Fact]
     public void CurveAssetPath_IsTheCookedPackagesPath()
     {

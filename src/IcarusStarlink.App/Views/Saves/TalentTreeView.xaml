@@ -1,0 +1,230 @@
+<UserControl x:Class="IcarusStarlink.App.Views.TalentTreeView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d">
+
+    <!-- The game's own tree layout (TalentTreeBrowserViewModel): trees on the left, the picked tree
+         drawn on the right with its nodes where the game puts them. DataContext: a TalentTreeBrowserViewModel. -->
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="SavesResources.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="230" MinWidth="160" MaxWidth="400"/>
+            <ColumnDefinition Width="16"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <GridSplitter Grid.Column="1" Style="{StaticResource VerticalPaneSplitterStyle}" Width="16" AutomationProperties.Name="Resize tree list"/>
+
+        <!-- The trees, like the game's tree tabs. A search hides trees with nothing that matches. -->
+        <ListBox Grid.Column="0" ItemsSource="{Binding Trees}" SelectedItem="{Binding SelectedTree}" HorizontalContentAlignment="Stretch"
+                 AutomationProperties.Name="Trees">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsVisible}" Value="False">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <DockPanel Margin="2,3" AutomationProperties.Name="{Binding Group}">
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding Progress}" FontFamily="Consolas" FontSize="11.5" Margin="8,0,0,0" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsComplete}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Text="{Binding Group}" TextTrimming="CharacterEllipsis" FontSize="12.5" VerticalAlignment="Center" ToolTip="{Binding Group}"/>
+                    </DockPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <DockPanel Grid.Column="2" DataContext="{Binding SelectedTree}"
+                   Visibility="{Binding Converter={StaticResource NullToVisibilityConverter}}">
+            <!-- The tree's name, how far along it is, and whole-tree actions. -->
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6" LastChildFill="False">
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Group}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding Summary}" FontSize="12" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Smaller" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    <Slider Width="110" Margin="6,0" Minimum="0.04" Maximum="1" SmallChange="0.02" LargeChange="0.1" VerticalAlignment="Center"
+                            Value="{Binding DataContext.Zoom, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            AutomationProperties.Name="Tree size"
+                            ToolTip="How big the tree is drawn. Left = smaller, to see more of it; right = bigger, the game's own size at the end."/>
+                    <TextBlock Text="Bigger" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    <Button Content="Fit" Padding="10,3" Margin="10,0,0,0" Click="OnFitClick" AutomationProperties.Name="Fit the tree to the window"
+                            ToolTip="Sizes the whole tree to fit the space it has"/>
+                    <Button Content="Undo changes" Padding="10,3" Margin="16,0,0,0" IsEnabled="{Binding HasChanges}"
+                            Command="{Binding DataContext.UndoTreeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                            ToolTipService.ShowOnDisabled="True"
+                            ToolTip="Puts this tree back the way it was at the last load or save. Other trees and tabs keep their changes. Greyed out: nothing changed here."/>
+                    <Button Content="{Binding DataContext.MaxLabel, RelativeSource={RelativeSource AncestorType=UserControl}}" Padding="10,3" Margin="16,0,0,0"
+                            Command="{Binding DataContext.MaxCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding Group}"
+                            ToolTip="Puts everything in this tree at its highest rank (a research: researched; a mission: done). Nothing is written until you save."/>
+                    <Button Content="{Binding DataContext.ResetLabel, RelativeSource={RelativeSource AncestorType=UserControl}}" Padding="10,3" Margin="8,0,0,0"
+                            Command="{Binding DataContext.ResetCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding Group}"
+                            ToolTip="Takes everything in this tree back to 0 (not learned, not researched, not done). Nothing is written until you save."/>
+                </StackPanel>
+            </DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="{Binding PointsNote}" FontSize="12" Margin="0,0,0,2" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                       Visibility="{Binding PointsNote, Converter={StaticResource NullToVisibilityConverter}}"/>
+            <TextBlock DockPanel.Dock="Top" FontSize="11.5" Margin="0,0,0,4" Foreground="{DynamicResource FaintForegroundBrush}" TextWrapping="Wrap"
+                       Text="Click a talent (or press + on it) to add a rank; right-click (or −) to take one off. Arrow keys move between talents. Hover for what it does. Lit lines lead to what's learned."/>
+            <TextBlock DockPanel.Dock="Top" Text="{Binding NotPlacedNote}" FontSize="11.5" Margin="0,0,0,4" TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}"
+                       Visibility="{Binding NotPlacedNote, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6" Background="{DynamicResource PanelBackgroundBrush}">
+                <ScrollViewer x:Name="TreeScroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <Grid Width="{Binding Width}" Height="{Binding Height}" HorizontalAlignment="Left" VerticalAlignment="Top">
+                        <Grid.LayoutTransform>
+                            <ScaleTransform ScaleX="{Binding DataContext.Zoom, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            ScaleY="{Binding DataContext.Zoom, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                        </Grid.LayoutTransform>
+
+                        <!-- Rank rows: a line and the rank's name above the first talent of that rank. -->
+                        <ItemsControl ItemsSource="{Binding Bands}" Focusable="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemContainerStyle>
+                                <Style TargetType="ContentPresenter">
+                                    <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                                </Style>
+                            </ItemsControl.ItemContainerStyle>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Width="{Binding Width}">
+                                        <Rectangle Height="2" Fill="{DynamicResource BorderBrush}"/>
+                                        <StackPanel Margin="24,10,0,0">
+                                            <TextBlock Text="{Binding Name}" FontSize="30" FontWeight="SemiBold">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsReached}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding Needs}" FontSize="22" Width="210" TextWrapping="Wrap" HorizontalAlignment="Left"
+                                                       Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- Lines from each talent to the ones that need it, bent the way the game bends them. -->
+                        <ItemsControl ItemsSource="{Binding Links}" Focusable="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Polyline Points="{Binding Points}" StrokeLineJoin="Round">
+                                        <Polyline.Style>
+                                            <Style TargetType="Polyline">
+                                                <Setter Property="Stroke" Value="{DynamicResource BorderBrush}"/>
+                                                <Setter Property="StrokeThickness" Value="6"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsLit}" Value="True">
+                                                        <Setter Property="Stroke" Value="{DynamicResource AccentBrush}"/>
+                                                        <Setter Property="StrokeThickness" Value="8"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Polyline.Style>
+                                    </Polyline>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- The talents. Route points (the game's bends) aren't drawn: only their lines are. -->
+                        <!-- Arrow keys move to the nearest talent that way (WPF's own directional navigation over the canvas). -->
+                        <ItemsControl ItemsSource="{Binding Nodes}" Focusable="False" KeyboardNavigation.DirectionalNavigation="Contained"
+                                      KeyboardNavigation.TabNavigation="Once">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemContainerStyle>
+                                <Style TargetType="ContentPresenter">
+                                    <Setter Property="Canvas.Left" Value="{Binding Left}"/>
+                                    <Setter Property="Canvas.Top" Value="{Binding Top}"/>
+                                    <Setter Property="Visibility" Value="{Binding IsTalent, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                </Style>
+                            </ItemsControl.ItemContainerStyle>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Width="{Binding Width}" Height="{Binding Height}" Style="{StaticResource TalentNodeButtonStyle}"
+                                            Command="{Binding Talent.RankUpCommand}"
+                                            AutomationProperties.Name="{Binding Talent.DisplayName}"
+                                            AutomationProperties.HelpText="{Binding Talent.RankDisplay}">
+                                        <Button.InputBindings>
+                                            <MouseBinding Gesture="RightClick" Command="{Binding Talent.RankDownCommand}"/>
+                                            <KeyBinding Key="Add" Command="{Binding Talent.RankUpCommand}"/>
+                                            <KeyBinding Key="OemPlus" Command="{Binding Talent.RankUpCommand}"/>
+                                            <KeyBinding Key="Subtract" Command="{Binding Talent.RankDownCommand}"/>
+                                            <KeyBinding Key="OemMinus" Command="{Binding Talent.RankDownCommand}"/>
+                                            <KeyBinding Key="Delete" Command="{Binding Talent.RankDownCommand}"/>
+                                        </Button.InputBindings>
+                                        <Button.ToolTip>
+                                            <StackPanel MaxWidth="320">
+                                                <TextBlock Text="{Binding Talent.DisplayName}" FontWeight="SemiBold" FontSize="13"/>
+                                                <TextBlock Text="{Binding Talent.Description}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                                           Visibility="{Binding Talent.Description, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                                <TextBlock Margin="0,6,0,0">
+                                                    <Run Text="Rank "/><Run Text="{Binding Talent.RankDisplay, Mode=OneWay}" FontWeight="SemiBold"/>
+                                                </TextBlock>
+                                                <TextBlock Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                           Visibility="{Binding RequiredRank, Converter={StaticResource NullToVisibilityConverter}}">
+                                                    <Run Text="{Binding RequiredRank, Mode=OneWay}"/><Run Text=" row"/>
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding Talent.Cost}" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                           Visibility="{Binding Talent.Cost, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                                <TextBlock Text="{Binding Talent.PackNote}" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                           Visibility="{Binding Talent.PackNote, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                                <TextBlock Text="{Binding Talent.RowName}" FontSize="10.5" Margin="0,4,0,0" Foreground="{DynamicResource FaintForegroundBrush}"/>
+                                            </StackPanel>
+                                        </Button.ToolTip>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
+                </ScrollViewer>
+            </Border>
+        </DockPanel>
+
+        <TextBlock Grid.Column="2" Style="{StaticResource EmptyStateTextStyle}"
+                   Text="No trees to draw. The game's data may not be read yet: Settings, Refresh game data. The List view still works."
+                   Visibility="{Binding SelectedTree, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+    </Grid>
+</UserControl>

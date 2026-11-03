@@ -147,6 +147,16 @@
                                         <TextBlock Text="Name" Style="{StaticResource FieldLabelStyle}"/>
                                         <TextBox Text="{Binding SelectedCharacter.Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,12" AutomationProperties.Name="Character name"/>
 
+                                        <!-- Level: typed, it sets the XP below to the least that reaches it (off the installed XP curve). -->
+                                        <StackPanel Visibility="{Binding CanSetLevel, Converter={StaticResource BoolToVisibilityConverter}}">
+                                            <TextBlock Text="Level" Style="{StaticResource FieldLabelStyle}"/>
+                                            <TextBox Text="{Binding SelectedLevelText, UpdateSourceTrigger=PropertyChanged, Delay=700}" Width="120" HorizontalAlignment="Left"
+                                                     FontFamily="Consolas" Margin="0,4,0,2" AutomationProperties.Name="Level"
+                                                     AutomationProperties.HelpText="{Binding LevelError}"
+                                                     ToolTip="Type a level: the XP box gets just enough XP for it. Higher = more talent and blueprint points."/>
+                                            <TextBlock Text="{Binding LevelError}" Style="{StaticResource SaveNumberErrorTextStyle}" Margin="0,0,0,4"/>
+                                            <TextBlock Text="Or set the exact XP:" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" Margin="0,4,0,0"/>
+                                        </StackPanel>
                                         <TextBlock Text="XP" Style="{StaticResource FieldLabelStyle}"/>
                                         <DockPanel Margin="0,4,0,2">
                                             <TextBlock DockPanel.Dock="Right" Text="{Binding SelectedLevelDisplay}" VerticalAlignment="Center" Margin="12,0,0,0" FontWeight="SemiBold"
@@ -217,13 +227,12 @@
                     </ScrollViewer>
                 </Grid>
             </TabItem>
-            <!-- Talents: character talents searchable with rank editing; workshop research below.
-                 Every talent the game defines is available via "Show unlearned" — turning a rank
-                 up grants it (rank 0 is the format's own "doesn't have it"). -->
-            <!-- Talents: the selected character's talent, blueprint and solo trees, grouped by tree under
-                 the game's own names (SaveGameNames.TalentTrees), in the game's order: talent trees,
-                 then blueprints Tier 1 to Tier 5 with their bench, then Solo (SaveGroupOrder).
-                 Workshop research and missions are the account's and have their own tabs. -->
+            <!-- Talents: the selected character's talent, blueprint and solo trees, under the game's own
+                 names (SaveGameNames.TalentTrees), in the game's order: talent trees, then blueprints
+                 Tier 1 to Tier 5 with their bench, then Solo (SaveGroupOrder). Tree shows them as the
+                 game's menu draws them (TalentTreeView); List is every row, grouped by tree, where
+                 "Show unlearned" lists rank 0 rows too (turning a rank up grants it). Workshop research
+                 and missions are the account's and have their own tabs. -->
             <TabItem Header="Talents">
                 <TabItem.Resources>
                     <CollectionViewSource x:Key="TalentGroups" Source="{Binding FilteredTalents}">
@@ -234,24 +243,35 @@
                 </TabItem.Resources>
                 <DockPanel Margin="0,10,0,0">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <RadioButton Content="Tree" GroupName="TalentsTree" IsChecked="{Binding TalentsAsTree}" Style="{StaticResource SaveViewModeButtonStyle}" Tag="4,0,0,4"
+                                     AutomationProperties.Name="Show as the game's trees" ToolTip="The trees as the game's menu draws them"/>
+                        <RadioButton Content="List" GroupName="TalentsList" IsChecked="{Binding TalentsAsList}" Style="{StaticResource SaveViewModeButtonStyle}" Tag="0,4,4,0" Margin="-1,0,14,0"
+                                     AutomationProperties.Name="Show as a list" ToolTip="Every talent as a row, grouped by tree"/>
                         <TextBox Width="260" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search talents (name or tree)…"
                                  Text="{Binding TalentSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search talents (name or tree)"/>
-                        <TextBlock Text="Show" VerticalAlignment="Center" Margin="14,0,6,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                        <ComboBox ItemsSource="{Binding TalentKindOptions}" SelectedItem="{Binding TalentKind}" Width="110" AutomationProperties.Name="Which trees"/>
+                        <TextBlock Text="Trees" VerticalAlignment="Center" Margin="14,0,6,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        <ComboBox ItemsSource="{Binding TalentKindOptions}" SelectedItem="{Binding TalentKind}" Width="110" AutomationProperties.Name="Which trees"
+                                  ToolTip="Which trees to show: all of them, only the talent trees, only blueprints, or only Solo"/>
                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Show unlearned" IsChecked="{Binding ShowUnlearnedTalents}"
                                   Margin="14,0,0,0" VerticalAlignment="Center"
+                                  Visibility="{Binding TalentsAsList, Converter={StaticResource BoolToVisibilityConverter}}"
                                   ToolTip="Lists every talent in the game, not just this character's. Set a rank above 0 to give one."/>
                     </WrapPanel>
                     <TextBlock DockPanel.Dock="Top" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,2">
                         <Run Text="{Binding SelectedCharacter.Name, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}"/><Run Text=" · "/><Run Text="{Binding TalentRanksSummary, Mode=OneWay}"/>
                     </TextBlock>
-                    <!-- Over budget: more ranks than the installed curves give. -->
-                    <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="6" Padding="10,6" Margin="0,4,0,6"
-                            Visibility="{Binding OverBudgetNote, Converter={StaticResource NullToVisibilityConverter}}">
-                        <TextBlock Text="{Binding OverBudgetNote}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AccentBrush}"/>
+                    <!-- Over budget: more ranks than the installed curves give. The button opens the notes below,
+                         where Change points per level raises the budget. -->
+                    <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource WarningBrush}" Background="{DynamicResource WarningSoftBrush}" BorderThickness="1" CornerRadius="6"
+                            Padding="10,6" Margin="0,4,0,6" Visibility="{Binding OverBudgetNote, Converter={StaticResource NullToVisibilityConverter}}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="How to raise it" Command="{Binding OpenPointsNotesCommand}" Padding="10,2" Margin="12,0,0,0" VerticalAlignment="Center"
+                                    ToolTip="Opens How these points work, where Change points per level gives more points"/>
+                            <TextBlock Text="{Binding OverBudgetNote}" TextWrapping="Wrap" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource ForegroundBrush}"/>
+                        </DockPanel>
                     </Border>
                     <!-- Where the budgets come from: level cap, which curves keep rising, bonuses, mods. -->
-                    <Expander DockPanel.Dock="Top" Header="How these points work" Margin="0,0,0,6"
+                    <Expander DockPanel.Dock="Top" Header="How these points work" Margin="0,0,0,6" IsExpanded="{Binding ShowPointsNotes}"
                               Visibility="{Binding HasPointsNotes, Converter={StaticResource BoolToVisibilityConverter}}">
                         <StackPanel Margin="4,4,0,4" MaxWidth="900" HorizontalAlignment="Left">
                             <ItemsControl ItemsSource="{Binding PointsNotes}">
@@ -289,18 +309,26 @@
                             </StackPanel>
                         </StackPanel>
                     </Expander>
-                    <!-- Tag: the tab's summary, so each tree's count follows a rank change. -->
-                    <ListBox ItemsSource="{Binding Source={StaticResource TalentGroups}}" HorizontalContentAlignment="Stretch" Tag="{Binding TalentRanksSummary}"
-                             views:SaveGroupExpansion.Scope="Talents" BorderThickness="0" Background="Transparent"
-                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling" ItemTemplate="{StaticResource SaveTalentRowTemplate}">
-                        <ListBox.GroupStyle>
-                            <GroupStyle ContainerStyle="{StaticResource SaveCollapsibleGroupItemStyle}" AlternationCount="6"/>
-                        </ListBox.GroupStyle>
-                    </ListBox>
+                    <Grid>
+                        <views:TalentTreeView DataContext="{Binding TalentTrees}"
+                                              Visibility="{Binding DataContext.TalentsAsTree, RelativeSource={RelativeSource AncestorType=TabControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <!-- Tag: the tab's summary, so each tree's count follows a rank change. -->
+                        <ListBox ItemsSource="{Binding Source={StaticResource TalentGroups}}" HorizontalContentAlignment="Stretch" Tag="{Binding TalentRanksSummary}"
+                                 views:SaveGroupExpansion.Scope="Talents" BorderThickness="0" Background="Transparent"
+                                 views:SaveGroupActions.MaxCommand="{Binding MaxTalentGroupCommand}" views:SaveGroupActions.ResetCommand="{Binding ResetTalentGroupCommand}"
+                                 views:SaveGroupActions.MaxLabel="Max tree" views:SaveGroupActions.ResetLabel="Reset tree"
+                                 Visibility="{Binding TalentsAsList, Converter={StaticResource BoolToVisibilityConverter}}"
+                                 VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling" ItemTemplate="{StaticResource SaveTalentRowTemplate}">
+                            <ListBox.GroupStyle>
+                                <GroupStyle ContainerStyle="{StaticResource SaveActionGroupItemStyle}" AlternationCount="6"/>
+                            </ListBox.GroupStyle>
+                        </ListBox>
+                    </Grid>
                 </DockPanel>
             </TabItem>
 
-            <!-- Workshop: the account's research, grouped by workshop tree, with what it costs. -->
+            <!-- Workshop: the account's research, as the game's workshop trees (Tree) or grouped by tree
+                 with what each costs (List), with icons, and what's left to research in total. -->
             <TabItem Header="Workshop">
                 <TabItem.Resources>
                     <CollectionViewSource x:Key="WorkshopGroups" Source="{Binding FilteredWorkshop}">
@@ -311,19 +339,36 @@
                 </TabItem.Resources>
                 <DockPanel Margin="0,10,0,0">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <RadioButton Content="Tree" GroupName="WorkshopTree" IsChecked="{Binding WorkshopAsTree}" Style="{StaticResource SaveViewModeButtonStyle}" Tag="4,0,0,4"
+                                     AutomationProperties.Name="Show as the game's workshop trees" ToolTip="The research as the game's workshop draws it"/>
+                        <RadioButton Content="List" GroupName="WorkshopList" IsChecked="{Binding WorkshopAsList}" Style="{StaticResource SaveViewModeButtonStyle}" Tag="0,4,4,0" Margin="-1,0,14,0"
+                                     AutomationProperties.Name="Show research as a list" ToolTip="Every research as a row, with what it costs"/>
                         <TextBox Width="260" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search research…"
                                  Text="{Binding WorkshopSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search research"/>
                         <TextBlock Text="{Binding WorkshopSummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Only not researched" IsChecked="{Binding ShowUnresearchedOnly}" Margin="14,0,0,0" VerticalAlignment="Center"
+                                  Visibility="{Binding WorkshopAsList, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <Button Content="Research all shown" Command="{Binding ResearchShownWorkshopCommand}" Padding="10,3" Margin="14,0,0,0"
+                                Visibility="{Binding WorkshopAsList, Converter={StaticResource BoolToVisibilityConverter}}"
+                                ToolTip="Researches every row listed right now (after the search and filter). Nothing is written until you save."/>
                     </WrapPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="Account-wide: every character can buy what's researched here from the Workshop." FontSize="12"
-                               Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"/>
-                    <ListBox ItemsSource="{Binding Source={StaticResource WorkshopGroups}}" HorizontalContentAlignment="Stretch" Tag="{Binding WorkshopSummary}"
-                             views:SaveGroupExpansion.Scope="Workshop" BorderThickness="0" Background="Transparent"
-                             VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling" ItemTemplate="{StaticResource SaveTalentRowTemplate}">
-                        <ListBox.GroupStyle>
-                            <GroupStyle ContainerStyle="{StaticResource SaveCollapsibleGroupItemStyle}" AlternationCount="6"/>
-                        </ListBox.GroupStyle>
-                    </ListBox>
+                    <TextBlock DockPanel.Dock="Top" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6" TextWrapping="Wrap">
+                        <Run Text="Account-wide: every character can buy what's researched here from the Workshop."/><Run Text="  "/><Run Text="{Binding WorkshopLeftToResearch, Mode=OneWay}" FontWeight="SemiBold"/>
+                    </TextBlock>
+                    <Grid>
+                        <views:TalentTreeView DataContext="{Binding WorkshopTrees}"
+                                              Visibility="{Binding DataContext.WorkshopAsTree, RelativeSource={RelativeSource AncestorType=TabControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                        <ListBox ItemsSource="{Binding Source={StaticResource WorkshopGroups}}" HorizontalContentAlignment="Stretch" Tag="{Binding WorkshopSummary}"
+                                 views:SaveGroupExpansion.Scope="Workshop" BorderThickness="0" Background="Transparent"
+                                 views:SaveGroupActions.MaxCommand="{Binding ResearchWorkshopGroupCommand}" views:SaveGroupActions.ResetCommand="{Binding ClearWorkshopGroupCommand}"
+                                 views:SaveGroupActions.MaxLabel="Research all" views:SaveGroupActions.ResetLabel="Clear"
+                                 Visibility="{Binding WorkshopAsList, Converter={StaticResource BoolToVisibilityConverter}}"
+                                 VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling" ItemTemplate="{StaticResource SaveTalentRowTemplate}">
+                            <ListBox.GroupStyle>
+                                <GroupStyle ContainerStyle="{StaticResource SaveActionGroupItemStyle}" AlternationCount="6"/>
+                            </ListBox.GroupStyle>
+                        </ListBox>
+                    </Grid>
                 </DockPanel>
             </TabItem>
 
@@ -338,15 +383,24 @@
                 </TabItem.Resources>
                 <DockPanel Margin="0,10,0,0">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <RadioButton Content="Tree" GroupName="MissionsTree" IsChecked="{Binding MissionsAsTree}" Style="{StaticResource SaveViewModeButtonStyle}" Tag="4,0,0,4"
+                                     AutomationProperties.Name="Show missions as the game's mission chains" ToolTip="Each map's missions as the game's mission screen links them"/>
+                        <RadioButton Content="List" GroupName="MissionsList" IsChecked="{Binding MissionsAsList}" Style="{StaticResource SaveViewModeButtonStyle}" Tag="0,4,4,0" Margin="-1,0,14,0"
+                                     AutomationProperties.Name="Show missions as a list" ToolTip="Every mission as a row, by map"/>
                         <TextBox Width="260" Style="{StaticResource SaveSearchBoxStyle}" Tag="Search missions…"
                                  Text="{Binding MissionSearchText, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Search missions"/>
                         <TextBlock Text="{Binding MissionsSummary}" VerticalAlignment="Center" Margin="14,0,0,0" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Only not done" IsChecked="{Binding ShowUndoneMissionsOnly}" Margin="14,0,0,0" VerticalAlignment="Center"/>
+                        <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Only not done" IsChecked="{Binding ShowUndoneMissionsOnly}" Margin="14,0,0,0" VerticalAlignment="Center"
+                                  Visibility="{Binding MissionsAsList, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     </WrapPanel>
                     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,6"
                                Text="Account-wide. Marking a mission done also turns on the unlock it rewards on the Unlocks tab (a message says which). Ren and Exotics it pays aren't added: change those under Characters. Turning a mission off leaves its reward on, as the game does."/>
+                    <Grid>
+                    <views:TalentTreeView DataContext="{Binding MissionTrees}"
+                                          Visibility="{Binding DataContext.MissionsAsTree, RelativeSource={RelativeSource AncestorType=TabControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <ListBox ItemsSource="{Binding Source={StaticResource MissionGroups}}" HorizontalContentAlignment="Stretch" Tag="{Binding MissionsSummary}"
                              views:SaveGroupExpansion.Scope="Missions" BorderThickness="0" Background="Transparent"
+                             Visibility="{Binding MissionsAsList, Converter={StaticResource BoolToVisibilityConverter}}"
                              VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling">
                         <ListBox.GroupStyle>
                             <GroupStyle ContainerStyle="{StaticResource SaveCollapsibleGroupItemStyle}" AlternationCount="6"/>
@@ -383,6 +437,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                    </Grid>
                 </DockPanel>
             </TabItem>
 

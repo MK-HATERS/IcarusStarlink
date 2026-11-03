@@ -22,7 +22,7 @@ public sealed partial class SavesViewModel
 
     partial void OnShowUnlearnedTalentsChanged(bool value) => RefreshTalentFilter();
 
-    /// <summary>The Talents tab's "Show": All, Talents (the Player trees), Blueprints, Solo.</summary>
+    /// <summary>The Talents tab's "Trees": All, Talents (the Player trees), Blueprints, Solo.</summary>
     public IReadOnlyList<string> TalentKindOptions { get; } = ["All", "Talents", "Blueprints", "Solo"];
 
     [ObservableProperty]
@@ -46,6 +46,7 @@ public sealed partial class SavesViewModel
             SaveGroupOrder.Talents(SelectedCharacter?.Talents ?? []), FilteredTalents, TalentSearchText,
             t => (ShowUnlearnedTalents || t.IsUnlockedInGame || t.IsDirty) && MatchesTalentKind(t),
             t => t.DisplayName, t => t.RowName, t => t.Group);
+        SyncTalentTrees();
         OnPropertyChanged(nameof(TalentRanksSummary));
         OnPropertyChanged(nameof(SelectedLevelDisplay));
         OnPropertyChanged(nameof(PointsNotes));

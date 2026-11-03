@@ -45,9 +45,9 @@ public sealed partial class SaveGameNames
     };
 
     /// <summary>D_WorkshopItems row -> "50 Ren" (its ResearchCost).</summary>
-    private Dictionary<string, string> LoadWorkshopCosts() => Safe(() =>
+    private Dictionary<string, IReadOnlyList<CostPart>> LoadWorkshopCosts() => Safe(() =>
     {
-        var costs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var costs = new Dictionary<string, IReadOnlyList<CostPart>>(StringComparer.OrdinalIgnoreCase);
         foreach (var (workshopRow, row) in RowsOf(WorkshopItemsTable))
         {
             if (row.TryGetProperty("ResearchCost", out var list) && list.ValueKind == JsonValueKind.Array)
@@ -56,17 +56,17 @@ public sealed partial class SaveGameNames
                     .Select(c => (Meta: c.TryGetProperty("Meta", out var m) && m.TryGetProperty("RowName", out var mr) ? mr.GetString() ?? "?" : "?",
                                   Amount: c.TryGetProperty("Amount", out var a) && a.ValueKind == JsonValueKind.Number ? a.GetInt32() : 0))
                     .Where(c => c.Amount > 0)
-                    .Select(c => $"{c.Amount:N0} {CurrencyNames.GetValueOrDefault(c.Meta, c.Meta)}");
-                var text = string.Join(" + ", parts);
-                if (text.Length > 0)
+                    .Select(c => new CostPart(CurrencyNames.GetValueOrDefault(c.Meta, c.Meta), c.Amount))
+                    .ToList();
+                if (parts.Count > 0)
                 {
-                    costs[workshopRow] = text;
+                    costs[workshopRow] = parts;
                 }
             }
         }
 
         return costs;
-    }, () => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+    }, () => new Dictionary<string, IReadOnlyList<CostPart>>(StringComparer.OrdinalIgnoreCase));
 
     /// <summary>D_WorkshopItems row -> the display name of the item it researches (D_ItemTemplate -> D_ItemsStatic -> D_Itemable), for workshop talents. Empty when the tables are missing.</summary>
     private IReadOnlyDictionary<string, string> WorkshopItemNames => Cached(ref _workshopItemNames, () => Safe<IReadOnlyDictionary<string, string>>(() =>

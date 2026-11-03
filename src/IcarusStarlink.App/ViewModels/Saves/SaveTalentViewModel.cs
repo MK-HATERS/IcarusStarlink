@@ -11,9 +11,18 @@ namespace IcarusStarlink.App.ViewModels;
 /// rank 0 entries are simply not written, which is exactly how the game itself represents
 /// "doesn't have it".
 /// </summary>
-public sealed partial class SaveTalentViewModel : DirtyRow
+public sealed partial class SaveTalentViewModel : DirtyRow, ITreeTalent
 {
     private int _originalRank;
+
+    /// <summary>The rank at the last load or save: Save's confirm lists "3 → 0".</summary>
+    public int OriginalRank => _originalRank;
+
+    System.Windows.Input.ICommand ITreeTalent.RankUpCommand => RankUpCommand;
+
+    System.Windows.Input.ICommand ITreeTalent.RankDownCommand => RankDownCommand;
+
+    public void Revert() => Rank = _originalRank;
 
     public string RowName { get; }
 
@@ -46,6 +55,23 @@ public sealed partial class SaveTalentViewModel : DirtyRow
 
     /// <summary>Workshop research: "50 Ren".</summary>
     public string? Cost { get; }
+
+    /// <summary>Workshop research: the same cost as numbers.</summary>
+    public IReadOnlyList<Services.CostPart> CostParts { get; }
+
+    /// <summary>The game's picture for it, loaded lazily (SavesViewModel.QueueTalentIcons).</summary>
+    public string? IconPath { get; }
+
+    [ObservableProperty]
+    private System.Windows.Media.ImageSource? _icon;
+
+    /// <summary>One rank only (a blueprint, a research, a one-rank talent): a switch instead of − 1/1 +. A default-unlocked one keeps the stepper, which says "Default".</summary>
+    public bool IsSingleRank => MaxRank == 1 && !IsDefaultUnlocked;
+
+    public bool IsMultiRank => !IsSingleRank;
+
+    /// <summary>At its highest rank.</summary>
+    public bool IsMaxed => MaxRank > 0 && Rank >= MaxRank;
 
     /// <summary>Missions (one rank): done or not, as a switch.</summary>
     public bool IsDone
@@ -94,6 +120,8 @@ public sealed partial class SaveTalentViewModel : DirtyRow
         Order = info.Order;
         Model = info.Model;
         Cost = info.Cost;
+        CostParts = info.CostParts;
+        IconPath = info.IconPath;
         // A rank the save already carries above the table's cap is kept as-is (an older game
         // version's data, or the table not matching) — clamping on LOAD would silently edit the
         // user's save just by opening it, which the editor must never do.
@@ -106,6 +134,7 @@ public sealed partial class SaveTalentViewModel : DirtyRow
         OnPropertyChanged(nameof(IsDone));
         OnPropertyChanged(nameof(IsUnlockedInGame));
         OnPropertyChanged(nameof(RankDisplay));
+        OnPropertyChanged(nameof(IsMaxed));
 
         // On every rank change, not only + and −: Remove leftovers and the save check set Rank
         // directly, and a talent taken from its highest rank down to 0 kept its + greyed out.
@@ -143,6 +172,12 @@ public sealed record TalentDisplayInfo(string DisplayName, string Description, s
 
     /// <summary>The game's own tables list it (false: shown by its row name, which the row then shows faint as well).</summary>
     public bool IsInGameTables { get; init; } = true;
+
+    /// <summary>Workshop research: its cost as numbers, for the tab's "left to research" total.</summary>
+    public IReadOnlyList<Services.CostPart> CostParts { get; init; } = [];
+
+    /// <summary>The game's picture for it (SaveGameNames.TalentIconPaths); null when there's none.</summary>
+    public string? IconPath { get; init; }
 
     /// <summary>"Prospect_OLY_Glacier_Exploration" reads "OLY Glacier Exploration"; other row names stay as they are.</summary>
     public static string ReadableRowName(string rowName) =>

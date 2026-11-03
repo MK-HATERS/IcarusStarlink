@@ -55,8 +55,12 @@ public sealed partial class SavesViewModel
 
     private void RefreshAccountTalentFilters()
     {
-        RefreshFilter(SaveGroupOrder.Talents(WorkshopTalents.Where(t => !IsMission(t))), FilteredWorkshop, WorkshopSearchText, null,
+        RefreshFilter(SaveGroupOrder.Talents(WorkshopTalents.Where(t => !IsMission(t))), FilteredWorkshop, WorkshopSearchText,
+            ShowUnresearchedOnly ? t => t.Rank == 0 : null,
             t => t.DisplayName, t => t.RowName, t => t.Group);
+        SyncWorkshopTrees();
+        SyncMissionTrees();
+        OnPropertyChanged(nameof(WorkshopLeftToResearch));
         RefreshFilter(SaveGroupOrder.Missions(WorkshopTalents.Where(t => IsMission(t) && !IsDevMission(t))), FilteredMissions, MissionSearchText,
             ShowUndoneMissionsOnly ? t => t.Rank == 0 : null,
             t => t.DisplayName, t => t.RowName, t => t.Group);
@@ -186,6 +190,8 @@ public sealed partial class SavesViewModel
         }
 
         LinkMissionRewards();
+        _workshopTreesStale = true;
+        _missionTreesStale = true;
         RefreshAccountTalentFilters();
     }
 

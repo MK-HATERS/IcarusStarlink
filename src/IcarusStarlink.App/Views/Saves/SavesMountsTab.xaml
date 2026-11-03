@@ -1,6 +1,7 @@
 <UserControl x:Class="IcarusStarlink.App.Views.SavesMountsTab"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:IcarusStarlink.App.Views"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d">
@@ -52,7 +53,7 @@
 
         <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto"
                       Visibility="{Binding SelectedMount, Converter={StaticResource NullToVisibilityConverter}}">
-            <StackPanel DataContext="{Binding SelectedMount}" MaxWidth="720" HorizontalAlignment="Left">
+            <StackPanel DataContext="{Binding SelectedMount}" MaxWidth="1200" HorizontalAlignment="Left">
                 <TextBlock Text="{Binding TypeDisplayName}" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
                            ToolTip="The species can't be changed: its talents and stats are stored with it."/>
                 <WrapPanel Margin="0,6,0,0">
@@ -108,20 +109,31 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <TextBlock Margin="0,14,0,2">
-                        <Run Text="Talents" FontWeight="SemiBold" FontSize="13"/><Run Text="   "/><Run Text="{Binding TalentSummary, Mode=OneWay}" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                    </TextBlock>
+                    <DockPanel Margin="0,14,0,2" LastChildFill="False">
+                        <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <Run Text="Talents" FontWeight="SemiBold" FontSize="13"/><Run Text="   "/><Run Text="{Binding TalentSummary, Mode=OneWay}" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                        </TextBlock>
+                        <RadioButton DockPanel.Dock="Left" Content="Tree" GroupName="MountTree" Margin="16,0,0,0" Style="{StaticResource SaveViewModeButtonStyle}" Tag="4,0,0,4"
+                                     IsChecked="{Binding DataContext.MountTalentsAsTree, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                     AutomationProperties.Name="Show the mount's talents as its trees" ToolTip="The mount's talents as its talent menu draws them"/>
+                        <RadioButton DockPanel.Dock="Left" Content="List" GroupName="MountList" Margin="-1,0,0,0" Style="{StaticResource SaveViewModeButtonStyle}" Tag="0,4,4,0"
+                                     IsChecked="{Binding DataContext.MountTalentsAsList, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                     AutomationProperties.Name="Show the mount's talents as a list" ToolTip="Every talent as a row"/>
+                    </DockPanel>
                     <Border BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="6" Padding="10,4" Margin="0,4,0,4"
                             Visibility="{Binding OverBudget, Converter={StaticResource NullToVisibilityConverter}}">
                         <TextBlock Text="{Binding OverBudget}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AccentBrush}"/>
                     </Border>
-                    <ItemsControl ItemsSource="{Binding TalentRows}">
+                    <views:TalentTreeView DataContext="{Binding DataContext.MountTrees, RelativeSource={RelativeSource AncestorType=UserControl}}" Height="560" Margin="0,6,0,0"
+                                          Visibility="{Binding DataContext.MountTalentsAsTree, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <ItemsControl ItemsSource="{Binding TalentRows}"
+                                  Visibility="{Binding DataContext.MountTalentsAsList, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel Margin="0,1">
                                     <ContentControl DockPanel.Dock="Right" Content="{Binding}" ContentTemplate="{StaticResource RankStepperTemplate}" Focusable="False"/>
                                     <TextBlock VerticalAlignment="Center" FontSize="12.5">
-                                        <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding Tree, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
+                                        <Run Text="{Binding DisplayName, Mode=OneWay}"/><Run Text="  "/><Run Text="{Binding TreeName, Mode=OneWay}" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="10.5"/>
                                     </TextBlock>
                                 </DockPanel>
                             </DataTemplate>

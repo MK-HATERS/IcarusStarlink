@@ -24,6 +24,9 @@ public sealed partial class SavesViewModel
     {
         RefreshFlagFilter();
         RefreshTalentFilter();
+        LevelError = null;
+        OnPropertyChanged(nameof(SelectedLevelText));
+        OnPropertyChanged(nameof(CanSetLevel));
     }
 
     /// <summary>The spec's "Click a card to edit that character" — Overview card → Characters tab with that character selected.</summary>
