@@ -326,7 +326,12 @@ keys or tokens) makes it much faster to track down.
 
 ## Changelog
 
-### 4.4.0 (latest)
+### 4.4.1 (latest)
+
+**Fixed**
+- Some antivirus programs (BitDefender and the ones that use its engine: Emsisoft, GData, VIPRE, Arcabit) flagged Starlink's updater, `IcarusStarlink.Updater.exe`, as a trojan. It wasn't one: a new generic signature matched the way the updater was packed, and older Starlink versions are flagged too. The updater is now built as a plain Windows program and none of them flag it. Nothing else changed.
+
+### 4.4.0
 
 **Added**
 
