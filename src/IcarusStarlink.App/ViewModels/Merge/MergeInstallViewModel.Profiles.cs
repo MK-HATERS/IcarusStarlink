@@ -458,7 +458,9 @@ public sealed partial class MergeInstallViewModel
             // Backing field, not the property: the property setter's change hook reloads the profile
             // from disk into the UI, which threw away any queue/option edits not yet saved (an audit
             // finding) — a rename changes only the name.
+#pragma warning disable MVVMTK0034 // on purpose, see above
             _selectedProfileName = newName;
+#pragma warning restore MVVMTK0034
             OnPropertyChanged(nameof(SelectedProfileName));
             RefreshCanRestoreProfileBackup();
             // The change hook is skipped above, so the next start's profile is remembered here.

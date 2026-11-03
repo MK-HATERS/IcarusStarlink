@@ -14,13 +14,13 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Reads global.json itself, so this always matches the exact SDK version/rollForward policy
       # the project is actually developed against, rather than a hardcoded version drifting out of
       # sync with it.
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
 
@@ -37,7 +37,7 @@ jobs:
       # inspectable from the workflow's own Summary/Artifacts tab, not just the raw console log.
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-results
           path: '**/TestResults/*.trx'
@@ -50,7 +50,7 @@ jobs:
       # launch, from its own small dedicated GitHub release (see UnrealPakInstaller.cs).
       - name: Upload build output
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: IcarusStarlink-build-${{ github.sha }}
           path: src/IcarusStarlink.App/bin/Release/net10.0-windows/
