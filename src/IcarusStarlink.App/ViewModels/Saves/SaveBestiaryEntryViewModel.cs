@@ -39,6 +39,13 @@ public sealed partial class SaveBestiaryEntryViewModel : DirtyRow
     /// <summary>Where its group is listed: biomes in the game table's order; a creature the tables lack goes last.</summary>
     public int GroupOrder { get; }
 
+    /// <summary>The game's creature table has it (false: a tracked creature the game doesn't know, like RockDog in the user's save).</summary>
+    public bool IsInGameTables { get; init; } = true;
+
+    /// <summary>Where a creature the game doesn't have comes from (SaveModSources); null for the game's own.</summary>
+    [ObservableProperty]
+    private Services.SaveRowSource? _source;
+
     /// <summary>Its field-guide entry is fully unlocked.</summary>
     public bool IsComplete => PointsRequired > 0 && EffectivePoints >= PointsRequired;
 

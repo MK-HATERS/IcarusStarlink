@@ -77,7 +77,7 @@ public sealed partial class SavesViewModel
         {
             if (!seen.Contains(rowName))
             {
-                BestiaryEntries.Add(new SaveBestiaryEntryViewModel(rowName, rowName, 0, false, currentPoints, null, NotifyDirtyChanged));
+                BestiaryEntries.Add(new SaveBestiaryEntryViewModel(rowName, rowName, 0, false, currentPoints, null, NotifyDirtyChanged) { IsInGameTables = false });
             }
         }
 

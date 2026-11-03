@@ -14,7 +14,16 @@ public sealed partial class SaveCurrencyViewModel : DirtyRow
     /// <summary>A currency the game has (D_MetaCurrency). False for a leftover like "Exotic_stabilized": the game ignores it, and it can be taken out.</summary>
     public bool IsGameCurrency { get; init; } = true;
 
-    public bool IsUnknown => !IsGameCurrency;
+    /// <summary>Not a game currency, and no mod you have adds it: it can be taken out (a mod's own currency stays).</summary>
+    public bool IsUnknown => !IsGameCurrency && Source is not { IsRemovable: false };
+
+    /// <summary>Its MetaRow ("Exotic_stabilized").</summary>
+    public string MetaRow => SaveJson.String(_node["MetaRow"]) ?? "";
+
+    /// <summary>Where a currency the game doesn't have comes from (SaveModSources); null for the game's own, or until read.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsUnknown))]
+    private Services.SaveRowSource? _source;
 
     /// <summary>Its MetaResources entry, for taking it out of the save.</summary>
     internal JsonObject Node => _node;

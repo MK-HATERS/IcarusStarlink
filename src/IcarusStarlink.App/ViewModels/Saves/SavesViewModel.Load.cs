@@ -75,6 +75,7 @@ public sealed partial class SavesViewModel
         _mountsListDirty = false;
         _profileFieldsDirty = false;
         _removedCurrencies.Clear();
+        _mergeDuplicatesIn.Clear();
         _loadedStamps = null;
         _skippedSections.Clear();
         SkippedSectionsNote = null;

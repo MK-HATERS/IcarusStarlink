@@ -27,6 +27,9 @@ public sealed record SaveCheckFinding(SaveCheckSeverity Severity, string Area, s
     /// <summary>A DLC / Supporters Edition note: in Fix all only with its switch on.</summary>
     public bool IsDlc => Area == SaveChecker.DlcArea;
 
+    /// <summary>A note's fix Fix all may make when "Include notes" is on; false when a mod might mind (turning off a flag the game doesn't know).</summary>
+    public bool SafeInFixAll { get; init; } = true;
+
     public string SeverityLabel => Severity switch
     {
         SaveCheckSeverity.Problem => "Problem",
@@ -124,8 +127,13 @@ public static class SaveChecker
                     .ToList();
                 if (missing.Count > 0)
                 {
-                    findings.Add(new(SaveCheckSeverity.Note, area,
-                        $"{talent.DisplayName} is learned without the talent before it ({string.Join(", ", missing.Select(m => names.Talents.GetValueOrDefault(m)?.DisplayName ?? m))}). The game keeps it."));
+                    var missingNames = string.Join(", ", missing.Select(m => names.Talents.GetValueOrDefault(m)?.DisplayName ?? m));
+                    // The talents before it that this character can learn: one rank each, as the game would have had it.
+                    var learnable = character.Talents.Where(t => missing.Contains(t.RowName, StringComparer.OrdinalIgnoreCase) && t.Rank == 0).ToList();
+                    findings.Add(learnable.Count == 0
+                        ? new(SaveCheckSeverity.Note, area, $"{talent.DisplayName} is learned without the talent before it ({missingNames}). The game keeps it.")
+                        : new(SaveCheckSeverity.Note, area, $"{talent.DisplayName} is learned without the talent before it ({missingNames}). The game keeps it.",
+                            $"Learn {missingNames} too", () => learnable.ForEach(t => t.Rank = Math.Max(1, t.Rank))));
                 }
 
                 for (var rank = 0; rank < Math.Min(talent.Rank, rule.GrantedFlagsByRank.Count); rank++)
@@ -158,9 +166,16 @@ public static class SaveChecker
 
             foreach (var flag in character.Flags.Where(f => f.IsUnlocked && f.Kind == FlagKind.Unknown))
             {
-                findings.Add(new(SaveCheckSeverity.Note, area, $"{flag.Name} isn't in the game's flag table (from a mod, or removed)."));
+                findings.Add(UnknownFlag(area, flag));
             }
         }
+
+        // A flag past the end of the game's table: a mod that adds flags may use it, so its fix is never in Fix all.
+        static SaveCheckFinding UnknownFlag(string area, SaveFlagViewModel flag) =>
+            new(SaveCheckSeverity.Note, area, $"{flag.Name} isn't in the game's flag table (from a mod, or removed).", $"Turn off {flag.Name}", () => flag.IsUnlocked = false)
+            {
+                SafeInFixAll = false,
+            };
 
         // --- Account ---
         foreach (var currency in page.Currencies)
@@ -170,11 +185,19 @@ public static class SaveChecker
                 findings.Add(new(SaveCheckSeverity.Problem, "Account", $"{currency.Label} is negative ({count:N0}).", $"Set {currency.Label} to 0", () => currency.CountText = "0"));
             }
 
-            if (!currency.IsGameCurrency)
+            if (currency.IsUnknown)
             {
                 findings.Add(new(SaveCheckSeverity.Note, "Account", $"{currency.Label}: the game has no such currency and ignores it.",
-                    "Take it out of the save", () => page.RemoveCurrencyCommand.Execute(currency)));
+                    $"Take {currency.MetaRow} out", () => page.RemoveCurrencyCommand.Execute(currency))
+                {
+                    SafeInFixAll = currency.Source?.IsRemovable == true,
+                });
             }
+        }
+
+        foreach (var flag in page.AccountFlags.Where(f => f.IsUnlocked && f.Kind == FlagKind.Unknown))
+        {
+            findings.Add(UnknownFlag("Account", flag));
         }
 
         foreach (var talent in page.WorkshopTalents.Where(t => t.Rank > 0))
@@ -239,8 +262,29 @@ public static class SaveChecker
         // --- Bestiary ---
         foreach (var entry in page.BestiaryEntries.Where(b => b.PointsRequired > 0 && b.EffectivePoints > b.PointsRequired))
         {
-            findings.Add(new(SaveCheckSeverity.Note, "Bestiary", $"{entry.DisplayName} has {entry.EffectivePoints:N0} points, more than the {entry.PointsRequired:N0} it needs. Harmless."));
+            findings.Add(new(SaveCheckSeverity.Note, "Bestiary", $"{entry.DisplayName} has {entry.EffectivePoints:N0} points, more than the {entry.PointsRequired:N0} it needs. Harmless.",
+                $"Set {entry.DisplayName} to {entry.PointsRequired:N0}", () => entry.PointsText = entry.PointsRequired.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         }
+
+        // Rows the game's tables don't have (RockDog in the user's save): a mod's you have stay; the rest can go.
+        foreach (var entry in page.BestiaryEntries.Where(b => !b.IsInGameTables && b.EffectivePoints > 0))
+        {
+            findings.Add(NotInGame("Bestiary", entry.DisplayName, "creature", entry.Source, () => entry.PointsText = "0"));
+        }
+
+        foreach (var accolade in page.Accolades.Where(a => !a.IsInGameTables && a.IsCompleted))
+        {
+            findings.Add(NotInGame("Accolades", accolade.DisplayName, "accolade", accolade.Source, () => accolade.IsCompleted = false));
+        }
+
+        static SaveCheckFinding NotInGame(string area, string name, string what, SaveRowSource? source, Action takeOut) =>
+            source is { IsRemovable: false }
+                ? new(SaveCheckSeverity.Note, area, $"{name}: the game has no such {what}. {source.Label}, so it stays.")
+                : new(SaveCheckSeverity.Note, area, $"{name}: the game has no such {what} and ignores it.", $"Take {name} out", takeOut)
+                {
+                    // Sure only once it's known no mod you have gives it.
+                    SafeInFixAll = source?.IsRemovable == true,
+                };
 
         // --- Mounts (from the list itself; what's inside each mount comes with the mount editor) ---
         var mountTypes = names.MountTypeRowNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -281,6 +325,13 @@ public static class SaveChecker
         {
             findings.Add(new(SaveCheckSeverity.Problem, "Mounts",
                 $"{string.Join(" and ", shared.Select(m => m.Name))} share one mount ID; the game may mix them up. Usually a copy made by hand."));
+        }
+
+        // --- The same entry listed twice in a file ---
+        // Each its own label: findings sharing a fix label are merged into one row below.
+        foreach (var (area, what, message, merge) in page.DuplicateRows())
+        {
+            findings.Add(new(SaveCheckSeverity.Warning, area, message, $"Keep one of each ({what})", merge));
         }
 
         // --- Items ---

@@ -154,7 +154,7 @@ public sealed partial class SavesViewModel : ObservableObject
     public WorldSettingsViewModel WorldSettings { get; }
 
     public bool HasUnsavedChanges =>
-        !_loadFailed && (DirtyTrackedCollections.Any(c => c.Any(x => x.IsDirty)) || _metaInventoryDirty || _charactersListDirty || _mountsListDirty || _profileFieldsDirty);
+        !_loadFailed && (DirtyTrackedCollections.Any(c => c.Any(x => x.IsDirty)) || _metaInventoryDirty || _charactersListDirty || _mountsListDirty || _profileFieldsDirty || _mergeDuplicatesIn.Count > 0);
 
     /// <summary>
     /// Anything on this page that would be lost: the player-data edits above and the Worlds tab's
@@ -163,10 +163,10 @@ public sealed partial class SavesViewModel : ObservableObject
     /// </summary>
     public bool HasAnyUnsavedEdits => HasUnsavedChanges || WorldSettings.HasChanges;
 
-    private bool CharactersDirty => _charactersListDirty || Characters.Any(c => c.IsDirty);
+    private bool CharactersDirty => _charactersListDirty || Characters.Any(c => c.IsDirty) || _mergeDuplicatesIn.Contains(CharactersFile);
 
     private bool ProfileDirty =>
-        _profileFieldsDirty || Currencies.Any(c => c.IsDirty) || AccountFlags.Any(f => f.IsDirty) || WorkshopTalents.Any(t => t.IsDirty);
+        _profileFieldsDirty || _mergeDuplicatesIn.Contains(ProfileFile) || Currencies.Any(c => c.IsDirty) || AccountFlags.Any(f => f.IsDirty) || WorkshopTalents.Any(t => t.IsDirty);
 
     public SavesViewModel(
         ISaveRepository repository, IActivityLog activityLog, SaveGameNames gameNames,

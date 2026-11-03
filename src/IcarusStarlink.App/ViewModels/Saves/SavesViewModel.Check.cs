@@ -22,7 +22,13 @@ public sealed partial class SavesViewModel
     [NotifyPropertyChangedFor(nameof(HasFixableFindings))]
     private bool _fixAllIncludesDlc;
 
-    private bool IsInFixAll(SaveCheckFinding f) => f.CanFix && (f.Severity != SaveCheckSeverity.Note || (FixAllIncludesDlc && f.IsDlc));
+    /// <summary>Fix all also makes the notes' harmless fixes (the user's ask, 2026-11-03). Off by default; a note whose fix a mod might mind (an unknown flag) stays out.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFixableFindings))]
+    private bool _fixAllIncludesNotes;
+
+    private bool IsInFixAll(SaveCheckFinding f) => f.CanFix && (f.Severity != SaveCheckSeverity.Note
+        || (f.IsDlc ? FixAllIncludesDlc : FixAllIncludesNotes && f.SafeInFixAll));
 
     public bool HasFixableFindings => CheckFindings.Any(IsInFixAll);
 
@@ -147,6 +153,7 @@ public sealed partial class SavesViewModel
             item.Source = index.Classify(SaveModSources.ItemsFile, item.RowName);
         }
 
+        ClassifyOtherRows(index);
         NotifyLeftoversChanged();
 
         // Mis-named items are only known now.
@@ -169,6 +176,28 @@ public sealed partial class SavesViewModel
         }
     }
 
+    /// <summary>Currencies, creatures and accolades the game doesn't have: where they come from (the user's ask, 2026-11-03: Clean up covers every kind).</summary>
+    private void ClassifyOtherRows(SaveModSources.Index index)
+    {
+        foreach (var currency in Currencies.Where(c => !c.IsGameCurrency))
+        {
+            currency.Source = index.Classify(SaveModSources.CurrencyFile, currency.MetaRow);
+        }
+
+        foreach (var creature in BestiaryEntries.Where(b => !b.IsInGameTables))
+        {
+            creature.Source = index.Classify(SaveModSources.BestiaryFile, creature.RowName);
+        }
+
+        foreach (var accolade in Accolades.Where(a => !a.IsInGameTables))
+        {
+            accolade.Source = index.Classify(SaveModSources.AccoladesFile, accolade.RowName);
+        }
+    }
+
+    /// <summary>One row Clean up takes out: where it is, its name, and how (rank 0, dropped, 0 points, not earned).</summary>
+    private sealed record Leftover(string Where, string Name, Action Remove);
+
     private IEnumerable<(string Where, SaveTalentViewModel Talent)> LeftoverTalents() =>
         Characters.SelectMany(c => c.Talents.Select(t => (Where: c.Name, Talent: t)))
             .Concat(WorkshopTalents.Select(t => (Where: IsMission(t) ? "Missions" : "Workshop", Talent: t)))
@@ -176,12 +205,31 @@ public sealed partial class SavesViewModel
 
     private IEnumerable<SaveInventoryItemViewModel> LeftoverItems() => MetaInventoryItems.Where(i => i.Source?.IsRemovable == true);
 
-    public bool HasLeftovers => LeftoverTalents().Any() || LeftoverItems().Any();
+    /// <summary>Everything in the save the game doesn't have and no installed or Library mod gives.</summary>
+    private List<Leftover> Leftovers() =>
+    [
+        .. LeftoverTalents().Select(x => new Leftover(x.Where, x.Talent.DisplayName, () => x.Talent.Rank = 0)),
+        .. LeftoverItems().Select(i => new Leftover("Items", i.DisplayName, () => TakeOutBankItem(i))),
+        .. Currencies.Where(c => !c.IsGameCurrency && c.Source?.IsRemovable == true)
+            .Select(c => new Leftover("Currencies", c.MetaRow, () => TakeOutCurrency(c))),
+        .. BestiaryEntries.Where(b => !b.IsInGameTables && b.EffectivePoints > 0 && b.Source?.IsRemovable == true)
+            .Select(b => new Leftover("Bestiary", b.DisplayName, () => b.PointsText = "0")),
+        .. Accolades.Where(a => !a.IsInGameTables && a.IsCompleted && a.Source?.IsRemovable == true)
+            .Select(a => new Leftover("Accolades", a.DisplayName, () => a.IsCompleted = false)),
+    ];
 
-    /// <summary>"MKHATERS: 14 talents · Workshop: 30 · Items: 2".</summary>
+    public bool HasLeftovers => Leftovers().Count > 0;
+
+    /// <summary>"MKHATERS: 14 · Workshop: 30 · Items: 2 · Bestiary: 1".</summary>
     public string LeftoversSummary =>
-        string.Join(" · ", LeftoverTalents().GroupBy(x => x.Where).Select(g => $"{g.Key}: {g.Count()}")
-            .Concat(LeftoverItems().Count() is > 0 and var items ? [$"Items: {items}"] : []));
+        string.Join(" · ", Leftovers().GroupBy(x => x.Where).Select(g => $"{g.Key}: {g.Count()}"));
+
+    private void TakeOutBankItem(SaveInventoryItemViewModel item)
+    {
+        MetaInventoryItems.Remove(item);
+        FilteredMetaInventoryItems.Remove(item);
+        _metaInventoryDirty = true;
+    }
 
     /// <summary>What the installed mods add that this save uses: "Ferani Buyable Beasts".</summary>
     public string? ModsInUseSummary
@@ -205,44 +253,36 @@ public sealed partial class SavesViewModel
     [RelayCommand]
     private void RemoveLeftovers()
     {
-        var talents = LeftoverTalents().ToList();
-        var items = LeftoverItems().ToList();
-        if (talents.Count + items.Count == 0)
+        var leftovers = Leftovers();
+        if (leftovers.Count == 0)
         {
             return;
         }
 
-        var lines = talents.GroupBy(x => x.Where)
-            .Select(g => $"{g.Key}: {string.Join(", ", g.Select(x => x.Talent.DisplayName).Take(8))}{(g.Count() > 8 ? $" and {g.Count() - 8} more" : "")}")
-            .Concat(items.Count > 0 ? [$"Items: {string.Join(", ", items.Select(i => i.DisplayName).Take(8))}{(items.Count > 8 ? $" and {items.Count - 8} more" : "")}"] : []);
+        var lines = leftovers.GroupBy(x => x.Where)
+            .Select(g => $"{g.Key}: {string.Join(", ", g.Select(x => x.Name).Take(8))}{(g.Count() > 8 ? $" and {g.Count() - 8} more" : "")}");
         if (!_dialogService.Confirm(
-                "These come from mods you no longer have (or the game removed them), and nothing installed or in your Library gives them:\n\n"
+                "These are in the save, but the game doesn't have them (old mods, or the game removed them), and nothing installed or in your Library gives them:\n\n"
                 + string.Join("\n\n", lines)
                 + "\n\nThey're taken out of the editor now; nothing is written until you press Save, which backs the slot up first. "
                 + "Talent points they used come back. Ren spent on removed research isn't refunded.",
-                "Remove leftovers from old mods?", ThemedConfirmSeverity.Warning))
+                "Clean up what the game doesn't have?", ThemedConfirmSeverity.Warning))
         {
             return;
         }
 
         using (BatchedDirtyChanges())
         {
-            foreach (var (_, talent) in talents)
+            foreach (var leftover in leftovers)
             {
-                talent.Rank = 0;
+                leftover.Remove();
             }
-        }
-
-        foreach (var item in items)
-        {
-            MetaInventoryItems.Remove(item);
-            FilteredMetaInventoryItems.Remove(item);
-            _metaInventoryDirty = true;
         }
 
         OnPropertyChanged(nameof(ItemsEmptyText));
         NotifyDirtyChanged();
         NotifyLeftoversChanged();
-        _activityLog.Log($"Took {talents.Count + items.Count} leftovers from old mods out of the save (press Save to keep that).", ActivityEntryKind.Success);
+        RunSaveCheck();
+        _activityLog.Log($"Took {leftovers.Count} things the game doesn't have out of the save (press Save to keep that).", ActivityEntryKind.Success);
     }
 }

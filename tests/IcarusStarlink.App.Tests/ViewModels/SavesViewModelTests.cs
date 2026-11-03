@@ -1443,6 +1443,169 @@ public sealed class SavesViewModelTests : IDisposable
         Assert.Equal(["Ren", "Exotic_stabilized (not a game currency)", "Flux"], vm.Currencies.Select(c => c.Label));
     }
 
+    /// <summary>
+    /// The user's ask (2026-11-03): Clean up takes out every kind of row the game doesn't have and no
+    /// mod you have gives: a currency, a creature (RockDog, in their save), an accolade. A mod's
+    /// installed currency stays and can't be removed.
+    /// </summary>
+    [Fact]
+    public async Task CleanUp_TakesOutCurrenciesCreaturesAndAccoladesTheGameDoesntHave_ButKeepsAModsOwn()
+    {
+        var profile = MakeProfile(nextChrSlot: 0);
+        profile["MetaResources"] = new JsonArray(
+            new JsonObject { ["MetaRow"] = "Credits", ["Count"] = 10 },
+            new JsonObject { ["MetaRow"] = "Exotic_stabilized", ["Count"] = 5 },
+            new JsonObject { ["MetaRow"] = "Mod_Coin", ["Count"] = 7 });
+        var repository = new FakeSaveRepository
+        {
+            Profile = profile,
+            Bestiary = new JsonObject
+            {
+                ["BestiaryTracking"] = new JsonArray(
+                    new JsonObject { ["BestiaryGroup"] = new JsonObject { ["RowName"] = "RockDog" }, ["NumPoints"] = 40 }),
+                ["FishTracking"] = new JsonArray(),
+            },
+            Accolades = new JsonObject
+            {
+                ["CompletedAccolades"] = new JsonArray(
+                    new JsonObject { ["Accolade"] = new JsonObject { ["RowName"] = "Old_Accolade" }, ["TimeCompleted"] = "2024.01.01-00.00.00" }),
+            },
+        };
+        var index = new SaveModSources.Index(
+            new Dictionary<string, HashSet<string>>
+            {
+                [SaveModSources.TalentsFile] = ["Some_Talent"],
+                [SaveModSources.ItemsFile] = ["Some_Item"],
+                [SaveModSources.CurrencyFile] = ["Credits"],
+                [SaveModSources.BestiaryFile] = ["Wolf"],
+                [SaveModSources.AccoladesFile] = ["Real_Accolade"],
+            },
+            new Dictionary<string, HashSet<string>> { [SaveModSources.CurrencyFile] = new(StringComparer.OrdinalIgnoreCase) { "Mod_Coin" } },
+            new Dictionary<string, Dictionary<string, List<string>>>(),
+            IcarusStarlink.PakIO.Exmod.GameRowHistory.Empty,
+            canTellInstalled: true);
+        var vm = CreateViewModel(repository, readModSources: () => index);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForModSourcesAsync();
+            Assert.Equal("Currencies: 1 · Bestiary: 1 · Accolades: 1", vm.LeftoversSummary);
+            Assert.False(vm.Currencies.Single(c => c.MetaRow == "Mod_Coin").IsUnknown);
+            Assert.Contains(vm.CheckFindings, f => f.Message.StartsWith("RockDog: the game has no such creature", StringComparison.Ordinal) && f.SafeInFixAll);
+
+            vm.RemoveLeftoversCommand.Execute(null);
+            Assert.False(vm.HasLeftovers);
+            vm.SaveChangesCommand.Execute(null);
+
+            Assert.Equal(["Credits", "Mod_Coin"], ((JsonArray)repository.Profile["MetaResources"]!).Select(r => (string?)r!["MetaRow"]));
+            Assert.Empty((JsonArray)repository.Bestiary["BestiaryTracking"]!);
+            Assert.Empty((JsonArray)repository.Accolades["CompletedAccolades"]!);
+            Assert.StartsWith("Saved. A backup of the previous state was kept. The save check", vm.StatusMessage);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>The same talent, currency or creature listed twice: the check says so, and Save keeps one of each with the highest value.</summary>
+    [Fact]
+    public async Task DuplicateRows_AreFound_AndSaveKeepsOneOfEachWithTheHighestValue()
+    {
+        var character = MakeCharacter("Alpha", 0);
+        character["Talents"] = new JsonArray(
+            new JsonObject { ["RowName"] = "Talent_A", ["Rank"] = 1 },
+            new JsonObject { ["RowName"] = "Talent_B", ["Rank"] = 1 },
+            new JsonObject { ["RowName"] = "Talent_A", ["Rank"] = 3 });
+        var profile = MakeProfile(nextChrSlot: 1);
+        profile["MetaResources"] = new JsonArray(
+            new JsonObject { ["MetaRow"] = "Credits", ["Count"] = 10 },
+            new JsonObject { ["MetaRow"] = "Credits", ["Count"] = 50 });
+        var repository = new FakeSaveRepository { Characters = [character], Profile = profile };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var alphaRow = Assert.Single(vm.CheckFindings, f => f.Area == "Alpha" && f.Message.Contains("listed more than once"));
+            var accountRow = Assert.Single(vm.CheckFindings, f => f.Area == "Account" && f.Message.Contains("listed more than once"));
+            Assert.Equal(SaveCheckSeverity.Warning, alphaRow.Severity);
+            Assert.False(vm.HasUnsavedChanges);
+
+            vm.FixFindingCommand.Execute(alphaRow);
+            vm.FixFindingCommand.Execute(accountRow);
+            Assert.True(vm.HasUnsavedChanges);
+            Assert.DoesNotContain(vm.CheckFindings, f => f.Message.Contains("listed more than once"));
+            Assert.Contains("Repeated entries: one of each kept in Characters.json, Profile.json", vm.ChangeLines());
+
+            vm.SaveChangesCommand.Execute(null);
+
+            var talents = (JsonArray)repository.LastSavedCharacters!.Single()["Talents"]!;
+            Assert.Equal(["Talent_A:3", "Talent_B:1"], talents.Select(t => $"{t!["RowName"]}:{t["Rank"]}"));
+            Assert.Equal(["Credits:50"], ((JsonArray)repository.Profile["MetaResources"]!).Select(r => $"{r!["MetaRow"]}:{r["Count"]}"));
+            Assert.False(vm.HasUnsavedChanges);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>
+    /// The notes' new fixes: a creature over its max, a talent learned without the one before it, a
+    /// flag past the game's table. With "Include notes", Fix all makes the sure ones, never the flag's.
+    /// </summary>
+    [Fact]
+    public async Task NoteFixes_AndFixAllIncludesNotes_LeavesUnknownFlagsAlone()
+    {
+        var data = CreateGameDataFolder();
+        Directory.CreateDirectory(Path.Combine(data, "Talents"));
+        File.WriteAllText(Path.Combine(data, "Talents", "D_TalentArchetypes.json"), """{ "Rows": [ { "Name": "Survival", "Model": { "RowName": "Player" } } ] }""");
+        File.WriteAllText(Path.Combine(data, "Talents", "D_TalentTrees.json"), """{ "Rows": [ { "Name": "Tree_A", "Archetype": { "RowName": "Survival" } } ] }""");
+        File.WriteAllText(Path.Combine(data, "Talents", "D_Talents.json"), """
+            { "Rows": [
+                { "Name": "Before", "TalentTree": { "RowName": "Tree_A" }, "Rewards": [ {} ] },
+                { "Name": "After", "TalentTree": { "RowName": "Tree_A" }, "Rewards": [ {} ], "RequiredTalents": [ { "RowName": "Before" } ] } ] }
+            """);
+        var character = MakeCharacter("Alpha", 0);
+        character["Talents"] = new JsonArray(new JsonObject { ["RowName"] = "After", ["Rank"] = 1 });
+        var profile = MakeProfile(nextChrSlot: 1);
+        profile["UnlockedFlags"] = new JsonArray(500);
+        var repository = new FakeSaveRepository
+        {
+            Characters = [character],
+            Profile = profile,
+            Bestiary = new JsonObject
+            {
+                ["BestiaryTracking"] = new JsonArray(
+                    new JsonObject { ["BestiaryGroup"] = new JsonObject { ["RowName"] = "PackWolf" }, ["NumPoints"] = 250 }),
+                ["FishTracking"] = new JsonArray(),
+            },
+        };
+        var vm = CreateViewModel(repository, new FakeDialogService(confirmResult: true), gameNames: new SaveGameNames(data));
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            Assert.Contains(vm.CheckFindings, f => f.FixLabel == "Learn Before too");
+            Assert.Contains(vm.CheckFindings, f => f.FixLabel == "Set Pack Wolf to 100");
+            var flag = Assert.Single(vm.CheckFindings, f => f.FixLabel == "Turn off Flag 500");
+            Assert.False(flag.SafeInFixAll);
+            Assert.False(vm.HasFixableFindings);
+
+            vm.FixAllIncludesNotes = true;
+            Assert.True(vm.HasFixableFindings);
+            vm.FixAllFindingsCommand.Execute(null);
+
+            Assert.Equal(1, vm.Characters.Single().Talents.Single(t => t.RowName == "Before").Rank);
+            Assert.Equal(100, vm.BestiaryEntries.Single(b => b.RowName == "PackWolf").EffectivePoints);
+            Assert.True(vm.AccountFlags.Single(f => f.Id == 500).IsUnlocked);
+            Assert.Contains(vm.CheckFindings, f => f.FixLabel == "Turn off Flag 500");
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     /// <summary>The user's ask (2026-11-03): a currency the game doesn't have can be taken out of the save; a real one can't.</summary>
     [Fact]
     public async Task CurrencyTheGameDoesntHave_CanBeTakenOut_FromTheSaveCheck()

@@ -62,7 +62,7 @@ public sealed partial class SavesViewModel
         // fallback path uses.
         foreach (var rowName in completed.Except(seen))
         {
-            Accolades.Add(new SaveAccoladeViewModel(rowName, rowName, "", "", true, NotifyDirtyChanged));
+            Accolades.Add(new SaveAccoladeViewModel(rowName, rowName, "", "", true, NotifyDirtyChanged) { IsInGameTables = false });
         }
 
         BuildAccoladeLines();

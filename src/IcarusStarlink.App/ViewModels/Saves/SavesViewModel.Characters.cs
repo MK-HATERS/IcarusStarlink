@@ -23,20 +23,31 @@ public sealed partial class SavesViewModel
     /// <summary>MetaResources entries taken out, written at the next Save (the user's ask, 2026-11-03: their save carried Exotic_stabilized, which the game never had).</summary>
     private readonly List<SaveCurrencyViewModel> _removedCurrencies = [];
 
-    /// <summary>Takes a currency the game doesn't have out of the save. A real one can't be: set it to 0 instead.</summary>
+    /// <summary>Takes a currency the game doesn't have out of the save. A real one, or a mod's you have, can't be: set it to 0 instead.</summary>
     [RelayCommand]
     private void RemoveCurrency(SaveCurrencyViewModel? currency)
     {
-        if (currency is not { IsGameCurrency: false } || !Currencies.Remove(currency))
+        if (currency is not { IsUnknown: true } || !TakeOutCurrency(currency))
         {
             return;
         }
 
-        _removedCurrencies.Add(currency);
-        _profileFieldsDirty = true;
         _activityLog.Log($"{currency.Label} will be taken out of the save when you save.", IcarusStarlink.Core.Activity.ActivityEntryKind.Info);
         NotifyDirtyChanged();
         RunSaveCheck();
+    }
+
+    /// <summary>Off the page now, out of MetaResources at the next Save.</summary>
+    private bool TakeOutCurrency(SaveCurrencyViewModel currency)
+    {
+        if (!Currencies.Remove(currency))
+        {
+            return false;
+        }
+
+        _removedCurrencies.Add(currency);
+        _profileFieldsDirty = true;
+        return true;
     }
 
     /// <summary>At save time, after the backup: the removed entries go out of MetaResources.</summary>

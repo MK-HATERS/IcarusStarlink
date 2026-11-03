@@ -58,8 +58,14 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
 {
     public const string TalentsFile = "Talents-D_Talents.json";
     public const string ItemsFile = "Items-D_ItemsStatic.json";
+    public const string BestiaryFile = "Bestiary-D_BestiaryData.json";
+    public const string AccoladesFile = "Accolades-D_Accolades.json";
+    public const string CurrencyFile = "Currency-D_MetaCurrency.json";
 
-    private static readonly string[] Files = [TalentsFile, ItemsFile];
+    private static readonly string[] Files = [TalentsFile, ItemsFile, BestiaryFile, AccoladesFile, CurrencyFile];
+
+    /// <summary>Without these the save's talents and items can't be told apart: nothing is called a leftover then. The others only leave their own rows untold.</summary>
+    private static readonly string[] RequiredFiles = [TalentsFile, ItemsFile];
 
     /// <summary>Reads everything once (seconds at most: every Library mod and the installed paks); call off the UI thread.</summary>
     public Index Read()
@@ -170,7 +176,7 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
         // Without the game's own tables, or with them older than the game (an update not refreshed
         // yet), real game rows would read as leftovers: nothing is called one then (review, 2026-10-23).
         var gameRows = Files.ToDictionary(f => f, GameRowNames, StringComparer.OrdinalIgnoreCase);
-        if (gameRows.Values.Any(rows => rows.Count == 0) || IsGameDataOutdated())
+        if (RequiredFiles.Any(f => gameRows[f].Count == 0) || IsGameDataOutdated())
         {
             canTellInstalled = false;
         }
@@ -371,6 +377,13 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
         public SaveRowSource? Classify(string currentFile, string rowName)
         {
             if (gameRows.GetValueOrDefault(currentFile)?.Contains(rowName) == true)
+            {
+                return null;
+            }
+
+            // The game's own table wasn't read (not extracted): a real game row can't be told from a
+            // leftover. (Talents and items without theirs already turned canTellInstalled off.)
+            if (!RequiredFiles.Contains(currentFile, StringComparer.OrdinalIgnoreCase) && gameRows.GetValueOrDefault(currentFile) is not { Count: > 0 })
             {
                 return null;
             }

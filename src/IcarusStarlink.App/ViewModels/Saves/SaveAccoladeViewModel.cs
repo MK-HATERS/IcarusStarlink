@@ -18,6 +18,13 @@ public sealed partial class SaveAccoladeViewModel : DirtyRow
     [ObservableProperty]
     private bool _isCompleted;
 
+    /// <summary>The game's accolade table has it (false: an earned accolade the game doesn't know, shown by its row name).</summary>
+    public bool IsInGameTables { get; init; } = true;
+
+    /// <summary>Where an accolade the game doesn't have comes from (SaveModSources); null for the game's own.</summary>
+    [ObservableProperty]
+    private Services.SaveRowSource? _source;
+
     public override bool IsDirty => IsCompleted != _originalCompleted;
 
     public SaveAccoladeViewModel(string rowName, string displayName, string description, string category, bool isCompleted, Action onDirtyChanged)

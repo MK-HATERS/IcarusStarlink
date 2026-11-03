@@ -87,7 +87,10 @@
                         <Button DockPanel.Dock="Right" Content="Check again" Command="{Binding RunSaveCheckCommand}" Padding="10,3"/>
                         <Button DockPanel.Dock="Right" Content="Fix all sure ones…" Command="{Binding FixAllFindingsCommand}" Padding="10,3" Margin="0,0,8,0"
                                 Visibility="{Binding HasFixableFindings, Converter={StaticResource BoolToVisibilityConverter}}"
-                                ToolTip="Makes every fix offered for the problems and warnings below. Notes are left to you (DLC notes too, unless the switch beside this is on)."/>
+                                ToolTip="Makes every fix offered for the problems and warnings below. Notes are left to you, unless the switches beside this are on."/>
+                        <CheckBox DockPanel.Dock="Right" Style="{StaticResource ToggleSwitchStyle}" Content="Include notes" IsChecked="{Binding FixAllIncludesNotes}"
+                                  VerticalAlignment="Center" Margin="0,0,12,0"
+                                  ToolTip="Fix all also makes the harmless fixes the notes offer: taking out a currency the game doesn't have, a creature's points down to its max, a talent before one that's learned. Turning off a flag the game doesn't know stays your choice (a mod may use it)."/>
                         <CheckBox DockPanel.Dock="Right" Style="{StaticResource ToggleSwitchStyle}" Content="Include DLC and Supporter" IsChecked="{Binding FixAllIncludesDlc}"
                                   VerticalAlignment="Center" Margin="0,0,12,0" ToolTip="Fix all also ticks the DLC and Supporters Edition packs named in the notes below, in the save's DLC list. Icarus rebuilds that list from what your account owns when it starts."/>
                         <TextBlock VerticalAlignment="Center">
@@ -145,15 +148,16 @@
                     BorderThickness="1" CornerRadius="6" Padding="16,12" HorizontalAlignment="Left" MaxWidth="720" Margin="0,12,0,0"
                     Visibility="{Binding HasLeftovers, Converter={StaticResource BoolToVisibilityConverter}}">
                 <StackPanel>
-                    <TextBlock Text="Leftovers from old mods" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,6"/>
+                    <TextBlock Text="Things the game doesn't have" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,6"/>
                     <TextBlock TextWrapping="Wrap" FontSize="12.5" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                               Text="This save still has talents, research or items that no installed mod and no mod in your Library gives (or that the game itself removed). The game ignores them; taking them out tidies the save and gives back the talent points they used."/>
+                               Text="This save still has talents, research, items, currencies, creatures or accolades that no installed mod and no mod in your Library gives (or that the game itself removed). The game ignores them; taking them out tidies the save and gives back the talent points they used."/>
                     <TextBlock Text="{Binding LeftoversSummary}" FontFamily="Consolas" FontSize="12.5" Margin="0,8,0,0" TextWrapping="Wrap"/>
                     <TextBlock Text="{Binding ModsInUseSummary}" FontSize="12" Margin="0,4,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
                                Visibility="{Binding ModsInUseSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
                     <TextBlock FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}"
                                Text="Before removing a UE4SS mod, check here first: things a mod gives are marked &quot;From &lt;mod&gt;&quot; on the Talents, Workshop, Missions and Items tabs, and once the mod is gone they show up in this list. Starlink can read UE4SS mods that add things through ArcFission (like WirelessPower), but not script mods that add talents some other way, so look over the list before removing."/>
-                    <Button Content="Remove leftovers…" Command="{Binding RemoveLeftoversCommand}" HorizontalAlignment="Left" Padding="12,4" Margin="0,10,0,0"/>
+                    <Button Content="Clean up…" Command="{Binding RemoveLeftoversCommand}" HorizontalAlignment="Left" Padding="12,4" Margin="0,10,0,0"
+                            ToolTip="Lists everything above and asks first. Nothing is written until you press Save, which backs the slot up first."/>
                 </StackPanel>
             </Border>
         </StackPanel>

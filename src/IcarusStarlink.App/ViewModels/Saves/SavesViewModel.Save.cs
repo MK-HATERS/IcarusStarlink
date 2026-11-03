@@ -37,6 +37,7 @@ public sealed partial class SavesViewModel
             Add(BestiaryEntries.Any(b => b.IsDirty), "Bestiary");
             Add(_metaInventoryDirty, "Items");
             Add(_mountsListDirty || Mounts.Any(m => m.IsDirty), "Mounts");
+            Add(_mergeDuplicatesIn.Count > 0, "Repeated entries");
             return parts.Count == 0 ? null : $"Unsaved: {string.Join(", ", parts)}";
         }
     }
@@ -124,6 +125,11 @@ public sealed partial class SavesViewModel
         {
             var mounts = Mounts.Where(m => m.IsDirty).Select(m => m.Name).ToList();
             lines.Add(mounts.Count > 0 ? $"Mounts: {Some(mounts)}{(_mountsListDirty ? ", and the list" : "")}" : "Mounts: the list");
+        }
+
+        if (_mergeDuplicatesIn.Count > 0)
+        {
+            lines.Add($"Repeated entries: one of each kept in {string.Join(", ", _mergeDuplicatesIn.Order(StringComparer.Ordinal))}");
         }
 
         return lines.Count <= maxLines ? lines : [.. lines.Take(maxLines - 1), $"… and {lines.Count - maxLines + 1:N0} more"];
@@ -337,6 +343,9 @@ public sealed partial class SavesViewModel
             }
 
             ApplyProfileEdits();
+
+            // Repeated entries go after the edits (an edit keeps every copy's place), before the writes.
+            ApplyDuplicateMerges();
             writing = true;
 
             // Characters first, then profile — keeps write ORDER consistent with before, even
@@ -368,13 +377,13 @@ public sealed partial class SavesViewModel
             // write when that specific section actually changed, same conditional-write reasoning
             // BinaryFlags above already uses, rather than always re-writing every file on every Save
             // click (the upfront backup above already covers whichever of these actually run).
-            if (Accolades.Any(a => a.IsDirty))
+            if (Accolades.Any(a => a.IsDirty) || _mergeDuplicatesIn.Contains(AccoladesFile))
             {
                 ApplyAccoladeEdits();
                 _repository.SaveAccolades(SelectedSlot.SteamId, _accoladesRoot!, takeBackup: false);
             }
 
-            if (BestiaryEntries.Any(b => b.IsDirty))
+            if (BestiaryEntries.Any(b => b.IsDirty) || _mergeDuplicatesIn.Contains(BestiaryFile))
             {
                 ApplyBestiaryEdits();
                 _repository.SaveBestiary(SelectedSlot.SteamId, _bestiaryRoot!, takeBackup: false);
@@ -406,6 +415,7 @@ public sealed partial class SavesViewModel
             }
 
             _charactersListDirty = false;
+            _mergeDuplicatesIn.Clear();
 
             // These writes changed the files' stamps; the new ones are the baseline for the next Save.
             try
@@ -420,7 +430,10 @@ public sealed partial class SavesViewModel
             OnPropertyChanged(nameof(HasUnsavedChanges));
             OnPropertyChanged(nameof(ChangesSummary));
             RefreshBackupsList();
-            StatusMessage = "Saved. A backup of the previous state was kept.";
+            // What's left, checked against what was just written (the user's ask, 2026-11-03).
+            RunSaveCheck();
+            StatusMessage = "Saved. A backup of the previous state was kept. "
+                + (CheckFindings.Count == 0 ? "The save check finds nothing now." : $"The save check still finds {CheckSummary} (Overview tab).");
             _activityLog.Log($"Edited player save {SelectedSlot.Display}.", ActivityEntryKind.Success);
         }
         catch (Exception ex)

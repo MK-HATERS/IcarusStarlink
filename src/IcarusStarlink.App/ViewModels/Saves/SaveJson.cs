@@ -104,6 +104,50 @@ internal static class SaveJson
 
         return array;
     }
+
+    /// <summary>
+    /// Merges repeated entries of a save list (the same talent, currency or creature twice): the
+    /// first keeps its place, and gets the highest <paramref name="maxField"/> any copy had (a rank,
+    /// a count, points), so nothing earned is lost. Entries with no key stay. Returns how many went.
+    /// </summary>
+    public static int MergeDuplicates(JsonArray array, Func<JsonNode, string?> keyOf, string? maxField)
+    {
+        var first = new Dictionary<string, JsonNode>(StringComparer.OrdinalIgnoreCase);
+        var drop = new List<JsonNode>();
+        foreach (var node in array)
+        {
+            if (node is null || keyOf(node) is not { } key)
+            {
+                continue;
+            }
+
+            if (!first.TryGetValue(key, out var kept))
+            {
+                first[key] = node;
+                continue;
+            }
+
+            if (maxField is not null && kept is JsonObject keptObject && node is JsonObject copy
+                && SaveJson.Long(copy[maxField]) is { } value && value > (SaveJson.Long(keptObject[maxField]) ?? long.MinValue))
+            {
+                keptObject[maxField] = value;
+            }
+
+            drop.Add(node);
+        }
+
+        foreach (var node in drop)
+        {
+            array.Remove(node);
+        }
+
+        return drop.Count;
+    }
+
+    /// <summary>The keys a save list has more than once, without changing it.</summary>
+    public static List<string> DuplicateKeys(JsonArray array, Func<JsonNode, string?> keyOf) =>
+        [.. array.OfType<JsonNode>().Select(keyOf).OfType<string>()
+            .GroupBy(k => k, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).Select(g => g.Key)];
 }
 
 /// <summary>
