@@ -719,9 +719,6 @@ dotnet build IcarusStarlink.slnx
 dotnet test IcarusStarlink.slnx
 ```
 
-`tools/WinTools` is a small UI-automation CLI used during development to drive and screenshot the
-running app — not part of the shipped product.
-
 ## Credits
 
 None of this exists without the people who actually make Icarus modding a real thing to build a
