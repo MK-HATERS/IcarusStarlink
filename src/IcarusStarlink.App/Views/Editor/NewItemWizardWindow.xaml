@@ -53,6 +53,9 @@
                 <!-- A note, not a warning: the DLC gate comes from the game's data, not a test in game. -->
                 <TextBlock Text="{Binding DlcGateNote}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,4,0,0"
                            Visibility="{Binding DlcGateNote, Converter={StaticResource NullToVisibilityConverter}}"/>
+                <CheckBox Content="Remove the DLC requirement from the copy" IsChecked="{Binding RemoveDlcGate}" Margin="0,6,0,0"
+                          ToolTip="Ticked: your copy needs no DLC, so players without it can use it too. The game's own item still needs it."
+                          Visibility="{Binding CanRemoveDlcGate, Converter={StaticResource BoolToVisibilityConverter}}"/>
                 <WrapPanel Margin="0,6,0,0">
                     <StackPanel Margin="0,0,12,6" Width="230">
                         <TextBlock Text="Name in game" Style="{StaticResource FieldLabelStyle}"/>

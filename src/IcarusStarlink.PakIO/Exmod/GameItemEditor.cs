@@ -68,6 +68,9 @@ public static partial class GameItemEditor
     public const string RecipeSection = "Recipe";
     public const string WorkshopSection = "Workshop";
 
+    /// <summary>The DLC card: one tick, "Remove the DLC requirement", for an item a paid DLC gates.</summary>
+    public const string DlcSection = "Dlc";
+
     /// <summary>A storage of the item ("Storage:0"): a D_InventoryInfo row its D_Inventory row lists (slots live there).</summary>
     public const string StorageSection = "Storage";
     private const string InventoryField = "Inventory";
@@ -235,8 +238,14 @@ public static partial class GameItemEditor
             sections.Add(BuildSection(game, mod, WorkshopSection, "Workshop price", WorkshopItems, workshop, workshop, 1));
         }
 
+        // A paid DLC's item: the plain choice to take its gate off goes first, above the numbers.
+        if (DlcSectionOf(game, mod, lookup, itemName) is { } dlc)
+        {
+            sections.Insert(0, dlc);
+        }
+
         var itemable = RowLinks.LinkedRow(effectiveStatic["Itemable"]);
-        var displayName = itemable is null ? null : NsLocText.TextOf(RowLinks.StringOf((Effective(game, mod, ItemableFile, itemable) ?? game.Row(ItemableFile, itemable))?["DisplayName"]));
+        var displayName =itemable is null ? null : NsLocText.TextOf(RowLinks.StringOf((Effective(game, mod, ItemableFile, itemable) ?? game.Row(ItemableFile, itemable))?["DisplayName"]));
         return new GameItemView(itemName, displayName, [.. sections.Where(s => s.Fields.Count > 0 || s.StatGroups.Count > 0)], kept);
     }
 
@@ -260,8 +269,15 @@ public static partial class GameItemEditor
         var view = Describe(game, mod, itemName, lookup) ?? throw new ArgumentException($"'{itemName}' isn't an item in the game data.");
         var lines = new List<string>();
         var written = new List<(string File, string Row, string Top)>();
-        foreach (var group in changes.GroupBy(c => c.SectionKey))
+        // The DLC choice last: it follows the item's links, which an own copy made above re-points.
+        foreach (var group in changes.GroupBy(c => c.SectionKey).OrderBy(g => g.Key == DlcSection ? 1 : 0))
         {
+            if (group.Key == DlcSection)
+            {
+                SetDlcGate(game, mod, lookup, itemName, remove: group.Last().Value is JsonValue on && on.GetValueKind() == System.Text.Json.JsonValueKind.True, lines, written);
+                continue;
+            }
+
             var section = view.Sections.FirstOrDefault(s => s.Key == group.Key) ?? throw new ArgumentException($"'{itemName}' has no '{group.Key}' section.");
             var rowName = section.RowName;
             if (ownCopySections.Contains(section.Key) && section.SharedBy > 1 && !section.IsOwnCopy)
@@ -379,7 +395,8 @@ public static partial class GameItemEditor
             .Concat((defaults ?? []).Where(kv => IsNumber(kv.Value) && InheritedWorthShowing.Contains(kv.Key)).Select(kv => kv.Key))
             // An on/off field or a link the Editor offers counts even where the row leaves it at the table's default.
             .Concat((defaults ?? []).Where(kv => (IsBool(kv.Value) && Toggles.ContainsKey(kv.Key)) || (kv.Value is JsonObject && Links.ContainsKey(kv.Key))).Select(kv => kv.Key))
-            .Where(k => k != "Name")
+            // Metadata (the DLC gate) has its own card; an emptied one would read as a stats list here.
+            .Where(k => k != "Name" && k != DlcGate.MetadataField)
             .Distinct(StringComparer.Ordinal);
         foreach (var top in keys)
         {

@@ -305,6 +305,36 @@ public sealed class NewItemWizardTests : IDisposable
         Assert.Equal("GreatHunts", copy.Fields["Metadata"]!["RequiredFeatureLevel"]!["RowName"]!.GetValue<string>());
     }
 
+    /// <summary>"Remove the DLC requirement" (offered only for a DLC item) leaves the gate off every row of the copy; the game's own rows stay as they are.</summary>
+    [Fact]
+    public void ADlcItem_RemoveTheDlcRequirementTick_LeavesTheGateOffTheCopy()
+    {
+        Write("Items/D_ItemsStatic.json", """
+            {"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"}},"Rows":[
+              {"Name":"Envirosuit","Itemable":{"RowName":"Item_Envirosuit"}},
+              {"Name":"Hunter_Suit","Itemable":{"RowName":"Item_Hunter_Suit"},"Metadata":{"RequiredFeatureLevel":{"RowName":"GreatHunts"}}}
+            ]}
+            """);
+        Write("Items/D_ItemTemplate.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Hunter_Suit","ItemStaticData":{"RowName":"Hunter_Suit"},"Metadata":{"RequiredFeatureLevel":{"RowName":"GreatHunts"}}}]}""");
+        Write("Traits/D_Itemable.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Envirosuit"},{"Name":"Item_Hunter_Suit","Metadata":{"RequiredFeatureLevel":{"RowName":"GreatHunts"}}}]}""");
+        var wizard = new NewItemWizardViewModel(new GameTableIndex(DataFolder), null);
+
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Envirosuit");
+        Assert.False(wizard.CanRemoveDlcGate);
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Hunter_Suit");
+        Assert.True(wizard.CanRemoveDlcGate);
+        Assert.False(wizard.RemoveDlcGate); // the copy keeps the gate unless ticked
+
+        wizard.RemoveDlcGate = true;
+        wizard.DisplayName = "Dragon Suit";
+        wizard.IsJustItem = true;
+        Assert.True(wizard.TryCreate(), wizard.Error);
+
+        var rows = wizard.Result!.SelectMany(r => r.FileItems).ToList();
+        Assert.Contains(rows, i => i.Name == "Dragon_Suit");
+        Assert.DoesNotContain(rows, i => i.Fields.TryGetValue("Metadata", out var metadata) && metadata?["RequiredFeatureLevel"] is not null);
+    }
+
     /// <summary>Regression: free updates gate their items too (Galileo is fishing, Laika is taming), and those items got the DLC note though every player has them.</summary>
     [Fact]
     public void AnItemFromAFreeUpdate_GetsNoDlcNote()

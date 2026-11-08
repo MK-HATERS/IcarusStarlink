@@ -67,4 +67,22 @@ public sealed class DlcGateTests : IDisposable
         Assert.Equal("GreatHunts", merged["Hunter_Suit_Light"]!["Metadata"]!["RequiredFeatureLevel"]!["RowName"]!.GetValue<string>());
         Assert.Equal("NewFrontiers", merged["Bread"]!["Metadata"]!["RequiredFeatureLevel"]!["RowName"]!.GetValue<string>());
     }
+
+    /// <summary>"Remove the DLC requirement" writes Metadata without the gate: the merged row then has no gate, like the game's ungated rows.</summary>
+    [Fact]
+    public void TheMerge_TakesTheGateOff_WhenAModWritesMetadataWithoutIt()
+    {
+        var ungated = Mod("Ungated", new ExmodFileItem { Name = "Hunter_Suit", Fields = { ["Metadata"] = DlcGate.Without(Gate("GreatHunts")) } });
+        var report = new MergeReport();
+        var baseTables = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase)
+        {
+            [ItemsStatic] = BaseDataFileReader.ReadKeyedTable(_data, ItemsStatic, report)!,
+        };
+
+        var resolved = MergeEngine.Merge([ExmodFieldChangeMapper.ToFieldChanges(ungated, new DefaultSemanticClassifier())], new MergeRuleRegistry(), null, baseTables);
+        var merged = MultiFileMerger.Apply(baseTables, resolved, report)[ItemsStatic];
+
+        Assert.Null(merged["Hunter_Suit"]!["Metadata"]?["RequiredFeatureLevel"]);
+        Assert.Equal(30, merged["Hunter_Suit"]!["Weight"]!.GetValue<int>());
+    }
 }

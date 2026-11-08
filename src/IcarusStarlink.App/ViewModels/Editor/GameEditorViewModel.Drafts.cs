@@ -266,7 +266,7 @@ public sealed partial class GameEditorViewModel
     }
 
     private static List<EditorPendingChange> Lines(IEnumerable<GameItemSectionViewModel> cards) =>
-        [.. cards.SelectMany(s => s.Fields.Where(f => f.IsPending).Select(f => new EditorPendingChange($"{s.Title} · {f.Label}: {(f.IsDropped ? "taken out" : f.ValueText)}" + SharedNote(s), f)))];
+        [.. cards.SelectMany(s => s.Fields.Where(f => f.IsPending).Select(f => new EditorPendingChange($"{s.Title} · {f.Label}: {(f.IsDropped ? "taken out" : f.IsToggle ? (f.IsOn ? "on" : "off") : f.ValueText)}" + SharedNote(s), f)))];
 
     private static string SharedNote(GameItemSectionViewModel section) =>
         section.IsShared && !section.Section.IsOwnCopy ? (section.OwnCopy ? "  (its own copy)" : $"  (all {section.Section.SharedBy:N0} items)") : "";

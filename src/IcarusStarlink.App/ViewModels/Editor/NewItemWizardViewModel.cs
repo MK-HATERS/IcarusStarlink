@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using IcarusStarlink.PakIO.Exmod;
 
@@ -94,7 +93,7 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
     private string _filterText = "";
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasSource), nameof(HasBuff), nameof(SourceSummary), nameof(CanUnlockWithSource), nameof(DlcGateNote))]
+    [NotifyPropertyChangedFor(nameof(HasSource), nameof(HasBuff), nameof(SourceSummary), nameof(CanUnlockWithSource), nameof(DlcGateNote), nameof(CanRemoveDlcGate))]
     private ItemChoice? _selectedSource;
 
     private ItemCloneSource? _source;
@@ -105,14 +104,23 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
 
     public bool CanUnlockWithSource => _source?.RecipeHasUnlock == true;
 
+    /// <summary>The picked item is DLC-only: the copy can leave the gate off ("Remove the DLC requirement").</summary>
+    public bool CanRemoveDlcGate => DlcGateOf(_source) is not null;
+
+    /// <summary>Ticked: every row of the copy is written without the DLC gate, so players without the DLC can use it too. The game's own rows stay as they are.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DlcGateNote))]
+    private bool _removeDlcGate;
+
     /// <summary>
     /// Said when the picked item is DLC-only in the game: its rows carry Metadata.RequiredFeatureLevel
-    /// (a D_FeatureLevels row, e.g. GreatHunts) and the copy keeps the whole row, gate and all.
+    /// (a D_FeatureLevels row, e.g. GreatHunts) and the copy keeps the whole row, gate and all,
+    /// unless "Remove the DLC requirement" is ticked.
     /// </summary>
     public string? DlcGateNote =>
-        DlcGateOf(_source) is { } gate
-            ? $"From the game's code, not tested in game: your copy needs {FeatureLevelName(gate)} just like the original, so anyone who can use the original in a prospect (for example through the host's DLC) can use the copy."
-            : null;
+        DlcGateOf(_source) is not { } gate ? null
+        : RemoveDlcGate ? $"Your copy won't need {FeatureLevelName(gate)}: players without it can use the copy too. The original still needs it."
+        : $"From the game's code, not tested in game: your copy needs {FeatureLevelName(gate)} just like the original, so anyone who can use the original in a prospect (for example through the host's DLC) can use the copy.";
 
     /// <summary>The item's gate: on its D_ItemsStatic row, else on its Itemable row (both always copied). Null for base-game items.</summary>
     private string? DlcGateOf(ItemCloneSource? source)
@@ -124,34 +132,36 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
 
         var itemable = source.Links.FirstOrDefault(l => l.Field == "Itemable");
         JsonObject?[] rows = [_game.Row(ItemsStaticFile, source.ItemName), itemable is null ? null : _game.Row(itemable.CurrentFile, itemable.RowName)];
-        return rows
-            .Select(r => TextAt(r?["Metadata"]?["RequiredFeatureLevel"]?["RowName"]))
-            .FirstOrDefault(gate => gate is { Length: > 0 } && !NotDlcGates.Contains(gate));
+        return rows.Select(DlcGate.Of).FirstOrDefault(gate => gate is not null);
     }
-
-    /// <summary>Feature levels every player has: the base game and the free updates (Galileo is fishing, Laika is taming).</summary>
-    private static readonly HashSet<string> NotDlcGates = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "None", "Core", "FirstCohort", "Styx", "Galileo", "Hypatia", "Laika",
-    };
 
     /// <summary>The feature level's DisplayName (INVTEXT("Great Hunts")) from D_FeatureLevels; the raw value when it isn't there.</summary>
-    private string FeatureLevelName(string gate)
+    private string FeatureLevelName(string gate) => DlcGate.Name(_game, gate);
+
+    /// <summary>"Remove the DLC requirement": the copy's own rows lose the gate; a game row the copy edits keeps it.</summary>
+    private IReadOnlyList<ExmodFileRow> WithoutDlcGate(IReadOnlyList<ExmodFileRow> rows)
     {
-        var file = _game.CurrentFileFor("D_FeatureLevels");
-        if (TextAt(file is null ? null : _game.Row(file, gate)?["DisplayName"]) is not { } text)
+        foreach (var row in rows)
         {
-            return gate;
+            foreach (var item in row.FileItems.Where(i => !_game.HasRow(row.CurrentFile, i.Name)))
+            {
+                if (item.Fields.TryGetValue(DlcGate.MetadataField, out var metadata) && DlcGate.OfMetadata(metadata) is not null)
+                {
+                    var rest = DlcGate.Without(metadata);
+                    if (rest.Count == 0)
+                    {
+                        item.Fields.Remove(DlcGate.MetadataField); // a new row with no Metadata needs no DLC
+                    }
+                    else
+                    {
+                        item.Fields[DlcGate.MetadataField] = rest;
+                    }
+                }
+            }
         }
 
-        var shown = NsLocText.TextOf(text) ?? (InvText().Match(text) is { Success: true } m ? m.Groups[1].Value : text);
-        return string.IsNullOrWhiteSpace(shown) ? gate : shown;
+        return rows;
     }
-
-    private static string? TextAt(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
-
-    [GeneratedRegex("""^INVTEXT\("((?:[^"\\]|\\.)*)"\)$""")]
-    private static partial Regex InvText();
 
     private const string ItemsStaticFile = "Items-D_ItemsStatic.json";
 
@@ -379,7 +389,7 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
 
         try
         {
-            Result = ItemCloner.Build(_game, new ItemCloneRequest
+            var rows = ItemCloner.Build(_game, new ItemCloneRequest
             {
                 SourceItem = _source.ItemName,
                 NewName = id,
@@ -395,6 +405,7 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
                 ResearchCredits = research,
                 ReplicationCredits = replication,
             }, _mod);
+            Result = RemoveDlcGate && CanRemoveDlcGate ? WithoutDlcGate(rows) : rows;
             return true;
         }
         catch (ArgumentException ex)
