@@ -69,6 +69,19 @@ public sealed class RowRenamerTests : IDisposable
         Assert.Equal("D_Itemable", output[0]!["Element"]!["DataTableName"]!.GetValue<string>());
     }
 
+    /// <summary>Regression: a renamed row kept its text keys under the old name, so a row later given that name shared one NSLOCTEXT key with it.</summary>
+    [Fact]
+    public void Rename_MovesTheRowsOwnTextKeysToTheNewName()
+    {
+        var mod = NewItemMod();
+        var suit = mod.Rows.Single(r => r.CurrentFile == "Traits-D_Itemable.json").FileItems.Single(i => i.Name == "Item_Dragon_Suit");
+        suit.Fields["DisplayName"] = "NSLOCTEXT(\"D_Itemable\", \"Item_Dragon_Suit-DisplayName\", \"Dragon Suit\")";
+
+        RowRenamer.Rename(mod, new GameTableIndex(_data), "Traits-D_Itemable.json", "Item_Dragon_Suit", "Item_Wyvern_Suit");
+
+        Assert.Equal("NSLOCTEXT(\"D_Itemable\", \"Item_Wyvern_Suit-DisplayName\", \"Dragon Suit\")", suit.Fields["DisplayName"]!.GetValue<string>());
+    }
+
     [Theory]
     [InlineData("Item_Fiber", "The game already has a row")]   // a game row, other case too
     [InlineData("item_fiber", "The game already has a row")]

@@ -101,6 +101,8 @@ public static partial class RowRenamer
             }
         });
 
+        // Its own texts follow, so the old name's keys can't clash with a row that later takes that name.
+        item.MoveTextKeys(item.Name, newName);
         item.Name = newName;
         return new RowRenameResult(newName, moved);
     }

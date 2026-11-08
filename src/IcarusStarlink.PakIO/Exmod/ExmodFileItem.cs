@@ -19,6 +19,34 @@ public sealed class ExmodFileItem
     /// </summary>
     public ExmodFileItem CloneAs(string name) => new() { Name = name, Fields = DeepCloneFields(Fields) };
 
+    /// <summary>CloneAs for a new row made from this one: its texts get keys under the new name (a text key must stay unique per row).</summary>
+    public ExmodFileItem DuplicateAs(string name)
+    {
+        var copy = CloneAs(name);
+        copy.MoveTextKeys(Name, name);
+        return copy;
+    }
+
+    /// <summary>
+    /// Texts keyed under <paramref name="oldRow"/> ("&lt;oldRow&gt;-DisplayName") move to
+    /// <paramref name="newRow"/>, their words unchanged. A text under another key stays: reusing the
+    /// game's own key keeps the game's translations.
+    /// </summary>
+    public void MoveTextKeys(string oldRow, string newRow)
+    {
+        var prefix = oldRow + "-";
+        foreach (var (field, value) in Fields.ToList())
+        {
+            if (RowLinks.StringOf(value) is { } text
+                && NsLocText.TryParse(text, out _, out var key, out _)
+                && key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && NsLocText.WithKey(text, newRow + key[oldRow.Length..]) is { } moved)
+            {
+                Fields[field] = moved;
+            }
+        }
+    }
+
     /// <summary>An item from a table row's JSON (a game row, an EXMOD File_Items entry): every field but its "Name", each copied.</summary>
     public static ExmodFileItem FromRow(string name, JsonObject row) =>
         new() { Name = name, Fields = DeepCloneFields(row.Where(kv => kv.Key != "Name")) };

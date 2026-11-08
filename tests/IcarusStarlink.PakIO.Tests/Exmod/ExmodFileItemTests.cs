@@ -18,6 +18,31 @@ public class ExmodFileItemTests
         Assert.Equal(100, copy.Fields["Weight"]!.GetValue<int>());
     }
 
+    /// <summary>Regression: Duplicate (Ctrl+D) kept the old row's text keys, so the copy and the original had two texts under one NSLOCTEXT key.</summary>
+    [Fact]
+    public void DuplicateAs_GivesTheCopysOwnTextsKeysUnderItsName_AndKeepsTheGamesKeys()
+    {
+        var original = new ExmodFileItem
+        {
+            Name = "Item_Dragon_Suit",
+            Fields =
+            {
+                ["DisplayName"] = "NSLOCTEXT(\"D_Itemable\", \"Item_Dragon_Suit-DisplayName\", \"Dragon Suit\")",
+                ["Description"] = "NSLOCTEXT(\"D_Itemable\", \"Item_Envirosuit-Description\", \"A suit.\")",
+                ["Weight"] = 5,
+            },
+        };
+
+        var copy = original.DuplicateAs("Item_Dragon_Suit_Copy");
+
+        Assert.Equal("Item_Dragon_Suit_Copy", copy.Name);
+        Assert.Equal("NSLOCTEXT(\"D_Itemable\", \"Item_Dragon_Suit_Copy-DisplayName\", \"Dragon Suit\")", copy.Fields["DisplayName"]!.GetValue<string>());
+        // A key the game owns stays: reusing it keeps the game's translations.
+        Assert.Equal("NSLOCTEXT(\"D_Itemable\", \"Item_Envirosuit-Description\", \"A suit.\")", copy.Fields["Description"]!.GetValue<string>());
+        Assert.Equal(5, copy.Fields["Weight"]!.GetValue<int>());
+        Assert.Equal("NSLOCTEXT(\"D_Itemable\", \"Item_Dragon_Suit-DisplayName\", \"Dragon Suit\")", original.Fields["DisplayName"]!.GetValue<string>());
+    }
+
     [Fact]
     public void FromRow_LeavesOutTheRowsName_AndCopiesTheRest()
     {
