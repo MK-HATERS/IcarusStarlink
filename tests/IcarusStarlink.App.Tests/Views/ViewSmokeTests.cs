@@ -117,6 +117,21 @@ public sealed class ViewSmokeTests
                 {
                     failures.Add($"Mod editor windows: {ex.Message}");
                 }
+
+                foreach (var (name, run) in SharedViewChecks.All)
+                {
+                    try
+                    {
+                        if (run() is { } problem)
+                        {
+                            failures.Add($"{name}: {problem}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Add($"{name}: {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
             }
             catch (Exception ex)
             {

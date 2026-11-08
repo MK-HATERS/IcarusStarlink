@@ -2,19 +2,18 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!--
-        Phase 10 redesign: a small hand-drawn icon set replacing plain-text buttons and raw emoji
-        markers. Deliberately written with ONLY absolute M/L/Z commands (plus a couple of
-        zero-length "dot" segments relying on round line caps) — no arc (A/a) or shorthand
-        (H/V/h/v) commands, even though WPF's path mini-language supports both, since this session
-        has no way to visually pre-render these before a real build+screenshot and a wrong arc
-        sweep-flag would silently draw the wrong shape. A few icons that read best as a true ring
-        (globe/clock/gear/info) pair a plain Ellipse with one of these Geometries at their use
-        site instead of trying to approximate a circle in path syntax.
+        The app's hand-drawn icon set: shape-only geometries on a 24×24 grid, meant to be stroked
+        (a few are filled too). Mostly straight segments with absolute M/L/Z commands, plus
+        zero-length "dot" segments that rely on round line caps. A few use arcs or curves where a
+        round shape reads better: arcs (A) in IconFolderGame, IconTheme and IconSearch; curves (C)
+        in IconFolderGame, IconGlobeMeridian, NavIconBook and the PathGeometry figures of the
+        NavIcon groups.
 
-        Shape-only, deliberately carrying no color, so each use site sets Fill/Stroke via
-        {DynamicResource ...} directly on its own live Path element — that's what keeps an icon
-        re-theming correctly on Icarus/Dark/Light switch; a color baked into a frozen resource
-        here would not reliably update.
+        The bare ring marks (IconGlobeMeridian, IconGearTeeth, IconInfo) sit inside an Ellipse at
+        their use site; the NavIcon* versions below carry their own ring.
+
+        No colours here: each use site sets Stroke/Fill with a DynamicResource on its own Path, so
+        icons follow the theme when it changes.
     -->
 
     <Geometry x:Key="IconPlus">M12 5L12 19 M5 12L19 12</Geometry>
@@ -38,16 +37,11 @@
     <Geometry x:Key="IconGearTeeth">M12 3L12 5.2 M12 18.8L12 21 M21 12L18.8 12 M5.2 12L3 12 M18.4 5.6L16.9 7.1 M7.1 16.9L5.6 18.4 M18.4 18.4L16.9 16.9 M7.1 7.1L5.6 5.6</Geometry>
     <Geometry x:Key="IconMountains">M4 17L9 12L13 16L16 13L20 17</Geometry>
     <Geometry x:Key="IconGlobeMeridian">M3 12L21 12 M12 3L12 21 M6 6.5C9 9 15 9 18 6.5 M6 17.5C9 15 15 15 18 17.5</Geometry>
-    <Geometry x:Key="IconClockHands">M12 7L12 12.3L15.5 14.3</Geometry>
     <Geometry x:Key="IconRefreshArrow">M15 4.5L19 8L14.5 9.5Z</Geometry>
-    <Geometry x:Key="IconHelpMark">M9.7 9L9.7 8.6C9.7 6.9 11 6 12.3 6C13.7 6 15 6.8 15 8.3C15 9.6 14.1 10.2 13.2 10.8C12.4 11.3 12 11.9 12 12.9L12 13.6 M12 16.5L12.01 16.5</Geometry>
     <Geometry x:Key="IconBell">M9 16L9 10L10.5 7L13.5 7L15 10L15 16L17.5 18L6.5 18Z M10.3 19.6L13.7 19.6</Geometry>
     <Geometry x:Key="IconCheck">M5 12.5L9.5 17L19 6.5</Geometry>
     <!-- A wrench (a mod the fixer changed): open jaw top right, straight handle down left. -->
     <Geometry x:Key="IconWrench">M20.5 7L17.5 10L14 6.5L17 3.5L14.5 3L11 6.5L11.5 9.5L4 17L4 18.5L5.5 20L7 20L14.5 12.5L17.5 13L21 9.5Z</Geometry>
-    <!-- A person (the Saves page): diamond head + arched shoulders — same no-arc discipline as
-         the rest of this set (round joins/caps soften it into reading as head-and-torso at 16px). -->
-    <Geometry x:Key="IconPerson">M12 3.5L14.6 6L12 8.5L9.4 6Z M5.5 20L5.5 17.5L9 13.5L15 13.5L18.5 17.5L18.5 20</Geometry>
 
     <!-- Thumbs up (Library's Endorsed column): three adjacent, non-overlapping rectangles — a
          wrist cuff, the fist, and a narrower thumb nub on its left. Adjacent (sharing only a
@@ -67,12 +61,6 @@
          fill-rule interaction between the overlap to reason about, just two outlined squares. -->
     <Geometry x:Key="IconCopy">M4 8L13 8L13 17L4 17Z M8 4L17 4L17 13L8 13Z</Geometry>
 
-    <!-- Script code (UE4SS's Lua mods): angle brackets with a slash. -->
-    <Geometry x:Key="IconCode">M8 7L3 12L8 17 M16 7L21 12L16 17 M14 5L10 19</Geometry>
-
-    <!-- A game controller (the game's install folder). -->
-    <Geometry x:Key="IconGamepad">M7 8L17 8C19.5 8 21 10 21 13L21 15C21 17 19 18 17.5 16.5L15.5 14.5L8.5 14.5L6.5 16.5C5 18 3 17 3 15L3 13C3 10 4.5 8 7 8Z M7 10.5L7 13 M5.8 11.75L8.2 11.75 M16 11L16.01 11 M18 12.5L18.01 12.5</Geometry>
-
     <!-- The header's folder links: one folder shape, each with its own sign inside, so they tell
          apart at a glance (they all looked alike before): a box for your mods, code for UE4SS, a
          ringed planet for the game, server racks for the server. -->
@@ -88,9 +76,8 @@
     <Geometry x:Key="IconSidebar">M4 5L20 5L20 19L4 19Z M9 5L9 19</Geometry>
     <Geometry x:Key="IconSearch">M4 11A7 7 0 1 0 18 11A7 7 0 1 0 4 11Z M16 16L21 21</Geometry>
 
-    <!-- Nav rail icons that need their ring: the bare globe/clock/gear/help marks above are meant to
-         sit inside an Ellipse at their use site, which the nav's single Path doesn't have, so they
-         read as stray strokes there (user report 2026-10-25). These carry the circle themselves. -->
+    <!-- Nav rail icons that need their ring: the nav rail's single Path has no Ellipse, so the bare
+         globe and gear marks above would read as stray strokes there. These carry the circle themselves. -->
     <GeometryGroup x:Key="NavIconGlobe">
         <EllipseGeometry Center="12,12" RadiusX="9" RadiusY="9"/>
         <EllipseGeometry Center="12,12" RadiusX="3.8" RadiusY="9"/>

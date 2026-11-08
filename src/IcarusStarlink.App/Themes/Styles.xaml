@@ -1,7 +1,8 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:converters="clr-namespace:IcarusStarlink.App.Converters"
-                    xmlns:views="clr-namespace:IcarusStarlink.App.Views">
+                    xmlns:views="clr-namespace:IcarusStarlink.App.Views"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
     <converters:StringEqualityMultiConverter x:Key="StringEqualityMultiConverter"/>
     <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
@@ -224,13 +225,15 @@
         <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
     </Style>
 
-    <!-- Stock ProgressBar's own default template computes the indicator's width via a private WPF
-         adapter that isn't reusable once the template is replaced for theming — this rebuilds the
-         same effect with a MultiBinding (Value/Maximum/the track's own real ActualWidth) driving a
-         plain Border's Width instead. -->
+    <!-- The fill's width comes from a MultiBinding (Value, Maximum, the track's width). It is
+         deliberately not named PART_Indicator: ProgressBar sizes an element with that name itself,
+         which would fight the binding. IsIndeterminate (a busy bar with no known progress) hides the
+         fill and sweeps a short segment across instead, only while the bar is visible. Both use
+         Foreground: AccentBrush unless a bar sets its own, as the splash does. -->
     <Style TargetType="{x:Type ProgressBar}">
         <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Height" Value="8"/>
         <Setter Property="Template">
@@ -238,16 +241,50 @@
                 <ControlTemplate TargetType="{x:Type ProgressBar}">
                     <Border x:Name="PART_Track" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" ClipToBounds="True">
-                        <Border Background="{DynamicResource AccentBrush}" HorizontalAlignment="Left" CornerRadius="4">
-                            <Border.Width>
-                                <MultiBinding Converter="{StaticResource ProgressToWidthConverter}">
-                                    <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Value"/>
-                                    <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Maximum"/>
-                                    <Binding ElementName="PART_Track" Path="ActualWidth"/>
-                                </MultiBinding>
-                            </Border.Width>
-                        </Border>
+                        <Grid>
+                            <Border x:Name="ValueFill" Background="{TemplateBinding Foreground}" HorizontalAlignment="Left" CornerRadius="4">
+                                <Border.Width>
+                                    <MultiBinding Converter="{StaticResource ProgressToWidthConverter}">
+                                        <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Value"/>
+                                        <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Maximum"/>
+                                        <Binding ElementName="PART_Track" Path="ActualWidth"/>
+                                    </MultiBinding>
+                                </Border.Width>
+                            </Border>
+                            <!-- A quarter-width segment; moving its scale origin from -0.5 to 1.5 sweeps it
+                                 from fully off the left edge to fully off the right (the track clips it). -->
+                            <Border x:Name="IndeterminateSegment" Background="{TemplateBinding Foreground}" CornerRadius="4"
+                                    Visibility="Collapsed" RenderTransformOrigin="-0.5,0.5">
+                                <Border.RenderTransform>
+                                    <ScaleTransform ScaleX="0.25"/>
+                                </Border.RenderTransform>
+                            </Border>
+                        </Grid>
                     </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsIndeterminate" Value="True">
+                            <Setter TargetName="ValueFill" Property="Visibility" Value="Collapsed"/>
+                            <Setter TargetName="IndeterminateSegment" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <!-- Only while the bar is on screen: a bar hidden while still busy stops animating. -->
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsIndeterminate" Value="True"/>
+                                <Condition Property="IsVisible" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <MultiTrigger.EnterActions>
+                                <BeginStoryboard x:Name="IndeterminateSweep">
+                                    <Storyboard RepeatBehavior="Forever">
+                                        <PointAnimation Storyboard.TargetName="IndeterminateSegment" Storyboard.TargetProperty="RenderTransformOrigin"
+                                                        From="-0.5,0.5" To="1.5,0.5" Duration="0:0:1.5"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </MultiTrigger.EnterActions>
+                            <MultiTrigger.ExitActions>
+                                <RemoveStoryboard BeginStoryboardName="IndeterminateSweep"/>
+                            </MultiTrigger.ExitActions>
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
@@ -720,7 +757,9 @@
          highlight (below) shows through, instead of DataGridCell's default blue system highlight.
          No explicit Foreground here (unlike most other styles in this file) — left to inherit
          from DataGridRow, so a page's own per-row DataTrigger (e.g. Downloads color-codes rows by
-         download status) actually reaches the cell text instead of being overridden by it. -->
+         download status) actually reaches the cell text instead of being overridden by it.
+         A selected cell binds to the row's Foreground: WPF's own cell style otherwise paints
+         selected text in system highlight colours (white while the grid has focus, black after). -->
     <Style TargetType="{x:Type DataGridCell}">
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="BorderThickness" Value="0"/>
@@ -728,6 +767,7 @@
         <Style.Triggers>
             <Trigger Property="IsSelected" Value="True">
                 <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type DataGridRow}}}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -773,29 +813,26 @@
         </Setter>
     </Style>
 
-    <!-- A themed ToolTip so a hint bubble matches the app's own look instead of
-         the plain OS default — every existing ToolTip="..." usage across the app picks this up
-         automatically since it targets the type, no per-usage change needed. -->
-    <!-- Every ToolTip in this app is set as a plain string ("ToolTip=&quot;...&quot;"), which WPF
-         hosts via its built-in string->TextBlock DataTemplate — that auto-generated TextBlock
-         defaults to NoWrap, so the Border's own MaxWidth constrained the BOX but the text inside
-         just overflowed past it toward the screen edge instead of wrapping (found live: a long
-         hint tooltip near the window's right edge rendered cut off mid-word). ContentTemplate
-         forces every tooltip's content through a wrapping TextBlock explicitly, fixing all of
-         them at once rather than each of the ~50+ call sites individually. -->
+    <!-- The themed hint bubble, 280 wide at most. A string tooltip goes through the wrapping string
+         template below (WPF's own string template doesn't wrap, so long text ran past the box). An
+         element set as the tooltip (a TextBlock with Runs, a StackPanel) is shown as itself, and its
+         TextBlocks wrap through the TextBlock style below. -->
     <Style TargetType="{x:Type ToolTip}">
+        <Style.Resources>
+            <!-- WPF never applies a typed DataTemplate to a UIElement, so only plain text uses this. -->
+            <DataTemplate DataType="{x:Type sys:String}">
+                <TextBlock Text="{Binding}" TextWrapping="Wrap" MaxWidth="280"/>
+            </DataTemplate>
+            <!-- TextBlocks inside an element tooltip wrap too, instead of running past the box. -->
+            <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource {x:Type TextBlock}}">
+                <Setter Property="TextWrapping" Value="Wrap"/>
+            </Style>
+        </Style.Resources>
         <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="Padding" Value="9,7"/>
         <Setter Property="HasDropShadow" Value="True"/>
-        <Setter Property="ContentTemplate">
-            <Setter.Value>
-                <DataTemplate>
-                    <TextBlock Text="{Binding}" TextWrapping="Wrap" MaxWidth="280"/>
-                </DataTemplate>
-            </Setter.Value>
-        </Setter>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type ToolTip}">
@@ -897,11 +934,10 @@
         <Setter Property="IsExpanded" Value="True"/>
     </Style>
 
-    <!-- Drag handles between two panes (server log | players, profile list | details...). The
-         whole gap is the hit area (transparent), with a thin line in the middle that turns accent
-         on hover or while dragging, so it reads as something you can grab. "Vertical" splits
-         columns (drag left/right); "Horizontal" splits rows (drag up/down). Put them in their own
-         grid column/row (8-16px) with ResizeBehavior="PreviousAndNext". -->
+    <!-- A drag handle between two side-by-side panes (server log | players, profile list | details...).
+         The whole gap is the hit area (transparent), with a thin line in the middle that turns accent
+         on hover or while dragging, so it reads as something you can grab. It splits columns (drag
+         left/right). Put it in its own grid column (8-16px) with ResizeBehavior="PreviousAndNext". -->
     <Style x:Key="VerticalPaneSplitterStyle" TargetType="{x:Type GridSplitter}">
         <Setter Property="Width" Value="12"/>
         <Setter Property="HorizontalAlignment" Value="Stretch"/>
@@ -917,35 +953,6 @@
                     <Grid Background="Transparent">
                         <Rectangle x:Name="Grip" Width="2" RadiusX="1" RadiusY="1" Margin="0,4"
                                    HorizontalAlignment="Center" Fill="{DynamicResource BorderBrush}"/>
-                    </Grid>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Grip" Property="Fill" Value="{DynamicResource AccentBrush}"/>
-                        </Trigger>
-                        <Trigger Property="IsDragging" Value="True">
-                            <Setter TargetName="Grip" Property="Fill" Value="{DynamicResource AccentBrush}"/>
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
-
-    <Style x:Key="HorizontalPaneSplitterStyle" TargetType="{x:Type GridSplitter}">
-        <Setter Property="Height" Value="12"/>
-        <Setter Property="HorizontalAlignment" Value="Stretch"/>
-        <Setter Property="VerticalAlignment" Value="Stretch"/>
-        <Setter Property="ResizeDirection" Value="Rows"/>
-        <Setter Property="ResizeBehavior" Value="PreviousAndNext"/>
-        <Setter Property="Cursor" Value="SizeNS"/>
-        <Setter Property="Focusable" Value="False"/>
-        <Setter Property="ToolTip" Value="Drag to resize"/>
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="{x:Type GridSplitter}">
-                    <Grid Background="Transparent">
-                        <Rectangle x:Name="Grip" Height="2" RadiusX="1" RadiusY="1" Margin="4,0"
-                                   VerticalAlignment="Center" Fill="{DynamicResource BorderBrush}"/>
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
