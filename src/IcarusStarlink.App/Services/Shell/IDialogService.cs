@@ -30,16 +30,11 @@ public interface IDialogService
     int? Choose(string message, string title, ThemedConfirmSeverity severity, string first, string second, string third) => null;
 
     /// <summary>
-    /// An import is a mod already in the Library: replace that copy, keep both, or cancel. Asked
-    /// through the three-button question, so the window closed counts as Cancel.
+    /// An import is a mod already in the Library: replace that copy, keep both, or cancel. The
+    /// default answers Keep both: with nobody to ask, the import goes ahead as it did before the
+    /// question existed. WpfDialogService asks, and there the window closed counts as Cancel.
     /// </summary>
-    ReplaceExistingAnswer AskReplaceExisting(string message) =>
-        ConfirmWithCancel(message, "Already in your Library", ThemedConfirmSeverity.Question, "Replace it", "Keep both") switch
-        {
-            true => ReplaceExistingAnswer.Replace,
-            false => ReplaceExistingAnswer.KeepBoth,
-            null => ReplaceExistingAnswer.Cancel,
-        };
+    ReplaceExistingAnswer AskReplaceExisting(string message) => ReplaceExistingAnswer.KeepBoth;
 
     /// <summary>A plain two-button confirm with the caller's words on the buttons: true = <paramref name="yesText"/>. The default answers no.</summary>
     bool ConfirmWithWords(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText) => false;

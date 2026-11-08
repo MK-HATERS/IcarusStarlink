@@ -278,7 +278,7 @@ public sealed partial class DownloadsViewModel
     private sealed class UnusableDownloadException(string message, Exception? inner = null) : Exception(message, inner);
 
     /// <summary>Taking the installed copy out failed (a file the running game or another program holds). The download is fine, so no manual install is offered: it would fail the same way.</summary>
-    private sealed class OldCopyNotRemovedException(string message, Exception inner) : Exception(message, inner);
+    internal sealed class OldCopyNotRemovedException(string message, Exception inner) : Exception(message, inner);
 
     private static void RemoveOldOrExplain(Action removeOld)
     {

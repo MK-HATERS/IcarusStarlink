@@ -132,12 +132,15 @@ public sealed partial class LibraryViewModel
     /// <summary>
     /// Before an import writes anything: when it is a mod already in the Library (one copy of each
     /// half, found by ImportMatchFinder), asks Replace it / Keep both / Cancel. Replace swaps the old
-    /// copy out through ModReplacementService and returns true. Keep both, no match, or several
-    /// matches (copies the user keeps on purpose, asked nothing) return false and the import goes on
-    /// as before. Cancel throws ImportCancelledException; nothing has changed by then.
+    /// copy out through ModReplacementService and returns what it did, for the status line. Keep
+    /// both, no match, several matches (copies the user keeps on purpose, asked nothing) or an
+    /// import read from inside the installed copy itself (Replace would delete what it reads) return
+    /// null and the import goes on as before. Cancel throws ImportCancelledException; nothing has
+    /// changed by then. A failed Replace throws with the reason (the old copy is put back first).
     /// </summary>
     /// <param name="stagedPath">What to import from: the .pak, the user's EXMOD folder, or the copy or unpacked archive in the temp folder.</param>
-    private async Task<bool> ReplacedExistingCopyAsync(string path, string stagedPath, Func<IncomingModNames> readIncoming)
+    /// <param name="isArchive">An archive, whose own import offers the manual install on a failure: a failed Replace says how to get to it.</param>
+    private async Task<string?> ReplacedExistingCopyAsync(string path, string stagedPath, Func<IncomingModNames> readIncoming, bool isArchive = false)
     {
         ImportMatches matches;
         try
@@ -148,16 +151,22 @@ public sealed partial class LibraryViewModel
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Can't tell what is inside yet: imported as before, and the import reports any real problem.
-            return false;
+            return null;
         }
 
         if (!matches.IsSingle)
         {
-            return false;
+            return null;
         }
 
         var oldEntry = matches.Library.FirstOrDefault();
         var oldUe4ss = matches.Ue4ss.FirstOrDefault();
+        if (IsInsideInstalledCopy(stagedPath, oldEntry, oldUe4ss))
+        {
+            // The installed copy's own folder: a Replace would delete it mid-import. Imported as a copy, as before.
+            return null;
+        }
+
         var parts = new List<string>();
         if (oldEntry is not null)
         {
@@ -181,7 +190,7 @@ public sealed partial class LibraryViewModel
 
         if (answer == ReplaceExistingAnswer.KeepBoth)
         {
-            return false;
+            return null;
         }
 
         ClassifiedImport? imported = null;
@@ -194,10 +203,19 @@ public sealed partial class LibraryViewModel
 
         if (!result.Succeeded)
         {
-            throw new InvalidOperationException(result.Message ?? "The old copy couldn't be replaced.");
+            // Icarus running is a failure too (no Error): its message says to close the game.
+            var failed = result.Message ?? "The old copy couldn't be replaced.";
+            if (isArchive && result.RolledBack && result.Error is not null and not DownloadsViewModel.OldCopyNotRemovedException)
+            {
+                // Not offered here: a manual install would add a second copy beside the one just put back.
+                failed += " To choose what to install by hand, import it again and pick Keep both.";
+            }
+
+            throw new InvalidOperationException(failed);
         }
 
-        _activityLog.Log($"Replaced {string.Join(" and ", parts)} with '{fileName}'.{result.Summary}", ActivityEntryKind.Success);
+        var done = $"Replaced {string.Join(" and ", parts)} with '{fileName}'.";
+        _activityLog.Log(done + result.Summary, ActivityEntryKind.Success);
         if (imported is not null)
         {
             LogImportWarnings(path, imported.Warnings);
@@ -209,8 +227,41 @@ public sealed partial class LibraryViewModel
             _importNote = "UE4SS mods land unticked: tick them, then Apply UE4SS changes.";
         }
 
-        return true;
+        return done;
     }
+
+    /// <summary>True when <paramref name="stagedPath"/> is the old copy's own folder (Library or staged UE4SS) or inside it.</summary>
+    private bool IsInsideInstalledCopy(string stagedPath, LibraryEntry? oldEntry, string? oldUe4ss)
+    {
+        try
+        {
+            var staged = Path.TrimEndingDirectorySeparator(Path.GetFullPath(stagedPath));
+            var folders = new List<string>();
+            if (oldEntry is not null)
+            {
+                folders.Add(_repository.GetFolderPath(oldEntry.FolderName));
+            }
+
+            if (oldUe4ss is not null)
+            {
+                folders.Add(_ue4ssModRepository.GetFolderPath(oldUe4ss));
+            }
+
+            return folders
+                .Select(f => Path.TrimEndingDirectorySeparator(Path.GetFullPath(f)))
+                .Any(root => staged.Equals(root, StringComparison.OrdinalIgnoreCase)
+                    || staged.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            // The old copy's folder can't be found: it can't be what is being imported.
+            return false;
+        }
+    }
+
+    /// <summary>The name the classifier gives an import whose root is itself a UE4SS mod: the file or folder name without a Nexus download's id, version and time.</summary>
+    private static string IncomingRootName(string path) =>
+        NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(path));
 
     /// <summary>
     /// Imports one already-known path — a real folder, a bare .pak, or (falling through to the
@@ -233,7 +284,7 @@ public sealed partial class LibraryViewModel
             // reads the folder (the imports copy from it) and never unpacks anything into it.
             if (Directory.EnumerateFiles(path, "*.EXMOD", SearchOption.AllDirectories).Any())
             {
-                if (await ReplacedExistingCopyAsync(path, path, () => ImportMatchFinder.ReadFolder(path, Path.GetFileNameWithoutExtension(path))))
+                if (await ReplacedExistingCopyAsync(path, path, () => ImportMatchFinder.ReadFolder(path, IncomingRootName(path))) is not null)
                 {
                     return;
                 }
@@ -252,7 +303,7 @@ public sealed partial class LibraryViewModel
             try
             {
                 await Task.Run(() => FolderBackup.CopyDirectory(path, tempCopy));
-                if (await ReplacedExistingCopyAsync(path, tempCopy, () => ImportMatchFinder.ReadFolder(tempCopy, Path.GetFileNameWithoutExtension(path))))
+                if (await ReplacedExistingCopyAsync(path, tempCopy, () => ImportMatchFinder.ReadFolder(tempCopy, IncomingRootName(path))) is not null)
                 {
                     return;
                 }
@@ -273,7 +324,7 @@ public sealed partial class LibraryViewModel
 
         if (path.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
         {
-            if (await ReplacedExistingCopyAsync(path, path, () => ImportMatchFinder.ForPak(path)))
+            if (await ReplacedExistingCopyAsync(path, path, () => ImportMatchFinder.ForPak(path)) is not null)
             {
                 return;
             }
@@ -288,7 +339,8 @@ public sealed partial class LibraryViewModel
         try
         {
             await Task.Run(() => AnyArchiveExtractor.ExtractToDirectory(path, tempExtractDirectory));
-            if (await ReplacedExistingCopyAsync(path, tempExtractDirectory, () => ImportMatchFinder.ReadFolder(tempExtractDirectory, Path.GetFileNameWithoutExtension(path))))
+            if (await ReplacedExistingCopyAsync(
+                path, tempExtractDirectory, () => ImportMatchFinder.ReadFolder(tempExtractDirectory, IncomingRootName(path)), isArchive: true) is not null)
             {
                 return;
             }
@@ -410,6 +462,32 @@ public sealed partial class LibraryViewModel
     {
         if (_dialogService.PickFile("Select a prebuilt .pak file", "Unreal pak package (*.pak)|*.pak") is not { } pakPath)
         {
+            return;
+        }
+
+        // Asks Replace it / Keep both / Cancel like every other import when the pak is already in.
+        string? replaced;
+        try
+        {
+            replaced = await ReplacedExistingCopyAsync(pakPath, pakPath, () => ImportMatchFinder.ForPak(pakPath));
+        }
+        catch (ImportCancelledException)
+        {
+            StatusMessage = "Import cancelled — nothing was changed.";
+            return;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Import failed: {ex.Message}";
+            _activityLog.Log($"Import of '{Path.GetFileName(pakPath)}' failed: {ex.Message}", ActivityEntryKind.Warning);
+            return;
+        }
+
+        if (replaced is not null)
+        {
+            // The old copy's Nexus link is kept, so there is nothing to ask about linking.
+            StatusMessage = replaced;
+            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             return;
         }
 

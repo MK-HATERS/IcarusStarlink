@@ -52,4 +52,17 @@ public sealed class ImportMatchFinderTests : IDisposable
 
         Assert.Equal("Bundle", Assert.Single(matches.Library).FolderName);
     }
+
+    /// <summary>A pak Starlink turned into an EXMOD keeps the pak's name as its file name, so the same pak dropped again matches it.</summary>
+    [Fact]
+    public void ForPak_APakConvertedToAnExmod_MatchesByThePakName()
+    {
+        var converted = Entry("Cool_P", "Cool_P");
+        converted.ConvertedFromPrebuiltPak = true;
+
+        var matches = ImportMatchFinder.Find(
+            ImportMatchFinder.ForPak(Path.Combine(_root, "Cool_P.pak")), [converted, Entry("Other_P", "Other_P")], []);
+
+        Assert.Equal("Cool_P", Assert.Single(matches.Library).FolderName);
+    }
 }

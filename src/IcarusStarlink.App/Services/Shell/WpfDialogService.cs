@@ -14,6 +14,14 @@ public sealed class WpfDialogService : IDialogService
     public bool? ConfirmWithCancel(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText) =>
         ThemedConfirmDialog.ShowWithCancel(OwnerWindow(), message, title, severity, yesText, noText);
 
+    public ReplaceExistingAnswer AskReplaceExisting(string message) =>
+        ConfirmWithCancel(message, "Already in your Library", ThemedConfirmSeverity.Question, "Replace it", "Keep both") switch
+        {
+            true => ReplaceExistingAnswer.Replace,
+            false => ReplaceExistingAnswer.KeepBoth,
+            null => ReplaceExistingAnswer.Cancel,
+        };
+
     public int? Choose(string message, string title, ThemedConfirmSeverity severity, string first, string second, string third) =>
         ThemedConfirmDialog.ShowChoice(OwnerWindow(), message, title, severity, first, second, third);
 

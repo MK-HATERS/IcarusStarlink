@@ -24,7 +24,8 @@ public sealed partial class DownloadsViewModel
         var previous = new PreviousCopies(oldEntry is null ? [] : [oldEntry.FolderName], oldUe4ssName is null ? [] : [oldUe4ssName]);
         if (RefuseWhileGameHoldsMods(previous, modName) is { } refused)
         {
-            return ModReplacementResult.Cancel(refused);
+            // A failure, not a cancel: the player didn't say no, and the reason (close the game) must show.
+            return ModReplacementResult.Failure(refused, error: null, rolledBack: false);
         }
 
         var oldUe4ssMeta = oldUe4ssName is null ? null : _ue4ssModMetaStore.Load(oldUe4ssName);

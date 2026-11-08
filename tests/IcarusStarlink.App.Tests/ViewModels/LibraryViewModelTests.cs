@@ -2346,6 +2346,9 @@ public sealed partial class LibraryViewModelTests
         /// <summary>When set, the mod setup Copy my setup copies (null: as when the app hasn't wired it).</summary>
         public ModSetupReport? ModSetupReport { get; set; }
 
+        /// <summary>Whether Icarus counts as running for Downloads' installs (null: not wired, as most tests).</summary>
+        public IGameProcessChecker? GameProcessChecker { get; set; }
+
         /// <summary>The fix service Library and the replacement share (as the app wires them).</summary>
         public ModFixService? FixService { get; private set; }
 
@@ -2360,7 +2363,8 @@ public sealed partial class LibraryViewModelTests
                 DaedalusClient, Jimk72Client, GitHubRepoDateClient, Repository, Ue4ssModRepository, Ue4ssModMetaStore,
                 SettingsService, NexusApiClient, CredentialStore, PendingDownloadStore, DownloadHttpClient,
                 new PerformanceTracker(SettingsService, LogsDirectory), ActivityLog, ActiveDownloadsTracker,
-                PendingDownloadsDirectory, PrebuiltPakImporter, DataFolder, dialogService: DialogService, modReplacement: replacement);
+                PendingDownloadsDirectory, PrebuiltPakImporter, DataFolder, dialogService: DialogService, modReplacement: replacement,
+                gameProcessChecker: GameProcessChecker);
 
             return new LibraryViewModel(
                 Repository, Ue4ssModRepository, Ue4ssModStateService, Ue4ssModMetaStore, Ue4ssLoaderInstallService,
@@ -3125,6 +3129,11 @@ public sealed partial class LibraryViewModelTests
         public List<string> ReplaceExistingMessages { get; } = [];
 
         public ReplaceExistingAnswer ReplaceAnswer { get; set; } = ReplaceExistingAnswer.KeepBoth;
+
+        /// <summary>What the file picker answers (null = cancelled).</summary>
+        public string? PickFileResult { get; set; }
+
+        public string? PickFile(string title, string filter, string? initialDirectory = null) => PickFileResult;
 
         public ReplaceExistingAnswer AskReplaceExisting(string message)
         {
