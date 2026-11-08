@@ -267,7 +267,9 @@ public static class ExtractedModClassifier
                         $"Contains {nestedArchives.Length} archives inside it — ambiguous which one is the mod. Extract it yourself and import the one you want.");
                 }
 
-                var choices = nestedArchives.Select(DescribeArchive).ToList();
+                // Off the UI thread: describing an alternative unpacks it whole. The question
+                // itself comes back to the caller's thread.
+                var choices = await Task.Run(() => nestedArchives.Select(DescribeArchive).ToList());
                 var pick = chooseArchive(downloadName, choices);
                 if (pick is not { } index || index < 0 || index >= nestedArchives.Length)
                 {
@@ -284,7 +286,7 @@ public static class ExtractedModClassifier
             // so this layer is cleaned up with it. Classifying the nested folder (not the parent)
             // keeps the now-redundant outer .EXMODZ/.zip file out of what Import copies.
             var nestedDirectory = Path.Combine(extractedDirectory, $"__nested{nestedDepth}_{Guid.NewGuid():N}");
-            AnyArchiveExtractor.ExtractToDirectory(chosen, nestedDirectory);
+            await Task.Run(() => AnyArchiveExtractor.ExtractToDirectory(chosen, nestedDirectory));
             var nested = await ClassifyAndImportCore(
                 nestedDirectory, Path.GetFileName(chosen), libraryRepository, ue4ssModRepository,
                 prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, ue4ssNamesAlreadyInstalledInGame,

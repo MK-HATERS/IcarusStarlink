@@ -280,7 +280,9 @@ public static class ManualInstaller
                         if (!Directory.Exists(folder))
                         {
                             scratch = NewScratchFolder();
-                            AnyArchiveExtractor.ExtractToDirectory(item.FullPath, scratch);
+
+                            // Off the UI thread: unpacking a big archive froze the window.
+                            await Task.Run(() => AnyArchiveExtractor.ExtractToDirectory(item.FullPath, scratch));
                             folder = scratch;
                         }
 
