@@ -387,12 +387,15 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
         SaveCommand.NotifyCanExecuteChanged();
     }
 
-    private bool CanSave() => SaveBlockedReason is null;
+    /// <summary>True while Restore writes the world in the background: Save stays off so the two never write the same file at once.</summary>
+    private bool _restoring;
+
+    private bool CanSave() => SaveBlockedReason is null && !_restoring;
 
     [RelayCommand(CanExecute = nameof(CanSave))]
     private void Save()
     {
-        if (SelectedWorld is not { } world || !HasChanges)
+        if (_restoring || SelectedWorld is not { } world || !HasChanges)
         {
             return;
         }
@@ -450,11 +453,15 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
 
     private bool CanRestoreBackup() => SelectedBackup is not null && SelectedWorld is not null;
 
+    /// <summary>Runs on the background thread just before the backup is copied back (tests hold the restore there).</summary>
+    internal Action? WhileRestoring { get; set; }
+
     /// <summary>
     /// Puts the selected world back to the chosen backup: refused while the game (or server)
     /// runs, asked first, the world as it is now backed up, then only this world's file written
     /// (through a temp file). From a zip of every world, only this one comes back. The copy and
-    /// the list read again run off the UI thread (a slot's worlds can be many megabytes each).
+    /// the list read again run off the UI thread (a slot's worlds can be many megabytes each),
+    /// and Save stays off until they finish.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanRestoreBackup))]
     private async Task RestoreBackupAsync()
@@ -482,10 +489,17 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
             return;
         }
 
+        _restoring = true;
+        SaveCommand.NotifyCanExecuteChanged();
         try
         {
             var kept = BackupsKept;
-            await Task.Run(() => WorldBackups.Restore(item.Backup, world.Save.Path, _backupFolder, owner, kept));
+            var whileRestoring = WhileRestoring;
+            await Task.Run(() =>
+            {
+                whileRestoring?.Invoke();
+                WorldBackups.Restore(item.Backup, world.Save.Path, _backupFolder, owner, kept);
+            });
             await ReloadAsync();
             StatusMessage = $"Restored '{world.Title}' to how it was {item.When}. The world as it was just now is in the backups list.";
             _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
@@ -495,6 +509,11 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
             LoadBackups();
             StatusMessage = $"Couldn't restore the world: {ex.Message}";
             _activityLog.Log($"Couldn't restore the world '{world.Title}': {ex.Message}", ActivityEntryKind.Warning);
+        }
+        finally
+        {
+            _restoring = false;
+            SaveCommand.NotifyCanExecuteChanged();
         }
     }
 

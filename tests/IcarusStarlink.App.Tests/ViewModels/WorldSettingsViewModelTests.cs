@@ -86,6 +86,48 @@ public sealed class WorldSettingsViewModelTests : IDisposable
         Assert.Contains(_log.Entries, e => e.Kind == ActivityEntryKind.Success && e.Message.StartsWith("Restored 'World'"));
     }
 
+    /// <summary>
+    /// Regression: Restore copies the world in the background, and Save world settings stayed on
+    /// meanwhile, so a click on it wrote the same world file while the restore was replacing it.
+    /// </summary>
+    [Fact]
+    public async Task Save_IsOff_WhileARestoreRuns()
+    {
+        var vm = Create(owner: Slot);
+        SaveArachnophobia(vm, true);
+        vm.SelectedBackup = vm.Backups.Single();
+        vm.Rows.Single(r => r.Definition.Name == "GreatHuntEffects").BoolValue = false;
+        Assert.True(vm.SaveCommand.CanExecute(null));
+        var saveTold = 0;
+        vm.SaveCommand.CanExecuteChanged += (_, _) => saveTold++;
+        using var gate = new ManualResetEventSlim();
+        vm.WhileRestoring = gate.Wait;
+
+        Task? restore = null;
+        try
+        {
+            // Held on the background thread before the backup is copied back.
+            restore = vm.RestoreBackupCommand.ExecuteAsync(null);
+
+            Assert.False(restore.IsCompleted);
+            Assert.False(vm.SaveCommand.CanExecute(null));
+            Assert.True(saveTold > 0);
+            vm.SaveCommand.Execute(null);
+            Assert.Single(_log.Entries, e => e.Message.StartsWith("Saved", StringComparison.Ordinal));
+        }
+        finally
+        {
+            gate.Set();
+            if (restore is not null)
+            {
+                await restore;
+            }
+        }
+
+        Assert.StartsWith("Restored 'World'", vm.StatusMessage);
+        Assert.True(vm.SaveCommand.CanExecute(null));
+    }
+
     [Fact]
     public async Task Restore_WhileTheGameRuns_IsRefused_AndNothingIsWritten()
     {
