@@ -51,7 +51,7 @@
                 <ItemsControl ItemsSource="{Binding Entries}"/>
             </ScrollViewer>
 
-            <TextBlock Grid.Row="1" Text="Nothing yet — actions like Rebuild, Install, and imports will show up here."
+            <TextBlock Grid.Row="1" Text="Nothing yet. Installs, imports, downloads and updates show up here."
                        TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}" FontSize="12"
                        Margin="16" VerticalAlignment="Top"
                        Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibilityConverter}}"/>

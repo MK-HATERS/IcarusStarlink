@@ -49,4 +49,22 @@ public class HelpViewModelTests
         Assert.Equal(vm.Topics.Count, vm.VisibleTopics.Count);
         Assert.Equal(vm.Topics[0], vm.SelectedTopic);
     }
+
+    [Fact]
+    public void SettingsTopic_SaysWhereUpdatesComeFrom()
+    {
+        // Regression: Help said updates came only from GitHub, never explained the browser opening
+        // for a free Nexus account, and told the app's history.
+        var topics = new HelpViewModel().Topics;
+        var md = topics.First(t => t.Title == "Settings & Diagnostics").Markdown;
+
+        Assert.Contains("Get it from GitHub instead", md);
+        Assert.Contains("Slow download", md);
+        Assert.Contains("published checksum", md);
+        Assert.DoesNotContain("Rebuild", md);
+
+        var safety = topics.First(t => t.Title == "Safety & backups").Markdown;
+        Assert.DoesNotContain("previously", safety);
+        Assert.DoesNotContain("Rebuild", safety);
+    }
 }
