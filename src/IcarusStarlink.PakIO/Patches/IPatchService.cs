@@ -48,6 +48,17 @@ public interface IPatchService
     /// class of untrusted input as an EXMODZ import.
     /// </summary>
     Task<PatchImportContents> ImportAsync(string patchFilePath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads only a patch's manifest, for a caller that compares it with what's installed: no
+    /// bundled mod is read or extracted. Throws FormatException on a corrupt manifest, the same as
+    /// <see cref="ImportAsync"/>. The default reads the whole patch and keeps its manifest.
+    /// </summary>
+    async Task<PatchManifest> ReadManifestAsync(string patchFilePath, CancellationToken cancellationToken = default)
+    {
+        using var contents = await ImportAsync(patchFilePath, cancellationToken).ConfigureAwait(false);
+        return contents.Manifest;
+    }
 }
 
 /// <summary>What a patch held. <see cref="Dispose"/> removes the temp folder the bundled paks and UE4SS mods were extracted to.</summary>

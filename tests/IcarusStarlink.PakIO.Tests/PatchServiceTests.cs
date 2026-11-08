@@ -304,6 +304,82 @@ public class PatchServiceTests : IDisposable
     }
 
     /// <summary>
+    /// Comparing a patch with what's installed needs only its manifest: the bundled mods (which can
+    /// be hundreds of MB of paks) aren't read or extracted, so a patch whose bundled files are
+    /// missing still reads.
+    /// </summary>
+    [Fact]
+    public async Task ReadManifestAsync_ZipPatch_ReadsTheManifestWithoutTheBundledMods()
+    {
+        var pakMod = MakeEntry("Big_Pak_Mod", bundled: true, name: "Big Pak Mod");
+        pakMod.IsPak = true;
+        pakMod.PakFileNames = ["Big_P.pak"];
+        var manifest = new PatchManifest
+        {
+            FormatVersion = PatchManifest.CurrentFormatVersion, ProfileName = "Coop",
+            Mods = [MakeEntry("Exmod_Mod", bundled: true, name: "Exmod Mod"), pakMod],
+            Ue4ssMods = [new PatchUe4ssEntry { Name = "SomeUe4ssMod", Bundled = true }],
+        };
+        var path = Path.Combine(_dir, "manifest-only.zip");
+        using (var stream = File.Create(path))
+        using (var archive = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Create))
+        using (var writer = new StreamWriter(archive.CreateEntry("manifest.json").Open()))
+        {
+            writer.Write(System.Text.Json.JsonSerializer.Serialize(manifest));
+        }
+
+        IPatchService service = _service;
+        var read = await service.ReadManifestAsync(path);
+
+        Assert.Equal("Coop", read.ProfileName);
+        Assert.Equal(["Exmod Mod", "Big Pak Mod"], read.Mods.Select(m => m.Name));
+        Assert.Equal(["Big_P.pak"], read.Mods[1].PakFileNames);
+        Assert.Equal("SomeUe4ssMod", Assert.Single(read.Ue4ssMods).Name);
+    }
+
+    [Fact]
+    public async Task ReadManifestAsync_JsonPatch_ReadsTheManifest()
+    {
+        var manifest = new PatchManifest { ProfileName = "Plain", Mods = [MakeEntry("ModA", bundled: false)] };
+        var path = Path.Combine(_dir, "plain.json");
+        await _service.ExportAsync(manifest, PatchBundle.Empty, path);
+
+        IPatchService service = _service;
+        var read = await service.ReadManifestAsync(path);
+
+        Assert.Equal("Plain", read.ProfileName);
+        Assert.Equal("ModA", Assert.Single(read.Mods).FolderName);
+    }
+
+    [Fact]
+    public async Task ReadManifestAsync_CorruptZip_ThrowsFormatException()
+    {
+        var path = Path.Combine(_dir, "corrupt.zip");
+        await File.WriteAllBytesAsync(path, [0x50, 0x4B, 0x03, 0x04, 0x00, 0x00]);
+
+        IPatchService service = _service;
+        await Assert.ThrowsAsync<FormatException>(() => service.ReadManifestAsync(path));
+    }
+
+    /// <summary>
+    /// Regression: a manifest name Windows can't use as a file name (a device name like CON or
+    /// NUL.txt, or a trailing dot Windows drops) got past the check and only failed, or opened a
+    /// device, when the folder was made.
+    /// </summary>
+    [Theory]
+    [InlineData("{\"FormatVersion\":2,\"ProfileName\":\"Bad\",\"Mods\":[{\"FolderName\":\"CON\",\"Name\":\"A\",\"Author\":\"B\",\"Version\":\"1\",\"Bundled\":true,\"IsPak\":true}],\"Options\":{}}")]
+    [InlineData("{\"FormatVersion\":2,\"ProfileName\":\"Bad\",\"Mods\":[{\"FolderName\":\"Ok\",\"Name\":\"A\",\"Author\":\"B\",\"Version\":\"1\",\"Bundled\":true,\"IsPak\":true,\"PakFileNames\":[\"NUL.txt\"]}],\"Options\":{}}")]
+    [InlineData("{\"FormatVersion\":2,\"ProfileName\":\"Bad\",\"Mods\":[],\"Options\":{},\"Ue4ssMods\":[{\"Name\":\"Mod.\",\"Bundled\":true}]}")]
+    public async Task ImportAsync_AManifestNameWindowsCantUse_ThrowsFormatException(string json)
+    {
+        var path = Path.Combine(_dir, "names.json");
+        await File.WriteAllTextAsync(path, json);
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => _service.ImportAsync(path));
+        Assert.Contains("isn't a plain name", ex.Message);
+    }
+
+    /// <summary>
     /// A patch's settings are written into UE4SS mods the player runs (game and
     /// server) with no question. A "config" that is a script, or Lua that runs code, is taken out
     /// when the patch is read and named; plain settings stay.

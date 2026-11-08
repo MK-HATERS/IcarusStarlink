@@ -145,15 +145,41 @@ public sealed class PatchService : IPatchService
             () =>
             {
                 using var fileStream = File.OpenRead(patchFilePath);
-
-                var header = new byte[4];
-                var headerBytesRead = fileStream.Read(header, 0, header.Length);
-                fileStream.Position = 0;
-                var isZip = headerBytesRead >= 2 && header[0] == 0x50 && header[1] == 0x4B; // 'P' 'K'
-
-                return isZip ? ReadZipPatch(fileStream, cancellationToken) : ReadJsonPatch(fileStream);
+                return IsZip(fileStream) ? ReadZipPatch(fileStream, cancellationToken) : ReadJsonPatch(fileStream);
             },
             cancellationToken);
+
+    /// <summary>Runs on a worker thread and reads manifest.json alone: nothing bundled is inflated or written to disk.</summary>
+    public Task<PatchManifest> ReadManifestAsync(string patchFilePath, CancellationToken cancellationToken = default) =>
+        Task.Run(
+            () =>
+            {
+                using var fileStream = File.OpenRead(patchFilePath);
+                if (!IsZip(fileStream))
+                {
+                    return ReadJsonPatch(fileStream).Manifest;
+                }
+
+                try
+                {
+                    using var archive = new ZipArchive(fileStream, ZipArchiveMode.Read, leaveOpen: true);
+                    return ReadManifest(archive, new ExmodSizeBudget("Patch archive", _maxBundledBytes));
+                }
+                catch (InvalidDataException ex)
+                {
+                    throw new FormatException("Couldn't read this patch archive — it may be corrupt or truncated.", ex);
+                }
+            },
+            cancellationToken);
+
+    /// <summary>Sniffed by content ('P' 'K'), not by extension: the user picked this file by hand and may have renamed it.</summary>
+    private static bool IsZip(Stream stream)
+    {
+        var header = new byte[4];
+        var headerBytesRead = stream.Read(header, 0, header.Length);
+        stream.Position = 0;
+        return headerBytesRead >= 2 && header[0] == 0x50 && header[1] == 0x4B;
+    }
 
     private static PatchImportContents ReadJsonPatch(Stream stream)
     {
@@ -161,6 +187,13 @@ public sealed class PatchService : IPatchService
         var json = reader.ReadToEnd();
         var manifest = Deserialize(json);
         return new PatchImportContents(manifest, new Dictionary<string, ExmodPackageContents>());
+    }
+
+    private static PatchManifest ReadManifest(ZipArchive archive, ExmodSizeBudget sizeBudget)
+    {
+        var manifestEntry = archive.GetEntry("manifest.json")
+            ?? throw new FormatException("Patch archive is missing manifest.json.");
+        return Deserialize(Encoding.UTF8.GetString(ReadEntryBytes(manifestEntry, sizeBudget, "manifest.json")));
     }
 
     private PatchImportContents ReadZipPatch(Stream stream, CancellationToken cancellationToken)
@@ -173,10 +206,7 @@ public sealed class PatchService : IPatchService
             // EXMODZ used to get a fresh 1 GB of its own, so many small zip bombs could add up to
             // many GB held at once.
             var sizeBudget = new ExmodSizeBudget("Patch archive", _maxBundledBytes);
-
-            var manifestEntry = archive.GetEntry("manifest.json")
-                ?? throw new FormatException("Patch archive is missing manifest.json.");
-            var manifest = Deserialize(Encoding.UTF8.GetString(ReadEntryBytes(manifestEntry, sizeBudget, "manifest.json")));
+            var manifest = ReadManifest(archive, sizeBudget);
 
             var bundledMods = new Dictionary<string, ExmodPackageContents>();
             foreach (var mod in manifest.Mods.Where(m => m.Bundled && !m.IsPak))
@@ -300,18 +330,21 @@ public sealed class PatchService : IPatchService
         return root;
     }
 
-    /// <summary>A manifest name must be one folder or file name: not empty, no separators, not "." or "..", no character a file name can't hold.</summary>
+    /// <summary>
+    /// A manifest name must be one folder or file name Windows keeps as written: the shared guard
+    /// (no separators, not "." or "..", no character a file name can't hold, no device name like
+    /// CON or NUL.txt), no spaces around it and no trailing dot (Windows drops those).
+    /// </summary>
     private static void RequireSafeName(string? name, string what)
     {
-        if (string.IsNullOrWhiteSpace(name) || name is "." or ".." || name.IndexOfAny(['/', '\\', ':']) >= 0
-            || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.Trim() != name)
+        if (name is null || !AssetPathGuard.IsSimpleFileName(name) || name.IndexOfAny(['/', '\\', ':']) >= 0
+            || name.Trim() != name || name.EndsWith('.'))
         {
             throw new FormatException($"Patch manifest is corrupt: {what} ('{name}') isn't a plain name.");
         }
     }
 
-    private static string SafeFolderName(string name) =>
-        string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)) is { Length: > 0 } s ? s : "_";
+    private static string SafeFolderName(string name) => AssetPathGuard.SanitizeToSimpleFileName(name, "_");
 
     /// <summary>Best effort: a leftover temp folder isn't worth hiding the import's own error.</summary>
     private static void TryDelete(string? folder)
