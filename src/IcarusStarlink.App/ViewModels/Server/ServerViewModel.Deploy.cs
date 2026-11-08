@@ -13,11 +13,20 @@ public sealed partial class ServerViewModel
     /// <summary>The temporary name a file is uploaded under before it replaces the old one ("ISL-Merged_9999_P.pak.uploading" — not a .pak, so the game never loads a half-uploaded file).</summary>
     internal static string UploadingName(string fileName) => fileName + ".uploading";
 
+    private static readonly string[] PakFamilyExtensions = [".pak", ".sig", ".utoc", ".ucas"];
+
+    /// <summary>What Install merged pak clears out of the server's mods folder: pak files, the merge's own list, and our own stale uploads. Anything else there is left alone.</summary>
+    private bool IsClearedFromModsFolder(string name) =>
+        PakFamilyExtensions.Any(ext => name.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
+        || string.Equals(name, Path.GetFileName(_pakManifestPath), StringComparison.OrdinalIgnoreCase)
+        || name.EndsWith(UploadingName(""), StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// Uploads the app's own last-built merged pak (Merge &amp; Install's own Staged_Build output —
     /// the same file "Install" copies into the LOCAL game folder) to the server's own mods folder,
     /// replacing whatever's there. The server's mods folder is meant to hold exactly one active
-    /// merged pak, so this clears it out first — but always names every file it's about to delete
+    /// merged pak, so this clears out its old pak files (only pak files, and nothing at all when the
+    /// path doesn't end in a "mods" folder) — but always names every file it's about to delete
     /// (and upload) in the confirmation prompt, rather than a bare "are you sure?".
     ///
     /// A site already known (from a past attempt) not to support delete skips trying it at all and
@@ -62,12 +71,30 @@ public sealed partial class ServerViewModel
                 toUpload.Add(Path.GetFileName(_pakManifestPath));
             }
 
+            // The game loads mods only from a folder named "mods". A Mods path one level too high
+            // (Icarus/Content/Paks) used to put the game's own base paks up for deletion, so outside
+            // a "mods" folder nothing is deleted: only the new pak goes up.
+            var inModsFolder = string.Equals(RemoteModsPath.TrimEnd('/').Split('/')[^1], "mods", StringComparison.OrdinalIgnoreCase);
+
             // ArcFission Library's own data pak stays: the server's library writes it again anyway.
             // A leftover upload from an earlier attempt that broke off is replaced, not listed.
-            var existing = remoteFiles
+            // Only pak files, the merge's list and our own stale uploads are cleared out; anything
+            // else (a readme, a host's own file) is left alone.
+            var candidates = remoteFiles
                 .Where(e => !e.IsDirectory && !IcarusStarlink.PakIO.InstallManifestNames.IsArcFissionDataPak(e.Name))
                 .Where(e => !toUpload.Any(name => string.Equals(e.Name, UploadingName(name), StringComparison.OrdinalIgnoreCase)))
                 .ToList();
+            var existing = inModsFolder ? candidates.Where(e => IsClearedFromModsFolder(e.Name)).ToList() : [];
+            var leftAlone = candidates
+                .Where(e => !existing.Contains(e) && !toUpload.Contains(e.Name, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+            var leftAloneNote = leftAlone.Count > 0
+                ? "\n\nLeft alone:\n" + string.Join('\n', leftAlone.Select(e => $"  - {e.Name}"))
+                : "";
+            var notModsFolderNote = inModsFolder
+                ? ""
+                : "This path doesn't end in a folder named 'mods', so it may not be the server's mods folder. Nothing there is deleted; only the new pak goes up.\n\n";
+            const string stopServerNote = "\n\nStop the server on the host first: its pak files are locked while it runs.";
 
             // _connectedSite, not SelectedSite: this gates a real delete attempt against the LIVE
             // connection, and must reflect what's actually known about the site being acted on, not
@@ -84,16 +111,16 @@ public sealed partial class ServerViewModel
             if (knownBlocked && leftBehind.Count > 0)
             {
                 prompt =
-                    $"'{_connectedSite?.Name}' doesn't allow deleting or replacing files via FTP, so the existing file(s) below will remain after this upload:\n"
+                    $"'{_connectedSite?.Name}' doesn't allow deleting files via FTP, so the existing file(s) below will remain after this upload:\n"
                     + string.Join('\n', leftBehind.Select(e => $"  - {e.Name}"))
-                    + $"\n\nUpload will add:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
-                    + $"You'll need to remove the old file(s) yourself via {_connectedSite?.Name}'s own file manager afterward — otherwise the server may end up loading multiple conflicting merged paks. Upload anyway?";
+                    + $"\n\nUpload will add:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}{leftAloneNote}\n\n"
+                    + $"You'll need to remove the old file(s) yourself via {_connectedSite?.Name}'s own file manager afterward — otherwise the server may end up loading multiple conflicting merged paks.{stopServerNote}\n\nUpload anyway?";
             }
             else if (knownBlocked)
             {
                 prompt =
                     $"This will upload:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
-                    + $"to '{RemoteModsPath}' on '{_connectedSite?.Name}', writing over the copies already there.\n\nContinue?";
+                    + $"to '{RemoteModsPath}' on '{_connectedSite?.Name}', writing over the copies already there.{leftAloneNote}{stopServerNote}\n\nContinue?";
             }
             else
             {
@@ -101,8 +128,8 @@ public sealed partial class ServerViewModel
                     ? "\n\nOnce it is fully uploaded, these are deleted:\n" + string.Join('\n', existing.Select(e => $"  - {e.Name}"))
                     : "";
                 prompt =
-                    $"This will upload:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
-                    + $"to '{RemoteModsPath}' on '{_connectedSite?.Name}'.{deleteList}\n\nContinue?";
+                    $"{notModsFolderNote}This will upload:\n{string.Join('\n', toUpload.Select(n => $"  - {n}"))}\n\n"
+                    + $"to '{RemoteModsPath}' on '{_connectedSite?.Name}'.{deleteList}{leftAloneNote}{stopServerNote}\n\nContinue?";
             }
 
             if (!(_dialogService.Confirm(prompt, "Install merged pak to server", ThemedConfirmSeverity.Warning)))
@@ -122,7 +149,7 @@ public sealed partial class ServerViewModel
             var deleteFailures = new List<string>();
             if (knownBlocked)
             {
-                // Nothing can be deleted (or, likely, renamed) there: upload straight over the names.
+                // Nothing can be deleted there: upload straight over the names.
                 deleteFailures.AddRange(leftBehind.Select(e => e.Name));
                 foreach (var name in toUpload)
                 {
@@ -247,9 +274,12 @@ public sealed partial class ServerViewModel
         var localLabel = Ue4ssBuild.Describe(localVersion, localCommit);
 
         IsBusy = true;
-        var tempLogPath = Path.GetTempFileName();
+        string? tempLogPath = null;
+        var replaced = new List<string>();
         try
         {
+            // Inside the try: a %TEMP% that can't take another temp file used to leave the page busy for good.
+            tempLogPath = Path.GetTempFileName();
             string? remoteVersion = null;
             string? remoteCommit = null;
             try
@@ -293,26 +323,78 @@ public sealed partial class ServerViewModel
                 return;
             }
 
+            // Each file goes up under a temporary name and replaces the live one only once it has
+            // fully arrived: a dropped connection used to leave a cut-off UE4SS.dll on the server.
+            // The loader first, the proxy dwmapi.dll that starts it last.
             foreach (var localFile in localFiles)
             {
                 var relative = Path.GetRelativePath(localLoaderFolder, localFile).Replace('\\', '/');
-                await _connectedClient.UploadFileAsync(localFile, $"{RemoteLoaderPath}/{relative}");
+                await ReplaceRemoteFileAsync(localFile, $"{RemoteLoaderPath}/{relative}");
+                replaced.Add(relative);
             }
 
-            await _connectedClient.UploadFileAsync(Ue4ssGamePaths.ResolveDwmapiPath(contentPath), $"{RemoteWin64Path}/dwmapi.dll");
+            await ReplaceRemoteFileAsync(Ue4ssGamePaths.ResolveDwmapiPath(contentPath), $"{RemoteWin64Path}/dwmapi.dll");
 
             ConnectionStatusMessage = $"Synced UE4SS {localLabel} to '{_connectedSite?.Name}'.";
             _activityLog.Log($"Synced UE4SS loader ({localLabel}) to FTP site '{_connectedSite?.Name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
-            ConnectionStatusMessage = $"UE4SS sync failed: {ex.Message}";
-            _activityLog.Log($"UE4SS loader sync to '{_connectedSite?.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
+            var reason = ex.Message.TrimEnd('.');
+            ConnectionStatusMessage = replaced.Count == 0
+                ? $"UE4SS sync failed: {reason}. Nothing on the server was changed; try again."
+                : $"UE4SS sync stopped part way: {reason}. {replaced.Count} file(s) were already replaced ({string.Join(", ", replaced)}); run Sync UE4SS loader again before you start the server.";
+            _activityLog.Log($"UE4SS loader sync to '{_connectedSite?.Name}': {ConnectionStatusMessage}", ActivityEntryKind.Warning);
         }
         finally
         {
-            File.Delete(tempLogPath);
             IsBusy = false;
+            DeleteTempFile(tempLogPath);
+        }
+    }
+
+    /// <summary>Deletes a temporary file, ignoring one a scanner still holds: it is in %TEMP%, and a failed delete must not leave the page busy.</summary>
+    private static void DeleteTempFile(string? path)
+    {
+        if (path is null)
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Replaces a file on the server through a temporary name: the upload goes to
+    /// "name.uploading" and is renamed onto the real name only once it has fully arrived, so a
+    /// dropped connection leaves the server's old file whole. A server that won't rename gets the
+    /// file straight over the real name, and the temporary copy is tidied when it can be.
+    /// </summary>
+    private async Task ReplaceRemoteFileAsync(string localPath, string remotePath)
+    {
+        var temp = UploadingName(remotePath);
+        await _connectedClient!.UploadFileAsync(localPath, temp);
+        try
+        {
+            await _connectedClient.RenameFileAsync(temp, remotePath);
+        }
+        catch (FtpOperationRejectedException)
+        {
+            await _connectedClient.UploadFileAsync(localPath, remotePath);
+            try
+            {
+                await _connectedClient.DeleteFileAsync(temp);
+            }
+            catch (FtpOperationRejectedException)
+            {
+                // Not a name UE4SS or the game reads; harmless if it stays.
+            }
         }
     }
 
@@ -392,12 +474,15 @@ public sealed partial class ServerViewModel
                     var localModFolder = Path.Combine(localModsFolder, modName);
                     foreach (var localFile in Directory.GetFiles(localModFolder, "*", SearchOption.AllDirectories))
                     {
-                        if (string.Equals(Path.GetExtension(localFile), ".log", StringComparison.OrdinalIgnoreCase))
+                        // The same rule as a local server: what the mod logged in the game and
+                        // ArcFission Library's game-session state stay home.
+                        var relative = Path.GetRelativePath(localModFolder, localFile);
+                        if (!ServerUe4ssSync.IsModFileForServer(localModFolder, relative))
                         {
-                            continue; // what the mod logged in the game, not part of it
+                            continue;
                         }
 
-                        var relative = Path.GetRelativePath(localModFolder, localFile).Replace('\\', '/');
+                        relative = relative.Replace('\\', '/');
                         await _connectedClient.UploadFileAsync(localFile, $"{RemoteModsRootPath}/{modName}/{relative}");
                     }
 
@@ -463,9 +548,10 @@ public sealed partial class ServerViewModel
     private async Task TurnOnInRemoteModsTxtAsync(IReadOnlyList<string> modNames, IReadOnlyList<FtpEntry> modsFolderListing)
     {
         var remoteTxt = $"{RemoteModsRootPath}/{Ue4ssModStart.ListFileName}";
-        var temp = Path.GetTempFileName();
+        string? temp = null;
         try
         {
+            temp = Path.GetTempFileName();
             var hasOne = modsFolderListing
                 .Any(e => !e.IsDirectory && string.Equals(e.Name, Ue4ssModStart.ListFileName, StringComparison.OrdinalIgnoreCase));
             if (hasOne)
@@ -505,7 +591,7 @@ public sealed partial class ServerViewModel
         }
         finally
         {
-            File.Delete(temp);
+            DeleteTempFile(temp);
         }
     }
 }

@@ -230,6 +230,11 @@ public sealed partial class ServerViewModel
         return $"{trimmed}/{name}";
     }
 
+    private static string DescribeSize(long? bytes) =>
+        bytes is { } b ? IcarusStarlink.PakIO.Install.BackupCleanup.FormatSize(b) : "size unknown";
+
+    private static string DescribeDate(DateTime? when) => when is { } w ? w.ToString("g") : "date unknown";
+
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task UploadAsync()
     {
@@ -243,11 +248,38 @@ public sealed partial class ServerViewModel
             return;
         }
 
+        // A file of the same name is replaced only after a yes, and through a temporary name: Upload
+        // used to write straight over it (a live world, say) with no question, and a dropped
+        // connection left it cut off.
+        var name = Path.GetFileName(localPath);
+        var existing = RemoteEntries.FirstOrDefault(e => !e.IsDirectory && string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            var local = new FileInfo(localPath);
+            var prompt =
+                $"'{name}' is already in '{CurrentRemotePath}' on '{_connectedSite?.Name}'. Replace it with your file?\n\n"
+                + $"On the server: {DescribeSize(existing.SizeBytes)}, {DescribeDate(existing.ModifiedAt?.LocalDateTime)}\n"
+                + $"Your file: {DescribeSize(local.Exists ? local.Length : null)}, {DescribeDate(local.Exists ? local.LastWriteTime : null)}\n\n"
+                + "The server's copy isn't kept anywhere: download it first if you may need it.";
+            if (!_dialogService.Confirm(prompt, "Replace a file on the server", ThemedConfirmSeverity.Warning))
+            {
+                return;
+            }
+        }
+
         IsBusy = true;
         try
         {
-            var remotePath = CombineRemotePath(CurrentRemotePath, Path.GetFileName(localPath));
-            await _connectedClient.UploadFileAsync(localPath, remotePath);
+            var remotePath = CombineRemotePath(CurrentRemotePath, name);
+            if (existing is not null)
+            {
+                await ReplaceRemoteFileAsync(localPath, remotePath);
+            }
+            else
+            {
+                await _connectedClient.UploadFileAsync(localPath, remotePath);
+            }
+
             await LoadDirectoryAsync(CurrentRemotePath);
             ConnectionStatusMessage = $"Uploaded '{Path.GetFileName(localPath)}'.";
             _activityLog.Log($"Uploaded '{Path.GetFileName(localPath)}' to '{_connectedSite?.Name}'.", ActivityEntryKind.Success);

@@ -41,13 +41,14 @@ public sealed class ServerViewModelTests
         dialogService ?? new FakeDialogService(confirmResult: true),
         outputPakPath ?? Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"), "ISL-Merged_P.pak"));
 
-    private static async Task<(ServerViewModel Vm, string Folder)> ConnectedWithBuiltPakAsync(RecordingFtpClient ftp)
+    private static async Task<(ServerViewModel Vm, string Folder)> ConnectedWithBuiltPakAsync(
+        RecordingFtpClient ftp, FtpSiteProfile? site = null, FakeDialogService? dialogs = null, FakeFtpSiteStore? siteStore = null)
     {
         var folder = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "ISL-Merged_9999_P.pak"), "pak");
         File.WriteAllText(Path.Combine(folder, "ISL-Merged.txt"), "manifest");
-        var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), ftp, outputPakPath: Path.Combine(folder, "ISL-Merged_9999_P.pak"));
+        var vm = CreateViewModel(siteStore ?? new FakeFtpSiteStore([site ?? MakeSite(Guid.NewGuid())]), ftp, dialogs, outputPakPath: Path.Combine(folder, "ISL-Merged_9999_P.pak"));
         vm.SelectedSite = vm.Sites.Single();
         vm.PasswordInput = "irrelevant-password";
         await vm.ConnectCommand.ExecuteAsync(null);
@@ -498,6 +499,9 @@ public sealed class ServerViewModelTests
         public string? FailUploadOf { get; set; }
         public bool RefuseRename { get; set; }
 
+        /// <summary>Every delete is refused, as on a host that blocks delete (SurvivalServers); uploads over an existing name still work.</summary>
+        public bool RefuseDelete { get; set; }
+
         public Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task<IReadOnlyList<FtpEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default) =>
@@ -523,6 +527,11 @@ public sealed class ServerViewModelTests
         public Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default)
         {
             Operations.Add("delete " + remotePath);
+            if (RefuseDelete)
+            {
+                throw new FtpOperationRejectedException("550 Permission denied");
+            }
+
             Files.Remove(remotePath);
             return Task.CompletedTask;
         }
@@ -732,6 +741,213 @@ public sealed class ServerViewModelTests
         }
     }
 
+    /// <summary>
+    /// Regression: each loader file was uploaded straight onto its live name, so a connection that
+    /// dropped while UE4SS.dll went up left a cut-off UE4SS.dll on the server and the message
+    /// never said to sync again before starting it.
+    /// </summary>
+    [Fact]
+    public async Task SyncUe4ssLoader_DropMidUpload_KeepsTheServersOldDll()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        try
+        {
+            var loader = IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveLoaderFolder(settings.Current.IcarusContentPath!);
+            WriteFile(Path.Combine(loader, "UE4SS.dll"), "new");
+            WriteFile(IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveDwmapiPath(settings.Current.IcarusContentPath!));
+            var ftp = new MemoryFtpClient();
+            ftp.Files[$"{RemoteUe4ss}/UE4SS.dll"] = "old";
+            var vm = await ConnectedAsync(ftp, settings);
+            ftp.FailUploadContaining = "UE4SS.dll";
+
+            await vm.SyncUe4ssLoaderToServerCommand.ExecuteAsync(null);
+
+            Assert.Equal("old", ftp.Files[$"{RemoteUe4ss}/UE4SS.dll"]);
+            Assert.Contains("again", vm.ConnectionStatusMessage);
+            Assert.False(vm.IsBusy);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Regression: the local copy leaves ArcFission Library's game-session files (state.lua,
+    /// registry.txt…) at home, but the FTP sync uploaded them, so a remote server got stale state.
+    /// </summary>
+    [Fact]
+    public async Task SyncUe4ssMods_ArcFissionLibrary_StateFilesStayHome()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        try
+        {
+            var mods = IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveModsFolder(settings.Current.IcarusContentPath!);
+            WriteFile(Path.Combine(mods, "mods.txt"), "ArcFissionLibrary : 1\r\n");
+            WriteFile(Path.Combine(mods, "ArcFissionLibrary", "Scripts", "main.lua"));
+            WriteFile(Path.Combine(mods, "ArcFissionLibrary", "state.lua"), "return { gen = 7 }");
+            WriteFile(Path.Combine(mods, "ArcFissionLibrary", "registry.txt"), "WirelessPower|0.9.5");
+            var ftp = new MemoryFtpClient();
+            ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"] = "Keybinds : 1\r\n";
+            var vm = await ConnectedAsync(ftp, settings);
+
+            await vm.SyncUe4ssModsToServerCommand.ExecuteAsync(null);
+
+            Assert.Contains($"{RemoteUe4ss}/Mods/ArcFissionLibrary/Scripts/main.lua", ftp.Files.Keys);
+            Assert.DoesNotContain($"{RemoteUe4ss}/Mods/ArcFissionLibrary/state.lua", ftp.Files.Keys);
+            Assert.DoesNotContain($"{RemoteUe4ss}/Mods/ArcFissionLibrary/registry.txt", ftp.Files.Keys);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A host that refuses every delete (SurvivalServers) and has never been tested: the second
+    /// install of the same pak name still ends with the new pak in place (written over), and the
+    /// site is now known to block deletes.
+    /// </summary>
+    [Fact]
+    public async Task InstallPakToServer_DeleteRefused_SecondInstallOfTheSameName_Succeeds()
+    {
+        var site = MakeSite(Guid.NewGuid());
+        var store = new FakeFtpSiteStore([site]);
+        var ftp = new RecordingFtpClient("ISL-Merged_P.pak") { RefuseDelete = true };
+        var (vm, folder) = await ConnectedWithBuiltPakAsync(ftp, siteStore: store);
+        try
+        {
+            await vm.InstallPakToServerCommand.ExecuteAsync(null);
+
+            Assert.Contains("Installed the merged pak", vm.ConnectionStatusMessage);
+            Assert.Contains(Mods + "ISL-Merged_P.pak", ftp.Files);
+            Assert.False(store.GetAll().Single().SupportsDelete);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Regression: every file in the site's Mods path was deleted after the upload. A path one
+    /// level too high (Icarus/Content/Paks) put the game's own base paks up for deletion behind one
+    /// Continue. The game loads mods only from a folder named "mods".
+    /// </summary>
+    [Fact]
+    public async Task InstallPakToServer_ModsPathIsThePaksRoot_DeletesNothing()
+    {
+        var ftp = new RecordingFtpClient();
+        ftp.Files.Add("Icarus/Content/Paks/pakchunk0-WindowsServer.pak");
+        var dialogs = new FakeDialogService(confirmResult: true);
+        var (vm, folder) = await ConnectedWithBuiltPakAsync(ftp, MakeSite(Guid.NewGuid(), modsPath: "Icarus/Content/Paks"), dialogs);
+        try
+        {
+            await vm.InstallPakToServerCommand.ExecuteAsync(null);
+
+            Assert.DoesNotContain(ftp.Operations, o => o.StartsWith("delete ", StringComparison.Ordinal));
+            Assert.Contains("Icarus/Content/Paks/pakchunk0-WindowsServer.pak", ftp.Files);
+            Assert.Contains(dialogs.Messages, m => m.Contains("doesn't end in a folder named 'mods'"));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>Regression: a file in the mods folder that isn't a pak (a readme) was deleted with the old paks.</summary>
+    [Fact]
+    public async Task InstallPakToServer_NonPakFiles_AreLeftAlone()
+    {
+        var ftp = new RecordingFtpClient("ISL-Merged_9999_P.pak", "readme.txt");
+        var dialogs = new FakeDialogService(confirmResult: true);
+        var (vm, folder) = await ConnectedWithBuiltPakAsync(ftp, dialogs: dialogs);
+        try
+        {
+            await vm.InstallPakToServerCommand.ExecuteAsync(null);
+
+            Assert.DoesNotContain(ftp.Operations, o => o == "delete " + Mods + "readme.txt");
+            Assert.Contains(Mods + "readme.txt", ftp.Files);
+            Assert.DoesNotContain(Mods + "ISL-Merged_9999_P.pak", ftp.Files);
+            Assert.Contains("Installed the merged pak", vm.ConnectionStatusMessage);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    private static async Task<(ServerViewModel Vm, FakeDialogService Dialogs, MemoryFtpClient Ftp, string Folder)> BrowsingWithLocalFileAsync(bool confirm, string text)
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var local = Path.Combine(folder, "MyWorld.json");
+        File.WriteAllText(local, text);
+        var ftp = new MemoryFtpClient();
+        ftp.Files["/MyWorld.json"] = "server copy";
+        var dialogs = new FakeDialogService(confirm) { OpenFilePath = local };
+        var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), ftp, dialogs);
+        vm.SelectedSite = vm.Sites.Single();
+        vm.PasswordInput = "irrelevant-password";
+        await vm.ConnectCommand.ExecuteAsync(null);
+        return (vm, dialogs, ftp, folder);
+    }
+
+    /// <summary>Regression: Upload wrote a picked file over a server file of the same name (a live world) without asking.</summary>
+    [Fact]
+    public async Task Upload_ExistingName_AsksFirst()
+    {
+        var (vm, dialogs, ftp, folder) = await BrowsingWithLocalFileAsync(confirm: false, "new");
+        try
+        {
+            await vm.UploadCommand.ExecuteAsync(null);
+
+            Assert.Equal(1, dialogs.ConfirmCallCount);
+            Assert.Equal("server copy", ftp.Files["/MyWorld.json"]);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>Regression: a replacing upload went straight onto the live name, so a dropped connection left the server's file cut off.</summary>
+    [Fact]
+    public async Task Upload_Replacing_GoesUpUnderATempNameFirst()
+    {
+        var (vm, _, ftp, folder) = await BrowsingWithLocalFileAsync(confirm: true, "new");
+        try
+        {
+            ftp.FailUploadContaining = "MyWorld.json";
+
+            await vm.UploadCommand.ExecuteAsync(null);
+
+            Assert.Equal("server copy", ftp.Files["/MyWorld.json"]);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>Saying yes replaces the server's file, and no temporary copy stays behind.</summary>
+    [Fact]
+    public async Task Upload_ReplaceConfirmed_EndsWithYourFileAndNoTempCopy()
+    {
+        var (vm, _, ftp, folder) = await BrowsingWithLocalFileAsync(confirm: true, "new");
+        try
+        {
+            await vm.UploadCommand.ExecuteAsync(null);
+
+            Assert.Equal("new", ftp.Files["/MyWorld.json"]);
+            Assert.DoesNotContain(ftp.Files.Keys, f => f.EndsWith(".uploading", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
     /// <summary>An FTP server in memory with real folders and file contents: listing shows the direct children.</summary>
     private sealed class MemoryFtpClient : IFtpClient
     {
@@ -861,6 +1077,11 @@ public sealed class ServerViewModelTests
         public int ConfirmCallCount { get; private set; }
 
         public List<string> Messages { get; } = [];
+
+        /// <summary>What the file picker answers; null: cancelled.</summary>
+        public string? OpenFilePath { get; set; }
+
+        public string? PickFile(string title, string filter, string? initialDirectory = null) => OpenFilePath;
 
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {
