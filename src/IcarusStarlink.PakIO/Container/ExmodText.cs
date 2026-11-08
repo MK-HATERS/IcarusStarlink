@@ -10,6 +10,9 @@ namespace IcarusStarlink.PakIO.Container;
 /// </summary>
 internal static class ExmodText
 {
+    // U+FEFF, written as a number so the character is never invisible in the source.
+    private const char ByteOrderMark = (char)0xFEFF;
+
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     private static readonly Lazy<Encoding> Windows1252 =
@@ -28,6 +31,6 @@ internal static class ExmodText
         }
 
         // A leading UTF-8 BOM some tools write.
-        return text.TrimStart('﻿');
+        return text.TrimStart(ByteOrderMark);
     }
 }
