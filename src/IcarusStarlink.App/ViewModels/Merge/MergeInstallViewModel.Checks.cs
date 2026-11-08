@@ -15,6 +15,9 @@ public sealed record BetweenModsFinding(string Kind, string Mods, string Where, 
     public const string SameFileCode = "ISL-201";
     public const string TalentTreeCode = "ISL-202";
     public const string NeedsAModCode = "ISL-203";
+
+    /// <summary>The copied report's code for a value two or more mods change differently (the Conflicts tab).</summary>
+    public const string ConflictCode = "ISL-301";
 }
 
 /// <summary>A queued mod the Library's health check flags: the check window's Per mod tab, where Fix… opens its fix window.</summary>

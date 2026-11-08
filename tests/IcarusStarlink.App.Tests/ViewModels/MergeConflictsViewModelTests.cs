@@ -109,7 +109,45 @@ public sealed class MergeConflictsViewModelTests
 
         Assert.True(vm.HasCollisions);
         Assert.Contains("Wooden_Table", vm.Collisions[0]);
-        Assert.Contains("Mod A, Mod B", vm.Collisions[0]);
         Assert.Empty(vm.BuildWinners());
+    }
+
+    /// <summary>
+    /// Regression: two mods adding a new item under the same name used to read "both are merged
+    /// into one", which sounded harmless; the game really gets one item with both mods' fields
+    /// mixed, and if they are different things one mod has to go.
+    /// </summary>
+    [Fact]
+    public void NewItemsSharingAName_SayTheFieldsGetMixed_AndWhatToDoAboutIt()
+    {
+        var two = new MergeConflictsViewModel([], [new NewItemNameCollision(Items, "Wooden_Table", ["Mod A", "Mod B"])], null);
+        var three = new MergeConflictsViewModel([], [new NewItemNameCollision(Items, "Wooden_Table", ["Mod A", "Mod B", "Mod C"])], null);
+
+        Assert.Equal(
+            "'Wooden_Table' (D_ItemsStatic) is added by both Mod A and Mod B, so the game gets one 'Wooden_Table' with both mods' fields mixed. "
+            + "If they are different things, take one of the mods out of the queue.",
+            two.Collisions[0]);
+        Assert.Equal(
+            "'Wooden_Table' (D_ItemsStatic) is added by Mod A, Mod B and Mod C, so the game gets one 'Wooden_Table' with all their fields mixed. "
+            + "If they are different things, keep only one of these mods in the queue.",
+            three.Collisions[0]);
+    }
+
+    /// <summary>
+    /// Regression: a conflicting value that is a whole object (not a list) was shown with the
+    /// default JSON escaping, so "+5" read as "+5" and quotes as """ in the comparison.
+    /// </summary>
+    [Fact]
+    public void ObjectValues_ShowPlusSignsAndQuotesAsTheyAre()
+    {
+        static JsonNode Stat(string text) => new JsonObject { ["Text"] = text };
+        var line = new MergeConflictsViewModel(
+            [Conflict(Items, "Wood", "Tooltip", Stat("+1 Speed"), ("Mod A", Stat("+5 \"fast\" Speed")), ("Mod B", Stat("+9 Speed")))],
+            [], null).Groups[0].Conflicts[0];
+
+        Assert.False(line.IsList);
+        var modA = line.Matrix[0].Cells[1].Text;
+        Assert.Contains("+5 \\\"fast\\\" Speed", modA);
+        Assert.DoesNotContain("\\u00", modA);
     }
 }

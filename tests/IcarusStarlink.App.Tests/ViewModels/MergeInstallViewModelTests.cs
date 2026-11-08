@@ -759,7 +759,6 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         Assert.Equal(review.ConflictsView.Cast<object>().Count(), vm.ConflictCount);
         Assert.Equal(review.Tally, vm.ConflictTally);
         Assert.Equal(1, vm.ConflictTally.CombinedAutomatically);
-        Assert.Equal("1 value is changed differently by two mods — pick a winner, or the mod lower in the queue wins.", vm.ConflictTally.BannerText);
         Assert.Contains("combined automatically", vm.ConflictTally.CombinedText);
         Assert.StartsWith("1 value is changed differently", review.Summary);
     }

@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -29,11 +28,6 @@ public sealed record MergeConflictTally(int NeedsDecision, int CombinedAutomatic
 
     public static MergeConflictTally From(IReadOnlyList<FieldConflict> conflicts, IReadOnlyList<NewItemNameCollision> collisions) =>
         new(conflicts.Count, collisions.Count, conflicts.All(c => c.Candidates.Count == 2));
-
-    /// <summary>The bar's main line, e.g. "1 value is changed differently by two mods — pick a winner, or the mod lower in the queue wins."</summary>
-    public string BannerText =>
-        $"{NeedsDecision} {(NeedsDecision == 1 ? "value is" : "values are")} changed differently by {(AllBetweenTwoMods ? "two mods" : "more than one mod")}"
-        + " — pick a winner, or the mod lower in the queue wins.";
 
     /// <summary>The bar's quiet second part; empty when nothing was combined.</summary>
     public string CombinedText => CombinedAutomatically switch
@@ -210,7 +204,7 @@ public sealed partial class MergeConflictViewModel : ObservableObject
         [.. Conflict.Candidates.Select(c => c.Change)], Conflict.HasBaseValue, Conflict.BaseValue);
 
     private static string Pretty(JsonNode value) =>
-        value is JsonValue v ? v.ToString() : value.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        value is JsonValue v ? v.ToString() : value.ToJsonString(ExmodJson.DisplayOptions);
 }
 
 /// <summary>Conflicts between the same set of mods, with "this mod wins all of these".</summary>
@@ -275,7 +269,7 @@ public sealed partial class MergeConflictsViewModel : ObservableObject
         Groups = [.. _all.GroupBy(c => string.Join("|", c.ModNames)).OrderByDescending(g => g.Count())
             .Select(g => new MergeConflictGroupViewModel(g.First().ModNames, [.. g]))];
         Tally = MergeConflictTally.From(conflicts, collisions);
-        Collisions = [.. collisions.Select(c => $"'{c.ItemName}' ({GameTableIndex.TableNameOf(c.CurrentFile)}) is a new item in {string.Join(", ", c.ModNames)}: both are merged into one.")];
+        Collisions = [.. collisions.Select(DescribeCollision)];
         ConflictsView = CollectionViewSource.GetDefaultView(_all);
         ConflictsView.Filter = o => o is MergeConflictViewModel c
             && (SelectedGroup is null || SelectedGroup.Conflicts.Contains(c))
@@ -286,6 +280,21 @@ public sealed partial class MergeConflictsViewModel : ObservableObject
 
     public static string WinnerKey(string currentFile, string itemName, string fieldName) =>
         $"{currentFile.ToLowerInvariant()}|{itemName}|{fieldName}";
+
+    /// <summary>
+    /// One line for new items several mods add under the same name: the merge joins them into one
+    /// row, so if the mods meant different things the game gets a mix of both.
+    /// </summary>
+    private static string DescribeCollision(NewItemNameCollision collision)
+    {
+        var where = $"'{collision.ItemName}' ({GameTableIndex.TableNameOf(collision.CurrentFile)})";
+        var mods = collision.ModNames;
+        return mods.Count == 2
+            ? $"{where} is added by both {mods[0]} and {mods[1]}, so the game gets one '{collision.ItemName}' with both mods' fields mixed. "
+              + "If they are different things, take one of the mods out of the queue."
+            : $"{where} is added by {string.Join(", ", mods.Take(mods.Count - 1))} and {mods[^1]}, so the game gets one '{collision.ItemName}' with all their fields mixed. "
+              + "If they are different things, keep only one of these mods in the queue.";
+    }
 
     /// <summary>The Between mods tab: the same file in two mods, talent trees, a mod that needs one outside the merge.</summary>
     public IReadOnlyList<BetweenModsFinding> BetweenMods { get; }
@@ -317,7 +326,7 @@ public sealed partial class MergeConflictsViewModel : ObservableObject
         text.AppendLine($"Icarus Starlink merge check: {Tally.NeedsDecision} conflict(s), {BetweenMods.Count} clash(es) between mods, {ModsWithProblems.Count} mod(s) with problems.");
         foreach (var conflict in _all)
         {
-            text.AppendLine($"[ISL-301] Conflict: {conflict.Row}.{conflict.Field} ({GameTableIndex.TableNameOf(conflict.Conflict.CurrentFile)}) changed by {conflict.ModsText}");
+            text.AppendLine($"[{BetweenModsFinding.ConflictCode}] Conflict:{conflict.Row}.{conflict.Field} ({GameTableIndex.TableNameOf(conflict.Conflict.CurrentFile)}) changed by {conflict.ModsText}");
         }
 
         foreach (var finding in BetweenMods)
