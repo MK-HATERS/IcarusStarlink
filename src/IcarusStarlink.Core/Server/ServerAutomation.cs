@@ -43,8 +43,13 @@ public sealed record AutomationAction(AutomationActionKind Kind, string Reason)
     public static readonly AutomationAction None = new(AutomationActionKind.None, "");
 }
 
-/// <summary>What the app saw on one beat: the server process (and its id while running), who is online per its log, and whether its log shows a clean exit.</summary>
-public readonly record struct ServerObservation(DateTime NowLocal, bool Running, int PlayersOnline, bool CleanExitLogged, int? ProcessId = null);
+/// <summary>
+/// What the app saw on one beat: the server process (its id and local start time while running),
+/// who is online per its log, whether its log shows a clean exit, and whether SteamCMD is busy
+/// with something else (an install, an update or a check of any server).
+/// </summary>
+public readonly record struct ServerObservation(
+    DateTime NowLocal, bool Running, int PlayersOnline, bool CleanExitLogged, int? ProcessId = null, DateTime? StartedLocal = null, bool SteamCmdBusy = false);
 
 /// <summary>
 /// The decisions behind the Overview tab's automation, for ONE server, kept free of processes,
@@ -60,7 +65,10 @@ public sealed class ServerAutomation
     public static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(1);
     public static readonly TimeSpan DailyBackupInterval = TimeSpan.FromHours(24);
 
-    /// <summary>A daily slot the app wasn't open for (or that is long past) is skipped, never run hours late.</summary>
+    /// <summary>
+    /// A daily slot the app wasn't open for (or that is long past) is skipped, never run hours late.
+    /// A slot is also skipped when the server started at or after it (that run is already fresh).
+    /// </summary>
     private static readonly TimeSpan MissedSlotGrace = TimeSpan.FromMinutes(5);
 
     private readonly List<DateTime> _crashRestarts = [];
@@ -116,6 +124,16 @@ public sealed class ServerAutomation
         StoppedByOwner = true;
     }
 
+    /// <summary>A stop noted with NoteIntentionalStop didn't happen (the process couldn't be ended): its later exit is a crash again.</summary>
+    public void ForgetIntentionalStop(int processId) => _intendedStops.Remove(processId);
+
+    /// <summary>The owner's stop failed and the process still runs: undoes NoteOwnerStop.</summary>
+    public void CancelOwnerStop(int processId)
+    {
+        ForgetIntentionalStop(processId);
+        StoppedByOwner = false;
+    }
+
     /// <summary>Someone pressed Start: re-arm crash restarts.</summary>
     public void NoteManualStart()
     {
@@ -160,7 +178,9 @@ public sealed class ServerAutomation
             return restart;
         }
 
-        if (profile.AutoUpdate)
+        // A check or an update needs SteamCMD, which runs one job at a time: while it is busy with
+        // another server they wait (unstamped), rather than holding up this beat.
+        if (profile.AutoUpdate && !now.SteamCmdBusy)
         {
             if (UpdatePending && now.PlayersOnline == 0)
             {
@@ -254,6 +274,13 @@ public sealed class ServerAutomation
                 continue;
             }
 
+            // A run that began at or after the slot already is today's fresh start.
+            if (now.StartedLocal is { } started && started >= slot)
+            {
+                _lastDailySlotHandled = slot;
+                continue;
+            }
+
             var forceAt = slot + RestartWaitForEmpty;
             if (now.NowLocal > forceAt + MissedSlotGrace)
             {
@@ -261,14 +288,27 @@ public sealed class ServerAutomation
                 continue;
             }
 
+            // A restart that installs an update waits for SteamCMD to be free; the slot stays due
+            // (and MissedSlotGrace still drops it if SteamCMD is busy for over an hour).
+            var needsSteamCmd = profile.UpdateOnRestart || (profile.AutoUpdate && UpdatePending);
             if (now.PlayersOnline == 0)
             {
+                if (now.SteamCmdBusy && needsSteamCmd)
+                {
+                    return null;
+                }
+
                 _lastDailySlotHandled = slot;
                 return new AutomationAction(AutomationActionKind.ScheduledRestart, $"daily restart ({time:HH\\:mm})");
             }
 
             if (now.NowLocal >= forceAt)
             {
+                if (now.SteamCmdBusy && needsSteamCmd)
+                {
+                    return null;
+                }
+
                 _lastDailySlotHandled = slot;
                 return new AutomationAction(AutomationActionKind.ScheduledRestart,
                     $"daily restart ({time:HH\\:mm}); players were still online after waiting {RestartWaitForEmpty.TotalMinutes:0} minutes");
@@ -300,7 +340,7 @@ public sealed class ServerAutomation
     }
 
     /// <summary>"Next up" lines for the Overview tab.</summary>
-    public IReadOnlyList<string> DescribeUpcoming(DedicatedServerProfile profile, DateTime nowLocal, int playersOnline)
+    public IReadOnlyList<string> DescribeUpcoming(DedicatedServerProfile profile, DateTime nowLocal, int playersOnline, bool running = true)
     {
         var lines = new List<string>();
         if (profile.DailyRestartEnabled)
@@ -309,11 +349,12 @@ public sealed class ServerAutomation
             {
                 lines.Add($"Daily restart is on, but '{profile.DailyRestartTime}' isn't a time. Use 24-hour HH:mm, like 05:00.");
             }
-            else if (WaitingForEmptyUntil(profile, nowLocal) is { } until && playersOnline > 0)
+            // A stopped server isn't waiting for anything: its next start is a fresh one, so it shows the next slot.
+            else if (running && WaitingForEmptyUntil(profile, nowLocal) is { } until && playersOnline > 0)
             {
                 lines.Add($"Daily restart is waiting for {playersOnline} player(s) to leave. It goes ahead anyway at {until:HH:mm}.");
             }
-            else if (WaitingForEmptyUntil(profile, nowLocal) is { } goesAt)
+            else if (running && WaitingForEmptyUntil(profile, nowLocal) is { } goesAt)
             {
                 lines.Add($"Daily restart is due now: it goes ahead as soon as the server is empty, or at {goesAt:HH:mm} at the latest.");
             }

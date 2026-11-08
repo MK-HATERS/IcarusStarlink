@@ -1375,9 +1375,20 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         /// <summary>Runs while a stop is in progress (for "the user did something during the 60-second wait").</summary>
         public Action? DuringStop { get; set; }
 
+        /// <summary>Set to make every stop fail with this (a server Windows won't let Starlink end).</summary>
+        public Exception? StopThrows { get; set; }
+
+        public int StopCalls { get; private set; }
+
         public Task<bool> StopAsync(RunningServer server, TimeSpan timeout, CancellationToken cancellationToken = default)
         {
+            StopCalls++;
             DuringStop?.Invoke();
+            if (StopThrows is { } ex)
+            {
+                throw ex;
+            }
+
             Stopped.Add(server.ProcessId);
             Running = null;
             return Task.FromResult(StopIsClean);

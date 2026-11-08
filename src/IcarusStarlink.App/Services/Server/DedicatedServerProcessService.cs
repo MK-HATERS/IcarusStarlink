@@ -225,11 +225,23 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
                 {
                     // Exited between the timeout and the kill.
                 }
+                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or AggregateException)
+                {
+                    // Windows refused the kill (a server started as administrator, Starlink not).
+                    throw StopFailed(ex);
+                }
 
                 return false;
             }
+            catch (System.ComponentModel.Win32Exception ex)
+            {
+                throw StopFailed(ex);
+            }
         }
     }
+
+    private static ServerStopFailedException StopFailed(Exception ex) =>
+        new($"Starlink couldn't end the server ({ex.Message}). If it was started as administrator, close its window yourself, or run Starlink as administrator.", ex);
 
     /// <summary>A process is the recorded server: one of the server's two exe names, started when the recorded one was (FindRunning took its start time from the process itself).</summary>
     internal static bool IsRecordedServer(string processName, DateTime startTime, RunningServer server) =>

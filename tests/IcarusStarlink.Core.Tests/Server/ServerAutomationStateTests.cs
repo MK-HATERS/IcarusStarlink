@@ -39,6 +39,29 @@ public sealed class ServerAutomationStateTests
         Assert.Equal((Day.AddMinutes(5), ServerStopKind.Crash), (a.LastStoppedAt!.Value, a.LastStopKind));
     }
 
+    /// <summary>
+    /// Regression: when a stop failed (a server started as administrator), the process stayed
+    /// marked as stopped on purpose, so its real crash later was filed as planned and not restarted.
+    /// </summary>
+    [Fact]
+    public void AStopThatFailed_IsForgotten_SoALaterCrashIsStillRestarted()
+    {
+        var p = Profile();
+        var a = new ServerAutomation();
+        a.Evaluate(p, Up(Day, pid: 7));
+        a.NoteIntentionalStop(7);
+        a.ForgetIntentionalStop(7);
+        Assert.Equal(AutomationActionKind.RestartAfterCrash, a.Evaluate(p, Down(Day.AddMinutes(1))).Kind);
+
+        var owner = new ServerAutomation();
+        owner.Evaluate(p, Up(Day, pid: 7));
+        owner.NoteOwnerStop(7);
+        owner.CancelOwnerStop(7);
+        Assert.False(owner.StoppedByOwner);
+        Assert.Equal(AutomationActionKind.RestartAfterCrash, owner.Evaluate(p, Down(Day.AddMinutes(1))).Kind);
+        Assert.Equal(ServerStopKind.Crash, owner.LastStopKind);
+    }
+
     /// <summary>With crash restarts off a crash is still a crash (the Overview says it wasn't restarted).</summary>
     [Fact]
     public void LastStop_CrashWithRestartOff_IsStillACrash()

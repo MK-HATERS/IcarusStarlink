@@ -224,73 +224,17 @@ public sealed partial class LocalServerViewModel
         {
             foreach (var profile in Profiles.ToList())
             {
-                // The owner is doing something to this server (starting, stopping, updating, a backup,
-                // restore or mod change), or SteamCMD is busy: look again next beat.
-                if (IsSteamCmdBusy || (IsBusy && profile.Id == SelectedProfile?.Id) || (IsBackupBusy && profile.Id == _backupBusyFor))
-                {
-                    continue;
-                }
-
-                var watch = GetWatch(profile);
-                await EnsureFirstReadAsync(watch);
-                await PollWatchAsync(watch);
-                ExpireStalePlayers(watch);
-
-                RunningServer? found;
+                // Per server: a problem with one (a stop Windows refused, a file it couldn't read)
+                // used to end the whole beat, so the servers after it weren't looked at.
                 try
                 {
-                    found = await OffUiThread(() => _processes.FindRunning(profile));
+                    await RunAutomationForAsync(profile);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    continue;
-                }
-
-                if (found is null && watch.Running is not null && ++watch.MissingBeats < 2)
-                {
-                    // Gone for one beat only could be the launcher handing over to the real server: confirm next beat.
-                    continue;
-                }
-
-                watch.MissingBeats = 0;
-                if (found is not null && found.ProcessId != watch.Running?.ProcessId)
-                {
-                    watch.CleanExitSeen = false; // a new run; the last run's exit lines no longer count
-                }
-
-                if (found is null && watch.Running is not null)
-                {
-                    ResetWatchEvents(watch);
-                }
-
-                var wasRunning = watch.Running is not null;
-                var wasObserved = watch.Observed;
-                watch.Observed = true;
-                watch.Running = found;
-                var action = watch.Automation.Evaluate(profile, new ServerObservation(Clock(), found is not null, watch.Events.Online.Count, watch.CleanExitSeen, found?.ProcessId));
-                if (found is not null && !wasRunning && wasObserved)
-                {
-                    RecordEventLine(watch, $"{Clock():HH:mm}  Server started");
-                }
-                else if (found is null && wasRunning)
-                {
-                    RecordEventLine(watch, $"{Clock():HH:mm}  " + watch.Automation.LastStopKind switch
-                    {
-                        ServerStopKind.ByOwner => "Server stopped by you",
-                        ServerStopKind.Clean => "Server stopped cleanly",
-                        _ => "Server crashed (it stopped without a clean exit in its log)",
-                    });
-                }
-
-                if (action.Kind != AutomationActionKind.None)
-                {
-                    await ExecuteAutomationAsync(watch, action);
+                    _activityLog.Log($"Server automation hit a problem with '{profile.Name}': {ex.Message}", ActivityEntryKind.Warning);
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            _activityLog.Log($"Server automation hit a problem: {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
@@ -298,6 +242,77 @@ public sealed partial class LocalServerViewModel
             RefreshOverview();
             // Another profile on this install may have started or stopped: its Mods buttons follow.
             RaiseServerFilesChanged();
+        }
+    }
+
+    /// <summary>One server's part of the beat: look at it, then do what automation decides.</summary>
+    private async Task RunAutomationForAsync(DedicatedServerProfile profile)
+    {
+        // The owner is doing something to this server (starting, stopping, updating, a backup,
+        // restore or mod change), or SteamCMD is writing into its install: look again next beat.
+        // SteamCMD busy with another install or a check doesn't pause this server's crash
+        // restarts; what needs SteamCMD itself waits for it (ServerObservation.SteamCmdBusy).
+        if (IsSteamCmdWritingTo(profile) || (IsBusy && profile.Id == SelectedProfile?.Id) || (IsBackupBusy && profile.Id == _backupBusyFor))
+        {
+            return;
+        }
+
+        var watch = GetWatch(profile);
+        await EnsureFirstReadAsync(watch);
+        await PollWatchAsync(watch);
+        ExpireStalePlayers(watch);
+
+        RunningServer? found;
+        try
+        {
+            found = await OffUiThread(() => _processes.FindRunning(profile));
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        if (found is null && watch.Running is not null && ++watch.MissingBeats < 2)
+        {
+            // Gone for one beat only could be the launcher handing over to the real server: confirm next beat.
+            return;
+        }
+
+        watch.MissingBeats = 0;
+        if (found is not null && found.ProcessId != watch.Running?.ProcessId)
+        {
+            watch.CleanExitSeen = false; // a new run; the last run's exit lines no longer count
+        }
+
+        if (found is null && watch.Running is not null)
+        {
+            ResetWatchEvents(watch);
+        }
+
+        var wasRunning = watch.Running is not null;
+        var wasObserved = watch.Observed;
+        watch.Observed = true;
+        watch.Running = found;
+        var action = watch.Automation.Evaluate(profile, new ServerObservation(
+            Clock(), found is not null, watch.Events.Online.Count, watch.CleanExitSeen, found?.ProcessId,
+            StartedLocal: found?.StartTime, SteamCmdBusy: IsSteamCmdBusy));
+        if (found is not null && !wasRunning && wasObserved)
+        {
+            RecordEventLine(watch, $"{Clock():HH:mm}  Server started");
+        }
+        else if (found is null && wasRunning)
+        {
+            RecordEventLine(watch, $"{Clock():HH:mm}  " + watch.Automation.LastStopKind switch
+            {
+                ServerStopKind.ByOwner => "Server stopped by you",
+                ServerStopKind.Clean => "Server stopped cleanly",
+                _ => "Server crashed (it stopped without a clean exit in its log)",
+            });
+        }
+
+        if (action.Kind != AutomationActionKind.None)
+        {
+            await ExecuteAutomationAsync(watch, action);
         }
     }
 
@@ -316,8 +331,11 @@ public sealed partial class LocalServerViewModel
                 break;
 
             case AutomationActionKind.ScheduledRestart:
+                // An update the hourly check already found goes in with this restart: otherwise the
+                // next beat stopped the freshly started server again to install it.
+                var withUpdate = p.UpdateOnRestart || (p.AutoUpdate && watch.Automation.UpdatePending);
                 ReportAutomation(watch, $"'{p.Name}': {action.Reason}. Restarting.", ActivityEntryKind.Info);
-                await RunAsAutomationAsync(watch, p.UpdateOnRestart ? "doing the daily restart (with an update check)" : "doing the daily restart", () => AutomatedRestartAsync(watch, checkForUpdate: p.UpdateOnRestart));
+                await RunAsAutomationAsync(watch, withUpdate ? "doing the daily restart (with an update check)" : "doing the daily restart", () => AutomatedRestartAsync(watch, checkForUpdate: withUpdate));
                 break;
 
             case AutomationActionKind.CheckForUpdate:
@@ -401,6 +419,8 @@ public sealed partial class LocalServerViewModel
         StopCommand.NotifyCanExecuteChanged();
         RestartCommand.NotifyCanExecuteChanged();
         UpdateServerCommand.NotifyCanExecuteChanged();
+        // Check for update greys out with Update (CanUpdate): it must come back with it too.
+        CheckForUpdateCommand.NotifyCanExecuteChanged();
         RaiseServerFilesChanged();
     }
 
@@ -453,7 +473,21 @@ public sealed partial class LocalServerViewModel
         if (running is not null)
         {
             watch.Automation.NoteIntentionalStop(running.ProcessId);
-            await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
+            try
+            {
+                await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
+            }
+            catch (Exception ex)
+            {
+                // Typically a server started as administrator while Starlink isn't. It still runs:
+                // its later exit is not one Starlink made, and the update waits for the next
+                // hourly check instead of stopping it again on every beat.
+                watch.Automation.ForgetIntentionalStop(running.ProcessId);
+                watch.Automation.NoteUpdateFinished();
+                ReportAutomation(watch, $"'{watch.Profile.Name}': couldn't stop it to restart or update ({ex.Message}). It was left running.", ActivityEntryKind.Warning);
+                return;
+            }
+
             watch.Running = null;
             ResetWatchEvents(watch);
             if (SelectedProfile?.Id == watch.Profile.Id)
@@ -485,9 +519,9 @@ public sealed partial class LocalServerViewModel
         var token = BeginSteamCmdRun($"Checking '{p.Name}' for an update", p.Id);
         SteamCmdStatus = "asking Steam for the latest build…";
         IsSteamCmdBusy = true;
-        // A check takes seconds. One that hangs would keep SteamCMD busy for good, and every beat
-        // skips while it is, so crash and daily restarts of every server would stop. It gives up
-        // after UpdateCheckTimeout instead and says so in Recent events.
+        // A check takes seconds. One that hangs would keep SteamCMD busy for good, and every other
+        // check, update and updating daily restart waits while it is. It gives up after
+        // UpdateCheckTimeout instead and says so in Recent events.
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(UpdateCheckTimeout);
         try
@@ -545,7 +579,7 @@ public sealed partial class LocalServerViewModel
         }
 
         var backup = await TryBackupAsync(p, "before-update");
-        var result = await RunSteamCmdAsync($"Updating '{p.Name}'", p.Id, token => _steamCmd.InstallOrUpdateAsync(p.InstallFolder, SteamCmd.NormalizeBranch(p.Branch), line => OnSteamCmdLineFor(p.Id, line), token));
+        var result = await RunSteamCmdAsync($"Updating '{p.Name}'", p.Id, p.InstallFolder, token => _steamCmd.InstallOrUpdateAsync(p.InstallFolder, SteamCmd.NormalizeBranch(p.Branch), line => OnSteamCmdLineFor(p.Id, line), token));
         watch.Automation.NoteUpdateFinished();
         ReportAutomation(watch,
             result.Success

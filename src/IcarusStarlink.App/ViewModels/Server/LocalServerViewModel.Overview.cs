@@ -78,7 +78,10 @@ public sealed partial class LocalServerViewModel
         // What automation last did is in Recent events, with everything else that happened.
         var watch = _watches.GetValueOrDefault(p.Id);
         var players = watch?.Events.Online.Count ?? OnlinePlayers.Count;
-        var lines = (watch?.Automation ?? new ServerAutomation()).DescribeUpcoming(p, Clock(), players).ToList();
+        // Running per either look (the page's, refreshed every second, or automation's last beat): a
+        // stopped server has no daily restart "due now"; its next start is a fresh one.
+        var running = Running is not null || watch?.Running is not null;
+        var lines = (watch?.Automation ?? new ServerAutomation()).DescribeUpcoming(p, Clock(), players, running).ToList();
         Replace(NextUp, lines);
         RefreshRecentEvents();
         OnPropertyChanged(nameof(NowLine));

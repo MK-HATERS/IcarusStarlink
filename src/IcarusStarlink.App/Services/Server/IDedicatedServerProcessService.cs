@@ -5,6 +5,9 @@ namespace IcarusStarlink.App.Services;
 /// <summary>A server process this app found running, from one install folder.</summary>
 public sealed record RunningServer(int ProcessId, DateTime StartTime);
 
+/// <summary>Windows wouldn't let Starlink end the server (typically one started as administrator while Starlink isn't); it is still running.</summary>
+public sealed class ServerStopFailedException(string message, Exception inner) : Exception(message, inner);
+
 /// <summary>Starts, finds and stops dedicated server processes. An interface so the view model's tests never launch anything.</summary>
 public interface IDedicatedServerProcessService
 {
@@ -17,7 +20,8 @@ public interface IDedicatedServerProcessService
     /// <summary>
     /// Asks the server to shut down the way a person pressing Ctrl+C in its console would (Unreal
     /// treats that as a clean exit; the game saves then only if SaveGameOnExit is on), waits up to <paramref name="timeout"/>,
-    /// then kills it. Returns true when it exited cleanly, false when it had to be killed.
+    /// then kills it. Returns true when it exited cleanly, false when it had to be killed. Throws
+    /// <see cref="ServerStopFailedException"/> when Windows refuses to end it.
     /// </summary>
     Task<bool> StopAsync(RunningServer server, TimeSpan timeout, CancellationToken cancellationToken = default);
 

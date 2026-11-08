@@ -370,7 +370,7 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        var result = await RunSteamCmdAsync("Installing a new server", null, token => _steamCmd.InstallOrUpdateAsync(target, "public", OnSteamCmdLine, token));
+        var result = await RunSteamCmdAsync("Installing a new server", null, target, token => _steamCmd.InstallOrUpdateAsync(target, "public", OnSteamCmdLine, token));
         if (!result.Success)
         {
             StatusMessage = $"Install failed: {result.Message}";
@@ -480,7 +480,19 @@ public sealed partial class LocalServerViewModel
     [RelayCommand(CanExecute = nameof(CanUpdate))]
     private async Task UpdateServerAsync()
     {
-        if (SelectedProfile is not { } profile || _steamCmd is null || !TrySave() || !await EnsureSteamCmdReadyAsync())
+        if (SelectedProfile is not { } profile || _steamCmd is null)
+        {
+            return;
+        }
+
+        if (!TrySave())
+        {
+            // The reason is on the Settings tab; the status line says it too, so the click isn't silent.
+            StatusMessage = ValidationMessage;
+            return;
+        }
+
+        if (!await EnsureSteamCmdReadyAsync())
         {
             return;
         }
@@ -514,7 +526,7 @@ public sealed partial class LocalServerViewModel
         try
         {
             var backup = await TryBackupAsync(profile, "before-update");
-            var result = await RunSteamCmdAsync($"Updating '{profile.Name}'", profile.Id,
+            var result = await RunSteamCmdAsync($"Updating '{profile.Name}'", profile.Id, profile.InstallFolder,
                 token => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, line => OnSteamCmdLineFor(profile.Id, line), token));
             if (result.Success)
             {
@@ -585,11 +597,20 @@ public sealed partial class LocalServerViewModel
         OnPropertyChanged(nameof(ShowSteamCmdPanel));
     }
 
-    private async Task<SteamCmdResultView> RunSteamCmdAsync(string action, Guid? profileId, Func<CancellationToken, Task<Services.SteamCmdResult>> run)
+    /// <summary>The install folder SteamCMD is writing into right now (an install or update); null otherwise.</summary>
+    private string? _steamCmdWritesTo;
+
+    /// <summary>SteamCMD is writing into this profile's install: a server there must not be started or restarted until it is done.</summary>
+    private bool IsSteamCmdWritingTo(DedicatedServerProfile p) =>
+        _steamCmdWritesTo is { } folder
+        && string.Equals(Path.TrimEndingDirectorySeparator(folder), Path.TrimEndingDirectorySeparator(p.InstallFolder), StringComparison.OrdinalIgnoreCase);
+
+    private async Task<SteamCmdResultView> RunSteamCmdAsync(string action, Guid? profileId, string writesTo, Func<CancellationToken, Task<Services.SteamCmdResult>> run)
     {
         await WaitForSteamCmdAsync();
         StartSteamCmdOutput();
         var token = BeginSteamCmdRun(action, profileId);
+        _steamCmdWritesTo = writesTo;
         _steamCmdDownloads = true;
         IsSteamCmdBusy = true;
         SteamCmdProgress = 0;
@@ -615,6 +636,7 @@ public sealed partial class LocalServerViewModel
             SteamCmdProgress = 100;
         }
 
+        _steamCmdWritesTo = null;
         IsSteamCmdBusy = false;
         SteamCmdStatus = null;
         return view;

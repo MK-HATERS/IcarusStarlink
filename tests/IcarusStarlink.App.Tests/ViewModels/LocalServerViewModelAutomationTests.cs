@@ -199,7 +199,8 @@ public sealed partial class LocalServerViewModelTests
         var now = DateTime.Today.AddHours(5).AddSeconds(10);
         vm.Clock = () => now;
         WriteLog(JoinLine);
-        processes.Running = new RunningServer(9, DateTime.Now.AddHours(-3));
+        // Started before the 05:00 slot: a run that began after it already is that day's fresh start.
+        processes.Running = new RunningServer(9, DateTime.Today.AddHours(2));
 
         await vm.RunAutomationBeatAsync();
         Assert.Empty(processes.Stopped);

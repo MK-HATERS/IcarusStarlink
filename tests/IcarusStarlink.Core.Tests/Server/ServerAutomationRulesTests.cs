@@ -192,6 +192,65 @@ public sealed class ServerAutomationRulesTests
         Assert.Contains(new ServerAutomation().DescribeUpcoming(Daily("5pm"), Day, 0), l => l.Contains("isn't a time"));
     }
 
+    private static ServerObservation UpSince(DateTime now, DateTime started) => new(now, Running: true, 0, CleanExitLogged: false, 7, StartedLocal: started);
+
+    /// <summary>
+    /// Regression: a slot that passed while the server was stopped stayed due, so the run the
+    /// owner started at 05:20 was stopped again 5 s later. A run Starlink finds already going
+    /// when it is reopened just after the restart was restarted a second time.
+    /// </summary>
+    [Fact]
+    public void DailyRestart_RunStartedAfterTheSlot_IsNotRestarted()
+    {
+        var p = Daily("05:00");
+        var a = new ServerAutomation();
+        a.Evaluate(p, Down(Day.AddHours(5).AddSeconds(5)));
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, UpSince(Day.AddHours(5).AddMinutes(20), Day.AddHours(5).AddMinutes(19))).Kind);
+        Assert.Equal(Day.AddDays(1).AddHours(5), a.NextDailyRestart(p, Day.AddHours(5).AddMinutes(21)));
+
+        var reopened = new ServerAutomation();
+        Assert.Equal(AutomationActionKind.None, reopened.Evaluate(p, UpSince(Day.AddHours(5).AddMinutes(10), Day.AddHours(5).AddSeconds(30))).Kind);
+    }
+
+    [Fact]
+    public void DailyRestart_RunStartedBeforeTheSlot_IsStillRestarted() =>
+        Assert.Equal(AutomationActionKind.ScheduledRestart,
+            new ServerAutomation().Evaluate(Daily("05:00"), UpSince(Day.AddHours(5).AddSeconds(5), Day.AddHours(4))).Kind);
+
+    /// <summary>Regression: Coming up said "Daily restart is due now" for a stopped server.</summary>
+    [Fact]
+    public void ComingUp_StoppedServerAfterTheSlot_NamesTomorrowsRestart()
+    {
+        var lines = new ServerAutomation().DescribeUpcoming(Daily("05:00"), Day.AddHours(5).AddMinutes(20), 0, running: false);
+        Assert.Contains(lines, l => l.Contains("Next daily restart tomorrow"));
+        Assert.DoesNotContain(lines, l => l.Contains("due now"));
+    }
+
+    private static ServerObservation UpWhileSteamCmdBusy(DateTime now, bool busy) => new(now, Running: true, 0, CleanExitLogged: false, 7, SteamCmdBusy: busy);
+
+    /// <summary>
+    /// A daily restart that updates waits while SteamCMD installs or updates another server (the
+    /// slot stays due); one without an update needs no SteamCMD and goes ahead.
+    /// </summary>
+    [Fact]
+    public void DailyRestart_WithAnUpdate_WaitsForSteamCmd_WithoutOne_DoesNot()
+    {
+        var withUpdate = Daily("05:00");
+        withUpdate.UpdateOnRestart = true;
+        var a = new ServerAutomation();
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(withUpdate, UpWhileSteamCmdBusy(Day.AddHours(5).AddSeconds(5), busy: true)).Kind);
+        Assert.Equal(AutomationActionKind.ScheduledRestart, a.Evaluate(withUpdate, UpWhileSteamCmdBusy(Day.AddHours(5).AddSeconds(10), busy: false)).Kind);
+
+        var pending = Daily("05:00");
+        pending.AutoUpdate = true;
+        var b = new ServerAutomation();
+        b.NoteUpdateCheck(Day.AddHours(4), updateAvailable: true);
+        Assert.Equal(AutomationActionKind.None, b.Evaluate(pending, UpWhileSteamCmdBusy(Day.AddHours(5).AddSeconds(5), busy: true)).Kind);
+
+        Assert.Equal(AutomationActionKind.ScheduledRestart,
+            new ServerAutomation().Evaluate(Daily("05:00"), UpWhileSteamCmdBusy(Day.AddHours(5).AddSeconds(5), busy: true)).Kind);
+    }
+
     [Theory]
     [InlineData("05:00", true)]
     [InlineData("5:30", true)]
@@ -223,6 +282,28 @@ public sealed class ServerAutomationRulesTests
         a.NoteUpdateFinished();
         Assert.Equal(AutomationActionKind.None, a.Evaluate(p, Up(Day.AddHours(12).AddMinutes(40))).Kind);
         Assert.Equal(AutomationActionKind.CheckForUpdate, a.Evaluate(p, Up(Day.AddHours(13).AddMinutes(1))).Kind);
+    }
+
+    /// <summary>
+    /// While SteamCMD is busy (an install or update of another server, a check), the hourly check
+    /// and an update wait for it; the check isn't stamped, so it runs on the first free beat.
+    /// </summary>
+    [Fact]
+    public void AutoUpdate_WaitsWhileSteamCmdIsBusy()
+    {
+        var p = Profile(x =>
+        {
+            x.AutoRestartOnCrash = false;
+            x.AutoUpdate = true;
+        });
+        var a = new ServerAutomation();
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, UpWhileSteamCmdBusy(Day.AddHours(12), busy: true)).Kind);
+        Assert.Null(a.LastUpdateCheck);
+        Assert.Equal(AutomationActionKind.CheckForUpdate, a.Evaluate(p, UpWhileSteamCmdBusy(Day.AddHours(12).AddSeconds(5), busy: false)).Kind);
+
+        a.NoteUpdateCheck(Day.AddHours(12), updateAvailable: true);
+        Assert.Equal(AutomationActionKind.None, a.Evaluate(p, UpWhileSteamCmdBusy(Day.AddHours(12).AddSeconds(10), busy: true)).Kind);
+        Assert.Equal(AutomationActionKind.UpdateNow, a.Evaluate(p, UpWhileSteamCmdBusy(Day.AddHours(12).AddSeconds(15), busy: false)).Kind);
     }
 
     /// <summary>Once a day while it runs, counted from the newest daily backup on disk.</summary>
