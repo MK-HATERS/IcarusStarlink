@@ -231,8 +231,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             // Moving a row changes whether it can move further.
             RefreshQueueButtons();
 
-            // The check's findings only depend on which mods are queued (unlike conflicts, which
-            // also depend on gameplay options), so they're recomputed on Queue changes only.
+            // The badge and the check are counted again once changes settle (the debounce timer);
+            // options and Library or game-data changes restart the same timer (ConflictInputsChanged).
             _recomputeDebounceTimer.Restart();
             MarkWorkingStateChanged();
         };

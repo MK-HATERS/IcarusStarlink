@@ -825,7 +825,7 @@ public sealed partial class MergeInstallViewModel
         // from the user's actual game folder, so it shouldn't be reachable via a single accidental
         // click any more than overwriting it already isn't.
         if (!ConfirmWithGameClosed(
-            questionIntro + $"This removes IcarusStarlink's installed pak from '{_settingsService.Current.IcarusContentPath}\\Paks\\mods'.\n\n" +
+            questionIntro + $"This removes Icarus Starlink's installed pak from '{_settingsService.Current.IcarusContentPath}\\Paks\\mods'.\n\n" +
             $"It's backed up first (last {BackupLimits.MergedPakKept(_settingsService)} kept), and your Library copy of this mod isn't touched — only the real game install.\n\nContinue?",
             "Remove from Icarus", retry: "Remove again"))
         {
@@ -841,7 +841,7 @@ public sealed partial class MergeInstallViewModel
 
             InstallStatusMessage = removed
                 ? "Removed from Icarus — backed up first."
-                : "Nothing installed by IcarusStarlink was there to remove.";
+                : "Nothing installed by Icarus Starlink was there to remove.";
             if (removed)
             {
                 _activityLog.Log($"Removed installed pack from {_settingsService.Current.IcarusContentPath}\\Paks\\mods.", ActivityEntryKind.Success);
