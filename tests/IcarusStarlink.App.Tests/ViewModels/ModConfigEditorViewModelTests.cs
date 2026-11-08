@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.IO;
 using IcarusStarlink.App.ViewModels;
 
@@ -324,6 +325,67 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
         Assert.Equal(Lua, File.ReadAllText(Path.Combine(game, "config.lua")));
     }
 
+    /// <summary>
+    /// Regression: picking another file cleared the "Edit the copy in" list, the drop-down then set
+    /// its pick to nothing, and the game's copy opened instead of the server's one picked before.
+    /// </summary>
+    [Fact]
+    public void PickingAnotherFile_KeepsTheCopyPicked_EvenWhenTheDropDownClearsItsPick()
+    {
+        var game = Mod("game", "config.lua", Lua);
+        var server = Mod("server", "config.lua", Lua);
+        Directory.CreateDirectory(Path.Combine(game, "config"));
+        Directory.CreateDirectory(Path.Combine(server, "config"));
+        File.WriteAllText(Path.Combine(game, "config", "Extra.ini"), "[General]\r\nRadius = 10\r\n");
+        File.WriteAllText(Path.Combine(server, "config", "Extra.ini"), "[General]\r\nRadius = 20\r\n");
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife",
+            [new ModConfigLocation("Your game", game, false), new ModConfigLocation("Server: Test", server, true)], Path.Combine(_root, "Backups"));
+        // What the window's ComboBox does when the list it shows is cleared.
+        vm.Locations.CollectionChanged += (_, e) =>
+        {
+            if (e.Action == NotifyCollectionChangedAction.Reset)
+            {
+                vm.SelectedLocation = null;
+            }
+        };
+
+        vm.SelectedLocation = vm.Locations[1];
+        vm.SelectedFile = vm.Files.Single(f => f.RelativePath != "config.lua");
+
+        Assert.Equal("Server: Test", vm.SelectedLocation?.Name);
+        Assert.Equal("20", Field(vm, "Radius").Value);
+    }
+
+    /// <summary>
+    /// Regression: a plain-text config (config.json) went whole to every ticked copy on each Save,
+    /// even with no edit, replacing the server's own copy; the tick's tooltip said only the changed
+    /// settings are written there.
+    /// </summary>
+    [Fact]
+    public void TextFile_AlsoSaveTo_WritesOnlyAnEdit_AndSaysTheWholeFileGoes()
+    {
+        var game = Mod("game", "config.json", "{ \"Port\": 1 }");
+        var server = Mod("server", "config.json", "{ \"Port\": 2 }");
+        var vm = new ModConfigEditorViewModel("MkHatersWildlife",
+            [new ModConfigLocation("Your game", game, false), new ModConfigLocation("Server: Test", server, true)], Path.Combine(_root, "Backups"));
+        Assert.True(vm.IsTextMode);
+        var also = vm.AlsoSaveTo.Single();
+        also.IsChecked = true;
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal("{ \"Port\": 2 }", File.ReadAllText(Path.Combine(server, "config.json")));
+        Assert.Equal("Nothing changed.", vm.StatusMessage);
+
+        vm.RawText = "{ \"Port\": 3 }";
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal("{ \"Port\": 3 }", File.ReadAllText(Path.Combine(game, "config.json")));
+        Assert.Equal("{ \"Port\": 3 }", File.ReadAllText(Path.Combine(server, "config.json")));
+        Assert.Contains("whole file", vm.StatusMessage);
+        Assert.Contains("whole file", vm.AlsoSaveTo.Single().ToolTip);
+    }
+
     /// <summary>Closing with unsaved edits asks; Save writes every file with edits, Cancel keeps the window, Don't save writes nothing.</summary>
     [Fact]
     public void ConfirmClose_AsksAndSavesEveryEditedFile()
@@ -420,6 +482,9 @@ public sealed class ModConfigEditorViewModelTests : IDisposable
         var vm = new ModConfigEditorViewModel("Huge", [new ModConfigLocation("Your game", game, false)], Path.Combine(_root, "Backups"));
 
         Assert.Contains("too big for a config", vm.StatusMessage);
+        // Regression: the window said "Tick Edit as text" while that box was greyed out.
+        Assert.Contains("too big for a config", vm.ReadProblem);
+        Assert.Contains("text editor", vm.ReadProblem);
         Assert.False(vm.ShowFields);
         Assert.False(vm.IsTextMode);
         Assert.Equal("", vm.RawText);

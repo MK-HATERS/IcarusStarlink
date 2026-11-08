@@ -69,7 +69,9 @@ public sealed partial class ModConfigEditorViewModel
             .ToList();
         var extra = AlsoSaveTo.Where(a => a.IsChecked).Select(a => a.Location).ToList();
         var textChanged = text != _diskText;
-        if (!textChanged && (extra.Count == 0 || changes.Count == 0 && file.Format != Ue4ssModConfigFormat.Text))
+        // A plain-text file has no settings, so with no edit there is nothing for a ticked copy either
+        // (it used to get the whole file on every Save, edited or not).
+        if (!textChanged && (extra.Count == 0 || changes.Count == 0))
         {
             // Edits put back by hand: the file is as it was, so nothing is waiting to be saved.
             ReloadKeepingView();
@@ -80,6 +82,7 @@ public sealed partial class ModConfigEditorViewModel
         var saved = new List<string>();
         var problemsSaving = new List<string>();
         var changedOnDisk = false;
+        var wholeFileCopied = false;
         if (textChanged)
         {
             try
@@ -159,6 +162,7 @@ public sealed partial class ModConfigEditorViewModel
                 }
 
                 saved.Add(target.Name);
+                wholeFileCopied |= file.Format == Ue4ssModConfigFormat.Text;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -170,6 +174,7 @@ public sealed partial class ModConfigEditorViewModel
         StatusMessage = (saved.Count > 0
                 ? $"Saved to {string.Join(" and ", saved)} (the old file is in Backups\\UE4SS-Mod-Configs). The mod reads it when the game or server starts, unless it has its own reload key."
                 : "")
+            + (wholeFileCopied ? " The whole file was copied there, as it has no settings Starlink reads one by one." : "")
             + (changedOnDisk ? " The file had been changed outside this window since it was opened: only the settings you changed here were written into it." : "")
             + (problemsSaving.Count > 0 ? $"{(saved.Count > 0 ? " " : "")}Couldn't save: {string.Join("; ", problemsSaving)}" : "");
         return true;

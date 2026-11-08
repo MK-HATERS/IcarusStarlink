@@ -103,8 +103,6 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
 
     public bool ShowFields => !IsTextMode && CanUseFields;
 
-    public bool ShowNoFieldsNote => !IsTextMode && !CanUseFields;
-
     public string CurrentPath => SelectedFile is { } f && SelectedLocation is { } l ? Path.Combine(l.ModFolder, f.RelativePath) : "";
 
     /// <summary>The last update's changes to the file shown, until Done reviewing.</summary>
@@ -173,7 +171,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
     private ModConfigLocation? _selectedLocation;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowFields), nameof(ShowNoFieldsNote))]
+    [NotifyPropertyChangedFor(nameof(ShowFields))]
     private bool _isTextMode;
 
     [ObservableProperty]
@@ -185,27 +183,51 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
     [ObservableProperty]
     private string? _statusMessage;
 
+    /// <summary>Why the file couldn't be opened, shown in the window; null when it was read.</summary>
+    [ObservableProperty]
+    private string? _readProblem;
+
+    /// <summary>
+    /// True while Locations is rebuilt: clearing the "Edit the copy in" drop-down's list makes it
+    /// push SelectedLocation = null, which must not load anything or change the pick.
+    /// </summary>
+    private bool _rebuildingLocations;
+
     partial void OnSelectedFileChanged(Ue4ssModConfigFile? value)
     {
-        Locations.Clear();
-        if (value is not null)
+        // Read before the list is cleared: the drop-down sets its pick to nothing then.
+        var previous = SelectedLocation;
+        _rebuildingLocations = true;
+        try
         {
-            foreach (var location in _allLocations.Where(l => File.Exists(Path.Combine(l.ModFolder, value.RelativePath))))
+            Locations.Clear();
+            if (value is not null)
             {
-                Locations.Add(location);
+                foreach (var location in _allLocations.Where(l => File.Exists(Path.Combine(l.ModFolder, value.RelativePath))))
+                {
+                    Locations.Add(location);
+                }
             }
+
+            SelectedLocation = Locations.FirstOrDefault(l => l == previous) ?? Locations.FirstOrDefault();
+        }
+        finally
+        {
+            _rebuildingLocations = false;
         }
 
         OnPropertyChanged(nameof(HasSeveralLocations));
-        var previous = SelectedLocation;
-        SelectedLocation = Locations.FirstOrDefault(l => l == previous) ?? Locations.FirstOrDefault();
-        if (SelectedLocation == previous)
+        // Once, for the new file; KeepDraft inside still sees the file shown so far.
+        Load(keepDraft: true);
+    }
+
+    partial void OnSelectedLocationChanged(ModConfigLocation? value)
+    {
+        if (!_rebuildingLocations)
         {
             Load(keepDraft: true);
         }
     }
-
-    partial void OnSelectedLocationChanged(ModConfigLocation? value) => Load(keepDraft: true);
 
     partial void OnFilterChanged(string value) => BuildSections();
 
@@ -416,6 +438,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
             _loadedKey = null;
             AlsoSaveTo.Clear();
             StatusMessage = null;
+            ReadProblem = null;
             Draft? draft = null;
             if (SelectedFile is { } file && SelectedLocation is { } location)
             {
@@ -424,7 +447,7 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
                     // A downloaded mod's file: real configs are a few KB (Wildlife's, the biggest, is 18 KB).
                     if (new FileInfo(CurrentPath).Length > MaxConfigBytes)
                     {
-                        throw new IOException($"it's over {MaxConfigBytes / 1024 / 1024} MB, too big for a config. Open it in a text editor.");
+                        throw new IOException($"it's over {MaxConfigBytes / 1024 / 1024} MB, too big for a config.");
                     }
 
                     // In its own encoding: an "ANSI" file's "é" used to show (and save) as "�".
@@ -454,11 +477,14 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     StatusMessage = $"Couldn't read {CurrentPath}: {ex.Message}";
+                    ReadProblem = $"Starlink couldn't open this file: {ex.Message} You can still change it in a text editor (its path is shown above).";
                 }
 
                 foreach (var other in Locations.Where(l => l != location))
                 {
-                    AlsoSaveTo.Add(new ModConfigAlsoSave(other));
+                    AlsoSaveTo.Add(file.Format == Ue4ssModConfigFormat.Text
+                        ? new ModConfigAlsoSave(other) { ToolTip = "This file has no settings Starlink reads one by one, so the whole file replaces the one there (it's backed up first)" }
+                        : new ModConfigAlsoSave(other));
                 }
             }
 
@@ -542,7 +568,6 @@ public sealed partial class ModConfigEditorViewModel : ObservableObject
 
         OnPropertyChanged(nameof(CanUseFields));
         OnPropertyChanged(nameof(ShowFields));
-        OnPropertyChanged(nameof(ShowNoFieldsNote));
         OnPropertyChanged(nameof(CanResetAllToDefault));
         BuildSections();
     }

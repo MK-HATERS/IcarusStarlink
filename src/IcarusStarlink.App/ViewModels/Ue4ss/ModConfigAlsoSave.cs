@@ -7,6 +7,9 @@ public sealed partial class ModConfigAlsoSave(ModConfigLocation location) : Obse
 {
     public ModConfigLocation Location { get; } = location;
 
+    /// <summary>What ticking it writes there, shown on the tick.</summary>
+    public string ToolTip { get; init; } = "Only the settings you changed are written there; its other settings stay as they are";
+
     [ObservableProperty]
     private bool _isChecked;
 }

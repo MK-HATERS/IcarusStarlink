@@ -59,7 +59,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <CheckBox Content="{Binding Location.Name}" IsChecked="{Binding IsChecked}" Margin="0,0,14,0" VerticalAlignment="Center"
-                                          ToolTip="Only the settings you changed are written there; its other settings stay as they are"/>
+                                          ToolTip="{Binding ToolTip}"/>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -91,9 +91,9 @@
                      Visibility="{Binding IsTextMode, Converter={StaticResource BoolToVisibilityConverter}}"
                      AutomationProperties.Name="Config file text"/>
 
-            <TextBlock Text="This file has no settings Starlink can show as fields. Tick Edit as text to change it."
-                       TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                       Visibility="{Binding ShowNoFieldsNote, Converter={StaticResource BoolToVisibilityConverter}}"/>
+            <!-- The file couldn't be read (too big, locked, gone): why, and where else to change it. -->
+            <TextBlock Text="{Binding ReadProblem}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                       Visibility="{Binding ReadProblem, Converter={StaticResource NullToVisibilityConverter}}"/>
 
             <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding ShowFields, Converter={StaticResource BoolToVisibilityConverter}}">
                 <StackPanel>
