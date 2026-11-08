@@ -4,7 +4,7 @@ namespace IcarusStarlink.Core.Ue4ss;
 /// UE4SS mods are managed directly (enable/disable), independent of Profiles or
 /// the pak Install pipeline — a mod is either "enabled" (its folder is in the real game Mods
 /// folder) or "disabled" (its folder is only in this app's own staging). This is the single source
-/// of truth Library's UE4SS tab reads and writes through.
+/// of truth the Library's UE4SS panel reads and writes through.
 /// </summary>
 public interface IUe4ssModStateService
 {

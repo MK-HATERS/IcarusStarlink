@@ -13,12 +13,12 @@ public sealed class Ue4ssModMeta
 
     public string? NexusFileVersion { get; set; }
 
-    /// <summary>The mod page's own title, recorded at the same Nexus lookup as NexusVersion — the UE4SS tab shows it under the folder name so a staged mod reads as the thing the user downloaded, not just a folder.</summary>
+    /// <summary>The mod page's own title, recorded at the same Nexus lookup as NexusVersion — the Library's UE4SS panel shows it under the folder name so a staged mod reads as the thing the user downloaded, not just a folder.</summary>
     public string? NexusName { get; set; }
 
     /// <summary>
     /// The minimum UE4SS loader version this mod needs, as the user typed it (e.g. "3.0.1") — set
-    /// via the UE4SS tab's own "Set minimum UE4SS version…" prompt. This can only ever be manual: a
+    /// via the Library's UE4SS panel's "Set minimum UE4SS version…" prompt. This can only ever be manual: a
     /// UE4SS mod carries no manifest file of its own to read a real requirement from (see this
     /// class's own summary), so there is nothing to scrape or infer it from automatically. Null means
     /// the user hasn't declared one — never treated as a warning. See Ue4ssVersionComparer for how
