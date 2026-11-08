@@ -2,6 +2,7 @@ using System.IO;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
@@ -31,6 +32,16 @@ public sealed partial class DownloadsViewModel
 
     private async Task<string> ImportOwnBuildCoreAsync(string path)
     {
+        // A build on another PC is someone else's files: asked before anything reads it. A local
+        // build stays silent, so an author's build loop isn't slowed down by a question.
+        if (IsOnAnotherPc(path) && _dialogService?.Confirm(
+                $"Install the build at '{path}'?\n\nIt is on another PC, not this one. It replaces the installed copy of the mods it holds. "
+                + "Only say Yes if you made this build or trust where it came from.",
+                "Install a build from another PC?", ThemedConfirmSeverity.Warning) != true)
+        {
+            return $"Didn't install the build at '{path}': it is on another PC. Nothing was imported.";
+        }
+
         var isFolder = Directory.Exists(path);
         if (!isFolder && !File.Exists(path))
         {
@@ -105,6 +116,36 @@ public sealed partial class DownloadsViewModel
             {
                 // Scratch space in %TEMP%; a locked leftover isn't worth reporting.
             }
+        }
+    }
+
+    /// <summary>A path on another PC: a network share (\\server\share) or a mapped network drive.</summary>
+    internal static bool IsOnAnotherPc(string path)
+    {
+        var trimmed = path.Trim();
+        if (trimmed.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // \\?\C:\… and \\.\… are this PC's own paths, written the long way.
+        if (trimmed.StartsWith(@"\\?\", StringComparison.Ordinal) || trimmed.StartsWith(@"\\.\", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (trimmed.StartsWith(@"\\", StringComparison.Ordinal) || trimmed.StartsWith("//", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        try
+        {
+            return Path.GetPathRoot(Path.GetFullPath(trimmed)) is { Length: > 0 } root && new DriveInfo(root).DriveType == DriveType.Network;
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 
