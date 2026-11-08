@@ -40,19 +40,12 @@ internal static class ModPackageFile
     }
 
     /// <summary>
-    /// Writes the package where Starlink keeps it (Extracted Mods\&lt;FileName&gt;.EXMOD) and takes
-    /// out the .EXMOD it replaces when that one sat elsewhere: a folder copied in from the classic
-    /// mod manager keeps it at the top. A folder with two can't be read, so such a mod used to drop
-    /// out of the Library after its first save or fix.
+    /// Writes the package over the folder's one .EXMOD, where it sits and under its own name
+    /// (ExmodFolder.Write does that: a folder copied in from the classic mod manager keeps it at the
+    /// top), or to Extracted Mods\&lt;FileName&gt;.EXMOD when the folder has none. A second .EXMOD
+    /// would make the folder unreadable, so such a mod used to drop out of the Library after its
+    /// first save or fix.
     /// </summary>
-    internal static void Write(string folderPath, ExmodPackage package)
-    {
-        var previous = Find(folderPath);
+    internal static void Write(string folderPath, ExmodPackage package) =>
         ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
-        var written = Path.Combine(folderPath, "Extracted Mods", $"{package.FileName}.EXMOD");
-        if (previous is not null && !string.Equals(Path.GetFullPath(previous), Path.GetFullPath(written), StringComparison.OrdinalIgnoreCase))
-        {
-            File.Delete(previous);
-        }
-    }
 }
