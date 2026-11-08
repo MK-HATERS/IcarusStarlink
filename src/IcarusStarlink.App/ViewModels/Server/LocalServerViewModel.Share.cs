@@ -377,7 +377,8 @@ public sealed partial class LocalServerViewModel
             string where;
             if (!Directory.Exists(Path.Combine(serverMods, mod.Name)))
             {
-                where = " (new on the server)";
+                // Yes copies it, but only turns it on when the patch has it on.
+                where = mod.Enabled ? " (new on the server)" : " (new on the server, stays off like in the patch)";
             }
             else if (mod.Enabled && !Ue4ssModStart.Starts(serverMods, mod.Name, list))
             {
@@ -401,7 +402,7 @@ public sealed partial class LocalServerViewModel
 
         var yes = _dialogService.Confirm(
             $"The patch '{contents.Manifest.ProfileName}' carries UE4SS mods your game doesn't have:\n\n{string.Join("\n", lines)}\n\n"
-            + $"Put them on '{p.Name}' and turn them on? They run on the server with your Windows account's rights when it starts. "
+            + $"Put them on '{p.Name}' and turn on the ones the patch has on? They run on the server with your Windows account's rights when it starts. "
             + "Only say yes to a patch from someone you trust.",
             "UE4SS mods from a patch", ThemedConfirmSeverity.Warning);
         if (yes)

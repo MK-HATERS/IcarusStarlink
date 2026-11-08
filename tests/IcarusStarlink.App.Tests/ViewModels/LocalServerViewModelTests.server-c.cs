@@ -153,7 +153,11 @@ public sealed partial class LocalServerViewModelTests
         Assert.Contains(dialogs.Messages, m => m.Contains("on the server, now off", StringComparison.Ordinal));
     }
 
-    /// <summary>Yes puts the patch's copy on the server, but a mod the patch marks off isn't switched on (it used to be, whatever the patch said).</summary>
+    /// <summary>
+    /// Yes puts the patch's copy on the server, but a mod the patch marks off isn't switched on (it
+    /// used to be, whatever the patch said). Regression: the question still said every listed mod
+    /// would be turned on; it now says this one stays off.
+    /// </summary>
     [Fact]
     public async Task ApplyPatchToServer_BundledModMarkedOff_YesCopiesItButLeavesItOff()
     {
@@ -162,6 +166,7 @@ public sealed partial class LocalServerViewModelTests
 
         await vm.ApplyPatchToServerCommand.ExecuteAsync(null);
 
+        Assert.Contains(dialogs.Messages, m => m.Contains("Quiet (new on the server, stays off", StringComparison.Ordinal));
         var serverMods = DedicatedServerLayout.Ue4ssModsFolder(_install);
         Assert.True(File.Exists(Path.Combine(serverMods, "Quiet", "Scripts", "main.lua")));
         Assert.False(Ue4ssModStart.Starts(serverMods, "Quiet", Ue4ssModStart.ReadList(serverMods)));
