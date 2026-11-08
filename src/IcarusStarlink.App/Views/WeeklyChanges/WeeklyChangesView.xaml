@@ -3,10 +3,16 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:utilities="clr-namespace:IcarusStarlink.App.Utilities"
              mc:Ignorable="d">
+    <UserControl.Resources>
+        <!-- DataGridColumn.Visibility can't reach the page's view model by itself (see BindingProxy). -->
+        <utilities:BindingProxy x:Key="ViewModelProxy" Data="{Binding}"/>
+    </UserControl.Resources>
 
     <Grid Margin="32">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -50,7 +56,22 @@
 
         <TextBlock Grid.Row="2" Text="{Binding SummaryMessage}" Style="{StaticResource PageBodyTextStyle}" MaxWidth="900" Margin="0,10,0,16"/>
 
-        <Grid Grid.Row="3">
+        <!-- Narrow the report: a search over file, item and field names, and only the rows a Library mod also changes. -->
+        <DockPanel Grid.Row="3" Margin="0,0,0,10" LastChildFill="True">
+            <TextBox DockPanel.Dock="Left" Width="280" Style="{StaticResource SearchBoxStyle}" Tag="Search items, fields or files…"
+                     Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=250}" VerticalAlignment="Center"
+                     ToolTip="Shows only the changes whose item, field or file name has what you type"
+                     AutomationProperties.Name="Search the changes"/>
+            <CheckBox DockPanel.Dock="Left" Content="Only rows my mods change" IsChecked="{Binding ShowOnlyMyModRows}"
+                      IsEnabled="{Binding CanShowOnlyMyModRows}" Margin="16,0,0,0" VerticalAlignment="Center"
+                      ToolTip="Shows only the changed rows that a mod in your Library also changes, and which mods they are. Those mods may need an update."
+                      AutomationProperties.Name="Only rows my mods change"/>
+            <TextBlock Text="{Binding MyModRowsStatus}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"
+                       Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"
+                       Visibility="{Binding MyModRowsStatus, Converter={StaticResource NullToVisibilityConverter}}"/>
+        </DockPanel>
+
+        <Grid Grid.Row="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="260" MinWidth="160"/>
                 <ColumnDefinition Width="16"/>
@@ -76,9 +97,12 @@
                  WPF try to enter edit mode on a TwoWay binding to a get-only ChangedRowViewModel
                  property, throwing an unhandled InvalidOperationException that crashes the app
                  (confirmed live for the same row type on Library's own IMM Database grid). -->
-            <DataGrid Grid.Column="2" ItemsSource="{Binding SelectedFile.Rows}" IsReadOnly="True">
+            <DataGrid Grid.Column="2" ItemsSource="{Binding SelectedFileRows}" IsReadOnly="True">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Item" Binding="{Binding ItemName}" Width="140"/>
+                    <!-- Only with "Only rows my mods change" on: which Library mods change the row. -->
+                    <DataGridTextColumn Header="Your mods" Binding="{Binding ModNames}" Width="140"
+                                        Visibility="{Binding Data.HasMyModRows, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <DataGridTextColumn Header="Field" Binding="{Binding FieldName}" Width="130"/>
                     <DataGridTemplateColumn Header="Change" Width="100" CellTemplate="{StaticResource ChangeKindBadgeTemplate}"/>
                     <!-- Star-sized so the new value stays on screen at the default window size —

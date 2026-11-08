@@ -167,6 +167,8 @@ public sealed partial class HelpViewModel : ObservableObject
 
             Pick a file on the left to see its changes on the right. **History** picks an earlier refresh (about a month is kept). **Refresh game data** reads the game again and compares. If you see "No changes tracked yet," you only have one extraction on record; run **Refresh game data** again after the next game update to get a real comparison.
 
+            **Search** shows only the changes whose item, field or file name has what you type ("Canteen"). Tick **Only rows my mods change** to see just the changed rows that a mod in your Library also changes; the **Your mods** column names those mods, which may need an update. Each report in History also says which game build it came from (Steam's build number), when Starlink knew it.
+
             A refresh that finds nothing changed doesn't add a report. **Remove** (beside History) deletes the report shown, for one you don't need; it asks first, and the game's files and your mods aren't touched. Starlink also uses a report's old values to spot mods that are old copies, so once a report with changes is removed, that check won't know that update's values.
             """),
 

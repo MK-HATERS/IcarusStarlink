@@ -264,7 +264,9 @@ public sealed partial class SettingsViewModel
             // empty one only cluttered History. The status line below still says nothing changed.
             if (result.ChangeReport is { ChangedFiles.Count: > 0 } report)
             {
-                _weeklyChangeReportStore.Save(report);
+                // The game build this data came from, for Weekly Changes' History. Only a label: a
+                // build that can't be read leaves it out.
+                _weeklyChangeReportStore.Save(await ReadGameBuildAsync() is { } build ? report with { GameBuildId = build } : report);
             }
 
             // This game version joins the row history, so rows a later update removes are known as
@@ -328,6 +330,19 @@ public sealed partial class SettingsViewModel
 
     [RelayCommand]
     private void ViewWeeklyChanges() => WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("weekly-changes"));
+
+    /// <summary>The game build on disk (Steam's build id, else data.pak's hash); null when it can't be told or reading it fails.</summary>
+    private async Task<string?> ReadGameBuildAsync()
+    {
+        try
+        {
+            return await new GameUpdateDetector(_settingsService, _unrealPakService).ReadCurrentBuildAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
 
     private static string DescribeChangeReport(WeeklyChangeReport? report) => report switch
     {

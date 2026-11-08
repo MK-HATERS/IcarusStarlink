@@ -12,7 +12,10 @@ namespace IcarusStarlink.PakIO.DataChanges;
 public sealed record WeeklyChangeReport(
     DateTimeOffset PreviousUpdateAt,
     DateTimeOffset CurrentUpdateAt,
-    IReadOnlyList<ChangedDataFile> ChangedFiles);
+    IReadOnlyList<ChangedDataFile> ChangedFiles)
+{
+    public string? GameBuildId { get; init; }
+}
 
 /// <param name="RemovedRowNames">
 /// Whole rows present in the previous extraction but absent from this one. TableDiffer can't see

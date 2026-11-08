@@ -236,6 +236,37 @@ public class WeeklyChangeReportStoreTests : IDisposable
         Assert.Empty(CreateStore().History);
     }
 
+    [Fact]
+    public void Save_ThenReopen_KeepsTheGameBuild()
+    {
+        CreateStore().Save(MakeReport(Now) with { GameBuildId = "25956278" });
+
+        Assert.Equal("25956278", CreateStore().Current!.GameBuildId);
+    }
+
+    /// <summary>Reports saved before the game build was recorded still load, with no build.</summary>
+    [Fact]
+    public void Reopen_AReportSavedBeforeTheGameBuildWasKept_LoadsWithNoBuild()
+    {
+        var folder = Path.Combine(_dir, "WeeklyChanges");
+        Directory.CreateDirectory(folder);
+        var at = Now.AddDays(-1);
+        File.WriteAllText(Path.Combine(folder, "old.json"), $$"""
+            {
+              "PreviousUpdateAt": "{{at.AddDays(-7):O}}",
+              "CurrentUpdateAt": "{{at:O}}",
+              "ChangedFiles": [
+                { "RelativePath": "Crafting/D_Fuel.json", "IsNewFile": false, "IsRemovedFile": false, "RemovedRowNames": ["Gone"], "FieldChanges": [] }
+              ]
+            }
+            """);
+
+        var report = Assert.Single(CreateStore().History);
+
+        Assert.Null(report.GameBuildId);
+        Assert.Equal(["Gone"], Assert.Single(report.ChangedFiles).RemovedRowNames);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

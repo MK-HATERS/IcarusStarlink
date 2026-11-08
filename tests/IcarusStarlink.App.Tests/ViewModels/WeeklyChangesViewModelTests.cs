@@ -1,7 +1,10 @@
+using System.IO;
+using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.App.Views;
+using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.DataChanges;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
@@ -157,6 +160,185 @@ public class WeeklyChangesViewModelTests
 
         Assert.Same(report, vm.SelectedReport!.Report);
         Assert.StartsWith("Couldn't remove", vm.SummaryMessage);
+    }
+
+    // ---- Search, rows my mods change, the game build ----
+
+    private static FieldChange Change(string file, string item, string field, int oldValue, int newValue) =>
+        new(file, item, field, JsonValue.Create(oldValue), JsonValue.Create(newValue), ValueSemantic.Scalar);
+
+    /// <summary>A patch that changed the canteen and a fuel, the bread, and the Defaults of the food table.</summary>
+    private static WeeklyChangeReport PatchReport() => new(
+        DateTimeOffset.UtcNow.AddDays(-7),
+        DateTimeOffset.UtcNow,
+        [
+            new ChangedDataFile("Crafting/D_Fuel.json", IsNewFile: false, IsRemovedFile: false, RemovedRowNames: ["Old_Coal"],
+                FieldChanges: [Change("Crafting/D_Fuel.json", "Wood", "BurnTime", 10, 12), Change("Crafting/D_Fuel.json", "Canteen_Fuel", "Weight", 1, 2)]),
+            new ChangedDataFile("Items/D_ItemsStatic.json", IsNewFile: false, IsRemovedFile: false, RemovedRowNames: [],
+                FieldChanges: [Change("Items/D_ItemsStatic.json", "Canteen", "Durability", 100, 150), Change("Items/D_ItemsStatic.json", "Bread", "Weight", 20, 25)]),
+            new ChangedDataFile("Items/D_Food.json", IsNewFile: false, IsRemovedFile: false, RemovedRowNames: [], FieldChanges: []) { ChangedTableParts = ["Defaults"] },
+        ]);
+
+    private static WeeklyChangesViewModel Build(WeeklyChangeReport report, Func<IReadOnlyList<ModRowTouch>>? myModRows = null)
+    {
+        var harness = new Harness();
+        harness.Store.Reports.Add(report);
+        return new WeeklyChangesViewModel(harness.Store, settings: null!, new WeakReferenceMessenger(), harness.Dialogs, myModRows);
+    }
+
+    [Fact]
+    public void Search_ByItemName_ShowsOnlyTheFilesAndRowsWithIt()
+    {
+        var vm = Build(PatchReport());
+
+        vm.SearchText = "canteen";
+
+        Assert.Equal(["Crafting/D_Fuel.json", "Items/D_ItemsStatic.json"], vm.ChangedFiles.Select(f => f.RelativePath));
+        Assert.Equal("Crafting/D_Fuel.json", vm.SelectedFile!.RelativePath);
+        Assert.Equal(["Canteen_Fuel"], vm.SelectedFileRows.Select(r => r.ItemName));
+
+        vm.SelectedFile = vm.ChangedFiles[1];
+
+        Assert.Equal(["Canteen"], vm.SelectedFileRows.Select(r => r.ItemName));
+    }
+
+    [Fact]
+    public void Search_ByFieldName_FindsTheRowsWithThatField()
+    {
+        var vm = Build(PatchReport());
+
+        vm.SearchText = "Weight";
+
+        Assert.Equal(["Crafting/D_Fuel.json", "Items/D_ItemsStatic.json"], vm.ChangedFiles.Select(f => f.RelativePath));
+        Assert.Equal(["Canteen_Fuel"], vm.SelectedFileRows.Select(r => r.ItemName));
+    }
+
+    [Fact]
+    public void Search_ByFileName_ShowsEveryRowOfThatFile()
+    {
+        var vm = Build(PatchReport());
+
+        vm.SearchText = "d_fuel";
+
+        Assert.Equal("Crafting/D_Fuel.json", Assert.Single(vm.ChangedFiles).RelativePath);
+        Assert.Equal(3, vm.SelectedFileRows.Count);
+    }
+
+    [Fact]
+    public void Search_NothingMatches_SaysSo_AndClearingItShowsEverythingAgain()
+    {
+        var vm = Build(PatchReport());
+
+        vm.SearchText = "nothing like this";
+
+        Assert.Empty(vm.ChangedFiles);
+        Assert.Null(vm.SelectedFile);
+        Assert.Contains("match", vm.FilesEmptyText);
+
+        vm.SearchText = "";
+
+        Assert.Equal(3, vm.ChangedFiles.Count);
+        Assert.Equal(3, vm.SelectedFileRows.Count);
+        Assert.Null(vm.FilesEmptyText);
+    }
+
+    [Fact]
+    public async Task OnlyMyModRows_ShowsOnlyRowsALibraryModChanges_AndNamesTheMod()
+    {
+        var vm = Build(PatchReport(), () =>
+        [
+            new ModRowTouch("Better Canteens", "Items-D_ItemsStatic.json", "Canteen"),
+            new ModRowTouch("Better Canteens", "Crafting-D_Fuel.json", "Old_Coal"),
+            new ModRowTouch("Bread Mod", "Items-D_ItemsStatic.json", "Canteen"),
+            new ModRowTouch("Pie Mod", "Items-D_Food.json", "Pie"),
+            new ModRowTouch("Unrelated", "Items-D_Tools.json", "Wood"),
+        ]);
+        Assert.True(vm.CanShowOnlyMyModRows);
+
+        vm.ShowOnlyMyModRows = true;
+        await vm.MyModRowsLoad;
+
+        Assert.Equal(["Crafting/D_Fuel.json", "Items/D_ItemsStatic.json", "Items/D_Food.json"], vm.ChangedFiles.Select(f => f.RelativePath));
+        Assert.Equal(["Old_Coal"], vm.SelectedFileRows.Select(r => r.ItemName));
+        Assert.Equal("Better Canteens", vm.SelectedFileRows[0].ModNames);
+
+        vm.SelectedFile = vm.ChangedFiles[1];
+        var canteen = Assert.Single(vm.SelectedFileRows);
+        Assert.Equal("Canteen", canteen.ItemName);
+        Assert.Equal("Better Canteens, Bread Mod", canteen.ModNames);
+
+        // A Defaults change reaches every row, so a mod that changes any row of that table counts.
+        vm.SelectedFile = vm.ChangedFiles[2];
+        Assert.Equal("Pie Mod", Assert.Single(vm.SelectedFileRows).ModNames);
+
+        vm.ShowOnlyMyModRows = false;
+
+        Assert.Equal(3, vm.ChangedFiles.Count);
+    }
+
+    [Fact]
+    public async Task OnlyMyModRows_NoModChangesAnything_SaysSo()
+    {
+        var vm = Build(PatchReport(), () => [new ModRowTouch("Unrelated", "Items-D_Tools.json", "Axe")]);
+
+        vm.ShowOnlyMyModRows = true;
+        await vm.MyModRowsLoad;
+
+        Assert.Empty(vm.ChangedFiles);
+        Assert.Contains("your mods", vm.FilesEmptyText);
+    }
+
+    [Fact]
+    public async Task OnlyMyModRows_LibraryCantBeRead_TurnsOffAndSaysSo()
+    {
+        var vm = Build(PatchReport(), () => throw new IOException("locked"));
+
+        vm.ShowOnlyMyModRows = true;
+        await vm.MyModRowsLoad;
+
+        Assert.False(vm.ShowOnlyMyModRows);
+        Assert.Equal(3, vm.ChangedFiles.Count);
+        Assert.Contains("Couldn't read", vm.MyModRowsStatus);
+    }
+
+    [Fact]
+    public void OnlyMyModRows_WithoutALibrary_IsOff()
+    {
+        var vm = Build(PatchReport());
+
+        Assert.False(vm.CanShowOnlyMyModRows);
+    }
+
+    [Fact]
+    public void ChangedFile_RowsAreBuiltOnlyWhenOpened_TheSummaryComesFromCounts()
+    {
+        var file = new ChangedDataFileViewModel(PatchReport().ChangedFiles[0]);
+
+        Assert.Equal("Modified · 3 changes", file.Summary);
+        Assert.False(file.RowsBuilt);
+
+        Assert.Equal(3, file.Rows.Count);
+        Assert.True(file.RowsBuilt);
+    }
+
+    [Fact]
+    public void Report_OnlyTheShownFileHasItsRowsBuilt()
+    {
+        var vm = Build(PatchReport());
+
+        Assert.True(vm.ChangedFiles[0].RowsBuilt);
+        Assert.False(vm.ChangedFiles[1].RowsBuilt);
+    }
+
+    [Fact]
+    public void DisplayFor_NamesTheGameBuild_WhenTheReportHasOne()
+    {
+        var report = Report(daysAgo: 0, changedFiles: 2);
+
+        Assert.EndsWith(" · 2 files changed · game build 25956278", WeeklyChangesViewModel.DisplayFor(report with { GameBuildId = "25956278" }));
+        Assert.EndsWith(" · 2 files changed", WeeklyChangesViewModel.DisplayFor(report));
+        // No Steam build number: data.pak's hash means nothing to a player.
+        Assert.EndsWith(" · 2 files changed", WeeklyChangesViewModel.DisplayFor(report with { GameBuildId = "data-0123456789abcdef" }));
     }
 
     private sealed class FakeStore : IWeeklyChangeReportStore

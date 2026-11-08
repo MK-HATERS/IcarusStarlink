@@ -410,7 +410,12 @@ internal static class AppServices
         });
         services.AddSingleton<IGameDataFreshness>(sp => new GameDataFreshness(
             sp.GetRequiredService<IUnrealPakService>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<SettingsViewModel>));
-        services.AddSingleton<WeeklyChangesViewModel>();
+        // Weekly Changes' "Only rows my mods change" reads the rows each Library mod changes.
+        services.AddSingleton(sp => new WeeklyChangesViewModel(
+            sp.GetRequiredService<IWeeklyChangeReportStore>(),
+            sp.GetRequiredService<SettingsViewModel>(),
+            dialogService: sp.GetRequiredService<IDialogService>(),
+            myModRows: () => LibraryModRows.Read(sp.GetRequiredService<ILibraryRepository>())));
         // The Map page: worlds and zones read from the extracted tables and Paks\mods, pictures and
         // zone images drawn from the game's paks into one kept copy (Cache\World).
         services.AddSingleton(sp =>

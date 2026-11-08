@@ -175,7 +175,8 @@ public sealed partial class SettingsViewModelTests
         }
 
         Assert.Equal(1, harness.WeeklyChangeReportStore.SaveCallCount);
-        Assert.Same(report, harness.WeeklyChangeReportStore.LastSavedReport);
+        // The report as extracted, with the game build added (see ..._SavesTheGameBuildOnTheReport).
+        Assert.Same(report.ChangedFiles, harness.WeeklyChangeReportStore.LastSavedReport!.ChangedFiles);
         Assert.Equal("hash-after-update", harness.Settings.LastDataPakHash);
         Assert.NotNull(harness.Settings.LastDataFolderUpdatedAt);
         Assert.Null(vm.GameDataOutdatedMessage);
@@ -185,6 +186,27 @@ public sealed partial class SettingsViewModelTests
         Assert.Equal(1, broadcastCount);
         Assert.False(vm.IsUpdatingDataFolder);
         Assert.Contains("last updated", vm.DataFolderSummary);
+    }
+
+    /// <summary>Weekly Changes' History names the game build each report was made from.</summary>
+    [Fact]
+    public async Task UpdateDataFolderCommand_WithChanges_SavesTheGameBuildOnTheReport()
+    {
+        using var harness = new Harness();
+        var gameFolder = Path.Combine(harness.TempDir, "Icarus");
+        Directory.CreateDirectory(Path.Combine(harness.TempDir, "steamapps"));
+        File.WriteAllText(Path.Combine(harness.TempDir, "steamapps", "appmanifest_1149460.acf"),
+            "\"AppState\"\n{\n\t\"appid\"\t\t\"1149460\"\n\t\"buildid\"\t\t\"25956278\"\n}\n");
+        harness.Settings.IcarusContentPath = Path.Combine(gameFolder, "Content");
+        var vm = harness.BuildViewModel();
+        var report = MakeReport(changedFileCount: 2);
+        harness.UnrealPakService.ExtractResultFactory = () => new UnrealPakExtractResult(42, report);
+
+        await vm.UpdateDataFolderCommand.ExecuteAsync(null);
+
+        var saved = harness.WeeklyChangeReportStore.LastSavedReport!;
+        Assert.Equal("25956278", saved.GameBuildId);
+        Assert.Same(report.ChangedFiles, saved.ChangedFiles);
     }
 
     [Fact]

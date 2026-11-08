@@ -43,14 +43,52 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
     [ObservableProperty]
     private string _summaryMessage = "";
 
+    /// <summary>Every file in the report shown; ChangedFiles is the ones the search and the mods switch leave.</summary>
+    private readonly List<ChangedDataFileViewModel> _allFiles = [];
+
+    /// <summary>Reads the rows each Library mod changes (slow: run off the UI thread); null when there's no Library to read.</summary>
+    private readonly Func<IReadOnlyList<ModRowTouch>>? _readMyModRows;
+
+    /// <summary>Table key (LibraryModRows.TableKey) → row name → the mods that change it. Null until read, and again after the Library changes.</summary>
+    private Dictionary<string, Dictionary<string, List<string>>>? _myModRows;
+
+    /// <summary>Words to look for in the file names, item names and field names.</summary>
+    [ObservableProperty]
+    private string _searchText = "";
+
+    /// <summary>Shows only the changed rows that a mod in your Library also changes.</summary>
+    [ObservableProperty]
+    private bool _showOnlyMyModRows;
+
+    /// <summary>"Reading your mods…" while the Library is read, or why it couldn't be; null otherwise.</summary>
+    [ObservableProperty]
+    private string? _myModRowsStatus;
+
+    /// <summary>The shown file's rows that the search and the mods switch leave.</summary>
+    [ObservableProperty]
+    private IReadOnlyList<ChangedRowViewModel> _selectedFileRows = [];
+
+    public bool CanShowOnlyMyModRows => _readMyModRows is not null;
+
+    /// <summary>True while the mods switch has the Library read: the Your mods column has names to show.</summary>
+    public bool HasMyModRows => ShowOnlyMyModRows && _myModRows is not null;
+
+    /// <summary>The last Library read the mods switch started (tests wait on it).</summary>
+    internal Task MyModRowsLoad { get; private set; } = Task.CompletedTask;
+
     /// <param name="messenger">Injectable like Merge &amp; Install's, so a test can use its own instead of the shared Default.</param>
     /// <param name="dialogService">Asks before Remove; the real themed dialogs when left out.</param>
-    public WeeklyChangesViewModel(IWeeklyChangeReportStore store, SettingsViewModel settings, IMessenger? messenger = null, IDialogService? dialogService = null)
+    /// <param name="myModRows">The rows each Library mod changes (LibraryModRows.Read), for "Only rows my mods change"; the switch is off without it.</param>
+    public WeeklyChangesViewModel(IWeeklyChangeReportStore store, SettingsViewModel settings, IMessenger? messenger = null, IDialogService? dialogService = null, Func<IReadOnlyList<ModRowTouch>>? myModRows = null)
     {
         _store = store;
         Settings = settings;
         _dialogs = dialogService ?? new WpfDialogService();
+        _readMyModRows = myModRows;
         messenger ??= WeakReferenceMessenger.Default;
+
+        // A mod added, changed or removed: the rows read before are out of date.
+        messenger.Register<LibraryChangedMessage>(this, (recipient, _) => ((WeeklyChangesViewModel)recipient).OnLibraryChanged());
 
         // This VM is a DI singleton, constructed once on first navigation here — without this, a
         // report saved later (from Settings' Refresh game data, or this page's own shortcut)
@@ -130,7 +168,13 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
 
     /// <summary>"22 Oct 2026, 15:08 · 5 files changed" — the history picker's line for one report.</summary>
     internal static string DisplayFor(WeeklyChangeReport report) =>
-        $"{report.CurrentUpdateAt.LocalDateTime:d MMM yyyy, HH:mm} · {FilesChangedText(report.ChangedFiles.Count)}";
+        $"{report.CurrentUpdateAt.LocalDateTime:d MMM yyyy, HH:mm} · {FilesChangedText(report.ChangedFiles.Count)}"
+        + (BuildText(report) is { } build ? $" · {build}" : "");
+
+    /// <summary>"game build 25956278" for a report made from a Steam build; null for one saved before
+    /// builds were kept, or a copy without Steam's record (data.pak's hash means nothing to a player).</summary>
+    private static string? BuildText(WeeklyChangeReport report) =>
+        report.GameBuildId is { Length: > 0 } build && !GameUpdateDetector.IsHashBuild(build) ? $"game build {build}" : null;
 
     /// <summary>"no changes", "1 file changed", "5 files changed".</summary>
     internal static string FilesChangedText(int count) => count switch
@@ -143,53 +187,211 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
     /// <summary>What the file list says when it's empty; null while it has files.</summary>
     public string? FilesEmptyText => ChangedFiles.Count > 0
         ? null
-        : SelectedReport is null ? "Nothing to compare yet." : "No files changed in this update.";
+        : SelectedReport is null
+            ? "Nothing to compare yet."
+            : _allFiles.Count == 0
+                ? "No files changed in this update."
+                : HasMyModRows
+                    ? IsSearching ? "Nothing your mods change matches the search." : "None of your mods change the rows this update changed."
+                    : "No changed files match the search.";
 
     /// <summary>What the changes table says when it has no rows; null while it has some.</summary>
     public string? RowsEmptyText => SelectedReport is null
         ? "Refresh game data now and again after the next game update; what changed shows here."
-        : ChangedFiles.Count == 0
+        : _allFiles.Count == 0
             ? "No changes in this update."
             : SelectedFile is null
-                ? "Pick a file on the left."
+                ? ChangedFiles.Count == 0 ? "Clear the search or the mods switch to see every change." : "Pick a file on the left."
                 : SelectedFile.Rows.Count == 0
                     ? $"{SelectedFile.StatusLabel}: no row-by-row changes to show."
-                    : null;
+                    : SelectedFileRows.Count == 0
+                        ? "No rows in this file match."
+                        : null;
 
-    partial void OnSelectedFileChanged(ChangedDataFileViewModel? value) => OnPropertyChanged(nameof(RowsEmptyText));
+    partial void OnSelectedFileChanged(ChangedDataFileViewModel? value) => RefreshSelectedFileRows();
+
+    partial void OnSearchTextChanged(string value) => ApplyFilter();
+
+    partial void OnShowOnlyMyModRowsChanged(bool value)
+    {
+        if (value && _myModRows is null && _readMyModRows is not null)
+        {
+            MyModRowsLoad = LoadMyModRowsAsync(_readMyModRows);
+            return;
+        }
+
+        ApplyFilter();
+    }
+
+    private bool IsSearching => !string.IsNullOrWhiteSpace(SearchText);
+
+    /// <summary>Reads the Library's rows off the UI thread, then filters. The list keeps showing every file meanwhile.</summary>
+    private async Task LoadMyModRowsAsync(Func<IReadOnlyList<ModRowTouch>> read)
+    {
+        MyModRowsStatus = "Reading your mods…";
+        try
+        {
+            var touches = await Task.Run(read);
+            _myModRows = IndexByTable(touches);
+            MyModRowsStatus = null;
+        }
+        catch (Exception ex)
+        {
+            _myModRows = null;
+            MyModRowsStatus = $"Couldn't read the mods in your Library ({ex.Message}). Try again in a moment.";
+            ShowOnlyMyModRows = false;
+            return;
+        }
+
+        ApplyFilter();
+    }
+
+    private void OnLibraryChanged()
+    {
+        _myModRows = null;
+        if (ShowOnlyMyModRows && _readMyModRows is not null)
+        {
+            MyModRowsLoad = LoadMyModRowsAsync(_readMyModRows);
+        }
+    }
+
+    private static Dictionary<string, Dictionary<string, List<string>>> IndexByTable(IEnumerable<ModRowTouch> touches)
+    {
+        var index = new Dictionary<string, Dictionary<string, List<string>>>(StringComparer.Ordinal);
+        foreach (var touch in touches)
+        {
+            var key = LibraryModRows.TableKey(touch.CurrentFile);
+            if (!index.TryGetValue(key, out var rows))
+            {
+                index[key] = rows = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            if (!rows.TryGetValue(touch.RowName, out var mods))
+            {
+                rows[touch.RowName] = mods = [];
+            }
+
+            if (!mods.Contains(touch.ModName, StringComparer.OrdinalIgnoreCase))
+            {
+                mods.Add(touch.ModName);
+            }
+        }
+
+        return index;
+    }
+
+    /// <summary>
+    /// The Library mods that change this row of the file. A change outside the rows (Defaults,
+    /// RowStruct) reaches every row, so every mod that changes any row of that table counts.
+    /// Empty while the mods switch is off or the Library hasn't been read.
+    /// </summary>
+    private IReadOnlyList<string> ModsFor(ChangedDataFileViewModel file, string itemName)
+    {
+        if (!HasMyModRows || !_myModRows!.TryGetValue(LibraryModRows.TableKey(file.RelativePath), out var rows))
+        {
+            return [];
+        }
+
+        if (itemName == ChangedDataFileViewModel.EveryRowItemName)
+        {
+            return [.. rows.Values.SelectMany(mods => mods).Distinct(StringComparer.OrdinalIgnoreCase)];
+        }
+
+        return rows.TryGetValue(itemName, out var mods) ? mods : [];
+    }
+
+    /// <summary>Whether a row passes the search (its file's name, its item or its field) and the mods switch.</summary>
+    private bool RowPasses(ChangedDataFileViewModel file, string itemName, string fieldName, bool fileNameMatches)
+    {
+        if (IsSearching && !fileNameMatches)
+        {
+            var search = SearchText.Trim();
+            if (!itemName.Contains(search, StringComparison.OrdinalIgnoreCase) && !fieldName.Contains(search, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return !HasMyModRows || ModsFor(file, itemName).Count > 0;
+    }
+
+    private bool FileNameMatches(ChangedDataFileViewModel file) =>
+        IsSearching && file.RelativePath.Contains(SearchText.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A file stays in the list while one of its rows passes (read from the counts, so rows aren't built for it).</summary>
+    private bool FilePasses(ChangedDataFileViewModel file)
+    {
+        var fileNameMatches = FileNameMatches(file);
+        var keys = file.RowKeys().ToList();
+        if (keys.Count == 0)
+        {
+            // A new or removed file with no rows: only its name can match.
+            return !HasMyModRows && (!IsSearching || fileNameMatches);
+        }
+
+        return keys.Any(key => RowPasses(file, key.ItemName, key.FieldName, fileNameMatches));
+    }
+
+    /// <summary>Re-fills the file list from the report with the search and the mods switch, keeping the file shown when it's still there.</summary>
+    private void ApplyFilter()
+    {
+        var previous = SelectedFile;
+        ChangedFiles.Clear();
+        foreach (var file in _allFiles.Where(FilePasses))
+        {
+            ChangedFiles.Add(file);
+        }
+
+        SelectedFile = (previous is null ? null : ChangedFiles.FirstOrDefault(f => f.RelativePath == previous.RelativePath))
+            ?? ChangedFiles.FirstOrDefault();
+        RefreshSelectedFileRows();
+        OnPropertyChanged(nameof(HasMyModRows));
+    }
+
+    private void RefreshSelectedFileRows()
+    {
+        if (SelectedFile is not { } file)
+        {
+            SelectedFileRows = [];
+        }
+        else
+        {
+            var fileNameMatches = FileNameMatches(file);
+            SelectedFileRows = [.. file.Rows
+                .Where(row => RowPasses(file, row.ItemName, row.FieldName, fileNameMatches))
+                .Select(row => HasMyModRows ? row with { ModNames = string.Join(", ", ModsFor(file, row.ItemName)) } : row)];
+        }
+
+        RaiseEmptyTexts();
+    }
 
     private void ShowReport(WeeklyChangeReport? report)
     {
-        var previouslySelectedPath = SelectedFile?.RelativePath;
-
-        ChangedFiles.Clear();
+        _allFiles.Clear();
 
         if (report is null)
         {
+            ChangedFiles.Clear();
             SummaryMessage = "No changes tracked yet — run Refresh game data at least twice, once now and again after a game update, to see what changed between them.";
             SelectedFile = null;
-            RaiseEmptyTexts();
+            RefreshSelectedFileRows();
             return;
         }
 
         var between = $"between {report.PreviousUpdateAt.LocalDateTime:d MMM yyyy, HH:mm} and {report.CurrentUpdateAt.LocalDateTime:d MMM yyyy, HH:mm}";
-        SummaryMessage = report.ChangedFiles.Count switch
+        SummaryMessage = (report.ChangedFiles.Count switch
         {
-            0 => $"No game data files changed {between}.",
-            1 => $"1 game data file changed {between}.",
-            var n => $"{n} game data files changed {between}.",
-        };
+            0 => $"No game data files changed {between}",
+            1 => $"1 game data file changed {between}",
+            var n => $"{n} game data files changed {between}",
+        }) + (BuildText(report) is { } build ? $" ({build})." : ".");
 
-        foreach (var file in report.ChangedFiles)
-        {
-            ChangedFiles.Add(new ChangedDataFileViewModel(file));
-        }
+        // Rows aren't built here: only the file shown builds its own (ChangedDataFileViewModel.Rows).
+        _allFiles.AddRange(report.ChangedFiles.Select(file => new ChangedDataFileViewModel(file)));
 
-        // The same file again when this report has it, else the first one, so the grid isn't
-        // empty until a file is clicked.
-        SelectedFile = (previouslySelectedPath is null ? null : ChangedFiles.FirstOrDefault(f => f.RelativePath == previouslySelectedPath))
-            ?? ChangedFiles.FirstOrDefault();
-        RaiseEmptyTexts();
+        // The same file again when this report has it (ApplyFilter keeps it by name), else the
+        // first one, so the grid isn't empty until a file is clicked.
+        ApplyFilter();
     }
 
     private void RaiseEmptyTexts()
