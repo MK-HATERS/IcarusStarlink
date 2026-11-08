@@ -282,6 +282,14 @@ public sealed partial class LocalServerViewModel
             return false;
         }
 
+        if (DescribePortClash(current, updated) is { } clash
+            && !_dialogService.Confirm($"{clash}\n\nTwo servers on the same port can't run at the same time: players can't join the second one. That is fine for two worlds you never run together.\n\nSave anyway?",
+                "Same port", ThemedConfirmSeverity.Warning))
+        {
+            ValidationMessage = "Not saved. Pick a game port and query port no other server in the list uses, or save again and choose Yes.";
+            return false;
+        }
+
         try
         {
             var iniPath = DedicatedServerLayout.SettingsIniPath(updated.InstallFolder, updated.SavedDirSuffix);
@@ -357,6 +365,33 @@ public sealed partial class LocalServerViewModel
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// "'Second world' also uses port 17778." when this save gives the server a game or query port
+    /// another server in the list already uses; null otherwise. Only a port this save changes is
+    /// asked about, so ports two worlds already share aren't asked again on every Start. Servers
+    /// bound to different addresses (Multihome) don't share a port.
+    /// </summary>
+    private string? DescribePortClash(DedicatedServerProfile before, DedicatedServerProfile after)
+    {
+        if (after.Port == before.Port && after.QueryPort == before.QueryPort)
+        {
+            return null;
+        }
+
+        static string Address(DedicatedServerProfile p) => (p.Multihome ?? "").Trim();
+
+        int[] ours = [after.Port, after.QueryPort];
+        var clashes = Profiles
+            .Where(p => p.Id != after.Id)
+            .Where(p => Address(p).Length == 0 || Address(after).Length == 0
+                || string.Equals(Address(p), Address(after), StringComparison.OrdinalIgnoreCase))
+            .Select(p => (p.Name, Ports: ours.Where(port => port == p.Port || port == p.QueryPort).ToList()))
+            .Where(c => c.Ports.Count > 0)
+            .Select(c => $"'{c.Name}' also uses {(c.Ports.Count == 1 ? "port" : "ports")} {string.Join(" and ", c.Ports)}.")
+            .ToList();
+        return clashes.Count == 0 ? null : string.Join("\n", clashes);
     }
 
     private DedicatedServerProfile? BuildProfileFromForm(DedicatedServerProfile current, bool strict)

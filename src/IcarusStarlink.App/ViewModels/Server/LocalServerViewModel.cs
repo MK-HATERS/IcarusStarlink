@@ -255,7 +255,11 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
-        var existing = Profiles.FirstOrDefault(p => string.Equals(p.InstallFolder, root, StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(p.SavedDirSuffix));
+        // A server the owner's own script runs from here: with its options copied, Starlink sees it
+        // running and edits its world and settings, not the plain Saved folder's.
+        var adopted = OfferRunningServerOptions(root);
+        var suffix = adopted?.SavedDirSuffix ?? "";
+        var existing = Profiles.FirstOrDefault(p => SameInstall(p.InstallFolder, root) && string.Equals((p.SavedDirSuffix ?? "").Trim(), suffix, StringComparison.OrdinalIgnoreCase));
         if (existing is not null)
         {
             SelectedProfile = existing;
@@ -266,7 +270,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         DedicatedServerSettings ini;
         try
         {
-            ini = ServerSettingsIni.Load(DedicatedServerLayout.SettingsIniPath(root, null)).Read();
+            ini = ServerSettingsIni.Load(DedicatedServerLayout.SettingsIniPath(root, suffix)).Read();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -281,6 +285,10 @@ public sealed partial class LocalServerViewModel : ObservableObject
             SteamServerName = ini.SessionName ?? "Icarus Server",
             // Settings › Maintenance › Backups to keep › Server backups: what a new server starts with.
             BackupsToKeep = Core.Settings.BackupLimits.ServerKept(_settings),
+            SavedDirSuffix = suffix,
+            LogFileName = adopted?.LogFileName ?? "",
+            Port = adopted?.Port ?? DedicatedServerDefaults.GamePort,
+            QueryPort = adopted?.QueryPort ?? DedicatedServerDefaults.QueryPort,
         };
         SaveToStore(profile);
         Profiles.Add(profile);
@@ -289,8 +297,38 @@ public sealed partial class LocalServerViewModel : ObservableObject
         StatusMessage = (File.Exists(SettingsIniPath)
             ? $"Added '{profile.Name}' — settings read from its ServerSettings.ini."
             : $"Added '{profile.Name}'. It has no ServerSettings.ini yet; Save (or Start) writes one, so the first-launch bug where the file never appears doesn't apply.")
+            + (adopted is null ? "" : " Its Saved folder, log file and ports were copied from the running server.")
             + (adoptedSteamCmd is null ? "" : $" Using the SteamCMD that installed it: {adoptedSteamCmd}.");
         _activityLog.Log($"Added dedicated server '{profile.Name}' ({root}).", ActivityEntryKind.Info);
+    }
+
+    /// <summary>
+    /// A server runs from this install that no server in the list accounts for, and its command
+    /// line sets something the defaults don't (Saved suffix, log file, ports): asks whether the new
+    /// server takes them. Null when there is nothing to copy or the owner says No.
+    /// </summary>
+    private DedicatedServerLaunchOptions? OfferRunningServerOptions(string installFolder)
+    {
+        static bool Usable(string? name) => name is null || name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+
+        var options = UnknownServersFrom(installFolder)
+            .OrderBy(s => s.IsLauncher)
+            .Select(s => DedicatedServerCommandLine.ReadLaunchOptions(s.CommandLine!))
+            .FirstOrDefault(o => o.DiffersFromDefaults && Usable(o.SavedDirSuffix) && Usable(o.LogFileName));
+        if (options is null)
+        {
+            return null;
+        }
+
+        return _dialogService.Confirm(
+                "A server is running from this install with its own launch options:\n\n"
+                + $"  Saved folder: Saved{options.SavedDirSuffix}\n"
+                + $"  Log file: {options.LogFileName ?? DedicatedServerDefaults.DefaultLogFileName}\n"
+                + $"  Game port: {options.Port ?? DedicatedServerDefaults.GamePort}, query port: {options.QueryPort ?? DedicatedServerDefaults.QueryPort}\n\n"
+                + "Set up the new server with these? Then Starlink sees it running, reads its players, and edits that world's settings. Choose No to use the defaults.",
+                "Add existing server", ThemedConfirmSeverity.Question)
+            ? options
+            : null;
     }
 
     private bool CanUseProfile() => SelectedProfile is not null;
@@ -397,7 +435,53 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
+        if (await OffUiThread(() => UnknownServersFrom(profile.InstallFolder)) is { Count: > 0 } unknown
+            && !_dialogService.Confirm(
+                $"Another Icarus server is already running from this install ({DescribeSavedFolders(unknown)}), and no server in this list is set up for it. "
+                + $"Starting '{profile.Name}' too runs two servers from the same files: each needs its own game and query port, or players can't join one of them.\n\n"
+                + "To manage the running one here instead, click No, then Add existing server… while it still runs: its Saved folder, log file and ports are copied.\n\n"
+                + $"Start '{profile.Name}' anyway?",
+                "Another server is running", ThemedConfirmSeverity.Warning))
+        {
+            StatusMessage = $"'{profile.Name}' wasn't started.";
+            return;
+        }
+
         await StartCoreAsync(profile);
+    }
+
+    /// <summary>
+    /// Servers running from this install that no server in the list accounts for: their Saved
+    /// suffix matches none of the profiles on this install (one the owner's own script started).
+    /// A process whose command line can't be read is left out, since it can't be told apart.
+    /// </summary>
+    private IReadOnlyList<ServerProcess> UnknownServersFrom(string installFolder)
+    {
+        var known = Profiles.Where(p => SameInstall(p.InstallFolder, installFolder))
+            .Select(p => (p.SavedDirSuffix ?? "").Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            return _processes.FindAllFromInstall(installFolder)
+                .Where(s => s.CommandLine is { } line && !known.Contains(DedicatedServerCommandLine.ReadSavedDirSuffix(line)))
+                .ToList();
+        }
+        catch (Exception)
+        {
+            return []; // couldn't look: a process scan hiccup, never a reason to block a start
+        }
+    }
+
+    private static bool SameInstall(string a, string b) =>
+        string.Equals(Path.TrimEndingDirectorySeparator(a), Path.TrimEndingDirectorySeparator(b), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>"it saves to Saved_live" (each Saved folder once: the launcher and the server it starts carry the same options).</summary>
+    private static string DescribeSavedFolders(IEnumerable<ServerProcess> servers)
+    {
+        var folders = servers.Select(s => "Saved" + DedicatedServerCommandLine.ReadSavedDirSuffix(s.CommandLine ?? ""))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return $"it saves to {string.Join(" and ", folders)}";
     }
 
     /// <summary>Launches this profile (already saved) and waits for its process to show up.</summary>

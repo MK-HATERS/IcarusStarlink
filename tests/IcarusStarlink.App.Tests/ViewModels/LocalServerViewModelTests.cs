@@ -1363,6 +1363,11 @@ public sealed partial class LocalServerViewModelTests : IDisposable
             return FindRunningHook is { } hook ? hook() : RunningFor is { } perProfile ? perProfile(profile) : Running;
         }
 
+        /// <summary>What FindAllFromInstall answers, for every install (servers started outside Starlink, with their command lines).</summary>
+        public List<ServerProcess> AllFromInstall { get; } = [];
+
+        public IReadOnlyList<ServerProcess> FindAllFromInstall(string installFolder) => AllFromInstall;
+
         /// <summary>Runs as a server is launched (for "what the page shows while automation restarts it").</summary>
         public Action? DuringStart { get; set; }
 

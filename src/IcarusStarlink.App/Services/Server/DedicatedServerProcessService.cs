@@ -21,13 +21,45 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
 {
     public RunningServer? FindRunning(DedicatedServerProfile profile)
     {
-        if (string.IsNullOrWhiteSpace(profile.InstallFolder))
+        var all = FindAllFromInstall(profile.InstallFolder);
+        foreach (var launcher in new[] { false, true })
         {
-            return null;
+            RunningServer? unsure = null;
+            foreach (var process in all.Where(p => p.IsLauncher == launcher))
+            {
+                if (!DedicatedServerCommandLine.IsThisProfilesProcess(process.CommandLine, profile))
+                {
+                    continue; // another profile's server on the same install
+                }
+
+                var found = new RunningServer(process.ProcessId, process.StartTime);
+                if (process.CommandLine is not null)
+                {
+                    return found;
+                }
+
+                // Couldn't read its command line: use it only if nothing certain turns up.
+                unsure ??= found;
+            }
+
+            if (unsure is not null)
+            {
+                return unsure;
+            }
         }
 
-        var roots = InstallRoots(profile.InstallFolder);
-        RunningServer? unsure = null;
+        return null;
+    }
+
+    public IReadOnlyList<ServerProcess> FindAllFromInstall(string installFolder)
+    {
+        if (string.IsNullOrWhiteSpace(installFolder))
+        {
+            return [];
+        }
+
+        var roots = InstallRoots(installFolder);
+        var found = new List<ServerProcess>();
         foreach (var name in new[] { DedicatedServerLayout.ShippingProcessName, DedicatedServerLayout.LauncherProcessName })
         {
             foreach (var process in Process.GetProcessesByName(name))
@@ -38,24 +70,10 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
                     {
                         var (exe, commandLine) = ReadImageAndCommandLine(process.Id);
                         exe ??= process.MainModule?.FileName;
-                        if (exe is null || !IsUnderInstall(exe, roots))
+                        if (exe is not null && IsUnderInstall(exe, roots))
                         {
-                            continue;
+                            found.Add(new ServerProcess(process.Id, process.StartTime, commandLine, name == DedicatedServerLayout.LauncherProcessName));
                         }
-
-                        if (!DedicatedServerCommandLine.IsThisProfilesProcess(commandLine, profile))
-                        {
-                            continue; // another profile's server on the same install
-                        }
-
-                        var found = new RunningServer(process.Id, process.StartTime);
-                        if (commandLine is not null)
-                        {
-                            return found;
-                        }
-
-                        // Couldn't read its command line: use it only if nothing certain turns up.
-                        unsure ??= found;
                     }
                     catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
                     {
@@ -63,14 +81,9 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
                     }
                 }
             }
-
-            if (unsure is not null)
-            {
-                return unsure;
-            }
         }
 
-        return null;
+        return found;
     }
 
     /// <summary>Final folder per install folder text: FindRunning runs every second, and the answer only changes if a link is remade.</summary>

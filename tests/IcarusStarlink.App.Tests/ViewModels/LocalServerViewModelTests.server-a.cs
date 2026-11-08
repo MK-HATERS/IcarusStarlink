@@ -628,4 +628,177 @@ public sealed partial class LocalServerViewModelTests
         Assert.Equal([9], processes.Stopped);
         Assert.Single(processes.Started);
     }
+
+    // ---- A server already running from the install that no server in the list accounts for ----
+
+    private const string OwnScriptLine = "\"C:\\S\\Icarus\\Binaries\\Win64\\IcarusServer-Win64-Shipping.exe\" Icarus -log -saveddirsuffix=_live -LOG=Live.log -PORT=17778 -QueryPort=27016";
+
+    /// <summary>Regression: Start launched a second server from an install the owner's own script already ran, with nothing said; both fought over the files and ports.</summary>
+    [Fact]
+    public async Task Start_WhileAnUnknownServerRunsFromTheInstall_AsksFirst()
+    {
+        var (vm, _, processes, dialogs) = BuildWithServer();
+        processes.AllFromInstall.Add(new ServerProcess(77, DateTime.Now, OwnScriptLine, IsLauncher: false));
+        dialogs.Answers.Enqueue(false);
+
+        await vm.StartCommand.ExecuteAsync(null);
+
+        Assert.Contains(dialogs.Messages, m => m.Contains("already running from this install", StringComparison.Ordinal) && m.Contains("Saved_live", StringComparison.Ordinal));
+        Assert.Empty(processes.Started);
+        Assert.Contains("wasn't started", vm.StatusMessage);
+    }
+
+    /// <summary>A question, not a refusal: two worlds on one install keep working.</summary>
+    [Fact]
+    public async Task Start_WhileAnUnknownServerRunsFromTheInstall_StartsWhenTheOwnerSaysYes()
+    {
+        var (vm, _, processes, dialogs) = BuildWithServer();
+        processes.AllFromInstall.Add(new ServerProcess(77, DateTime.Now, OwnScriptLine, IsLauncher: false));
+        dialogs.Answers.Enqueue(true);
+
+        await vm.StartCommand.ExecuteAsync(null);
+
+        Assert.Single(processes.Started);
+    }
+
+    /// <summary>A sibling profile's server (its own Saved suffix) is accounted for: Start doesn't ask.</summary>
+    [Fact]
+    public async Task Start_WhileASiblingProfilesServerRuns_DoesNotAsk()
+    {
+        var (vm, processes, dialogs, sibling) = BuildWithSecondWorld();
+        processes.RunningFor = p => p.Id == sibling.Id ? new RunningServer(77, DateTime.Now) : null;
+        processes.AllFromInstall.Add(new ServerProcess(77, DateTime.Now, OwnScriptLine.Replace("_live", sibling.SavedDirSuffix), IsLauncher: false));
+        await vm.TickAsync();
+
+        await vm.StartCommand.ExecuteAsync(null);
+
+        Assert.Empty(dialogs.Messages);
+        Assert.Single(processes.Started);
+    }
+
+    /// <summary>The server added from _install (selected, default ports) plus "Second world" on the same install with Saved suffix _2 and ports 17778/27016.</summary>
+    private (LocalServerViewModel Vm, FakeProcesses Processes, FakeDialogs Dialogs, DedicatedServerProfile Sibling) BuildWithSecondWorld()
+    {
+        var (vm, store, processes, dialogs) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        var first = vm.SelectedProfile!;
+        var sibling = new DedicatedServerProfile { Name = "Second world", InstallFolder = _install, SavedDirSuffix = "_2", Port = 17778, QueryPort = 27016 };
+        store.Save(sibling);
+        vm.Profiles.Add(sibling);
+        vm.SelectedProfile = first;
+        return (vm, processes, dialogs, sibling);
+    }
+
+    /// <summary>Regression: adding a server the owner's own script runs with -saveddirsuffix=_live showed it stopped and edited Saved\ instead of Saved_live\.</summary>
+    [Fact]
+    public void AddExistingServer_WhileItRunsWithItsOwnOptions_OffersToCopyThem()
+    {
+        var liveIni = DedicatedServerLayout.SettingsIniPath(_install, "_live");
+        Directory.CreateDirectory(Path.GetDirectoryName(liveIni)!);
+        File.WriteAllText(liveIni, "[/Script/Icarus.DedicatedServerSettings]\r\nSessionName=Live World\r\n");
+        var (vm, store, processes, dialogs) = Build(pick: _install);
+        processes.AllFromInstall.Add(new ServerProcess(77, DateTime.Now, OwnScriptLine, IsLauncher: false));
+        dialogs.Answers.Enqueue(true);
+
+        vm.AddExistingServerCommand.Execute(null);
+
+        Assert.Contains(dialogs.Messages, m => m.Contains("Saved_live", StringComparison.Ordinal) && m.Contains("Live.log", StringComparison.Ordinal) && m.Contains("17778", StringComparison.Ordinal));
+        var profile = Assert.Single(store.Profiles);
+        Assert.Equal("_live", profile.SavedDirSuffix);
+        Assert.Equal("Live.log", profile.LogFileName);
+        Assert.Equal(17778, profile.Port);
+        Assert.Equal(27016, profile.QueryPort);
+        Assert.Equal("Live World", vm.SteamServerName);
+    }
+
+    [Fact]
+    public void AddExistingServer_WhileItRunsWithItsOwnOptions_KeepsTheDefaultsWhenTheOwnerSaysNo()
+    {
+        var (vm, store, processes, dialogs) = Build(pick: _install);
+        processes.AllFromInstall.Add(new ServerProcess(77, DateTime.Now, OwnScriptLine, IsLauncher: false));
+        dialogs.Answers.Enqueue(false);
+
+        vm.AddExistingServerCommand.Execute(null);
+
+        Assert.Single(dialogs.Messages);
+        var profile = Assert.Single(store.Profiles);
+        Assert.Equal("", profile.SavedDirSuffix);
+        Assert.Equal(DedicatedServerDefaults.GamePort, profile.Port);
+    }
+
+    /// <summary>A running server on the defaults has nothing to copy: no question.</summary>
+    [Fact]
+    public void AddExistingServer_WhileItRunsOnTheDefaults_DoesNotAsk()
+    {
+        var (vm, store, processes, dialogs) = Build(pick: _install);
+        processes.AllFromInstall.Add(new ServerProcess(77, DateTime.Now, "IcarusServer-Win64-Shipping.exe Icarus -log -PORT=17777 -QueryPort=27015", IsLauncher: false));
+
+        vm.AddExistingServerCommand.Execute(null);
+
+        Assert.Empty(dialogs.Messages);
+        Assert.Single(store.Profiles);
+    }
+
+    // ---- Two servers on the same port ----
+
+    /// <summary>Regression: Save took a game port another server in the list already used, with no word; the second server then couldn't be joined.</summary>
+    [Fact]
+    public void Save_APortAnotherServerUses_AsksFirst()
+    {
+        var (vm, _, dialogs, _) = BuildWithSecondWorld();
+        var first = vm.SelectedProfile!;
+        dialogs.Answers.Enqueue(false);
+        vm.PortText = "17778";
+        vm.QueryPortText = "27099";
+
+        Assert.False(vm.TrySave());
+
+        Assert.Contains(dialogs.Messages, m => m.Contains("'Second world'", StringComparison.Ordinal) && m.Contains("17778", StringComparison.Ordinal));
+        Assert.Equal(DedicatedServerDefaults.GamePort, vm.Profiles.Single(p => p.Id == first.Id).Port);
+        Assert.Contains("Not saved", vm.ValidationMessage);
+    }
+
+    /// <summary>A warning, not a refusal: two worlds on one install that never run together may share ports.</summary>
+    [Fact]
+    public void Save_APortAnotherServerUses_SavesWhenTheOwnerSaysYes()
+    {
+        var (vm, _, dialogs, _) = BuildWithSecondWorld();
+        var first = vm.SelectedProfile!;
+        dialogs.Answers.Enqueue(true);
+        vm.PortText = "27016"; // the other server's query port
+        vm.QueryPortText = "27099";
+
+        Assert.True(vm.TrySave());
+
+        Assert.Single(dialogs.Messages);
+        Assert.Equal(27016, vm.Profiles.Single(p => p.Id == first.Id).Port);
+    }
+
+    /// <summary>Ports the server already had aren't asked about again on every Start and Save.</summary>
+    [Fact]
+    public void Save_PortsUnchanged_DoesNotAsk()
+    {
+        var (vm, _, dialogs, sibling) = BuildWithSecondWorld();
+        sibling.Port = DedicatedServerDefaults.GamePort; // already shared before this save
+        vm.MaxPlayersText = "4";
+
+        Assert.True(vm.TrySave());
+
+        Assert.Empty(dialogs.Messages);
+    }
+
+    /// <summary>Two servers bound to different addresses (Multihome) can use the same ports.</summary>
+    [Fact]
+    public void Save_SamePortOnAnotherAddress_DoesNotAsk()
+    {
+        var (vm, _, dialogs, sibling) = BuildWithSecondWorld();
+        sibling.Multihome = "192.168.1.20";
+        vm.Multihome = "192.168.1.21";
+        vm.PortText = "17778";
+        vm.QueryPortText = "27099";
+
+        Assert.True(vm.TrySave());
+
+        Assert.Empty(dialogs.Messages);
+    }
 }

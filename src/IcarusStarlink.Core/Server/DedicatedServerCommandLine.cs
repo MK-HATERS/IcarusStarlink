@@ -49,13 +49,40 @@ public static class DedicatedServerCommandLine
         $"\"{DedicatedServerLayout.LauncherPath(profile.InstallFolder)}\" {BuildArgumentString(profile)}";
 
     /// <summary>The -saveddirsuffix= value on a running server's command line ("" when it has none), quoted or not, any case.</summary>
-    public static string ReadSavedDirSuffix(string commandLine)
+    public static string ReadSavedDirSuffix(string commandLine) => ReadValue(commandLine, "-saveddirsuffix=") ?? "";
+
+    /// <summary>The -LOG= file name on a running server's command line; null when it has none (the plain -log switch only opens the console).</summary>
+    public static string? ReadLogFileName(string commandLine) => ReadValue(commandLine, "-LOG=") is { Length: > 0 } name ? name : null;
+
+    /// <summary>The -PORT= game port on a running server's command line; null when it has none or it isn't a port number.</summary>
+    public static int? ReadPort(string commandLine) => ReadPortValue(commandLine, "-PORT=");
+
+    /// <summary>The -QueryPort= on a running server's command line; null when it has none or it isn't a port number.</summary>
+    public static int? ReadQueryPort(string commandLine) => ReadPortValue(commandLine, "-QueryPort=");
+
+    /// <summary>Where a running server saves and which ports it uses, from its own command line.</summary>
+    public static DedicatedServerLaunchOptions ReadLaunchOptions(string commandLine) =>
+        new(ReadSavedDirSuffix(commandLine), ReadLogFileName(commandLine), ReadPort(commandLine), ReadQueryPort(commandLine));
+
+    private static int? ReadPortValue(string commandLine, string key) =>
+        int.TryParse(ReadValue(commandLine, key), NumberStyles.None, CultureInfo.InvariantCulture, out var port) && port is >= 1 and <= 65535 ? port : null;
+
+    /// <summary>
+    /// The value of <paramref name="key"/> ("-LOG=") quoted or not, any case; null when the line
+    /// doesn't have it. The key counts only at the start of an argument, not inside another
+    /// argument's value.
+    /// </summary>
+    private static string? ReadValue(string commandLine, string key)
     {
-        const string key = "-saveddirsuffix=";
         var at = commandLine.IndexOf(key, StringComparison.OrdinalIgnoreCase);
+        while (at > 0 && !char.IsWhiteSpace(commandLine[at - 1]) && commandLine[at - 1] != '"')
+        {
+            at = commandLine.IndexOf(key, at + 1, StringComparison.OrdinalIgnoreCase);
+        }
+
         if (at < 0)
         {
-            return "";
+            return null;
         }
 
         var start = at + key.Length;
@@ -92,4 +119,18 @@ public static class DedicatedServerCommandLine
         var cleaned = (serverName ?? "").Replace("\"", "").Trim();
         return cleaned.Length > DedicatedServerDefaults.MaxServerNameLength ? cleaned[..DedicatedServerDefaults.MaxServerNameLength] : cleaned;
     }
+}
+
+/// <summary>
+/// A running server's own launch options: its Saved folder suffix ("" for none), -LOG= file name
+/// and ports, each null when its command line doesn't set it.
+/// </summary>
+public sealed record DedicatedServerLaunchOptions(string SavedDirSuffix, string? LogFileName, int? Port, int? QueryPort)
+{
+    /// <summary>Anything a new profile would need that its defaults don't already give.</summary>
+    public bool DiffersFromDefaults =>
+        SavedDirSuffix.Length > 0
+        || (LogFileName is not null && !string.Equals(LogFileName, DedicatedServerDefaults.DefaultLogFileName, StringComparison.OrdinalIgnoreCase))
+        || (Port is { } port && port != DedicatedServerDefaults.GamePort)
+        || (QueryPort is { } query && query != DedicatedServerDefaults.QueryPort);
 }

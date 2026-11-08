@@ -53,6 +53,42 @@ public sealed class DedicatedServerTests : IDisposable
         Assert.True(DedicatedServerCommandLine.IsThisProfilesProcess(DedicatedServerCommandLine.BuildDisplayLine(second), second));
     }
 
+    /// <summary>A server started by the owner's own script: its Saved suffix, log file and ports are read off its command line, so adding it can copy them.</summary>
+    [Fact]
+    public void LaunchOptions_AreReadOffARunningServersCommandLine()
+    {
+        var options = DedicatedServerCommandLine.ReadLaunchOptions(
+            "IcarusServer-Win64-Shipping.exe -log -saveddirsuffix=_live -LOG=Live.log -PORT=17778 -QueryPort=27016");
+
+        Assert.Equal(new DedicatedServerLaunchOptions("_live", "Live.log", 17778, 27016), options);
+        Assert.True(options.DiffersFromDefaults);
+    }
+
+    [Fact]
+    public void LaunchOptions_NotOnTheLine_AreNull_AndTheConsoleSwitchIsNoLogName()
+    {
+        var options = DedicatedServerCommandLine.ReadLaunchOptions("IcarusServer-Win64-Shipping.exe Icarus -log -QueryPort=27015");
+
+        Assert.Equal(new DedicatedServerLaunchOptions("", null, null, 27015), options);
+        Assert.False(options.DiffersFromDefaults);
+    }
+
+    [Fact]
+    public void LaunchOptions_QuotedValues_AndAPortThatIsNoNumber()
+    {
+        var options = DedicatedServerCommandLine.ReadLaunchOptions("x.exe -saveddirsuffix=\"my world\" -LOG=\"My Log.log\" -PORT=abc -QueryPort=70000");
+
+        Assert.Equal(new DedicatedServerLaunchOptions("my world", "My Log.log", null, null), options);
+    }
+
+    /// <summary>A key counts only at the start of an argument: the same letters inside another value aren't read.</summary>
+    [Fact]
+    public void LaunchOptions_KeyInsideAnotherValue_IsNotRead()
+    {
+        Assert.Null(DedicatedServerCommandLine.ReadPort("x.exe -SteamServerName=\"Fun-PORT=1\" -QueryPort=27016"));
+        Assert.Equal(17779, DedicatedServerCommandLine.ReadPort("x.exe -SteamServerName=\"Fun-PORT=1\" -PORT=17779"));
+    }
+
     /// <summary>An unquoted "-saveddirsuffix=my world" reached the server as "my", so it saved elsewhere and the app didn't recognise it as running.</summary>
     [Fact]
     public void BuildArguments_ValuesWithASpace_AreQuoted_AndTheSuffixReadsBack()

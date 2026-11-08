@@ -5,6 +5,9 @@ namespace IcarusStarlink.App.Services;
 /// <summary>A server process this app found running, from one install folder.</summary>
 public sealed record RunningServer(int ProcessId, DateTime StartTime);
 
+/// <summary>A server process running from an install folder, whichever profile it belongs to. CommandLine is null when Windows won't say (a server started as administrator).</summary>
+public sealed record ServerProcess(int ProcessId, DateTime StartTime, string? CommandLine, bool IsLauncher);
+
 /// <summary>Windows wouldn't let Starlink end the server (typically one started as administrator while Starlink isn't); it is still running.</summary>
 public sealed class ServerStopFailedException(string message, Exception inner) : Exception(message, inner);
 
@@ -13,6 +16,9 @@ public interface IDedicatedServerProcessService
 {
     /// <summary>The server process running from this install (and, when several profiles share it, the one using this Saved suffix if that can be told), or null.</summary>
     RunningServer? FindRunning(DedicatedServerProfile profile);
+
+    /// <summary>Every server process running from this install folder, with its command line: the real server (IcarusServer-Win64-Shipping.exe) first, then any launcher still open.</summary>
+    IReadOnlyList<ServerProcess> FindAllFromInstall(string installFolder);
 
     /// <summary>Launches IcarusServer.exe with the profile's arguments in its own console window. Throws when the exe is missing.</summary>
     void Start(DedicatedServerProfile profile);
