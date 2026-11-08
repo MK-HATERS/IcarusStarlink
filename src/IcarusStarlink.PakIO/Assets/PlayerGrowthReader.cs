@@ -107,49 +107,52 @@ public static class PlayerGrowthReader
         return result;
     }
 
-    private static PlayerGrowth? ReadRow(string rowName, byte[]? modsTable, byte[]? gameTable, bool starlinkMerge, ModPakContents? mods, IBaseGameContentProvider game)
+    /// <summary>
+    /// One D_CharacterGrowth row: the mods' table wins over the game's, GameMaxLevel is always the
+    /// game's own, and each curve comes from the mods' paks when one supplies it, else the game's.
+    /// Null when neither table has the row.
+    /// </summary>
+    internal static PlayerGrowth? ReadRow(string rowName, byte[]? modsTable, byte[]? gameTable, bool starlinkMerge, ModPakContents? mods, IBaseGameContentProvider game)
     {
+        var fromMods = Row(modsTable, rowName);
+        var gameRow = Row(gameTable, rowName);
+        var row = fromMods ?? gameRow;
+        if (row is null)
         {
-            var fromMods = Row(modsTable, rowName);
-            var gameRow = Row(gameTable, rowName);
-            var row = fromMods ?? gameRow;
-            if (row is null)
+            return null;
+        }
+
+        var curvesFromMods = new List<string>();
+        GrowthCurve? Curve(string field, string label)
+        {
+            if (row.Value.Curves.GetValueOrDefault(field) is not { } path)
             {
                 return null;
             }
 
-            var curvesFromMods = new List<string>();
-            GrowthCurve? Curve(string field, string label)
+            if (mods?.TryLoadFirstExport<UObject>(path) is { } modded && GrowthCurve.From(modded) is { } fromMod)
             {
-                if (row.Value.Curves.GetValueOrDefault(field) is not { } path)
-                {
-                    return null;
-                }
-
-                if (mods?.TryLoadFirstExport<UObject>(path) is { } modded && GrowthCurve.From(modded) is { } fromMod)
-                {
-                    curvesFromMods.Add(label);
-                    return fromMod;
-                }
-
-                return game.TryLoadExportAndProject<UObject, GrowthCurve>(path, c => GrowthCurve.From(c)!);
+                curvesFromMods.Add(label);
+                return fromMod;
             }
 
-            return new PlayerGrowth(
-                row.Value.MaxLevel, row.Value.MaxDisplayLevel, fromMods is not null,
-                Curve("ExperienceCurve", "Experience"),
-                Curve("TalentPointsPerLevel", "Talent points"),
-                Curve("BlueprintPointsPerLevel", "Blueprint points"),
-                Curve("SoloPointsPerLevel", "Solo points"),
-                curvesFromMods,
-                gameRow?.MaxLevel ?? 0,
-                starlinkMerge,
-                gameRow?.Curves,
-                gameRow?.Curves
-                    .Select(kv => (kv.Key, Curve: game.TryLoadExportAndProject<UObject, GrowthCurve>(kv.Value, c => GrowthCurve.From(c)!)))
-                    .Where(x => x.Curve is not null)
-                    .ToDictionary(x => x.Key, x => x.Curve!));
+            return game.TryLoadExportAndProject<UObject, GrowthCurve>(path, c => GrowthCurve.From(c)!);
         }
+
+        return new PlayerGrowth(
+            row.Value.MaxLevel, row.Value.MaxDisplayLevel, fromMods is not null,
+            Curve("ExperienceCurve", "Experience"),
+            Curve("TalentPointsPerLevel", "Talent points"),
+            Curve("BlueprintPointsPerLevel", "Blueprint points"),
+            Curve("SoloPointsPerLevel", "Solo points"),
+            curvesFromMods,
+            gameRow?.MaxLevel ?? 0,
+            starlinkMerge,
+            gameRow?.Curves,
+            gameRow?.Curves
+                .Select(kv => (kv.Key, Curve: game.TryLoadExportAndProject<UObject, GrowthCurve>(kv.Value, c => GrowthCurve.From(c)!)))
+                .Where(x => x.Curve is not null)
+                .ToDictionary(x => x.Key, x => x.Curve!));
     }
 
     private const string MountsPath = "Data/AI/D_Mounts.json";

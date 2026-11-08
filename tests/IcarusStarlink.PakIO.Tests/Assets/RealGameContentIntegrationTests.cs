@@ -57,6 +57,38 @@ public sealed class RealGameContentIntegrationTests : IDisposable
         Assert.Equal(fromGame.Functions.OrderBy(f => f.Key, StringComparer.Ordinal), fromMod.Functions.OrderBy(f => f.Key, StringComparer.Ordinal));
     }
 
+    /// <summary>
+    /// CurveAssetWriter checks its output with UAssetAPI, the library that wrote it; the game reads
+    /// it with the engine. CUE4Parse is the closer stand-in: it must read back exactly the keys written.
+    /// </summary>
+    [Fact]
+    public void WrittenGrowthCurve_ReadsBackWithCue4Parse()
+    {
+        if (Environment.GetEnvironmentVariable(GameContentVariable) is not { Length: > 0 } content || !Directory.Exists(content))
+        {
+            return;
+        }
+
+        var game = new CueBaseGameContentProvider(new FakeSettingsService(new AppSettings { IcarusContentPath = content }));
+        var template = game.TryReadPackageFiles("Data/Character/C_PlayerTalentGrowth.uasset");
+        Assert.NotNull(template);
+        (float Time, float Value)[] keys = [(1, 0), (60, 60), (500, 1000)];
+
+        var written = CurveAssetWriter.Write(template[".uasset"], template[".uexp"], keys, "/Game/Starlink/Test/C_Starlink_TestGrowth");
+
+        var folder = Path.Combine(_root, "Curve");
+        var asset = Path.Combine(folder, "Starlink", "Test", "C_Starlink_TestGrowth.uasset");
+        Directory.CreateDirectory(Path.GetDirectoryName(asset)!);
+        File.WriteAllBytes(asset, written.Asset);
+        File.WriteAllBytes(Path.ChangeExtension(asset, ".uexp"), written.Exports);
+
+        var readBack = CueAssetProviderLocator.TryLoadExportAndProject<CUE4Parse.UE4.Assets.Exports.UObject, GrowthCurve>(
+            folder, "Starlink/Test/C_Starlink_TestGrowth.uasset", c => GrowthCurve.From(c)!);
+
+        Assert.NotNull(readBack);
+        Assert.Equal(keys, readBack.Keys.Select(k => (k.Time, k.Value)));
+    }
+
     private sealed class FakeSettingsService(AppSettings settings) : ISettingsService
     {
         public AppSettings Current { get; } = settings;
