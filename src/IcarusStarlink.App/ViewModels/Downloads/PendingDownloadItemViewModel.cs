@@ -65,6 +65,10 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<string> _requirements = [];
 
+    /// <summary>The Nexus file's own version ("3.1") for the Version column; null when not known.</summary>
+    [ObservableProperty]
+    private string? _fileVersion;
+
     public PendingDownloadItemViewModel(PendingDownloadEntry entry, ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository, Ue4ssInstalledNames? ue4ssNames = null)
     {
         _libraryRepository = libraryRepository;
@@ -81,6 +85,7 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
         Author = entry.Author;
         _activatedItems = entry.AllActivatedItems;
         _requirements = entry.Requirements;
+        _fileVersion = entry.FileVersion;
     }
 
     /// <summary>Whether this row's download is the same file as <paramref name="entry"/> — a reload keeps the row (a running Activate holds it) rather than building a new one.</summary>
@@ -271,6 +276,10 @@ public sealed class InstalledModsSnapshot
     /// <summary>The Library entry in <paramref name="folderName"/>; null when it isn't there.</summary>
     public LibraryEntry? LibraryEntryForFolder(string folderName) =>
         _libraryEntries.Value.FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The version the Library recorded for this exact Nexus file (mod and file id both match); null when no copy recorded one.</summary>
+    public string? LibraryVersionForNexusFile(int modId, int fileId) =>
+        _libraryEntries.Value.FirstOrDefault(e => e.NexusModId == modId && e.NexusFileId == fileId && !string.IsNullOrWhiteSpace(e.NexusFileVersion))?.NexusFileVersion;
 
     /// <summary>The name the Library shows for a mod linked to this Nexus mod id; null when none is.</summary>
     public string? LibraryNameForNexusMod(int modId) =>

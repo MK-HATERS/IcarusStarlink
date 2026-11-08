@@ -369,6 +369,12 @@ public sealed partial class MainViewModel : ObservableObject
             library.OnPageShown();
         }
 
+        // Clears out .part files a crash left (once a session) and recounts what Clean-up would delete.
+        if (CurrentPage is DownloadsViewModel downloads)
+        {
+            downloads.OnPageShown();
+        }
+
         // The game may have written newer progress while another page was open.
         if (CurrentPage is SavesViewModel saves)
         {

@@ -441,9 +441,12 @@ public sealed partial class DownloadsViewModel : ObservableObject
             item.SetSuperseded(IsSuperseded(item, installed));
         }
 
+        BackfillFileVersions(installed);
+
         ObservableCollectionSync.SyncTo(VisiblePendingDownloads, [.. PendingDownloads.Where(item => ShowInstalledDownloads || !HiddenUnlessShowInstalled(item))]);
         OnPropertyChanged(nameof(InstalledDownloadCount));
         OnPropertyChanged(nameof(DownloadsEmptyText));
+        RefreshCleanupCounts();
     }
 
     /// <summary>
@@ -452,22 +455,26 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// record their Nexus file, that decides; otherwise a newer download of the same mod that is
     /// installed and shares one of its folders does.
     /// </summary>
-    private bool IsSuperseded(PendingDownloadItemViewModel item, InstalledModsSnapshot installed)
+    private bool IsSuperseded(PendingDownloadItemViewModel item, InstalledModsSnapshot installed) => NewerInstalledFileIds(item, installed).Count > 0;
+
+    /// <summary>The newer Nexus files of this mod installed in this download's place (what makes it superseded); empty when none is.</summary>
+    private List<int> NewerInstalledFileIds(PendingDownloadItemViewModel item, InstalledModsSnapshot installed)
     {
         if (item.IsCatalog || item.ModId <= 0 || item.ActivatedItems.Count == 0)
         {
-            return false;
+            return [];
         }
 
         var recorded = item.PresentItems.Select(part => RecordedNexusFileId(part, item.ModId, installed)).OfType<int>().ToList();
         if (recorded.Count > 0)
         {
-            return recorded.Any(fileId => fileId > item.FileId);
+            return [.. recorded.Where(fileId => fileId > item.FileId).Distinct()];
         }
 
-        return PendingDownloads.Any(other => !ReferenceEquals(other, item) && !other.IsCatalog
+        return [.. PendingDownloads.Where(other => !ReferenceEquals(other, item) && !other.IsCatalog
             && other.ModId == item.ModId && other.FileId > item.FileId && other.IsInstalled
-            && other.ActivatedItems.Any(part => item.ActivatedItems.Any(mine => mine.Kind == part.Kind && string.Equals(mine.FolderName, part.FolderName, StringComparison.OrdinalIgnoreCase))));
+            && other.ActivatedItems.Any(part => item.ActivatedItems.Any(mine => mine.Kind == part.Kind && string.Equals(mine.FolderName, part.FolderName, StringComparison.OrdinalIgnoreCase))))
+            .Select(other => other.FileId).Distinct()];
     }
 
     /// <summary>The Nexus file the installed copy in this folder records, when it is linked to <paramref name="nexusModId"/>; null otherwise.</summary>

@@ -181,7 +181,10 @@ public sealed partial class DownloadsViewModel
     {
         if (!item.IsCatalog)
         {
-            await RecordNexusFileAsync(item.ModId, item.FileId, items);
+            if (await RecordNexusFileAsync(item.ModId, item.FileId, items) is { } fileVersion)
+            {
+                RecordFileVersion(item, fileVersion);
+            }
         }
 
         MarkActivated(item, items, requirements);

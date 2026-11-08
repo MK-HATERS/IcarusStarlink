@@ -77,6 +77,15 @@
                     Content="{Binding SelectedPendingDownloadCount}" ContentStringFormat="Discard selected ({0})"
                     Visibility="{Binding CanDiscardSelected, Converter={StaticResource BoolToVisibilityConverter}}"
                     ToolTip="Delete the downloaded files of the selected rows (installed mods stay; you're asked first if any are installed)"/>
+            <!-- Clean-up, each shown only when there's something to delete; both ask first. -->
+            <Button DockPanel.Dock="Right" Margin="0,0,12,0" Command="{Binding RemoveUnusedFilesCommand}"
+                    Content="{Binding RemoveUnusedFilesLabel}"
+                    Visibility="{Binding HasUnusedFiles, Converter={StaticResource BoolToVisibilityConverter}}"
+                    ToolTip="Delete files in Pending_Downloads that no download in this list points at (you're asked first)"/>
+            <Button DockPanel.Dock="Right" Margin="0,0,12,0" Command="{Binding DiscardOlderVersionsCommand}"
+                    Content="{Binding DiscardOlderVersionsLabel}"
+                    Visibility="{Binding HasOlderVersionFiles, Converter={StaticResource BoolToVisibilityConverter}}"
+                    ToolTip="Delete the downloaded files of older versions of mods you've updated (the newer versions stay; you're asked first)"/>
             <!-- Only while something is downloading: stops every download in progress (an install
                  already under way finishes — cutting it off could leave a mod half-copied). -->
             <Button DockPanel.Dock="Right" Margin="0,0,12,0" Content="Cancel downloads"
@@ -100,6 +109,8 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
+                <!-- The Nexus file's own version; blank when it isn't known (a Database download, or an old one never installed). -->
+                <DataGridTextColumn Header="Version" Binding="{Binding FileVersion}" Width="Auto" MinWidth="70" ElementStyle="{StaticResource CenteredCellTextStyle}"/>
                 <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="Auto" MinWidth="80" ElementStyle="{StaticResource CenteredCellTextStyle}"/>
                 <DataGridTextColumn Header="Contains" Binding="{Binding PartsSummary}" Width="Auto" MinWidth="100" ElementStyle="{StaticResource CenteredCellTextStyle}"/>
                 <DataGridTemplateColumn Header="Status" Width="Auto" MinWidth="110">

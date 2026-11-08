@@ -156,7 +156,7 @@ public sealed partial class DownloadsViewModel
                 file = chosen;
             }
 
-            await FetchAndDownloadAsync($"nxm://{NxmHandlerCommand.IcarusDomain}/mods/{nexusModId}/files/{file.FileId}", displayName);
+            await FetchAndDownloadAsync($"nxm://{NxmHandlerCommand.IcarusDomain}/mods/{nexusModId}/files/{file.FileId}", displayName, file.Version);
         }
         catch (NexusRateLimitedException ex)
         {
@@ -192,7 +192,8 @@ public sealed partial class DownloadsViewModel
     /// point for a real nxm:// link handed off from the OS protocol handler (App.xaml.cs's
     /// HandleNxmUrl) — its only real caller.
     /// </summary>
-    public async Task FetchAndDownloadAsync(string nxmUrlText, string? displayName = null)
+    /// <param name="fileVersion">The Nexus file's version when the caller already looked the file up; recorded on the download.</param>
+    public async Task FetchAndDownloadAsync(string nxmUrlText, string? displayName = null, string? fileVersion = null)
     {
         NxmUrl nxmUrl;
         try
@@ -289,6 +290,7 @@ public sealed partial class DownloadsViewModel
                 FileName = fileName,
                 LocalFilePath = localPath,
                 DownloadedAtUtc = DateTimeOffset.UtcNow,
+                FileVersion = string.IsNullOrWhiteSpace(fileVersion) ? null : fileVersion,
             }));
             ReloadPendingDownloads();
             PendingDownloadStatusMessage = $"Downloaded '{fileName}' — importing…";
@@ -405,8 +407,9 @@ public sealed partial class DownloadsViewModel
     /// version, so update checks follow THIS file (one of several variants, perhaps) rather than
     /// the mod's headline version. The file ID is always known here; the version is best-effort
     /// (no key, or Nexus unreachable, leaves it unknown and the check falls back to the mod).
+    /// Returns that version, or null when it isn't known.
     /// </summary>
-    private async Task RecordNexusFileAsync(int modId, int fileId, IReadOnlyList<PendingDownloadActivatedItem> activatedItems)
+    private async Task<string?> RecordNexusFileAsync(int modId, int fileId, IReadOnlyList<PendingDownloadActivatedItem> activatedItems)
     {
         string? fileVersion = null;
         if (_credentialStore.Read(CredentialTargets.NexusApiKey) is { } apiKey)
@@ -446,6 +449,8 @@ public sealed partial class DownloadsViewModel
                 _activityLog.Log($"Couldn't record which Nexus file '{activated.FolderName}' came from: {ex.Message}", ActivityEntryKind.Warning);
             }
         }
+
+        return fileVersion;
     }
 
     /// <summary>

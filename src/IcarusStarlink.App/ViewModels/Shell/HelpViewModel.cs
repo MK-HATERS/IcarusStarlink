@@ -237,6 +237,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - With a free (not Premium) Nexus account, **Update** opens the file's page on Nexus: click **Mod Manager Download** there and Starlink installs it (Nexus lets only Premium accounts download from inside an app).
             - Mod authors: `IcarusStarlink.exe --import <zip or folder>` installs your build without asking when it is on this PC; a build on a network share or mapped network drive asks first.
             - If a download's file was deleted from Pending_Downloads, **Reinstall** says so: download it again, or **Discard** the row.
+            - The **Version** column shows each Nexus file's own version. **Discard older versions** deletes the files of downloads a newer version of the same file has replaced (the newer one stays installed). **Remove unused files** deletes files in Pending_Downloads that no download in the list points at. Both ask first and say how many files and how much space. Half-finished downloads (.part files) older than a day are cleared out when you open the page.
             - If a download can't be installed automatically, see "When an install goes wrong".
             """),
 

@@ -37,6 +37,9 @@ public sealed class PendingDownloadEntry
     /// <summary>The author as the source listed it (a catalog entry's Author), so a pak installed from this file isn't "Unknown"; null for Nexus downloads and older records.</summary>
     public string? Author { get; set; }
 
+    /// <summary>The Nexus file's own version ("3.1") as Nexus lists it; null when not known (a catalog download, or a record written before this was kept that no installed copy has filled in yet).</summary>
+    public string? FileVersion { get; set; }
+
     public bool IsCatalog => string.Equals(Source, DatabaseSource, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>A deterministic positive int from a catalog entry ID (FNV-1a), used as FileId so catalog downloads key into the same store as Nexus ones.</summary>

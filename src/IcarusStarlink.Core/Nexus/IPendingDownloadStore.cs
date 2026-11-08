@@ -19,6 +19,15 @@ public interface IPendingDownloadStore
         }
     }
 
+    /// <summary>Records the Nexus file's version on a download. The default sets it in memory only.</summary>
+    void SetFileVersion(int modId, int fileId, string fileVersion)
+    {
+        if (Entries.FirstOrDefault(e => e.ModId == modId && e.FileId == fileId) is { } entry)
+        {
+            entry.FileVersion = fileVersion;
+        }
+    }
+
     /// <summary>Records every item an activation produced, without removing the entry (the first item becomes the legacy primary pair; none resets it to never-activated), plus the README requirements found alongside.</summary>
     void SetActivation(int modId, int fileId, IReadOnlyList<PendingDownloadActivatedItem> items, IReadOnlyList<string> requirements);
 }

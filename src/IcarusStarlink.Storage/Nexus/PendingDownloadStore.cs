@@ -61,6 +61,18 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
         Save();
     }
 
+    public void SetFileVersion(int modId, int fileId, string fileVersion)
+    {
+        var entry = _entries.FirstOrDefault(e => e.ModId == modId && e.FileId == fileId);
+        if (entry is null || entry.FileVersion == fileVersion)
+        {
+            return;
+        }
+
+        entry.FileVersion = fileVersion;
+        Save();
+    }
+
     private void Save()
     {
         JsonFileStore.KeepUnreadableOriginal(_filePath, ref _loadProblem, _logger);
