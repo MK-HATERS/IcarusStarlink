@@ -223,6 +223,34 @@ public sealed partial class DownloadsViewModelTests : IDisposable
     }
 
     /// <summary>
+    /// A program inside a zip inside the download is found when the inner zip is unpacked, and
+    /// the player is warned once, not once per level.
+    /// </summary>
+    [Fact]
+    public async Task Activate_ProgramInsideANestedZip_WarnsExactlyOnce()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        var inner = new MemoryStream();
+        using (var innerArchive = new ZipArchive(inner, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            WriteEntry(innerArchive, "MyMod/Scripts/main.lua", "print('hi')");
+            WriteEntry(innerArchive, "MyMod/Setup.exe", "MZ");
+        }
+
+        var item = harness.AddDownload("MyMod 1.0.zip", archive =>
+        {
+            using var stream = archive.CreateEntry("MyMod.zip").Open();
+            stream.Write(inner.ToArray());
+        });
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        Assert.Contains("MyMod", harness.Ue4ss.GetAll());
+        Assert.Single(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("Setup.exe"));
+    }
+
+    /// <summary>
     /// A mod author's own build ("--import build.zip") replaces the installed
     /// Nexus copy, both halves, in place (no "_2"), backed up, and keeps the Nexus link.
     /// </summary>

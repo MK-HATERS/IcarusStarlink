@@ -85,7 +85,7 @@ public static class ModLints
         [".exe", ".msi", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".scr", ".lnk"], StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Programs or scripts in a download: an installer the player doesn't need, or something to
+    /// Programs or scripts in a mod (a download or a local import): an installer the player doesn't need, or something to
     /// be wary of. Reported, not refused. The text is true whether or not the file was copied
     /// with the mod (it is only when it sits inside a mod folder), so it doesn't say either way.
     /// </summary>
@@ -102,7 +102,7 @@ public static class ModLints
         }
 
         var listed = string.Join(", ", names.Take(3).Select(n => $"'{n}'")) + (names.Count > 3 ? $" and {names.Count - 3} more" : "");
-        return $"This download has programs or scripts in it ({listed}). Icarus mods don't need them, and Starlink never runs them. Don't open them unless you trust where the mod came from.";
+        return $"This mod has programs or scripts in it ({listed}). Icarus mods don't need them, and Starlink never runs them. Don't open them unless you trust where the mod came from.";
     }
 
     /// <summary>
