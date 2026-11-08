@@ -1,3 +1,4 @@
+using System.IO;
 using IcarusStarlink.App.Tests.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Catalog.AppUpdate;
@@ -133,6 +134,24 @@ public sealed class AppUpdateViewModelTests
 
         Assert.Equal("Cancelling…", viewModel.ProgressText);
         Assert.False(await run);
+    }
+
+    /// <summary>
+    /// Each update downloads and unpacks into its own %TEMP% work folder (about 250 MB). A failed
+    /// or cancelled update left it there until the next update, months later.
+    /// </summary>
+    [Fact]
+    public async Task AFailedUpdate_DeletesItsWorkFolder()
+    {
+        var gitHub = new FakeGitHubUpdates();
+        var release = new AppUpdateRelease("3.3.0", "", GitHubZip);
+        var viewModel = new AppUpdateViewModel(release, gitHub, new FakeStarlinkNexus(), nexusApiKey: null,
+            () => "test: stop before the updater starts", skipOldExe: false, _ => { });
+
+        Assert.False(await viewModel.RunAsync());
+
+        var workFolder = Path.GetDirectoryName(Assert.Single(gitHub.Destinations))!;
+        Assert.False(Directory.Exists(workFolder), $"the failed update's work folder is still there: {workFolder}");
     }
 
     /// <summary>A Nexus Premium update whose download link Nexus refuses (a quarantined file, say).</summary>

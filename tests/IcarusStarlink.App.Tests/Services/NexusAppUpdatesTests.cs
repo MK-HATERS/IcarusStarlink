@@ -57,6 +57,9 @@ internal sealed class FakeGitHubUpdates : IAppUpdateClient
 {
     public List<IReadOnlyList<string>> Downloads { get; } = [];
 
+    /// <summary>Where each download was asked to go (the update's work folder holds it).</summary>
+    public List<string> Destinations { get; } = [];
+
     /// <summary>The checksum GetReleaseAsync hands back for any version (null: GitHub has none or can't be reached).</summary>
     public string? ReleaseDigest { get; init; }
 
@@ -72,6 +75,7 @@ internal sealed class FakeGitHubUpdates : IAppUpdateClient
         CancellationToken cancellationToken = default)
     {
         Downloads.Add(urls);
+        Destinations.Add(destinationPath);
         throw new System.Net.Http.HttpRequestException("no network in tests");
     }
 }

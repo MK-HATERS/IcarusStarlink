@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using IcarusStarlink.Catalog.AppUpdate;
 using IcarusStarlink.Core;
+using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.App.Services;
 
@@ -31,20 +32,27 @@ public static class AppUpdateInstaller
         {
             foreach (var stale in Directory.GetDirectories(updateWorkRoot, "AppUpdate_*"))
             {
-                try
-                {
-                    Directory.Delete(stale, recursive: true);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    // Best-effort; retried on the next update.
-                }
+                // Best effort; tried again on the next update and by the startup sweep.
+                Directories.TryDelete(stale);
             }
         }
 
         var workDirectory = Path.Combine(updateWorkRoot, $"AppUpdate_{Guid.NewGuid():N}");
         Directory.CreateDirectory(workDirectory);
         return workDirectory;
+    }
+
+    /// <summary>
+    /// Deletes one update's work folder (about 250 MB: the zip and the unpacked build) once that
+    /// update stopped before the updater started. Best effort; nothing for an empty or missing path.
+    /// Never call it after the updater started: it runs from this folder and copies from it.
+    /// </summary>
+    public static void TryDeleteWorkFolder(string workFolder)
+    {
+        if (!string.IsNullOrEmpty(workFolder))
+        {
+            Directories.TryDelete(workFolder);
+        }
     }
 
     /// <summary>

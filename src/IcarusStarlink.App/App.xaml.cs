@@ -338,6 +338,11 @@ public partial class App : Application
                         _host.Services.GetRequiredService<IActivityLog>(), existingInstall);
                 });
 
+                // Scratch folders a crash or kill left in %TEMP% (a Rebuild_* copy of every queued
+                // mod, an update's 250 MB): day-old ones only, so nothing still in use is touched.
+                WhileRunning(System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+                    () => _ = Task.Run(() => TempScratchSweeper.Sweep(Path.GetTempPath(), DateTime.UtcNow, TimeSpan.FromDays(1))));
+
                 // Find the broken mod: built now so Merge & Install's menu entry reaches it, and a
                 // search the app closed in the middle of offers to put the mods back.
                 WhileRunning(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () =>

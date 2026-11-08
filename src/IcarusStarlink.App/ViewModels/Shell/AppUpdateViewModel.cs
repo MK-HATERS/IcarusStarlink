@@ -174,6 +174,9 @@ public sealed partial class AppUpdateViewModel : ObservableObject
     {
         var token = _cancel.Token;
         var workFolder = "";
+
+        // The updater runs from the work folder and copies from it: from then on it must stay.
+        var updaterStarted = false;
         StartOver();
         try
         {
@@ -226,6 +229,7 @@ public sealed partial class AppUpdateViewModel : ObservableObject
                 Step(step).State = "active";
                 ProgressText = step == AppUpdateStep.Unpack ? "Unpacking…" : "Getting the updater ready…";
             }, _busyNow, _skipOldExe, token);
+            updaterStarted = problem is null;
             if (problem is not null)
             {
                 Fail(problem);
@@ -261,6 +265,14 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         {
             Current = null;
             _gettingNexusDownload = false;
+
+            // Stopped before the hand-over (failed or cancelled): its zip and unpacked build used
+            // to stay in %TEMP% until the next update. Last, so a Try again pressed meanwhile
+            // (it gets a folder of its own) isn't undone by the lines above.
+            if (!updaterStarted && workFolder.Length > 0)
+            {
+                await Task.Run(() => AppUpdateInstaller.TryDeleteWorkFolder(workFolder));
+            }
         }
     }
 
