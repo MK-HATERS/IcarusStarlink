@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Saves;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Steam;
@@ -593,11 +594,12 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
                 File.Move(to, from, overwrite: true);
             }
 
-            TryDeleteFolder(asideFolder);
+            Directories.TryDelete(asideFolder);
             throw;
         }
 
-        TryDeleteFolder(asideFolder);
+        // A leftover aside folder is inert (ListSlots only lists all-digit folder names).
+        Directories.TryDelete(asideFolder);
         TouchRestoredFiles(swappedIn);
     }
 
@@ -632,24 +634,6 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         }
         catch (IOException)
         {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
-    }
-
-    private static void TryDeleteFolder(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path))
-            {
-                Directory.Delete(path, recursive: true);
-            }
-        }
-        catch (IOException)
-        {
-            // A leftover aside folder is inert (ListSlots only lists all-digit folder names).
         }
         catch (UnauthorizedAccessException)
         {
