@@ -122,12 +122,12 @@ public sealed partial class LocalServerViewModelTests
         vm.AddExistingServerCommand.Execute(null);
         File.WriteAllText(banPath, "76561198000000001\r\n76561198000000002\r\n"); // the server banned someone
 
-        vm.AdminWhitelistText = "76561198851388131\n";
+        vm.AdminWhitelistText = "76561198000000001\n";
         vm.SaveAccessListsCommand.Execute(null);
 
         Assert.Contains("76561198000000002", File.ReadAllText(banPath));
         Assert.Contains("76561198000000002", vm.BanListText);
-        Assert.Equal("76561198851388131\r\n", File.ReadAllText(DedicatedServerLayout.AdminWhitelistPath(_install, null)));
+        Assert.Equal("76561198000000001\r\n", File.ReadAllText(DedicatedServerLayout.AdminWhitelistPath(_install, null)));
         Assert.Empty(dialogs.Messages);
     }
 

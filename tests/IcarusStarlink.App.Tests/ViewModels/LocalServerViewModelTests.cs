@@ -959,15 +959,15 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     {
         var (vm, _, _, _) = Build(pick: _install);
         vm.AddExistingServerCommand.Execute(null);
-        vm.AdminWhitelistText = "76561198851388131\nnot-an-id\n";
+        vm.AdminWhitelistText = "76561198000000001\nnot-an-id\n";
 
         vm.SaveAccessListsCommand.Execute(null);
         Assert.Contains("not-an-id", vm.StatusMessage);
         Assert.False(File.Exists(DedicatedServerLayout.AdminWhitelistPath(_install, null)));
 
-        vm.AdminWhitelistText = "76561198851388131\n";
+        vm.AdminWhitelistText = "76561198000000001\n";
         vm.SaveAccessListsCommand.Execute(null);
-        Assert.Equal("76561198851388131\r\n", File.ReadAllText(DedicatedServerLayout.AdminWhitelistPath(_install, null)));
+        Assert.Equal("76561198000000001\r\n", File.ReadAllText(DedicatedServerLayout.AdminWhitelistPath(_install, null)));
     }
 
     /// <summary>Real log lines from an Icarus dedicated server (password replaced): the panel shows who is online and what happened, and the join password never reaches the log view.</summary>
@@ -979,15 +979,15 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         var log = DedicatedServerLayout.LogPath(_install, null, null);
         Directory.CreateDirectory(Path.GetDirectoryName(log)!);
         File.WriteAllText(log, string.Join("\r\n",
-            "[2026.08.12-17.31.50:975][102]LogNet: Login request: ?password=hunter2?Name=MK-HATERS userId: Steam:UNKNOWN [0x1100001351D72E3] platform: Steam",
-            "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: MK-HATERS",
+            "[2026.08.12-17.31.50:975][102]LogNet: Login request: ?password=hunter2?Name=TestPlayer userId: Steam:UNKNOWN [0x1100001025E4C01] platform: Steam",
+            "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: TestPlayer",
             "[2026.08.12-17.32.01:410][337]LogLocalSessionSubsystem: Display: SetActiveProspectInfo - ProspectID: Hard Elysium JULY | ProspectDTKey: OpenWorld_Elysium") + "\r\n");
 
         vm.Tick();
 
-        Assert.Equal("MK-HATERS", Assert.Single(vm.OnlinePlayers).Name);
+        Assert.Equal("TestPlayer", Assert.Single(vm.OnlinePlayers).Name);
         Assert.Equal("Hard Elysium JULY", vm.CurrentProspect);
-        Assert.Contains(vm.Events, e => e.EndsWith("MK-HATERS joined"));
+        Assert.Contains(vm.Events, e => e.EndsWith("TestPlayer joined"));
         Assert.DoesNotContain(vm.LogLines, l => l.Contains("hunter2"));
         vm.HideNoise = false;
         Assert.Contains(vm.LogLines, l => l.Contains("password=***"));
@@ -999,14 +999,14 @@ public sealed partial class LocalServerViewModelTests : IDisposable
     {
         var log = DedicatedServerLayout.LogPath(_install, null, null);
         Directory.CreateDirectory(Path.GetDirectoryName(log)!);
-        File.WriteAllText(log, "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: MK-HATERS\r\n");
+        File.WriteAllText(log, "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: TestPlayer\r\n");
         var (vm, _, processes, _) = Build(pick: _install);
         vm.RunWorkInline = false;
 
         vm.AddExistingServerCommand.Execute(null);
         await vm.LogLoadTask;
 
-        Assert.Equal("MK-HATERS", Assert.Single(vm.OnlinePlayers).Name);
+        Assert.Equal("TestPlayer", Assert.Single(vm.OnlinePlayers).Name);
         Assert.Single(vm.LogLines);
 
         processes.Running = new RunningServer(5, DateTime.Now);
