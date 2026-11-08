@@ -43,14 +43,21 @@ public static class Ue4ssModStart
 
     public static bool HasEnabledFile(string modsFolder, string name) => File.Exists(Path.Combine(modsFolder, name, EnabledFileName));
 
-    /// <summary>UE4SS starts it: mods.txt says 1, or its folder has enabled.txt.</summary>
-    public static bool Starts(string modsFolder, string name, Ue4ssModsTxt list) => list.IsEnabled(name) == true || HasEnabledFile(modsFolder, name);
+    /// <summary>
+    /// UE4SS starts it: a line of mods.txt starts it by UE4SS's own reading
+    /// (<see cref="Ue4ssModsTxt.StartsByList"/>: exact case, any "1" line wins), or its folder has enabled.txt.
+    /// </summary>
+    public static bool Starts(string modsFolder, string name, Ue4ssModsTxt list) => list.StartsByList(name) == true || HasEnabledFile(modsFolder, name);
 
     /// <summary>Why a mod in the folder isn't started, in a few words; null when it is.</summary>
     public static string? WhyNotStarted(string modsFolder, string name, Ue4ssModsTxt list) =>
         Starts(modsFolder, name, list) ? null
-        : list.IsEnabled(name) == false ? "mods.txt switches it off (0) and it has no enabled.txt"
-        : "it has no enabled.txt and no line in mods.txt";
+        : list.StartsByList(name) switch
+        {
+            false => "mods.txt switches it off (0) and it has no enabled.txt",
+            null when name.Contains(' ') || name.Contains('.') => "mods.txt can't name a folder with a space or a dot, so it needs enabled.txt",
+            _ => "it has no enabled.txt and no line in mods.txt",
+        };
 
     /// <summary>Makes UE4SS start the mod at the next game start: an empty enabled.txt in its folder (which wins over a 0 in mods.txt).</summary>
     public static void SwitchOn(string modsFolder, string name)

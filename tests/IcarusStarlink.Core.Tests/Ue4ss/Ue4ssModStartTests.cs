@@ -45,6 +45,33 @@ public sealed class Ue4ssModStartTests : IDisposable
     }
 
     [Fact]
+    public void ALaterOneLine_StartsIt_EvenAfterAZero()
+    {
+        Mod("M", enabledFile: false);
+
+        Assert.True(Ue4ssModStart.Starts(_mods, "M", Ue4ssModsTxt.Parse("M : 0\r\nM : 1")));
+    }
+
+    [Fact]
+    public void ALineInOtherCase_DoesNotStartIt()
+    {
+        Mod("M", enabledFile: false);
+
+        Assert.False(Ue4ssModStart.Starts(_mods, "M", Ue4ssModsTxt.Parse("m : 1")));
+    }
+
+    [Fact]
+    public void AFolderWithASpace_CantBeStartedByModsTxt_AndTheReasonSaysEnabledTxt()
+    {
+        Mod("My Mod", enabledFile: false);
+        var list = Ue4ssModsTxt.Parse("My Mod : 1");
+
+        Assert.False(Ue4ssModStart.Starts(_mods, "My Mod", list));
+        Assert.Contains("enabled.txt", Ue4ssModStart.WhyNotStarted(_mods, "My Mod", list));
+        Assert.Contains("space", Ue4ssModStart.WhyNotStarted(_mods, "My Mod", list));
+    }
+
+    [Fact]
     public void SwitchOn_WritesEnabledTxt_WhichBeatsAZeroInModsTxt()
     {
         Mod("M", enabledFile: false);

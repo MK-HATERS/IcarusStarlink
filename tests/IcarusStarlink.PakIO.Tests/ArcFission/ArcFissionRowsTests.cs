@@ -111,6 +111,19 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.StartsWith("ArcFission rows ", scan.ManifestName);
     }
 
+    [Theory]
+    [InlineData("Mod : 0\r\nMod : 1\r\n", true)]
+    [InlineData("mod : 1\r\n", false)]
+    public void Scan_TakesAModTurnedOnInModsTxt_ByUe4sssOwnRule(string modsTxt, bool scanned)
+    {
+        Mod("Mod", "Mod", Rows(("Crafting/D_ProcessorRecipes.json", "Mod_Row", 1)), enabled: false);
+        File.WriteAllText(Path.Combine(ModsFolder, "mods.txt"), modsTxt);
+
+        var scan = ArcFissionRows.Scan(Content)!;
+
+        Assert.Equal(scanned, scan.Mods.Any(m => m.Id == "Mod"));
+    }
+
     [Fact]
     public void Scan_WithoutTheLibraryTurnedOn_IsNothing()
     {

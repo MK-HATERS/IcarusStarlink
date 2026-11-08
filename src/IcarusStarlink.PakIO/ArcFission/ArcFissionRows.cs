@@ -76,7 +76,7 @@ public static partial class ArcFissionRows
             {
                 var folderName = Path.GetFileName(folder);
                 var card = Path.Combine(folder, "ArcFission", "mod.lua");
-                if (!File.Exists(card) || !(modsTxt.IsEnabled(folderName) == true || File.Exists(Path.Combine(folder, "enabled.txt"))))
+                if (!File.Exists(card) || !Ue4ssModStart.Starts(modsFolder, folderName, modsTxt))
                 {
                     continue;
                 }

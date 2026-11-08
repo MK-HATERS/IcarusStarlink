@@ -96,7 +96,7 @@ public static class InstallManifestNames
                 var name = Path.GetFileName(folder);
                 var letters = new string([.. name.Where(char.IsLetterOrDigit)]);
                 if (letters.StartsWith(ArcFissionLibraryFolder, StringComparison.OrdinalIgnoreCase)
-                    && (modsTxt.IsEnabled(name) == true || File.Exists(Path.Combine(folder, "enabled.txt"))))
+                    && Ue4ssModStart.Starts(modsFolder, name, modsTxt))
                 {
                     found.Add(name);
                 }

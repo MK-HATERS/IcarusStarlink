@@ -416,6 +416,11 @@ public class InstallServiceTests : IDisposable
         File.WriteAllText(Path.Combine(modsFolder, "mods.txt"), "ArcFissionLibrary : 0\r\n");
         Assert.False(InstallManifestNames.IsArcFissionLibraryActive(_fakeContentPath));
 
+        // UE4SS starts a mod from any of its "1" lines, so an earlier 0 doesn't keep it off.
+        File.WriteAllText(Path.Combine(modsFolder, "mods.txt"), "ArcFissionLibrary : 0\r\nArcFissionLibrary : 1\r\n");
+        Assert.True(InstallManifestNames.IsArcFissionLibraryActive(_fakeContentPath));
+
+        File.WriteAllText(Path.Combine(modsFolder, "mods.txt"), "ArcFissionLibrary : 0\r\n");
         File.WriteAllText(Path.Combine(modsFolder, "ArcFissionLibrary", "enabled.txt"), "");
         Assert.True(InstallManifestNames.IsArcFissionLibraryActive(_fakeContentPath));
         Assert.Null(InstallManifestNames.MisnamedArcFissionLibraryFolder(_fakeContentPath));
