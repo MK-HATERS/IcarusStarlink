@@ -430,6 +430,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         ReloadItems();
         SelectedItem = Items.FirstOrDefault();
         OnPropertyChanged(nameof(WindowTitle));
+        RaiseModDetailsChanged();
     }
 
     /// <summary>The filter box (debounced): rebuilds the list and keeps the selected item if it still shows.</summary>

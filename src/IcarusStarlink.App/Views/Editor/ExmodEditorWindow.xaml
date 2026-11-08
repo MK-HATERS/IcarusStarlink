@@ -46,23 +46,64 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Style="{StaticResource FieldLabelStyle}">
+            <!-- The mod's own name, author, version, description and links (what Library and Nexus
+                 show). Folded: set once before a release, not every edit. -->
+            <Expander Grid.Row="0" Margin="0,0,0,8" IsExpanded="False" AutomationProperties.Name="Mod details">
+                <Expander.Header>
+                    <DockPanel LastChildFill="False">
+                        <TextBlock DockPanel.Dock="Left" Text="Mod details" Style="{StaticResource ExpanderHeaderTitleStyle}"/>
+                        <TextBlock DockPanel.Dock="Left" Text="name, author, version, description" Style="{StaticResource ExpanderHeaderStateStyle}"/>
+                    </DockPanel>
+                </Expander.Header>
+                <ScrollViewer MaxHeight="340" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="0,4,0,0">
+                        <TextBlock Text="{Binding ModDetailsWarning}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,6" Foreground="{DynamicResource WarningBrush}"
+                                   Visibility="{Binding ModDetailsWarning, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <TextBlock Text="Name" Style="{StaticResource FieldLabelStyle}"/>
+                        <TextBox Text="{Binding ModName, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0" AutomationProperties.Name="Mod name"
+                                 ToolTip="The mod's name, as Library and Merge &amp; Install show it. Its file name stays the same."/>
+                        <TextBlock Text="{Binding ModNameNote}" TextWrapping="Wrap" FontSize="12" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   Visibility="{Binding ModNameNote, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        <TextBlock Text="Author" Style="{StaticResource FieldLabelStyle}" Margin="0,6,0,0"/>
+                        <TextBox Text="{Binding ModAuthor, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0" AutomationProperties.Name="Mod author"
+                                 ToolTip="Who made the mod"/>
+                        <TextBlock Text="Version" Style="{StaticResource FieldLabelStyle}" Margin="0,6,0,0"/>
+                        <TextBox Text="{Binding ModVersion, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0" AutomationProperties.Name="Mod version"
+                                 ToolTip="The mod's version, e.g. 1.2. Use the same one as on its Nexus page."/>
+                        <TextBlock Text="Description" Style="{StaticResource FieldLabelStyle}" Margin="0,6,0,0"/>
+                        <TextBox Text="{Binding ModDescription, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0" AutomationProperties.Name="Mod description"
+                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" MaxHeight="140" VerticalScrollBarVisibility="Auto"
+                                 ToolTip="What the mod does, in a few lines. Library shows it in the mod's details."/>
+                        <TextBlock Text="Picture link" Style="{StaticResource FieldLabelStyle}" Margin="0,6,0,0"/>
+                        <TextBox Text="{Binding ModImageUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0" AutomationProperties.Name="Mod picture link"
+                                 ToolTip="Optional: a web link to a picture of the mod"/>
+                        <TextBlock Text="Readme link" Style="{StaticResource FieldLabelStyle}" Margin="0,6,0,0"/>
+                        <TextBox Text="{Binding ModReadmeUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0" AutomationProperties.Name="Mod readme link"
+                                 ToolTip="Optional: a web link to the mod's page or readme"/>
+                        <TextBlock Text="Written into the mod when you click Save." TextWrapping="Wrap" FontSize="11" Margin="0,6,0,0"
+                                   Foreground="{DynamicResource FaintForegroundBrush}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Expander>
+
+            <TextBlock Grid.Row="1" Style="{StaticResource FieldLabelStyle}">
                 <Run Text="THIS MOD'S ITEMS ("/><Run Text="{Binding Items.Count, Mode=OneWay}"/><Run Text=")"/>
             </TextBlock>
 
-            <Grid Grid.Row="1" Margin="0,4,0,0">
+            <Grid Grid.Row="2" Margin="0,4,0,0">
                 <TextBox x:Name="FilterBox" Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="Filter by in-game name, row or file (Ctrl+F)"/>
                 <TextBlock Text="Search this mod's items (Ctrl+F)" Style="{StaticResource PlaceholderTextStyle}"
                            Visibility="{Binding FilterText, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
             </Grid>
 
-            <Border Grid.Row="2" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,4,0,0">
+            <Border Grid.Row="3" Background="{DynamicResource CardBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,4,0,0">
                 <ListBox x:Name="ItemsListBox" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}"
                          SelectionMode="Extended" SelectionChanged="ItemsListBox_SelectionChanged"
                          VirtualizingPanel.IsVirtualizingWhenGrouping="True" VirtualizingPanel.VirtualizationMode="Recycling"
@@ -105,10 +146,10 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
             </Border>
-            <TextBlock Grid.Row="2" Text="{Binding ItemsEmptyText}" Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
+            <TextBlock Grid.Row="3" Text="{Binding ItemsEmptyText}" Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
                        Visibility="{Binding ItemsEmptyText, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-            <WrapPanel Grid.Row="3" Margin="0,8,0,0">
+            <WrapPanel Grid.Row="4" Margin="0,8,0,0">
                 <Button Content="New item from a game item…" Command="{Binding NewItemFromGameCommand}" Margin="0,0,8,4"
                         Style="{StaticResource PrimaryButtonStyle}"
                         ToolTip="Make a brand-new item that starts as a copy of a game item: its own name, icon and stats, and a recipe or workshop purchase so players can get it"/>
@@ -136,7 +177,7 @@
 
             <!-- Rare and raw: typing a file and row name by hand. Folded away; the buttons above are
                  the usual ways in. -->
-            <Expander Grid.Row="4" Margin="0,4,0,0" IsExpanded="False" AutomationProperties.Name="Add an empty row">
+            <Expander Grid.Row="5" Margin="0,4,0,0" IsExpanded="False" AutomationProperties.Name="Add an empty row">
                 <Expander.Header>
                     <DockPanel LastChildFill="False">
                         <TextBlock DockPanel.Dock="Left" Text="Add an empty row" Style="{StaticResource ExpanderHeaderTitleStyle}"/>

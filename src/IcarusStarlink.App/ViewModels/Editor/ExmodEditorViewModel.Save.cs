@@ -109,6 +109,13 @@ public sealed partial class ExmodEditorViewModel
             return;
         }
 
+        // Library, Merge and the window title all show the mod by this name.
+        if (string.IsNullOrWhiteSpace(_package.Name))
+        {
+            StatusMessage = "Not saved: the mod needs a name. Type one in Mod details, then Save.";
+            return;
+        }
+
         // The Editor page (or anything else) may have saved into this mod since it was opened here:
         // overwriting that silently would lose it. The first Save says so; a second one overwrites.
         void RefuseChangedElsewhere()
