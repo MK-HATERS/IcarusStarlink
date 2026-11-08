@@ -44,6 +44,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IGameDataFreshness _gameDataFreshness;
     private readonly string _stagedUe4ssDirectory;
     private readonly string? _gameCrashesFolder;
+    private readonly ModSetupReport? _modSetupReport;
     private readonly string _tempDirectory;
 
     /// <summary>Resolved lazily (not injected directly) purely to avoid forcing Merge &amp; Install's own construction — with its Library scan and catalog wiring — every time Settings is opened.</summary>
@@ -68,8 +69,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         IDialogService dialogService, IGameProcessChecker gameProcessChecker,
         string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath,
         string stagedUe4ssDirectory, IGameDataFreshness? gameDataFreshness = null, string? gameCrashesFolder = null,
-        string? tempDirectory = null)
+        string? tempDirectory = null, ModSetupReport? modSetupReport = null)
     {
+        // Null: the diagnostics zip's mod-setup.txt says the setup isn't available.
+        _modSetupReport = modSetupReport;
         // Null: %TEMP%, where the updater leaves its note when the Logs folder can't be written.
         _tempDirectory = tempDirectory ?? Path.GetTempPath();
         // Null: the game's own crash folder (%LocalAppData%\Icarus\Saved\Crashes).

@@ -62,6 +62,69 @@ public static class GameSessionHealthCheck
         return crashes.OrderByDescending(c => c.OccurredAtUtc).ToList();
     }
 
+    /// <summary>
+    /// What a bug report needs from one game crash, and nothing else: the CrashContext also holds
+    /// MachineId, LoginId and EpicAccountId (ids tied to the player), the command line and the
+    /// game's folders, none of which are read here.
+    /// </summary>
+    /// <param name="Modules">The modules in the crashed thread's stack, in order, each once ("UE4SS", "Icarus-Win64-Shipping").</param>
+    public sealed record CrashSummary(
+        string CrashId, DateTimeOffset OccurredAtUtc, string? CrashType, string ErrorMessage, string? EngineVersion,
+        int? SecondsSinceStart, string? GameStateName, IReadOnlyList<string> Modules)
+    {
+        public bool Ue4ssInStack => Modules.Any(m => m.StartsWith("UE4SS", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The newest crash in the game's crash folder (any age), or null when there is none or it can't be read.</summary>
+    /// <param name="crashesFolder">Defaults to ResolveCrashesFolder().</param>
+    public static CrashSummary? ReadLastCrash(string? crashesFolder = null)
+    {
+        crashesFolder ??= ResolveCrashesFolder();
+        if (!Directory.Exists(crashesFolder))
+        {
+            return null;
+        }
+
+        var newest = Directory.EnumerateDirectories(crashesFolder)
+            .Where(d => File.Exists(Path.Combine(d, "CrashContext.runtime-xml")))
+            .Select(d => (Folder: d, CreatedUtc: Directory.GetCreationTimeUtc(d)))
+            .OrderByDescending(c => c.CreatedUtc)
+            .FirstOrDefault();
+        if (newest.Folder is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var properties = XDocument.Load(Path.Combine(newest.Folder, "CrashContext.runtime-xml"))
+                .Descendants("RuntimeProperties").FirstOrDefault();
+            string? Value(string name) => properties?.Element(name)?.Value is { Length: > 0 } v ? v.Trim() : null;
+
+            return new CrashSummary(
+                Path.GetFileName(newest.Folder),
+                new DateTimeOffset(newest.CreatedUtc, TimeSpan.Zero),
+                Value("CrashType"),
+                Value("ErrorMessage") ?? "(no error message recorded in this crash report)",
+                Value("EngineVersion"),
+                int.TryParse(Value("SecondsSinceStart"), out var seconds) ? seconds : null,
+                Value("GameStateName"),
+                StackModules(Value("PCallStack") ?? Value("CallStack")));
+        }
+        catch (Exception ex) when (ex is System.Xml.XmlException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>"wintrust 0x000001d6… + 124aa7901 UE4SS 0x00007ffb… + 2c5680" → wintrust, UE4SS.</summary>
+    private static List<string> StackModules(string? stack) =>
+        stack is null
+            ? []
+            : [.. System.Text.RegularExpressions.Regex.Matches(stack, @"(\S+)\s+0x[0-9A-Fa-f]+\s+\+\s+[0-9A-Fa-f]+")
+                .Select(m => m.Groups[1].Value)
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
+
     private static string? TryReadErrorMessage(string contextFilePath)
     {
         try

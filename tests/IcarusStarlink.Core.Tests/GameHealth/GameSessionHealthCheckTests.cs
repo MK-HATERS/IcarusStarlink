@@ -151,6 +151,67 @@ public class GameSessionHealthCheckTests : IDisposable
         }
     }
 
+    /// <summary>The CrashContext shape Icarus writes (cut down from a real one), with the ids a bug report must never carry.</summary>
+    private string MakeFullCrashFolder(string crashId, DateTime createdAtUtc, string crashedStack)
+    {
+        var crashesFolder = Path.Combine(_tempDir, "Crashes");
+        var crashDir = Path.Combine(crashesFolder, crashId);
+        Directory.CreateDirectory(crashDir);
+        File.WriteAllText(Path.Combine(crashDir, "CrashContext.runtime-xml"),
+            $"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <FGenericCrashContext>
+                <RuntimeProperties>
+                    <CrashGUID>{crashId}</CrashGUID>
+                    <CrashType>Crash</CrashType>
+                    <ErrorMessage>Unhandled Exception: EXCEPTION_ACCESS_VIOLATION 0x000001d736227901</ErrorMessage>
+                    <SecondsSinceStart>821</SecondsSinceStart>
+                    <EngineVersion>4.27.2-0+++UE4+Release-4.27</EngineVersion>
+                    <MachineId>289810A14D926B6BC48AE4A426D364FD</MachineId>
+                    <LoginId>289810a14d926b6bc48ae4a426d364fd</LoginId>
+                    <EpicAccountId>d985d944a36141fb804fdafbfee1839c</EpicAccountId>
+                    <GameStateName>BP_IcarusGameState_C</GameStateName>
+                    <PCallStack>{crashedStack}</PCallStack>
+                </RuntimeProperties>
+            </FGenericCrashContext>
+            """);
+        Directory.SetCreationTimeUtc(crashDir, createdAtUtc);
+        return crashesFolder;
+    }
+
+    [Fact]
+    public void ReadLastCrash_TakesTheNewestCrash_WithItsMessageTypeEngineAndModules()
+    {
+        MakeFullCrashFolder("Older", DateTime.UtcNow.AddDays(-2), "Icarus-Win64-Shipping 0x00007ff6a0000000 + 1427f");
+        var crashesFolder = MakeFullCrashFolder("Newest", DateTime.UtcNow.AddMinutes(-3),
+            "wintrust 0x000001d611780000 + 124aa7901 UE4SS 0x00007ffbfc300000 + 2c5680 UE4SS 0x00007ffbfc300000 + 2c5700 KERNELBASE 0x00007ffd180e0000 + 1427f");
+
+        var crash = GameSessionHealthCheck.ReadLastCrash(crashesFolder);
+
+        Assert.NotNull(crash);
+        Assert.Equal("Newest", crash.CrashId);
+        Assert.Equal("Crash", crash.CrashType);
+        Assert.Equal("Unhandled Exception: EXCEPTION_ACCESS_VIOLATION 0x000001d736227901", crash.ErrorMessage);
+        Assert.Equal("4.27.2-0+++UE4+Release-4.27", crash.EngineVersion);
+        Assert.Equal(["wintrust", "UE4SS", "KERNELBASE"], crash.Modules);
+        Assert.True(crash.Ue4ssInStack);
+    }
+
+    [Fact]
+    public void ReadLastCrash_StackWithoutUe4ss_SaysSo()
+    {
+        var crashesFolder = MakeFullCrashFolder("NoUe4ss", DateTime.UtcNow, "Icarus-Win64-Shipping 0x00007ff6a0000000 + 1427f");
+
+        var crash = GameSessionHealthCheck.ReadLastCrash(crashesFolder);
+
+        Assert.NotNull(crash);
+        Assert.False(crash.Ue4ssInStack);
+    }
+
+    [Fact]
+    public void ReadLastCrash_NoCrashesFolder_ReturnsNull() =>
+        Assert.Null(GameSessionHealthCheck.ReadLastCrash(Path.Combine(_tempDir, "DoesNotExist")));
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))

@@ -255,4 +255,130 @@ public class DiagnosticsExporterTests : IDisposable
         using var archive = ZipFile.OpenRead(_outputZipPath);
         Assert.Contains(archive.Entries, e => e.FullName == "Logs/icarusstarlink-20260101.log");
     }
+
+    // --- Bug-report kit: mod-setup.txt, last-game-crash.txt, ue4ss-log-tail.txt ---
+
+    private static readonly string UserProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    /// <summary>A crash folder as Icarus writes one: its CrashContext (with the ids it carries) and a minidump.</summary>
+    private string MakeCrashesFolder()
+    {
+        var crashDir = Path.Combine(_tempDir, "Crashes", "UE4CC-Windows-ABC_0000");
+        Directory.CreateDirectory(crashDir);
+        File.WriteAllText(Path.Combine(crashDir, "CrashContext.runtime-xml"),
+            $"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <FGenericCrashContext>
+                <RuntimeProperties>
+                    <CrashType>Crash</CrashType>
+                    <ErrorMessage>Unhandled Exception: EXCEPTION_ACCESS_VIOLATION reading {UserProfile}\AppData\thing</ErrorMessage>
+                    <EngineVersion>4.27.2-0+++UE4+Release-4.27</EngineVersion>
+                    <CommandLine>Icarus -dx12 -SecretArg</CommandLine>
+                    <BaseDir>{UserProfile}\Games\Icarus\Binaries\Win64</BaseDir>
+                    <MachineId>289810A14D926B6BC48AE4A426D364FD</MachineId>
+                    <LoginId>289810a14d926b6bc48ae4a426d364fd</LoginId>
+                    <EpicAccountId>d985d944a36141fb804fdafbfee1839c</EpicAccountId>
+                    <PCallStack>UE4SS 0x00007ffbfc300000 + 2c5680 KERNELBASE 0x00007ffd180e0000 + 1427f</PCallStack>
+                </RuntimeProperties>
+            </FGenericCrashContext>
+            """);
+        File.WriteAllText(Path.Combine(crashDir, "UE4Minidump.dmp"), "minidump bytes");
+        return Path.Combine(_tempDir, "Crashes");
+    }
+
+    /// <summary>A Content folder whose UE4SS.log names a file under the user's own folder.</summary>
+    private string MakeContentWithUe4ssLog(int lines = 3)
+    {
+        var content = Path.Combine(_tempDir, "Icarus", "Content");
+        var loader = Path.Combine(_tempDir, "Icarus", "Binaries", "Win64", "ue4ss");
+        Directory.CreateDirectory(content);
+        Directory.CreateDirectory(loader);
+        File.WriteAllLines(Path.Combine(loader, "UE4SS.log"),
+            [.. Enumerable.Range(1, lines).Select(i => $"log line {i}"), $"Loaded mod from {UserProfile}\\Desktop\\MyMod"]);
+        return content;
+    }
+
+    private string ReadEntry(string name)
+    {
+        using var archive = ZipFile.OpenRead(_outputZipPath);
+        var entry = Assert.Single(archive.Entries, e => e.FullName == name);
+        using var reader = new StreamReader(entry.Open());
+        return reader.ReadToEnd();
+    }
+
+    [Fact]
+    public void Export_WithBugReport_AddsTheThreeEntriesWithoutIdsUserNameOrMinidump()
+    {
+        var bugReport = new DiagnosticsBugReport(
+            () => $"Library mods:\n  Better Bags 1.2 (Nexus, mod 123)\nGame: {UserProfile}\\Games\\Icarus\\Content",
+            MakeCrashesFolder(), MakeContentWithUe4ssLog());
+
+        DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath, bugReport);
+
+        var setup = ReadEntry("mod-setup.txt");
+        var crash = ReadEntry("last-game-crash.txt");
+        var log = ReadEntry("ue4ss-log-tail.txt");
+        Assert.Contains("Better Bags 1.2 (Nexus, mod 123)", setup);
+        Assert.Contains("EXCEPTION_ACCESS_VIOLATION", crash);
+        Assert.Contains("4.27.2-0+++UE4+Release-4.27", crash);
+        Assert.Contains("UE4SS in the crash stack: yes", crash);
+        Assert.Contains("log line 3", log);
+        foreach (var text in new[] { setup, crash, log })
+        {
+            Assert.DoesNotContain(UserProfile, text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("289810A14D926B6BC48AE4A426D364FD", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("d985d944a36141fb804fdafbfee1839c", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("SecretArg", text);
+        }
+
+        Assert.Contains("%USERPROFILE%", setup);
+        Assert.Contains("%USERPROFILE%", log);
+        using var archive = ZipFile.OpenRead(_outputZipPath);
+        Assert.DoesNotContain(archive.Entries, e => e.FullName.EndsWith(".dmp", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Export_WithBugReport_UsesOnlyTheEndOfALongUe4ssLog()
+    {
+        var bugReport = new DiagnosticsBugReport(null, Path.Combine(_tempDir, "NoCrashes"), MakeContentWithUe4ssLog(lines: 1000));
+
+        DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath, bugReport);
+
+        var log = ReadEntry("ue4ss-log-tail.txt").Replace("\r\n", "\n");
+        Assert.Contains("log line 1000\n", log);
+        Assert.DoesNotContain("log line 1\n", log);
+    }
+
+    [Fact]
+    public void Export_WithBugReport_NothingToFind_SaysSoInEachEntry()
+    {
+        var bugReport = new DiagnosticsBugReport(null, Path.Combine(_tempDir, "NoCrashes"), null);
+
+        DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath, bugReport);
+
+        Assert.Contains("No game crash found", ReadEntry("last-game-crash.txt"));
+        Assert.Contains("No UE4SS.log found", ReadEntry("ue4ss-log-tail.txt"));
+        Assert.Contains("not available", ReadEntry("mod-setup.txt"));
+    }
+
+    /// <summary>A failing setup reader must not sink the export: its error goes in the entry, the rest of the zip is still made.</summary>
+    [Fact]
+    public void Export_WithBugReport_SetupReaderThrows_StillExportsAndSaysWhy()
+    {
+        var bugReport = new DiagnosticsBugReport(() => throw new IOException("library locked"), Path.Combine(_tempDir, "NoCrashes"), null);
+
+        DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath, bugReport);
+
+        Assert.Contains("library locked", ReadEntry("mod-setup.txt"));
+        Assert.Contains("No game crash found", ReadEntry("last-game-crash.txt"));
+    }
+
+    [Fact]
+    public void Export_WithoutBugReport_AddsNoKitEntries()
+    {
+        DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath);
+
+        using var archive = ZipFile.OpenRead(_outputZipPath);
+        Assert.DoesNotContain(archive.Entries, e => e.FullName is "mod-setup.txt" or "last-game-crash.txt" or "ue4ss-log-tail.txt");
+    }
 }

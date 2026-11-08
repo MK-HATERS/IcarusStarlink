@@ -54,7 +54,11 @@ public sealed partial class SettingsViewModel
     partial void OnPerformanceTrackingEnabledChanged(bool value) =>
         _settingsService.SetAndSave(s => s.PerformanceTrackingEnabled, (s, v) => s.PerformanceTrackingEnabled = v, value);
 
-    /// <summary>Zipping up to 14 days of logs (70 MB at most) runs off the UI thread: the window used to freeze while it ran.</summary>
+    /// <summary>
+    /// Zipping up to 14 days of logs (70 MB at most) runs off the UI thread: the window used to
+    /// freeze while it ran. The zip also holds the bug-report kit: the mod setup (the Merge page is
+    /// read here, on the UI thread), the newest game crash and the end of UE4SS.log.
+    /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ExportDiagnosticsAsync()
     {
@@ -67,7 +71,10 @@ public sealed partial class SettingsViewModel
         DiagnosticsStatusMessage = "Exporting…";
         try
         {
-            await Task.Run(() => DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, zipPath));
+            var bugReport = new DiagnosticsBugReport(
+                _modSetupReport?.Capture(), _gameCrashesFolder,
+                _settingsService.Current.IcarusContentPath is { Length: > 0 } content ? content : null);
+            await Task.Run(() => DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, zipPath, bugReport));
             DiagnosticsStatusMessage = $"Exported to '{zipPath}'.";
         }
         catch (Exception ex)

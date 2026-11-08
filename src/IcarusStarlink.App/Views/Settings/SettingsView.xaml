@@ -580,7 +580,8 @@
                         <TextBlock Text="Not the log: a separate file (app.perf) with how long merges, installs and catalog refreshes take, for when something feels slow."
                                    Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="44,0,0,10"/>
                         <WrapPanel>
-                            <Button Command="{Binding ExportDiagnosticsCommand}" AutomationProperties.Name="Export diagnostics zip">
+                            <Button Command="{Binding ExportDiagnosticsCommand}" AutomationProperties.Name="Export diagnostics zip"
+                                    ToolTip="Saves one zip for a bug report: Starlink's logs, your settings without secrets, your mod setup, the game's last crash and the end of the UE4SS log">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
                                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0"/>
@@ -591,6 +592,8 @@
                                     ToolTip="Opens the folder with the log files (icarusstarlink-date.log)"/>
                         </WrapPanel>
                         <!-- 20 is CrashReportWriter.MaxReports; 14 is LogDetail.MaxFiles, which PerformanceTracker keeps of its daily timing logs. -->
+                        <TextBlock Text="The zip also lists your mods, Merge queue and UE4SS mods, and takes the game's last crash message (no crash dump, no account ids) and the end of UE4SS.log. It has no keys, passwords or saves."
+                                   Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,6,0,0"/>
                         <TextBlock Text="The zip hides your Windows user name (your user folder shows as %USERPROFILE%). Starlink keeps the newest 20 crash reports and the newest 14 daily timing logs."
                                    Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,6,0,0"/>
                         <TextBlock Text="{Binding DiagnosticsStatusMessage}" Margin="0,8,0,0" TextWrapping="Wrap"

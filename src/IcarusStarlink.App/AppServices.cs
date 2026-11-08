@@ -388,7 +388,18 @@ internal static class AppServices
             logsDirectory,
             Path.Combine(appDataDirectory, "settings.json"),
             Path.Combine(appDataDirectory, "Staged_UE4SS"),
-            sp.GetRequiredService<IGameDataFreshness>())
+            sp.GetRequiredService<IGameDataFreshness>(),
+            // The diagnostics zip's mod-setup.txt; the Merge page is resolved only when exporting.
+            modSetupReport: new ModSetupReport(
+                () => sp.GetRequiredService<ILibraryRepository>().GetAll(),
+                () => sp.GetRequiredService<ISettingsService>().Current,
+                folder => sp.GetRequiredService<IUe4ssModStateService>().GetAll(folder),
+                () =>
+                {
+                    var merge = sp.GetRequiredService<MergeInstallViewModel>();
+                    return new MergeQueueSnapshot(
+                        [.. merge.Queue.Select(e => e.DisplayNameOverride ?? e.Name)], merge.ActiveOptionsSummary, merge.SelectedProfileName);
+                }))
         {
             Ue4ssConfig = new Ue4ssConfigViewModel(
                 sp.GetRequiredService<ISettingsService>(),

@@ -1341,6 +1341,35 @@ public sealed partial class SettingsViewModelTests
         Assert.Contains("Save settings again", vm.SavedMessage);
     }
 
+    [Fact]
+    public async Task ExportDiagnostics_AddsModSetupLastCrashAndUe4ssLogTail()
+    {
+        using var harness = new Harness();
+        AddCrashSinceLastInstall(harness);
+        WriteUe4ssLog(harness, DateTime.UtcNow);
+        harness.ModSetupReport = new ModSetupReport(
+            () => [new LibraryEntry { FolderName = "bags", Name = "Better Bags", Author = "a", Version = "1.2", Description = "", FileName = "bags.EXMODZ" }],
+            () => harness.Settings,
+            mergeQueue: () => new MergeQueueSnapshot(["Better Bags"], "No options active", null));
+        var zipPath = Path.Combine(harness.TempDir, "out.zip");
+        harness.DialogService.SaveFileToPick = zipPath;
+        var vm = harness.BuildViewModel();
+
+        await vm.ExportDiagnosticsCommand.ExecuteAsync(null);
+
+        Assert.StartsWith("Exported", vm.DiagnosticsStatusMessage);
+        using var archive = System.IO.Compression.ZipFile.OpenRead(zipPath);
+        string Read(string name)
+        {
+            using var reader = new StreamReader(Assert.Single(archive.Entries, e => e.FullName == name).Open());
+            return reader.ReadToEnd();
+        }
+
+        Assert.Contains("1. Better Bags", Read("mod-setup.txt"));
+        Assert.Contains("Test crash", Read("last-game-crash.txt"));
+        Assert.Contains("Mod loaded", Read("ue4ss-log-tail.txt"));
+    }
+
     /// <summary>A crash folder dated two hours ago, after an install yesterday; returns the crash time.</summary>
     private static DateTime AddCrashSinceLastInstall(Harness harness)
     {
@@ -1787,7 +1816,10 @@ public sealed partial class SettingsViewModelTests
             UnrealPakInstaller, ActivityLog, DialogService, GameProcessChecker,
             Path.Combine(TempDir, "Backups"), Path.Combine(TempDir, "Data"), Path.Combine(TempDir, "Logs"),
             Path.Combine(TempDir, "settings.json"), Path.Combine(TempDir, "Staged_UE4SS"),
-            gameCrashesFolder: CrashesFolder, tempDirectory: TempFolder);
+            gameCrashesFolder: CrashesFolder, tempDirectory: TempFolder, modSetupReport: ModSetupReport);
+
+        /// <summary>What Export diagnostics zip writes as mod-setup.txt; null leaves the VM's default (none).</summary>
+        public ModSetupReport? ModSetupReport;
 
         /// <summary>The VM's %TEMP% (where the updater may leave its note), so no test reads or deletes the real one.</summary>
         public string TempFolder => Path.Combine(TempDir, "Temp");
@@ -2266,6 +2298,11 @@ public sealed partial class SettingsViewModelTests
         public string? FileToPick { get; set; }
 
         public string? PickFile(string title, string filter, string? initialDirectory = null) => FileToPick;
+
+        /// <summary>What PickSaveFile answers (null = cancelled).</summary>
+        public string? SaveFileToPick { get; set; }
+
+        public string? PickSaveFile(string title, string filter, string defaultFileName, string? initialDirectory = null) => SaveFileToPick;
 
         /// <summary>What PickFolder answers (null = cancelled).</summary>
         public string? FolderToPick { get; set; }

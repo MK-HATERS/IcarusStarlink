@@ -16,7 +16,9 @@ namespace IcarusStarlink.App.Utilities;
 /// with the session's activity, and the app.perf timing logs), every crash-*.txt from
 /// CrashReportWriter, and a copy of settings.json with values under sensitive names (key, token,
 /// password, secret) replaced by [REDACTED]. The Nexus API key and FTP passwords live in Windows
-/// Credential Manager, never in settings.json, so that redaction is defensive.
+/// Credential Manager, never in settings.json, so that redaction is defensive. With a
+/// DiagnosticsBugReport it also holds mod-setup.txt, last-game-crash.txt (a few named fields of the
+/// newest CrashContext, never its ids or the .dmp) and ue4ss-log-tail.txt.
 ///
 /// The zip is often posted in public, so the player's Windows user folder (C:\Users\name) shows
 /// as %USERPROFILE% in every text entry; the files on disk stay as they are.
@@ -30,7 +32,11 @@ public static class DiagnosticsExporter
 
     private static readonly string[] SensitiveKeyMarkers = ["key", "token", "password", "secret"];
 
-    public static void Export(string logsDirectory, string settingsFilePath, string outputZipPath)
+    /// <summary>How many lines from the end of UE4SS.log go in ue4ss-log-tail.txt.</summary>
+    public const int Ue4ssLogTailLines = 300;
+
+    /// <param name="bugReport">With it, the zip also gets mod-setup.txt, last-game-crash.txt and ue4ss-log-tail.txt (see DiagnosticsBugReport).</param>
+    public static void Export(string logsDirectory, string settingsFilePath, string outputZipPath, DiagnosticsBugReport? bugReport = null)
     {
         // Written next to the target first and moved over it only once complete: the file the
         // user picked (and confirmed overwriting in the save dialog) is replaced only by a whole
@@ -46,6 +52,10 @@ public static class DiagnosticsExporter
             using (var archive = ZipFile.Open(tempZipPath, ZipArchiveMode.Create))
             {
                 WriteEntries(archive, logsDirectory, settingsFilePath);
+                if (bugReport is not null)
+                {
+                    WriteBugReportEntries(archive, bugReport);
+                }
             }
 
             File.Move(tempZipPath, outputZipPath, overwrite: true);
@@ -148,6 +158,83 @@ public static class DiagnosticsExporter
         }
     }
 
+    /// <summary>
+    /// The three bug-report entries. Each is plain text with the user folder hidden, and one that
+    /// can't be read says why in its own entry instead of stopping the export. Nothing else is taken
+    /// from the game's crash folder: no minidump (.dmp), no CrashContext ids, no saves.
+    /// </summary>
+    private static void WriteBugReportEntries(ZipArchive archive, DiagnosticsBugReport bugReport)
+    {
+        var userFolder = UserFolderPattern(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
+        WriteTextEntry(archive, "mod-setup.txt", userFolder, () =>
+            bugReport.ModSetup is { } modSetup ? modSetup() : "The mod setup is not available in this export.");
+        WriteTextEntry(archive, "last-game-crash.txt", userFolder, () => DescribeLastCrash(bugReport.GameCrashesFolder));
+        WriteTextEntry(archive, "ue4ss-log-tail.txt", userFolder, () => DescribeUe4ssLogTail(bugReport.IcarusContentPath));
+    }
+
+    private static void WriteTextEntry(ZipArchive archive, string name, Regex? userFolder, Func<string> read)
+    {
+        string text;
+        try
+        {
+            text = read();
+        }
+        catch (Exception ex)
+        {
+            text = $"{name} couldn't be made: {ex.Message}";
+        }
+
+        var entry = archive.CreateEntry(name);
+        using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false));
+        writer.Write(HideUserFolder(text, userFolder));
+    }
+
+    private static string DescribeLastCrash(string? crashesFolder)
+    {
+        if (IcarusStarlink.Core.GameHealth.GameSessionHealthCheck.ReadLastCrash(crashesFolder) is not { } crash)
+        {
+            return "No game crash found in the game's crash folder.";
+        }
+
+        var text = new StringBuilder();
+        text.AppendLine($"Last game crash: {crash.OccurredAtUtc.ToLocalTime():yyyy-MM-dd HH:mm} ({crash.CrashId})");
+        text.AppendLine($"Crash type: {crash.CrashType ?? "unknown"}");
+        text.AppendLine($"Error: {crash.ErrorMessage}");
+        text.AppendLine($"UE4SS in the crash stack: {YesNo(crash.Ue4ssInStack)}");
+        text.AppendLine($"Modules in the crash stack: {(crash.Modules.Count == 0 ? "none recorded" : string.Join(", ", crash.Modules))}");
+        text.AppendLine($"Engine version: {crash.EngineVersion ?? "unknown"}");
+        if (crash.SecondsSinceStart is { } seconds)
+        {
+            text.AppendLine($"Game had run for: {TimeSpan.FromSeconds(seconds):hh\\:mm\\:ss}");
+        }
+
+        if (crash.GameStateName is { } state)
+        {
+            text.AppendLine($"Game state: {state}");
+        }
+
+        return text.ToString();
+    }
+
+    private static string DescribeUe4ssLogTail(string? icarusContentPath)
+    {
+        if (string.IsNullOrWhiteSpace(icarusContentPath))
+        {
+            return "No UE4SS.log found: the game folder is not set.";
+        }
+
+        var lines = IcarusStarlink.Core.GameHealth.GameSessionHealthCheck.ReadUe4ssLogTail(icarusContentPath, Ue4ssLogTailLines);
+        if (lines.Count == 0)
+        {
+            return "No UE4SS.log found (UE4SS isn't installed, or the game hasn't run with it yet).";
+        }
+
+        var written = File.GetLastWriteTime(IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveLoaderLogPath(icarusContentPath));
+        return $"The last {lines.Count} lines of UE4SS.log (last written {written:yyyy-MM-dd HH:mm}):{Environment.NewLine}"
+               + string.Join(Environment.NewLine, lines) + Environment.NewLine;
+    }
+
     private static string RedactSettings(string json, Regex? userFolder)
     {
         JsonNode? parsed;
@@ -236,3 +323,12 @@ public static class DiagnosticsExporter
 
     private static string YesNo(bool value) => value ? "yes" : "no";
 }
+
+/// <summary>
+/// The bug-report half of a diagnostics zip: what a mod bug report needs that the app's own logs
+/// don't hold.
+/// </summary>
+/// <param name="ModSetup">Writes mod-setup.txt (ModSetupReport); called off the UI thread. Null: the entry says it isn't available.</param>
+/// <param name="GameCrashesFolder">Where last-game-crash.txt is read from; null is the game's own (%LocalAppData%\Icarus\Saved\Crashes).</param>
+/// <param name="IcarusContentPath">The game's Content folder, for ue4ss-log-tail.txt; null when it isn't set.</param>
+public sealed record DiagnosticsBugReport(Func<string>? ModSetup, string? GameCrashesFolder, string? IcarusContentPath);
