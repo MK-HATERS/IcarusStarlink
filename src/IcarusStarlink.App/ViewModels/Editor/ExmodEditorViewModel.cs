@@ -450,14 +450,6 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// <summary>The EXMOD's closing marker row, not a game table (PakIO's ExmodSentinelFiles is internal there).</summary>
     private static bool IsEndOfMod(string? currentFile) => Same(currentFile, "EndOfMod");
 
-    /// <summary>Adds a new table to the mod before its EndOfMod marker, like every PakIO writer (at the end when there's none).</summary>
-    private ExmodFileRow AddTableRow(ExmodFileRow row)
-    {
-        var end = _package.Rows.FindIndex(r => IsEndOfMod(r.CurrentFile));
-        _package.Rows.Insert(end < 0 ? _package.Rows.Count : end, row);
-        return row;
-    }
-
     private ExmodFileItem? FindItem(string currentFile, string itemName) =>
         _package.Rows.FirstOrDefault(r => Same(r.CurrentFile, currentFile))?.FileItems.FirstOrDefault(i => Same(i.Name, itemName));
 

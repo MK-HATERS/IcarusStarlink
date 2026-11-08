@@ -283,7 +283,7 @@ public sealed partial class ExmodEditorViewModel
         }
 
         PushUndoSnapshot();
-        row ??= AddTableRow(new ExmodFileRow { CurrentFile = currentFile });
+        row ??= _package.GetOrAddRow(currentFile);
 
         row.FileItems.Add(new ExmodFileItem { Name = NewItemName });
 

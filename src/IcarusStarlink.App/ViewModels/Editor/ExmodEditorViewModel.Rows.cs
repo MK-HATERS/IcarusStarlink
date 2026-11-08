@@ -252,7 +252,7 @@ public sealed partial class ExmodEditorViewModel
         }
 
         PushUndoSnapshot();
-        row ??= AddTableRow(new ExmodFileRow { CurrentFile = picked.CurrentFile });
+        row ??= _package.GetOrAddRow(picked.CurrentFile);
 
         var item = ExmodFileItem.FromRow(picked.ItemName, fields);
         row.FileItems.Add(item);
@@ -287,7 +287,8 @@ public sealed partial class ExmodEditorViewModel
         PushUndoSnapshot();
         var previousFile = SelectedItem?.CurrentFile;
         var previousName = SelectedItem?.ItemName;
-        AddTableRow(new ExmodFileRow { CurrentFile = currentFile });
+        // Never a second entry: the check above returned when the mod already has this table.
+        _package.GetOrAddRow(currentFile);
         RefreshBaseDiff();
         ReloadItems();
         SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, previousFile) && Same(i.ItemName, previousName)) ?? Items.FirstOrDefault();
@@ -370,9 +371,7 @@ public sealed partial class ExmodEditorViewModel
         var previousName = SelectedItem?.ItemName;
         foreach (var (currentFile, item) in toAdd)
         {
-            var targetRow = _package.Rows.FirstOrDefault(r => Same(r.CurrentFile, currentFile))
-                ?? AddTableRow(new ExmodFileRow { CurrentFile = currentFile });
-            targetRow.FileItems.Add(item);
+            _package.GetOrAddRow(currentFile).FileItems.Add(item);
         }
 
         RefreshBaseDiff();
