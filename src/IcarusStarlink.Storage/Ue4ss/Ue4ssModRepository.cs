@@ -1,5 +1,6 @@
 using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Install;
+using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.Storage.Ue4ss;
 
@@ -14,13 +15,16 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
     }
 
     public IReadOnlyList<string> GetAll() =>
-        [.. Directory.GetDirectories(_stagedDirectory).Select(Path.GetFileName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase)!];
+        [.. Directory.GetDirectories(_stagedDirectory).Select(Path.GetFileName).OfType<string>().OrderBy(n => n, StringComparer.OrdinalIgnoreCase)];
 
     public string ImportFromFolder(string sourceFolder, string fallbackName, IReadOnlyCollection<string>? namesAlreadyInUse = null)
     {
         var wrapping = FindSingleWrappingFolder(sourceFolder);
         var actualSource = wrapping ?? sourceFolder;
-        var derivedName = wrapping is not null ? Path.GetFileName(wrapping)! : fallbackName;
+        // The fallback is often typed by the player (Install manually): a name with ':' or '\' in it,
+        // or a full path, would fail to copy, stage the mod a folder too deep for UE4SS, or copy it
+        // outside the staging folder. It becomes one plain folder name, as data mods' names do.
+        var derivedName = AssetPathGuard.SanitizeToSimpleFileName(wrapping is not null ? Path.GetFileName(wrapping) : fallbackName.Trim());
 
         var folderName = MakeUniqueFolderName(derivedName, namesAlreadyInUse);
         FolderBackup.CopyDirectory(actualSource, Path.Combine(_stagedDirectory, folderName));
@@ -33,13 +37,14 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
 
     public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) =>
         Directory.Exists(gameModsFolderPath)
-            ? [.. Directory.GetDirectories(gameModsFolderPath).Select(Path.GetFileName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase)!]
+            ? [.. Directory.GetDirectories(gameModsFolderPath).Select(Path.GetFileName).OfType<string>().OrderBy(n => n, StringComparer.OrdinalIgnoreCase)]
             : [];
 
     public string AdoptFromGame(string gameModsFolderPath, string folderName, IReadOnlyCollection<string>? namesAlreadyInUse = null)
     {
-        var sourceFolder = Path.Combine(gameModsFolderPath, folderName);
-        if (!Directory.Exists(sourceFolder))
+        // A name that isn't one folder ("", "..", "a\b") would read outside the game's Mods folder.
+        var sourceFolder = AssetPathGuard.IsSimpleFileName(folderName) ? Path.Combine(gameModsFolderPath, folderName) : null;
+        if (sourceFolder is null || !Directory.Exists(sourceFolder))
         {
             throw new DirectoryNotFoundException($"'{folderName}' isn't in the game's UE4SS Mods folder.");
         }
@@ -69,6 +74,12 @@ public sealed class Ue4ssModRepository : IUe4ssModRepository
     private string MakeUniqueFolderName(string name, IReadOnlyCollection<string>? additionalNamesToAvoid = null) =>
         ModFolders.MakeUnique(_stagedDirectory, name, additionalNamesToAvoid);
 
+    /// <summary>
+    /// A name that isn't one folder is refused like a missing mod: "" would be the staging folder
+    /// itself (Delete("") deleted every staged mod) and ".." its parent.
+    /// </summary>
     private string ResolveFolder(string folderName) =>
-        ModFolders.Resolve(_stagedDirectory, folderName, $"No staged UE4SS mod named '{folderName}'.");
+        AssetPathGuard.IsSimpleFileName(folderName)
+            ? ModFolders.Resolve(_stagedDirectory, folderName, $"No staged UE4SS mod named '{folderName}'.")
+            : throw new DirectoryNotFoundException($"No staged UE4SS mod named '{folderName}'.");
 }

@@ -199,6 +199,51 @@ public class Ue4ssModRepositoryTests : IDisposable
         Assert.Equal(["NearbyCrafting", "NearbyCrafting_2"], repo.GetAll());
     }
 
+    /// <summary>
+    /// Regression: the name typed for a UE4SS line in Install manually went straight into the
+    /// staging path: "My Mod: v2" failed with an NTFS error, "Tools\Pets" staged the mod a folder
+    /// too deep for UE4SS, and a full path copied the mod outside Starlink's folder.
+    /// </summary>
+    [Fact]
+    public void ImportFromFolder_ANameAFolderCantHave_IsMadeSafe()
+    {
+        var scripts = Path.Combine(_dir, "src", "Mod", "Scripts");
+        Directory.CreateDirectory(scripts);
+        File.WriteAllText(Path.Combine(scripts, "main.lua"), "-- lua");
+        var source = Path.Combine(_dir, "src", "Mod");
+        var repo = CreateRepository();
+
+        Assert.Equal("My Mod_ v2", repo.ImportFromFolder(source, "My Mod: v2"));
+        Assert.True(File.Exists(Path.Combine(_stagedDir, "My Mod_ v2", "Scripts", "main.lua")));
+
+        Assert.Equal("Tools_Pets", repo.ImportFromFolder(source, @"Tools\Pets"));
+        Assert.True(Directory.Exists(Path.Combine(_stagedDir, "Tools_Pets")));
+
+        var outside = Path.Combine(_dir, "Outside");
+        var name = repo.ImportFromFolder(source, outside);
+        Assert.DoesNotContain('\\', name);
+        Assert.True(Directory.Exists(Path.Combine(_stagedDir, name)));
+        Assert.False(Directory.Exists(outside));
+    }
+
+    /// <summary>
+    /// Regression: "" resolved to the staging folder itself and ".." to its parent, so Delete("")
+    /// would have deleted every staged UE4SS mod.
+    /// </summary>
+    [Fact]
+    public void GetFolderPathAndDelete_ANameThatIsntOneFolder_AreRefused()
+    {
+        var repo = CreateRepository();
+        Directory.CreateDirectory(_gameModsDir);
+
+        Assert.Throws<DirectoryNotFoundException>(() => repo.GetFolderPath(".."));
+        Assert.Throws<DirectoryNotFoundException>(() => repo.Delete(""));
+        Assert.True(Directory.Exists(_stagedDir));
+        Assert.Throws<DirectoryNotFoundException>(() => repo.AdoptFromGame(_gameModsDir, ".."));
+        Assert.Throws<DirectoryNotFoundException>(() => repo.AdoptFromGame(_gameModsDir, @"..\GameMods"));
+        Assert.Empty(repo.GetAll());
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))
