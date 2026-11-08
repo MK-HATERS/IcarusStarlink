@@ -1,6 +1,7 @@
 using System.IO;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
@@ -352,6 +353,51 @@ public sealed partial class LibraryViewModelTests
         }
     }
 
+    /// <summary>
+    /// Regression: with imports unpacking off the UI thread the window stays usable, and a second
+    /// drop while the first import waited on its "which one?" chooser started a second import
+    /// beside it (two choosers, one shared result line).
+    /// </summary>
+    [Fact]
+    public async Task ImportPaths_WhileAnotherImportRuns_SaysToWait()
+    {
+        var harness = new TestHarness();
+        var zipPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink.Tests.{Guid.NewGuid():N}.zip");
+        using (var archive = new System.IO.Compression.ZipArchive(File.Create(zipPath), System.IO.Compression.ZipArchiveMode.Create))
+        {
+            foreach (var name in new[] { "Minimap.EXMODZ", "Minimap_PTBR.EXMODZ" })
+            {
+                using var stream = archive.CreateEntry(name).Open();
+                stream.Write(EmptyZipBytes());
+            }
+        }
+
+        try
+        {
+            var vm = harness.Build();
+            Task? second = null;
+            string? statusDuringTheFirst = null;
+            vm.Downloads.ChooseArchive = (_, _) =>
+            {
+                // The second drop lands while the first import still waits on this chooser.
+                second = vm.ImportPaths([Path.Combine(Path.GetTempPath(), $"IcarusStarlink.Tests.{Guid.NewGuid():N}.pak")]);
+                statusDuringTheFirst = vm.StatusMessage;
+                return null;
+            };
+
+            await vm.ImportPaths([zipPath]);
+
+            Assert.NotNull(second);
+            Assert.True(second!.IsCompleted);
+            Assert.Contains("still running", statusDuringTheFirst);
+            Assert.Equal(0, harness.PrebuiltPakImporter.ImportCallCount);
+        }
+        finally
+        {
+            File.Delete(zipPath);
+        }
+    }
+
     private static byte[] EmptyZipBytes()
     {
         using var memory = new MemoryStream();
@@ -463,5 +509,223 @@ public sealed partial class LibraryViewModelTests
 
         Assert.StartsWith("Couldn't endorse 'MiniMapa'", vm.StatusMessage, StringComparison.Ordinal);
         Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.StartsWith("Couldn't endorse 'MiniMapa'", StringComparison.Ordinal));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Delete: what goes with the mod, and what the result line says.
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Regression: with the mod's fix-choices file held open (an editor, antivirus), the mod was
+    /// deleted but the Library said "Deleted 0 of 1".
+    /// </summary>
+    [Fact]
+    public void DeleteItemCommand_FixChoicesFileLocked_StillReportsTheDelete()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("ModA");
+        Directory.CreateDirectory(harness.FixDecisionsDirectory);
+        var choices = Path.Combine(harness.FixDecisionsDirectory, "ModA.json");
+        File.WriteAllText(choices, "{}");
+        var vm = harness.Build();
+
+        using (new FileStream(choices, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            vm.DeleteItemCommand.Execute(vm.DataRootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA"));
+        }
+
+        Assert.Contains("ModA", harness.Repository.DeleteCalls);
+        Assert.Contains("Deleted 'ModA'", vm.StatusMessage);
+        Assert.DoesNotContain("of 1", vm.StatusMessage);
+    }
+
+    /// <summary>Regression: a deleted mod's cached Nexus picture stayed, so a different mod later imported under the same folder name showed it.</summary>
+    [Fact]
+    public void DeleteItemCommand_AlsoForgetsTheCachedNexusPicture()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("ModA", source: "Nexus", nexusModId: 5);
+        Directory.CreateDirectory(harness.ThumbnailCacheDirectory);
+        var picture = Path.Combine(harness.ThumbnailCacheDirectory, "ModA.img");
+        File.WriteAllBytes(picture, [1, 2, 3]);
+        var vm = harness.Build();
+
+        vm.DeleteItemCommand.Execute(vm.DataRootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA"));
+
+        Assert.Contains("ModA", harness.Repository.DeleteCalls);
+        Assert.False(File.Exists(picture));
+    }
+
+    /// <summary>
+    /// Regression: every part-failed delete ended "Close whatever is using its files, then try
+    /// again", also when nothing was locked (here: the mod is no longer in the Library).
+    /// </summary>
+    [Fact]
+    public void DeleteItemCommand_FailsForAReasonThatIsNotALock_DoesNotSayToCloseAnything()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("ModA");
+        harness.Repository.DeleteException = ("ModA", new InvalidOperationException("No library entry named 'ModA'."));
+        var vm = harness.Build();
+
+        vm.DeleteItemCommand.Execute(vm.DataRootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA"));
+
+        Assert.Contains("Deleted 0 of 1", vm.StatusMessage);
+        Assert.DoesNotContain("Close whatever", vm.StatusMessage);
+    }
+
+    /// <summary>A locked file still gets the next step.</summary>
+    [Fact]
+    public void DeleteItemCommand_FileLocked_SaysToCloseWhatIsUsingIt()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("ModA");
+        harness.Repository.DeleteException = ("ModA", new IOException("file is locked by another process"));
+        var vm = harness.Build();
+
+        vm.DeleteItemCommand.Execute(vm.DataRootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA"));
+
+        Assert.Contains("Close whatever is using its files", vm.StatusMessage);
+    }
+
+    /// <summary>
+    /// Regression: with two UE4SS rows linked by name to one data mod (MkHatersBags and
+    /// MkHaters_Bags beside MkHaters Bags), Delete on one of them offered the data mod and the
+    /// OTHER UE4SS row, not the one clicked.
+    /// </summary>
+    [Fact]
+    public void DeleteUe4ssModCommand_TwoRowsLinkedByNameToOneDataMod_DeletesTheRowClicked()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.AddMod("MkHaters_Bags", name: "MkHaters Bags");
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("MkHatersBags", IsEnabled: false));
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("MkHaters_Bags", IsEnabled: false));
+        harness.Ue4ssModRepository.Staged.AddRange(["MkHatersBags", "MkHaters_Bags"]);
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        var data = vm.DataRootItems.OfType<LibraryItemViewModel>().Single();
+        var rows = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().ToList();
+        var notTheDataModsPartner = rows.Single(r => !ReferenceEquals(r, data.LinkedPartner));
+        var thePartner = rows.Single(r => ReferenceEquals(r, data.LinkedPartner));
+
+        vm.DeleteUe4ssModCommand.Execute(notTheDataModsPartner);
+
+        Assert.Contains(notTheDataModsPartner.Name, harness.Ue4ssModRepository.DeleteCalls);
+        Assert.DoesNotContain(thePartner.Name, harness.Ue4ssModRepository.DeleteCalls);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The UE4SS panel: search, Nexus link, minimum UE4SS version.
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Regression: the UE4SS panel needed the whole phrase ("minimap icons" found nothing beside
+    /// "Minimap and Map Icons"), while every word of a search narrows the data panel.
+    /// </summary>
+    [Fact]
+    public void Ue4ssSearch_TwoWords_ShowsOnlyRowsWithBothWords()
+    {
+        var (vm, _) = BuildPanels();
+
+        vm.SearchText = "minimap icons";
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        var shown = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Select(r => r.Name).ToList();
+
+        Assert.Equal(["MiniMapa"], shown);
+
+        vm.SearchText = "minimap bags";
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+
+        Assert.Empty(vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>());
+    }
+
+    /// <summary>
+    /// Regression: re-linking a UE4SS mod to another Nexus ID kept the old mod's file and its
+    /// "Update available", which the new mod's files could never clear.
+    /// </summary>
+    [Fact]
+    public async Task LinkUe4ssModToNexusCore_ToADifferentId_ForgetsTheOldFileAndUpdate()
+    {
+        var (vm, harness) = BuildPanels();
+        var meta = harness.Ue4ssModMetaStore.Metas["MiniMapa"];
+        meta.NexusFileId = 4242;
+        meta.NexusFileVersion = "1.7";
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        var miniMapa = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "MiniMapa");
+        miniMapa.LatestVersion = "2.0";
+        miniMapa.LatestNexusFileId = 5000;
+        miniMapa.NewestOnNexus = "2.0";
+
+        await vm.LinkUe4ssModToNexusCoreAsync(miniMapa, 22);
+
+        Assert.Equal(22, meta.NexusModId);
+        Assert.Null(meta.NexusFileId);
+        Assert.Null(meta.NexusFileVersion);
+        var relinked = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "MiniMapa");
+        Assert.Null(relinked.LatestVersion);
+        Assert.Null(relinked.LatestNexusFileId);
+        Assert.Null(relinked.NewestOnNexus);
+        Assert.False(relinked.HasUpdateAvailable);
+    }
+
+    /// <summary>Linking again to the same Nexus ID keeps the file and the update found for it.</summary>
+    [Fact]
+    public async Task LinkUe4ssModToNexusCore_ToTheSameId_KeepsTheFileAndUpdate()
+    {
+        var (vm, harness) = BuildPanels();
+        var meta = harness.Ue4ssModMetaStore.Metas["MiniMapa"];
+        meta.NexusFileId = 4242;
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        var miniMapa = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "MiniMapa");
+        miniMapa.LatestNexusFileId = 5000;
+
+        await vm.LinkUe4ssModToNexusCoreAsync(miniMapa, 11);
+
+        Assert.Equal(4242, meta.NexusFileId);
+        Assert.Equal(5000, vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "MiniMapa").LatestNexusFileId);
+    }
+
+    /// <summary>Regression: a minimum version typed as "v3.0" read "now requires UE4SS vv3.0+".</summary>
+    [Fact]
+    public void SetMinUe4ssVersion_TypedWithAV_DoesNotDoubleTheV()
+    {
+        var (vm, harness) = BuildPanels();
+        harness.DialogService.PromptRenameResult = new RenamePromptResult(false, "v3.0");
+        var miniMapa = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "MiniMapa");
+
+        vm.SetMinUe4ssVersionCommand.Execute(miniMapa);
+
+        Assert.Contains("now requires UE4SS v3.0+", vm.Ue4ssStatusMessage);
+        Assert.DoesNotContain("vv", vm.Ue4ssStatusMessage);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Details windows: the preview is let go when no window shows the row.
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Regression: rows are cached for the session, and a closed details window (or one moved on
+    /// with Prev/Next) left the row's decoded image, mesh and material in memory.
+    /// </summary>
+    [Fact]
+    public void DetailWindowLeaves_NoOtherWindowShowsTheRow_ReleasesItsPreview()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("ModA");
+        var vm = harness.Build();
+        var item = vm.DataRootItems.OfType<LibraryItemViewModel>().Single();
+        vm.DetailWindowShows(item);
+        vm.DetailWindowShows(item);
+        item.SelectedAssetPath = "readme.txt";
+
+        vm.DetailWindowLeaves(item);
+
+        Assert.Equal("readme.txt", item.SelectedAssetPath); // the second window still shows it
+
+        vm.DetailWindowLeaves(item);
+
+        Assert.Null(item.SelectedAssetPath);
+        Assert.False(vm.IsShownInDetailWindow(item));
     }
 }
