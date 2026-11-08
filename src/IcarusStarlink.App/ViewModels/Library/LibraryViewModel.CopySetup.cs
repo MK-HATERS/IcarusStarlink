@@ -28,8 +28,9 @@ public sealed partial class LibraryViewModel
         try
         {
             // The Merge page and settings are read here, on the UI thread; the file reads run off it.
+            // CaptureMarkdown hides the user folder itself, before the Markdown escaping.
             var build = report.CaptureMarkdown();
-            var markdown = await Task.Run(() => DiagnosticsExporter.HideUserFolder(build()));
+            var markdown = await Task.Run(build);
             CopyToClipboard(markdown);
             StatusMessage = "Copied your mod setup. Paste it into Discord or a Nexus bug report.";
         }

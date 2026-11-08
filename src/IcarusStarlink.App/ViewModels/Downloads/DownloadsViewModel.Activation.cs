@@ -657,17 +657,18 @@ public sealed partial class DownloadsViewModel
     }
 
     /// <summary>
-    /// Asks whether the programs and scripts in a download go in with the mod. "Leave them out"
-    /// has the focus to start with, and closing the window means it too: ICARUS mods never need a program.
+    /// Asks whether the programs and scripts in a download (or the player's own build) go in with
+    /// the mod. "Leave them out" has the focus to start with, and closing the window means it too:
+    /// Icarus mods never need a program. Asked once per download, nested archives included.
     /// </summary>
     private bool AskToKeepPrograms(IReadOnlyList<string> programs) =>
         _dialogService?.ConfirmWithWords(
-            "This download has programs or scripts in it:\n\n"
+            "This mod has programs or scripts in it:\n\n"
             + string.Join("\n", programs.Take(10).Select(p => $"• {p}"))
             + (programs.Count > 10 ? $"\n• and {programs.Count - 10} more" : "")
-            + "\n\nICARUS mods never need them, and Starlink never runs them. Leave them out to add the mod without them. "
-            + "Your download keeps every file either way.",
-            "Programs in this download", ThemedConfirmSeverity.Warning, "Keep them", "Leave them out") == true;
+            + "\n\nIcarus mods never need them, and Starlink never runs them. Leave them out to add the mod without them. "
+            + "The original keeps every file either way.",
+            "Programs in this mod", ThemedConfirmSeverity.Warning, "Keep them", "Leave them out") == true;
 
     /// <summary>Asks which of several alternative archives in one download to install (tests swap in a fake).</summary>
     internal Func<string, IReadOnlyList<ArchiveChoice>, int?> ChooseArchive { get; set; } = Views.ChooseArchiveDialog.Ask;

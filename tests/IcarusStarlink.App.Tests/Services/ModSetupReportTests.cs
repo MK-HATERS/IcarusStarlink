@@ -141,4 +141,20 @@ public class ModSetupReportTests : IDisposable
             + "**Merge queue**\n- Queue, in the order the Merge page lists it:\n  1. Stack\\*Sizes\n",
             markdown.Replace("\r\n", "\n"));
     }
+
+    /// <summary>
+    /// Regression: the user folder was hidden after the Markdown step, so a user name with '_' in
+    /// it (escaped to "\_") no longer matched and went onto the clipboard.
+    /// </summary>
+    [Fact]
+    public void CaptureMarkdown_AUserFolderWithAnUnderscore_IsHidden()
+    {
+        _settings.IcarusContentPath = @"C:\Users\John_Doe\Games\Icarus\Content";
+        var report = new ModSetupReport(() => [], () => _settings);
+
+        var markdown = report.CaptureMarkdown(@"C:\Users\John_Doe")();
+
+        Assert.DoesNotContain("John", markdown);
+        Assert.Contains("%USERPROFILE%", markdown);
+    }
 }

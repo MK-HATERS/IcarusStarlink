@@ -103,9 +103,13 @@ public static class ExtractedModClassifier
         /// <summary>
         /// Asked with the programs and scripts found (paths inside the download): true keeps them,
         /// false leaves them out of the mod. Null asks nothing and keeps them. Only for a throwaway
-        /// extraction: leaving them out deletes them from the folder being classified.
+        /// extraction: leaving them out deletes them from the folder being classified. Asked once
+        /// per run: an archive inside the download uses the first answer.
         /// </summary>
-        public Func<IReadOnlyList<string>, bool>? KeepPrograms { get; } = keepPrograms;
+        public bool KeepPrograms(IReadOnlyList<string> programs) =>
+            keepPrograms is null || (_keepProgramsAnswer ??= keepPrograms(programs));
+
+        private bool? _keepProgramsAnswer;
 
         private Action? _beforeFirstWrite = beforeFirstWrite;
         private readonly List<PendingDownloadActivatedItem> _written = [];
@@ -173,13 +177,18 @@ public static class ExtractedModClassifier
         {
             var programFiles = allFiles.Where(ModLints.IsProgram).ToList();
             var shown = programFiles.Select(f => Path.GetRelativePath(extractedDirectory, f).Replace('\\', '/')).ToList();
-            if (session.KeepPrograms is { } keepPrograms && !keepPrograms(shown))
+            if (!session.KeepPrograms(shown))
             {
-                // The folder is a throwaway extraction (see KeepPrograms): the download keeps them.
-                await Task.Run(() => programFiles.ForEach(File.Delete));
+                // The folder is a throwaway extraction (see KeepPrograms): the original keeps them.
+                // A copy keeps a read-only attribute, and File.Delete refuses a read-only file.
+                await Task.Run(() => programFiles.ForEach(f =>
+                {
+                    File.SetAttributes(f, FileAttributes.Normal);
+                    File.Delete(f);
+                }));
                 allFiles = Directory.GetFiles(extractedDirectory, "*", SearchOption.AllDirectories);
                 var listed = string.Join(", ", programFiles.Select(Path.GetFileName).Distinct(StringComparer.OrdinalIgnoreCase).Take(3).Select(n => $"'{n}'"));
-                programs = $"The programs and scripts in this download ({listed}{(programFiles.Count > 3 ? " and more" : "")}) were left out of the mod. Icarus mods don't need them. The download itself still has them.";
+                programs = $"The programs and scripts in this mod ({listed}{(programFiles.Count > 3 ? " and more" : "")}) were left out of it. Icarus mods don't need them. The original still has them.";
             }
 
             warnings = [.. warnings, programs];

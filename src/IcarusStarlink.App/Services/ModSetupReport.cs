@@ -54,10 +54,17 @@ public sealed class ModSetupReport(
     }
 
     /// <summary>Capture, as Markdown for pasting into Discord or a Nexus bug report (Library › Check › Copy my setup).</summary>
-    public Func<string> CaptureMarkdown()
+    public Func<string> CaptureMarkdown() =>
+        CaptureMarkdown(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
+    /// <summary>
+    /// CaptureMarkdown with the user folder to hide. It is hidden in the plain report, before the
+    /// Markdown step escapes characters such as '_' and '~' that a user folder can have in it.
+    /// </summary>
+    internal Func<string> CaptureMarkdown(string userProfile)
     {
         var build = Capture();
-        return () => ToMarkdown(build());
+        return () => ToMarkdown(Utilities.DiagnosticsExporter.HideUserFolder(build(), userProfile));
     }
 
     /// <summary>
