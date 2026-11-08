@@ -40,7 +40,7 @@ public sealed class AppSettings
     /// <summary>When the Advanced log switches itself back to Basic (24 hours after it was turned on), so it can't bloat the logs.</summary>
     public DateTimeOffset? AdvancedLoggingUntilUtc { get; set; }
 
-    // Recorded on every successful "Update data folder" run — lets a later run detect the game's
+    // Recorded on every successful "Refresh game data" run — lets a later run detect the game's
     // data.pak has changed since then (LastDataPakHash) without re-extracting anything, and gives
     // DataFolderChangeTracker the "previous" timestamp a WeeklyChangeReport needs. Null until the
     // first successful update.
@@ -125,7 +125,7 @@ public sealed class AppSettings
 
     /// <summary>
     /// Set once SettingsViewModel's first-launch setup has had its one-time say — i.e. once the
-    /// game folder and UnrealPak were both in place and the first "Update data folder" extraction
+    /// game folder and UnrealPak were both in place and the first "Refresh game data" extraction
     /// was offered (taken or declined). Null on a fresh install and for every install that predates
     /// the flow, so those get the one-time offer on their next launch too. The game-folder and
     /// UnrealPak steps themselves are NOT gated on this: they re-run on every launch while still

@@ -183,6 +183,7 @@ public sealed partial class SettingsViewModel
         catch (Exception ex)
         {
             BackupsStatusMessage = $"Clean up failed: {ex.Message}";
+            _activityLog.Log($"Clean up backups failed: {ex.Message}", ActivityEntryKind.Warning);
         }
         finally
         {
@@ -551,7 +552,7 @@ public sealed partial class SettingsViewModel
     {
         var outcome = AppUpdateOutcome.TakeLast(
             Path.Combine(_logsDirectory, AppUpdateOutcome.FileName),
-            Path.Combine(Path.GetTempPath(), AppUpdateOutcome.TempFileName));
+            Path.Combine(_tempDirectory, AppUpdateOutcome.TempFileName));
         if (outcome is null)
         {
             return;
@@ -602,8 +603,47 @@ public sealed partial class SettingsViewModel
             // RunFirstLaunchSetupAsync has its own catch-all; nothing to add here.
         }
 
+        await ShowWhatsNewAfterAnUpdateAsync();
         await CheckForAppUpdatesOnLaunchAsync();
     }
+
+    /// <summary>
+    /// The first start on a new version shows that version's notes (What's new) and the endorse
+    /// offer, whatever "Check for updates when Starlink starts" says: the switch means "don't look
+    /// for newer versions", not "hide the notes of the update I just installed". It used to run
+    /// only inside the launch check, so with the switch off What's new never showed and the version
+    /// was never recorded. The notes are this version's own release (a newer one may be out
+    /// already). Offline, nothing is recorded, so the next start tries again. Silent on a fresh
+    /// install (nothing recorded yet); App.xaml.cs has already read LastSeenAppVersion by now.
+    /// </summary>
+    private async Task ShowWhatsNewAfterAnUpdateAsync()
+    {
+        // A build without a real version number has no release to show (and would ask every start).
+        var settings = _settingsService.Current;
+        if (AppReleaseVersion.TryParse(InstalledAppVersion) is null
+            || (settings.LastSeenAppVersion is { } lastSeen && SameAppVersion(lastSeen, InstalledAppVersion)))
+        {
+            return;
+        }
+
+        if (settings.LastSeenAppVersion is not null)
+        {
+            if (await _appUpdateClient.GetReleaseAsync(InstalledAppVersion) is not { } release)
+            {
+                return;
+            }
+
+            await ShowWhatsNewAsync(release);
+            await OfferToEndorseStarlinkAsync();
+        }
+
+        settings.LastSeenAppVersion = InstalledAppVersion;
+        _settingsService.Save();
+    }
+
+    /// <summary>Shows What's new for a release, after any other startup window. Tests swap in a recorder: a real window can't open in a test host.</summary>
+    internal Func<AppUpdateRelease, Task> ShowWhatsNewAsync { get; set; } = release =>
+        StartupPrompts.ShowAsync(() => new WhatsNewWindow(release.Version, release.ReleaseNotes) { Owner = Application.Current.MainWindow });
 
     private async Task CheckForAppUpdatesOnLaunchAsync()
     {
@@ -625,27 +665,9 @@ public sealed partial class SettingsViewModel
 
         LatestAppUpdateRelease = release;
 
-        // "What's new" — GitHub's own latest release matches the exact version we're running,
-        // meaning the app itself was updated since we last recorded a seen version. Deliberately
-        // silent when LastSeenAppVersion is still null (a fresh install, or an existing user's
-        // first launch after this field was introduced) — only a genuine detected version change
-        // shows the dialog, so it never appears out of nowhere on an unrelated launch.
+        // Up to date (What's new for this version is ShowWhatsNewAfterAnUpdateAsync's).
         if (SameAppVersion(release.Version, InstalledAppVersion))
         {
-            var settings = _settingsService.Current;
-            if (settings.LastSeenAppVersion is not null
-                && !string.Equals(settings.LastSeenAppVersion, InstalledAppVersion, StringComparison.OrdinalIgnoreCase))
-            {
-                await StartupPrompts.ShowAsync(() => new WhatsNewWindow(release.Version, release.ReleaseNotes) { Owner = Application.Current.MainWindow });
-                await OfferToEndorseStarlinkAsync();
-            }
-
-            if (!string.Equals(settings.LastSeenAppVersion, InstalledAppVersion, StringComparison.OrdinalIgnoreCase))
-            {
-                settings.LastSeenAppVersion = InstalledAppVersion;
-                _settingsService.Save();
-            }
-
             return;
         }
 

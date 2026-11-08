@@ -1132,6 +1132,149 @@ public sealed class SettingsViewModelTests
         Assert.True(File.Exists(Path.Combine(backups, "zz_zz_ISL-Merged_9999_P_20261016-150000.pak")));
     }
 
+    /// <summary>
+    /// Regression: with "Check for updates when Starlink starts" off, the first start after an
+    /// update never showed What's new, and the version was never recorded as seen.
+    /// </summary>
+    [Fact]
+    public async Task WhatsNew_AfterAnUpdate_ShowsEvenWithTheLaunchCheckOff()
+    {
+        using var harness = new Harness();
+        harness.Settings.AutoCheckAppUpdates = false;
+        harness.Settings.LastSeenAppVersion = "1.0.0";
+        var vm = harness.BuildViewModel();
+        harness.AppUpdateClient.VersionReleaseToReturn = new AppUpdateRelease(vm.InstalledAppVersion, "notes", "https://example.invalid/IcarusStarlink.zip");
+        var shown = new List<AppUpdateRelease>();
+        vm.ShowWhatsNewAsync = release =>
+        {
+            shown.Add(release);
+            return Task.CompletedTask;
+        };
+
+        await vm.StartFirstLaunchSetup();
+        await vm.LaunchUpdateCheckTask;
+
+        Assert.Equal(vm.InstalledAppVersion, Assert.Single(shown).Version);
+        Assert.Equal([vm.InstalledAppVersion], harness.AppUpdateClient.VersionsAskedFor);
+        Assert.Equal(vm.InstalledAppVersion, harness.Settings.LastSeenAppVersion);
+        // Still no look for a newer version: that is what the switch turns off.
+        Assert.Equal(0, harness.AppUpdateClient.LatestReleaseCalls);
+    }
+
+    /// <summary>Regression: What's new only showed when the newest release was exactly the installed one, so a newer release already out hid the notes of the update just installed.</summary>
+    [Fact]
+    public async Task WhatsNew_ANewerReleaseIsAlreadyOut_StillShowsTheInstalledVersionsNotes()
+    {
+        using var harness = new Harness(dialogConfirmResult: false);
+        harness.Settings.AutoCheckAppUpdates = true;
+        harness.Settings.LastSeenAppVersion = "1.0.0";
+        harness.AppUpdateClient.ReleaseToReturn = new AppUpdateRelease("999.0.0", "later notes", "https://example.invalid/IcarusStarlink.zip");
+        var vm = harness.BuildViewModel();
+        harness.AppUpdateClient.VersionReleaseToReturn = new AppUpdateRelease(vm.InstalledAppVersion, "notes", "https://example.invalid/IcarusStarlink.zip");
+        var shown = new List<AppUpdateRelease>();
+        vm.ShowWhatsNewAsync = release =>
+        {
+            shown.Add(release);
+            return Task.CompletedTask;
+        };
+
+        await vm.StartFirstLaunchSetup();
+        await vm.LaunchUpdateCheckTask;
+
+        Assert.Equal(vm.InstalledAppVersion, Assert.Single(shown).Version);
+        Assert.Equal(vm.InstalledAppVersion, harness.Settings.LastSeenAppVersion);
+    }
+
+    /// <summary>Offline at the first start after an update: nothing is recorded, so the next start shows What's new.</summary>
+    [Fact]
+    public async Task WhatsNew_Offline_RecordsNothingSoTheNextStartTriesAgain()
+    {
+        using var harness = new Harness();
+        harness.Settings.AutoCheckAppUpdates = false;
+        harness.Settings.LastSeenAppVersion = "1.0.0";
+        var vm = harness.BuildViewModel();
+        var shown = 0;
+        vm.ShowWhatsNewAsync = _ =>
+        {
+            shown++;
+            return Task.CompletedTask;
+        };
+
+        await vm.StartFirstLaunchSetup();
+        await vm.LaunchUpdateCheckTask;
+
+        Assert.Equal(0, shown);
+        Assert.Equal("1.0.0", harness.Settings.LastSeenAppVersion);
+    }
+
+    /// <summary>
+    /// Regression: on a fresh install with the launch check off, the version was never recorded,
+    /// so the next update showed no What's new either. A fresh install itself shows nothing.
+    /// </summary>
+    [Fact]
+    public async Task WhatsNew_FreshInstall_ShowsNothingButRecordsTheVersion()
+    {
+        using var harness = new Harness();
+        harness.Settings.AutoCheckAppUpdates = false;
+        harness.Settings.LastSeenAppVersion = null;
+        var vm = harness.BuildViewModel();
+        var shown = 0;
+        vm.ShowWhatsNewAsync = _ =>
+        {
+            shown++;
+            return Task.CompletedTask;
+        };
+
+        await vm.StartFirstLaunchSetup();
+        await vm.LaunchUpdateCheckTask;
+
+        Assert.Equal(0, shown);
+        Assert.Empty(harness.AppUpdateClient.VersionsAskedFor);
+        Assert.Equal(vm.InstalledAppVersion, harness.Settings.LastSeenAppVersion);
+    }
+
+    /// <summary>Regression: every Settings test read and deleted the real %TEMP%\IcarusStarlink-update-outcome.txt, eating a note the real updater had left.</summary>
+    [Fact]
+    public void UpdateOutcomeNote_IsReadFromTheTempFolderGiven()
+    {
+        using var harness = new Harness();
+        Directory.CreateDirectory(harness.TempFolder);
+        var note = Path.Combine(harness.TempFolder, AppUpdateOutcome.TempFileName);
+        File.WriteAllText(note, "RolledBack\nThe update didn't install; your previous version is still in place.\n");
+
+        var vm = harness.BuildViewModel();
+
+        Assert.Equal("The update didn't install; your previous version is still in place.", vm.AppUpdateStatusMessage);
+        Assert.False(File.Exists(note));
+    }
+
+    /// <summary>Regression: Refresh game data left nothing in the Activity panel, so a refresh that failed while another page was open went unseen.</summary>
+    [Fact]
+    public async Task RefreshGameData_Success_IsLoggedAsASuccess()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+        harness.UnrealPakService.ExtractResultFactory = () => new UnrealPakExtractResult(42, null);
+
+        await vm.UpdateDataFolderCommand.ExecuteAsync(null);
+
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Success && e.Message.Contains("42 files"));
+    }
+
+    /// <summary>Regression: a failed Refresh game data only showed on the Settings page.</summary>
+    [Fact]
+    public async Task RefreshGameData_Failure_IsLoggedAsAWarning()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+        harness.UnrealPakService.ExtractException = new InvalidOperationException("disk full");
+        harness.UnrealPakInstaller.VerifyResult = new UnrealPakVerifyResult(UnrealPakHealth.Ok, "4.27.0", null);
+
+        await vm.UpdateDataFolderCommand.ExecuteAsync(null);
+
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("disk full"));
+    }
+
     /// <summary>Regression: a settings.json that couldn't be read at start ran the whole session on defaults with no word to the player.</summary>
     [Fact]
     public void SettingsFileUnreadableAtStart_SaysSoAtLaunch()
@@ -1587,7 +1730,10 @@ public sealed class SettingsViewModelTests
             UnrealPakInstaller, ActivityLog, DialogService, GameProcessChecker,
             Path.Combine(TempDir, "Backups"), Path.Combine(TempDir, "Data"), Path.Combine(TempDir, "Logs"),
             Path.Combine(TempDir, "settings.json"), Path.Combine(TempDir, "Staged_UE4SS"),
-            gameCrashesFolder: CrashesFolder);
+            gameCrashesFolder: CrashesFolder, tempDirectory: TempFolder);
+
+        /// <summary>The VM's %TEMP% (where the updater may leave its note), so no test reads or deletes the real one.</summary>
+        public string TempFolder => Path.Combine(TempDir, "Temp");
 
         /// <summary>
         /// SettingsViewModel takes a real, concrete ImmMigrationService (not an interface) purely
@@ -1959,6 +2105,18 @@ public sealed class SettingsViewModelTests
 
         public Task<AppUpdateRelease?> GetLatestBetaReleaseAsync(CancellationToken cancellationToken = default) =>
             BetaGate?.Task ?? Task.FromResult(BetaToReturn);
+
+        /// <summary>What one version's release lookup answers (null = offline or no such release).</summary>
+        public AppUpdateRelease? VersionReleaseToReturn { get; set; }
+
+        /// <summary>Every version asked for through GetReleaseAsync, in order.</summary>
+        public List<string> VersionsAskedFor { get; } = [];
+
+        public Task<AppUpdateRelease?> GetReleaseAsync(string version, CancellationToken cancellationToken = default)
+        {
+            VersionsAskedFor.Add(version);
+            return Task.FromResult(VersionReleaseToReturn);
+        }
 
         public Task DownloadAssetAsync(AppUpdateRelease release, string destinationPath, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("not exercised by these tests");

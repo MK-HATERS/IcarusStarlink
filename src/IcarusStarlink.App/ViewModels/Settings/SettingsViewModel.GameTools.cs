@@ -41,7 +41,7 @@ public sealed partial class SettingsViewModel
     [ObservableProperty]
     private string? _gameDataOutdatedMessage;
 
-    /// <summary>Shown in the "Update data folder" Expander's collapsed header — reads straight from settings rather than caching, since the only thing that changes it (UpdateDataFolderAsync) already explicitly notifies this property when it does.</summary>
+    /// <summary>Shown in the "Refresh game data" Expander's collapsed header — reads straight from settings rather than caching, since the only thing that changes it (UpdateDataFolderAsync) already explicitly notifies this property when it does.</summary>
     public string DataFolderSummary => LastDataRefreshAt is { } updatedAt
         ? $"last updated {updatedAt.ToLocalTime():d MMM yyyy}"
         : "never updated";
@@ -289,6 +289,9 @@ public sealed partial class SettingsViewModel
 
             DataFolderStatusMessage = $"Extracted {result.ExtractedFileCount} files. {DescribeChangeReport(result.ChangeReport)}";
             HasWeeklyChanges = result.ChangeReport is { ChangedFiles.Count: > 0 };
+            // Also in the Activity panel: a refresh started from another page (Merge & Install,
+            // the game-update run) is seldom watched from Settings.
+            _activityLog.Log($"Refresh game data: {DataFolderStatusMessage}", ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
@@ -301,7 +304,7 @@ public sealed partial class SettingsViewModel
             // the same health check "Check" already offers distinguishes that case and reuses its
             // exact, actionable wording (pointing at Reinstall) instead of duplicating it here.
             var verify = await _unrealPakInstaller.VerifyAsync(UnrealPakExePath);
-            DataFolderStatusMessage = verify.Health switch
+            var failure = verify.Health switch
             {
                 UnrealPakHealth.Ok => $"Refresh failed: {ex.Message}",
                 UnrealPakHealth.Missing => $"Refresh failed: {(verify.Detail ?? "UnrealPak.exe isn't at that path").TrimEnd('.')}. "
@@ -309,6 +312,11 @@ public sealed partial class SettingsViewModel
                 _ => $"Refresh failed: your UnrealPak.exe copy looks broken ({verify.Detail?.TrimEnd('.')}). "
                     + "Reinstall in the UnrealPak section above fixes this.",
             };
+            DataFolderStatusMessage = failure;
+            // The Activity panel is read from any page, where "above" points nowhere.
+            _activityLog.Log(
+                $"Refresh game data: {failure.Replace("in the UnrealPak section above", "in Settings › Game & tools › Game folder & UnrealPak")}",
+                ActivityEntryKind.Warning);
         }
         finally
         {
@@ -328,7 +336,7 @@ public sealed partial class SettingsViewModel
 
     /// <summary>
     /// A passive, local-only check (no network) — compares data.pak's current hash against the one
-    /// recorded at the last successful Update data folder run. Only ever notifies; never
+    /// recorded at the last successful Refresh game data run. Only ever notifies; never
     /// re-extracts on its own. Classic IMM originally did auto-extract on this kind of detection
     /// and walked it back ("Weekly updates are no longer auto updated when you run the program. You
     /// will have to manually click the update data folder button when an update needs to be done."

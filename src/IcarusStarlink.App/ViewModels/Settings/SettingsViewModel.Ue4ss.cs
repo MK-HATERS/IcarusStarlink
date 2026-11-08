@@ -348,8 +348,8 @@ public sealed partial class SettingsViewModel
                 var release = Ue4ssLatestRelease!;
                 await HttpFileDownloader.DownloadToFileAsync(_httpClient, [release.DownloadUrl], tempZipPath, HttpFileDownloader.DefaultIdleTimeout);
 
-                // A real bug found live: unlike this app's own self-update (AppUpdateClient), this
-                // download had no integrity check at all — it writes a third-party DLL loader straight
+                // Unlike this app's own self-update (AppUpdateClient), this download used to have
+                // no integrity check at all — it writes a third-party DLL loader straight
                 // into the game's own Binaries\Win64 folder. Same GitHubAssetIntegrity check, same
                 // "null digest skips rather than fails" tolerance — see its own doc comment.
                 await GitHubAssetIntegrity.VerifySha256Async(release.Digest, tempZipPath);

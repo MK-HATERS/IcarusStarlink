@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net.Http;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -43,6 +44,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IGameDataFreshness _gameDataFreshness;
     private readonly string _stagedUe4ssDirectory;
     private readonly string? _gameCrashesFolder;
+    private readonly string _tempDirectory;
 
     /// <summary>Resolved lazily (not injected directly) purely to avoid forcing Merge &amp; Install's own construction — with its Library scan and catalog wiring — every time Settings is opened.</summary>
     private readonly Func<MergeInstallViewModel> _mergeInstallViewModel;
@@ -65,8 +67,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<MergeInstallViewModel> mergeInstallViewModel, IUnrealPakInstaller unrealPakInstaller, IActivityLog activityLog,
         IDialogService dialogService, IGameProcessChecker gameProcessChecker,
         string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath,
-        string stagedUe4ssDirectory, IGameDataFreshness? gameDataFreshness = null, string? gameCrashesFolder = null)
+        string stagedUe4ssDirectory, IGameDataFreshness? gameDataFreshness = null, string? gameCrashesFolder = null,
+        string? tempDirectory = null)
     {
+        // Null: %TEMP%, where the updater leaves its note when the Logs folder can't be written.
+        _tempDirectory = tempDirectory ?? Path.GetTempPath();
         // Null: the game's own crash folder (%LocalAppData%\Icarus\Saved\Crashes).
         _gameCrashesFolder = gameCrashesFolder;
         // The same "is data.pak still the one extracted?" check Merge & Install asks (it was

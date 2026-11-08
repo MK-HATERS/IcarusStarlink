@@ -23,6 +23,11 @@ public sealed partial class SettingsViewModel
     /// <summary>The launch flow StartFirstLaunchSetup started (an already-finished task before then).</summary>
     internal Task FirstLaunchSetupTask => _firstLaunchSetupTask ?? Task.CompletedTask;
 
+    private Task? _launchUpdateCheckTask;
+
+    /// <summary>The What's new and "Update available" step StartFirstLaunchSetup started after setup (an already-finished task before then).</summary>
+    internal Task LaunchUpdateCheckTask => _launchUpdateCheckTask ?? Task.CompletedTask;
+
     /// <summary>
     /// Runs the first-launch questions, then the launch "Update available" check (after setup,
     /// not alongside it: both show modal dialogs, and an update accepted
@@ -43,7 +48,7 @@ public sealed partial class SettingsViewModel
         // while the first is still in its synchronous part.
         _firstLaunchSetupStarted = true;
         _firstLaunchSetupTask = RunFirstLaunchSetupAsync();
-        _ = CheckForAppUpdatesAfterSetupAsync();
+        _launchUpdateCheckTask = CheckForAppUpdatesAfterSetupAsync();
         return _firstLaunchSetupTask;
     }
 
@@ -56,7 +61,7 @@ public sealed partial class SettingsViewModel
     ///   1. Icarus Content folder — auto-detected through Steam and saved silently when found,
     ///      else a Browse offer. Re-checked every launch while still empty, same as UnrealPak.
     ///   2. UnrealPak.exe — the existing adopt / install / Browse offer.
-    ///   3. The first "Update data folder" extraction — offered ONCE (FirstLaunchSetupCompletedAtUtc),
+    ///   3. The first "Refresh game data" extraction — offered ONCE (FirstLaunchSetupCompletedAtUtc),
     ///      and only once 1 and 2 are both set, since it needs both. Declining just leaves the
     ///      button in Settings, where it always was.
     /// </summary>
