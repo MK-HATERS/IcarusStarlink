@@ -1,4 +1,5 @@
 using System.Text.Json;
+using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.PakIO.World;
 
@@ -60,7 +61,7 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
             var path = LayerPath(mapId, kind);
             return File.Exists(path) ? WorldLayerPixels.FromPng(File.ReadAllBytes(path)) : null;
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return null;
         }
@@ -74,9 +75,11 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
     public bool IsComplete() => LoadIndex() is { Complete: true, Maps.Count: > 0 };
 
     /// <summary>Compares the game's files and zones with what the maps were made from, without drawing anything.</summary>
-    public WorldMapCheckResult Check()
+    public WorldMapCheckResult Check() => Check(readCatalog());
+
+    /// <summary>Check against worlds already read (ReadMaps just now), so the game's tables aren't read twice.</summary>
+    public WorldMapCheckResult Check(IReadOnlyList<WorldMapInfo> maps)
     {
-        var maps = readCatalog();
         ThrowIfUnreadable(maps);
         var index = LoadIndex();
         if (index is null)
@@ -96,10 +99,11 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
     /// deletes worlds the game dropped, and says what changed. Each map's old copy is replaced only once
     /// its new one is fully read; a world that fails to draw keeps its last drawing (or is left out of
     /// the index when it had none) and is named in the summary, so the next Reload tries it again. The
-    /// index is saved after each world, so a Reload stopped half-way is picked up where it left off.
+    /// index is saved after each world, so a Reload stopped half-way (<paramref name="cancel"/>, checked
+    /// between worlds, throws OperationCanceledException) is picked up where it left off.
     /// Throws, changing nothing, when the game's files or its world list can't be read.
     /// </summary>
-    public WorldMapReloadResult Reload(bool everything, IProgress<string>? progress = null)
+    public WorldMapReloadResult Reload(bool everything, IProgress<string>? progress = null, CancellationToken cancel = default)
     {
         var maps = readCatalog();
         ThrowIfUnreadable(maps);
@@ -124,6 +128,9 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
         var failed = new List<string>();
         foreach (var map in maps)
         {
+            // Stop (Map page): between worlds only, so the one being drawn is finished and kept. The
+            // index stays not Complete, and the next Reload draws the rest.
+            cancel.ThrowIfCancellationRequested();
             var entry = old?.Maps.GetValueOrDefault(map.Id);
             if (entry is not null && entry.Stamp == stamps[map.Id] && IsDrawn(map, old!))
             {
@@ -167,7 +174,7 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
             catch (Exception ex)
             {
                 // Half-written: its folder goes and it stays out of the index, so the next Reload draws it again.
-                TryDelete(Path.Combine(Root, Safe(map.Id)));
+                Directories.TryDelete(Path.Combine(Root, Safe(map.Id)));
                 failed.Add($"{map.Name} ({ex.Message})");
                 SaveIndex(index);
                 continue;
@@ -183,7 +190,7 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
         {
             if (!maps.Any(m => string.Equals(Safe(m.Id), Path.GetFileName(folder), StringComparison.OrdinalIgnoreCase)))
             {
-                TryDelete(folder);
+                Directories.TryDelete(folder);
             }
         }
 
@@ -277,7 +284,7 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
     {
         var folder = Path.Combine(Root, Safe(map.Id));
         // The old copy goes only now, with the new one fully read (this also clears stray files in it).
-        TryDelete(folder);
+        Directories.TryDelete(folder);
         Directory.CreateDirectory(folder);
         if (drawing.Jpeg is not null)
         {
@@ -421,21 +428,7 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
 
     /// <summary>Written whole or not at all: a half-written index would read as "never made" and redraw every map.</summary>
     private void SaveIndex(WorldMapIndex index) =>
-        IcarusStarlink.Core.IO.AtomicFile.WriteAllText(Path.Combine(Root, IndexFile), JsonSerializer.Serialize(index, JsonOptions));
-
-    private static void TryDelete(string folder)
-    {
-        try
-        {
-            if (Directory.Exists(folder))
-            {
-                Directory.Delete(folder, recursive: true);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
+        AtomicFile.WriteAllText(Path.Combine(Root, IndexFile), JsonSerializer.Serialize(index, JsonOptions));
 }
 
 /// <summary>index.json: what each drawn world was made from.</summary>

@@ -329,6 +329,33 @@ public sealed class WorldMapStoreTests : IDisposable
         Assert.True(store.IsComplete());
     }
 
+    /// <summary>Stop on the Map page: the world being drawn is finished and kept, the next isn't started, and the next Reload draws the rest.</summary>
+    [Fact]
+    public void AStoppedReload_FinishesTheWorldItIsOn_AndTheNextOneDrawsTheRest()
+    {
+        var renderer = new FakeRenderer();
+        var store = new WorldMapStore(_root, () => [Map("A", "Alpha", Wolf), Map("B", "Beta", Wolf), Map("C", "Gamma", Wolf)], renderer);
+        using var stop = new CancellationTokenSource();
+
+        // Stop is clicked while the first world is being drawn.
+        Assert.ThrowsAny<OperationCanceledException>(() => store.Reload(everything: false, new Progress(stop.Cancel), stop.Token));
+
+        Assert.Equal(["A"], renderer.Drawn);
+        Assert.Equal(["A"], store.PictureSources().Keys);
+        Assert.False(store.IsComplete());
+
+        renderer.Drawn.Clear();
+        store.Reload(everything: false);
+
+        Assert.Equal(["B", "C"], renderer.Drawn);
+        Assert.True(store.IsComplete());
+    }
+
+    private sealed class Progress(Action onReport) : IProgress<string>
+    {
+        public void Report(string value) => onReport();
+    }
+
     /// <summary>Old index.json files have no Complete flag: they read as a finished build.</summary>
     [Fact]
     public void AnIndexFromBeforeTheCompleteFlag_ReadsAsComplete()

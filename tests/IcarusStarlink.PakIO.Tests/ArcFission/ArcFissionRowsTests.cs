@@ -263,7 +263,7 @@ public sealed class ArcFissionRowsTests : IDisposable
         Assert.Contains(scan.Problems, p => p.StartsWith("Broken:"));
     }
 
-    /// <summary>Review findings: whatever a downloaded card or rows file holds, it's one mod's problem, never the scan's.</summary>
+    /// <summary>Whatever a downloaded card or rows file holds, it's one mod's problem, never the scan's.</summary>
     [Fact]
     public void HostileCards_AreOneModsProblem_AndTheOthersStillCount()
     {
