@@ -687,7 +687,7 @@ public sealed partial class DownloadsViewModel
         // catalogEntryId is the Database counterpart of the Nexus pipeline's nexusModId — the
         // stable link that keeps the Downloaded badge and update-checking working after a
         // Rename, which name-matching alone can't survive.
-        _pendingDownloadStore.Add(new PendingDownloadEntry
+        TrySaveDownloadsList(() => _pendingDownloadStore.Add(new PendingDownloadEntry
         {
             ModId = 0,
             FileId = fileId,
@@ -698,7 +698,7 @@ public sealed partial class DownloadsViewModel
             CatalogEntryId = catalogEntry.Id,
             DisplayName = catalogEntry.Name,
             Author = catalogEntry.Author,
-        });
+        }));
         ReloadPendingDownloads();
 
         return PendingDownloads.FirstOrDefault(p => p.ModId == 0 && p.FileId == fileId)

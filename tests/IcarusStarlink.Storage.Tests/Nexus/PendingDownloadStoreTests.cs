@@ -91,6 +91,20 @@ public class PendingDownloadStoreTests : IDisposable
     }
 
     [Fact]
+    public void RemoveMany_RemovesEachAndPersists()
+    {
+        var store = CreateStore();
+        store.Add(MakeEntry(290, 1));
+        store.Add(MakeEntry(291, 2));
+        store.Add(MakeEntry(292, 3));
+
+        store.RemoveMany([(290, 1), (291, 2)]);
+
+        Assert.Equal(292, Assert.Single(store.Entries).ModId);
+        Assert.Equal(292, Assert.Single(CreateStore().Entries).ModId);
+    }
+
+    [Fact]
     public void Constructor_NoFileYet_StartsEmpty()
     {
         Assert.Empty(CreateStore().Entries);

@@ -999,6 +999,45 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         Assert.Same(rowA, Assert.Single(vm.PendingDownloads));
     }
 
+    /// <summary>
+    /// A sync client or antivirus holding pending_downloads.json made Discard throw out of the
+    /// command, and WPF closed the app.
+    /// </summary>
+    [Fact]
+    public void Discard_WhileTheDownloadsListFileIsLocked_DoesNotCrash()
+    {
+        var harness = new Harness(_root);
+        harness.AddDownload("A.zip", z => WriteEntry(z, "A/Scripts/main.lua", "a"), modId: 601, fileId: 1);
+        var vm = harness.Build();
+
+        using (new FileStream(Path.Combine(_root, "pending_downloads.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Assert.Null(Record.Exception(() => vm.DiscardPendingDownloadCommand.Execute(vm.PendingDownloads.Single())));
+        }
+
+        Assert.Empty(vm.PendingDownloads);
+        Assert.Contains("couldn't save", vm.PendingDownloadStatusMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The same lock at the end of an install turned a mod that was in the Library into "Import failed".</summary>
+    [Fact]
+    public async Task Activate_WhileTheDownloadsListFileIsLocked_StillSucceeds()
+    {
+        var harness = new Harness(_root);
+        harness.AddDownload("B.zip", z => WriteEntry(z, "B/Scripts/main.lua", "b"), modId: 602, fileId: 1);
+        var vm = harness.Build();
+
+        ModReplacementResult result;
+        using (new FileStream(Path.Combine(_root, "pending_downloads.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            result = await vm.ActivateAsync(vm.PendingDownloads.Single());
+        }
+
+        Assert.True(result.Succeeded, result.Message);
+        Assert.DoesNotContain("Import failed", vm.PendingDownloadStatusMessage);
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("downloads list"));
+    }
+
     /// <summary>Only Nexus's download-link rejection is "you may need Premium": any other failure says what went wrong instead of opening the website.</summary>
     [Fact]
     public async Task FetchAndDownload_OtherFailure_IsNotReportedAsNeedingPremium()

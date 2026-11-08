@@ -201,14 +201,14 @@ public sealed partial class DownloadsViewModel
             EndDownload(row);
             row.MarkInstalling();
 
-            _pendingDownloadStore.Add(new PendingDownloadEntry
+            TrySaveDownloadsList(() => _pendingDownloadStore.Add(new PendingDownloadEntry
             {
                 ModId = nxmUrl.ModId,
                 FileId = nxmUrl.FileId,
                 FileName = fileName,
                 LocalFilePath = localPath,
                 DownloadedAtUtc = DateTimeOffset.UtcNow,
-            });
+            }));
             ReloadPendingDownloads();
             PendingDownloadStatusMessage = $"Downloaded '{fileName}' — importing…";
 

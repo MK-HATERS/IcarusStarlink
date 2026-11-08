@@ -40,6 +40,12 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
         Save();
     }
 
+    public void RemoveMany(IReadOnlyCollection<(int ModId, int FileId)> downloads)
+    {
+        _entries.RemoveAll(e => downloads.Contains((e.ModId, e.FileId)));
+        Save();
+    }
+
     public void SetActivation(int modId, int fileId, string? folderName, PendingDownloadActivationKind? kind)
     {
         var entry = _entries.FirstOrDefault(e => e.ModId == modId && e.FileId == fileId);

@@ -268,14 +268,36 @@ public sealed partial class DownloadsViewModel : ObservableObject
                 // unreferenced instead of blocking the user from moving on.
                 notDeleted.Add($"{item.FileName}: {ex.Message}");
             }
-
-            _pendingDownloadStore.Remove(item.ModId, item.FileId);
         }
 
+        var saveError = TrySaveDownloadsList(() => _pendingDownloadStore.RemoveMany([.. items.Select(i => (i.ModId, i.FileId))]));
         ReloadPendingDownloads();
-        PendingDownloadStatusMessage = notDeleted.Count > 0
+        var status = notDeleted.Count > 0
             ? $"Removed from the list, but couldn't delete the file: {string.Join("; ", notDeleted)}"
             : items.Count == 1 ? $"Discarded '{items[0].FileName}'." : $"Discarded {items.Count} downloads.";
+        PendingDownloadStatusMessage = saveError is null
+            ? status
+            : $"{status} Starlink couldn't save the downloads list ({saveError}), so they may show again after a restart.";
+    }
+
+    /// <summary>
+    /// Saves a change to the downloads list. The list in memory is already changed when the save
+    /// throws (PendingDownloadStore updates it first), so a locked or read-only
+    /// pending_downloads.json (a sync client, antivirus) is logged: never a crash or a failed install.
+    /// Returns the error text, or null when it saved.
+    /// </summary>
+    private string? TrySaveDownloadsList(Action write)
+    {
+        try
+        {
+            write();
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _activityLog.Log($"Couldn't save the downloads list: {ex.Message} It may show older information after a restart.", ActivityEntryKind.Warning);
+            return ex.Message;
+        }
     }
 
     /// <summary>What Discard asks when some of the downloads are installed: what is lost, and that the mods stay.</summary>
@@ -303,14 +325,22 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// </summary>
     private void MarkActivated(PendingDownloadItemViewModel item, IReadOnlyList<PendingDownloadActivatedItem> items, IReadOnlyList<string> requirements)
     {
-        _pendingDownloadStore.SetActivation(item.ModId, item.FileId, items, requirements);
+        TrySaveDownloadsList(() => _pendingDownloadStore.SetActivation(item.ModId, item.FileId, items, requirements));
         item.SetActivated(items, requirements);
         if (PendingDownloads.FirstOrDefault(p => p.ModId == item.ModId && p.FileId == item.FileId) is { } current && !ReferenceEquals(current, item))
         {
             current.SetActivated(items, requirements);
         }
 
-        RefreshVisiblePendingDownloads();
+        // Reads the game's Mods folder: a disk error there must not fail an install that worked.
+        try
+        {
+            RefreshVisiblePendingDownloads();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _activityLog.Log($"Couldn't refresh the downloads list: {ex.Message}", ActivityEntryKind.Warning);
+        }
     }
 
     /// <summary>The kept download a Library mod was installed from (its file still on disk), or null.</summary>
