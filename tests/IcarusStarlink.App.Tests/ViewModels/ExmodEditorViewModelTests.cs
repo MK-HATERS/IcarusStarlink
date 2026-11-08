@@ -197,6 +197,129 @@ public sealed partial class ExmodEditorViewModelTests : IDisposable
         Assert.StartsWith("Saved", editor.StatusMessage);
     }
 
+    /// <summary>A mod whose Envirosuit and Fiber rows both set MaxStack to 500.</summary>
+    private ExmodEditorViewModel OpenModWithStacks()
+    {
+        var entry = _library.CreateBlankMod("Big stacks", "Me", ModTemplate.Blank);
+        var package = ExmodFolder.Read(_library.GetFolderPath(entry.FolderName)).Package;
+        package.Rows.Insert(0, new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Itemable.json",
+            FileItems =
+            [
+                new ExmodFileItem { Name = "Item_Envirosuit", Fields = { ["MaxStack"] = JsonValue.Create(500) } },
+                new ExmodFileItem { Name = "Item_Fiber", Fields = { ["MaxStack"] = JsonValue.Create(500) } },
+            ],
+        });
+        ExmodFolder.Write(_library.GetFolderPath(entry.FolderName), new ExmodPackageContents(package, []));
+        return new ExmodEditorViewModel(entry.FolderName, _library, DataFolder, new GameDataIndexCache());
+    }
+
+    /// <summary>Regression: mass edit with a field name in another case ("maxstack") added a second field next to "MaxStack", so the saved mod held both.</summary>
+    [Fact]
+    public void MassEdit_WithTheFieldNameInAnotherCase_ChangesTheFieldThatIsThere()
+    {
+        var editor = OpenModWithStacks();
+        editor.SetSelectedItemsForMassEdit([.. editor.Items]);
+        editor.MassEditFieldName = "maxstack";
+        editor.MassEditFieldValue = "1000";
+
+        editor.ApplyMassEditCommand.Execute(null);
+        editor.SaveCommand.Execute(null);
+
+        var saved = ExmodFolder.ReadPackageOnly(_library.GetFolderPath(_library.GetAll().Single().FolderName));
+        var items = saved.Rows.Single(r => r.CurrentFile == "Traits-D_Itemable.json").FileItems;
+        Assert.Equal(2, items.Count);
+        Assert.All(items, item =>
+        {
+            var key = Assert.Single(item.Fields.Keys, k => string.Equals(k, "MaxStack", StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(1000, item.Fields[key]!.GetValue<int>());
+        });
+    }
+
+    /// <summary>Regression: "Type a field by hand" with "maxstack" added a second field next to "MaxStack".</summary>
+    [Fact]
+    public void AddField_WithANameThatIsThereInAnotherCase_IsRefused()
+    {
+        var editor = OpenModWithStacks();
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Fiber");
+        editor.NewFieldName = "maxstack";
+        editor.NewFieldValue = "1000";
+
+        editor.AddFieldCommand.Execute(null);
+
+        Assert.Contains("already exists", editor.StatusMessage);
+        Assert.False(editor.HasUnsavedChanges);
+        Assert.Single(editor.Fields, f => string.Equals(f.FieldName, "MaxStack", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Regression: a value that didn't parse vanished without a word when another row was picked, and Save then said "Saved.".</summary>
+    [Fact]
+    public void ABadValue_LeftByPickingAnotherRow_IsSaidNotSilentlyDropped()
+    {
+        var editor = OpenMod();
+        editor.NewItemCurrentFile = "Traits/D_Itemable.json";
+        editor.NewItemName = "Item_Fiber";
+        editor.AddItemCommand.Execute(null);
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Envirosuit");
+        editor.Fields.Single(f => f.FieldName == "Weight").ValueText = "2,5";
+
+        editor.SelectedItem = editor.Items.Single(i => i.ItemName == "Item_Fiber");
+
+        Assert.Contains("wasn't kept", editor.StatusMessage);
+    }
+
+    /// <summary>Regression: after "Close Starlink anyway?", each open editor asked Save / Don't save / Cancel, and a Cancel there was ignored, so the edits were lost.</summary>
+    [Fact]
+    public void WhenStarlinkIsClosing_TheEditorAsksSaveOrDontSave_Only()
+    {
+        var editor = OpenMod();
+        editor.SelectedItem = editor.Items.Single();
+        editor.Fields.Single(f => f.FieldName == "Weight").ValueText = "25";
+        editor.ClosingWithApp = true;
+        editor.AskSaveOnClose = _ => throw new InvalidOperationException("no Cancel once Starlink is closing");
+        string? asked = null;
+        editor.AskSaveOnAppClose = message =>
+        {
+            asked = message;
+            return true;
+        };
+
+        Assert.True(editor.ConfirmClose());
+
+        Assert.Contains("Starlink is closing", asked);
+        Assert.False(editor.HasUnsavedChanges);
+        var saved = ExmodFolder.ReadPackageOnly(_library.GetFolderPath(_library.GetAll().Single().FolderName));
+        Assert.Equal(25, saved.Rows.Single(r => r.CurrentFile == "Traits-D_Itemable.json").FileItems.Single().Fields["Weight"]!.GetValue<int>());
+    }
+
+    /// <summary>Every EXMOD ends with an EndOfMod marker; a table the editor added used to go after it.</summary>
+    [Fact]
+    public void ANewTable_GoesBeforeTheEndOfModMarker()
+    {
+        var entry = _library.CreateBlankMod("Marked", "Me", ModTemplate.Blank);
+        var package = ExmodFolder.Read(_library.GetFolderPath(entry.FolderName)).Package;
+        package.Rows.Add(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Itemable.json",
+            FileItems = [new ExmodFileItem { Name = "Item_Envirosuit", Fields = { ["Weight"] = JsonValue.Create(50) } }],
+        });
+        package.Rows.Add(new ExmodFileRow { CurrentFile = "EndOfMod" });
+        ExmodFolder.Write(_library.GetFolderPath(entry.FolderName), new ExmodPackageContents(package, []));
+        var editor = new ExmodEditorViewModel(entry.FolderName, _library, DataFolder, new GameDataIndexCache());
+        editor.NewItemCurrentFile = "Items/D_ItemsStatic.json";
+        editor.NewItemName = "Envirosuit";
+
+        editor.AddItemCommand.Execute(null);
+        editor.SaveCommand.Execute(null);
+
+        var saved = ExmodFolder.ReadPackageOnly(_library.GetFolderPath(_library.GetAll().Single().FolderName));
+        var table = saved.Rows.FindIndex(r => r.CurrentFile == "Items-D_ItemsStatic.json");
+        var end = saved.Rows.FindIndex(r => r.CurrentFile == "EndOfMod");
+        Assert.True(table >= 0 && end >= 0, "both rows are saved");
+        Assert.True(table < end, $"the new table is at {table}, the EndOfMod marker at {end}");
+    }
+
     /// <summary>The editor kept the game tables it read for its whole life, so after Refresh game data it compared with the old game.</summary>
     [Fact]
     public void RefreshGameData_IsReadAgain()

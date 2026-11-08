@@ -58,7 +58,7 @@ public sealed partial class ExmodEditorViewModel
             // Each item's Fields dictionary needs its own JsonNode instance — a JsonNode can only
             // ever belong to one parent, the same constraint ExmodBaseDiffer.ToKeyedObject already
             // works around by deep-cloning.
-            item.Fields[MassEditFieldName] = parsedValue?.DeepClone();
+            item.Fields[FieldKeyFor(editorItem.CurrentFile, editorItem.ItemName, item, MassEditFieldName)] = parsedValue?.DeepClone();
             count++;
         }
 
@@ -83,7 +83,7 @@ public sealed partial class ExmodEditorViewModel
     {
         IReadOnlyList<EditorItemViewModel> picked = _selectedItemsForMassEdit.Count > 1 ? _selectedItemsForMassEdit
             : SelectedItem is { } one ? [one] : [];
-        var targets = picked.Where(t => !Same(t.CurrentFile, "EndOfMod") &&FindItem(t.CurrentFile, t.ItemName) is not null).ToList();
+        var targets = picked.Where(t => !IsEndOfMod(t.CurrentFile) && FindItem(t.CurrentFile, t.ItemName) is not null).ToList();
         if (targets.Count == 0)
         {
             StatusMessage = "Select an item first.";
@@ -251,11 +251,7 @@ public sealed partial class ExmodEditorViewModel
         }
 
         PushUndoSnapshot();
-        if (row is null)
-        {
-            row = new ExmodFileRow { CurrentFile = picked.CurrentFile };
-            _package.Rows.Add(row);
-        }
+        row ??= AddTableRow(new ExmodFileRow { CurrentFile = picked.CurrentFile });
 
         var item = ExmodFileItem.FromRow(picked.ItemName, fields);
         row.FileItems.Add(item);
@@ -290,7 +286,7 @@ public sealed partial class ExmodEditorViewModel
         PushUndoSnapshot();
         var previousFile = SelectedItem?.CurrentFile;
         var previousName = SelectedItem?.ItemName;
-        _package.Rows.Add(new ExmodFileRow { CurrentFile = currentFile });
+        AddTableRow(new ExmodFileRow { CurrentFile = currentFile });
         RefreshBaseDiff();
         ReloadItems();
         SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, previousFile) && Same(i.ItemName, previousName)) ?? Items.FirstOrDefault();
@@ -336,11 +332,7 @@ public sealed partial class ExmodEditorViewModel
         foreach (var sourceRow in sourcePackage.Rows)
         {
             var targetRow = _package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, sourceRow.CurrentFile, StringComparison.OrdinalIgnoreCase));
-            if (targetRow is null)
-            {
-                targetRow = new ExmodFileRow { CurrentFile = sourceRow.CurrentFile };
-                _package.Rows.Add(targetRow);
-            }
+            targetRow ??= AddTableRow(new ExmodFileRow { CurrentFile = sourceRow.CurrentFile });
 
             foreach (var sourceItem in sourceRow.FileItems)
             {

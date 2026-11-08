@@ -23,14 +23,41 @@ public sealed partial class ExmodEditorViewModel
     private Func<string, bool?>? _askSaveOnClose;
 
     /// <summary>
+    /// True once the main window's "Close Starlink anyway?" was answered Yes: the editor closes with
+    /// the app, and WPF ignores a Cancel in an owned window then (set by ExmodEditorWindow).
+    /// </summary>
+    internal bool ClosingWithApp { get; set; }
+
+    /// <summary>Asks Save or Don't save while Starlink is closing (no Cancel: it couldn't stop the close). Tests swap in an answer.</summary>
+    internal Func<string, bool> AskSaveOnAppClose
+    {
+        get => _askSaveOnAppClose ??= message => ThemedConfirmDialog.ShowWithWords(
+            OwnerWindow(), message, "Unsaved changes", ThemedConfirmSeverity.Question, "Save", "Don't save");
+        set => _askSaveOnAppClose = value;
+    }
+
+    private Func<string, bool>? _askSaveOnAppClose;
+
+    /// <summary>
     /// Called as the window closes: true when it may close. Unsaved changes ask Save / Don't save /
     /// Cancel; a Save that doesn't go through (a rule to fix, the mod changed elsewhere, its folder
-    /// gone) keeps the window open with the reason showing.
+    /// gone) keeps the window open with the reason showing. While Starlink is closing it asks only
+    /// Save / Don't save: a Cancel there used to be ignored and the edits lost anyway.
     /// </summary>
     public bool ConfirmClose()
     {
         if (!HasUnsavedChanges)
         {
+            return true;
+        }
+
+        if (ClosingWithApp)
+        {
+            if (AskSaveOnAppClose($"Starlink is closing. Save your changes to '{_package.Name}' first?"))
+            {
+                Save();
+            }
+
             return true;
         }
 

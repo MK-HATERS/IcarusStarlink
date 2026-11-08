@@ -28,7 +28,7 @@ public sealed partial class ExmodEditorViewModel
     [RelayCommand]
     private void RenameRow()
     {
-        if (SelectedItem is not { } selected || FindItem(selected.CurrentFile, selected.ItemName) is not { } item || Same(selected.CurrentFile, "EndOfMod"))
+        if (SelectedItem is not { } selected || FindItem(selected.CurrentFile, selected.ItemName) is not { } item || IsEndOfMod(selected.CurrentFile))
         {
             StatusMessage = "Select a row first.";
             return;

@@ -36,7 +36,16 @@ public sealed partial class ExmodEditorViewModel
     /// <summary>Shared by OnSelectedItemChanged and a successful Save (which needs the just-saved item's own "was:" indicators to clear immediately, not just on next reselect).</summary>
     private void PopulateFieldsForSelection()
     {
+        // Save refuses while a box holds text that never reached the mod, but only for the row on
+        // show: rebuilding the fields (another row picked, Undo, a mass edit) used to drop that text
+        // without a word, and Save then said "Saved.".
+        if (_allFields.FirstOrDefault(f => f.HasUnwrittenText) is { } lost && _fieldsShownFor is { } shownFor)
+        {
+            StatusMessage = $"{lost.Label} on {shownFor.Title} wasn't a valid value, so it wasn't kept: the mod still has its last good value.";
+        }
+
         _allFields.Clear();
+        _fieldsShownFor = null;
         try
         {
             if (SelectedItem is null || FindItem(SelectedItem.CurrentFile, SelectedItem.ItemName) is not { } item)
@@ -45,6 +54,7 @@ public sealed partial class ExmodEditorViewModel
             }
 
             var selected = SelectedItem;
+            _fieldsShownFor = selected;
             foreach (var fieldName in item.Fields.Keys.ToList())
             {
                 var baseValue = BaseValueFor(selected.CurrentFile, selected.ItemName, fieldName, item);
@@ -63,6 +73,9 @@ public sealed partial class ExmodEditorViewModel
 
     /// <summary>Every field of the selected row; Fields is the part on show (see ShowFields).</summary>
     private readonly List<EditorFieldViewModel> _allFields = [];
+
+    /// <summary>The row _allFields belongs to, so a value lost when the fields are rebuilt can name it.</summary>
+    private EditorItemViewModel? _fieldsShownFor;
 
     /// <summary>"Only fields that differ from the game": hides the ones a copied game row carries unchanged.</summary>
     [ObservableProperty]
@@ -180,11 +193,15 @@ public sealed partial class ExmodEditorViewModel
         }
 
         var item = FindItem(SelectedItem.CurrentFile, SelectedItem.ItemName)!;
-        if (item.Fields.ContainsKey(NewFieldName))
+        // Ignoring case: the row's fields are case-sensitive, and "maxstack" next to "MaxStack"
+        // would be a second field in the saved mod.
+        if (item.Fields.Keys.FirstOrDefault(k => string.Equals(k, NewFieldName.Trim(), StringComparison.OrdinalIgnoreCase)) is { } existing)
         {
-            StatusMessage = $"'{NewFieldName}' already exists on this item.";
+            StatusMessage = $"'{existing}' already exists on this item.";
             return;
         }
+
+        var fieldName = FieldKeyFor(SelectedItem.CurrentFile, SelectedItem.ItemName, item, NewFieldName.Trim());
 
         JsonNode? parsedValue;
         try
@@ -198,15 +215,15 @@ public sealed partial class ExmodEditorViewModel
         }
 
         PushUndoSnapshot();
-        item.Fields[NewFieldName] = parsedValue;
+        item.Fields[fieldName] = parsedValue;
         // The amber "differs from base" highlight is keyed on a diff recomputed whenever Rows change
         // shape — a freshly added field had no entry and so never highlighted.
         RefreshBaseDiff();
-        var baseValue = BaseValueFor(SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
-        var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, NewFieldName, item);
-        AddFieldRow(new EditorFieldViewModel(NewFieldName, item.Fields, baseValue, originalValue, StatChoicesForFields(),
-            ChoicesFor(SelectedItem.CurrentFile, NewFieldName, parsedValue ?? baseValue),
-            StatWithNoEffect(SelectedItem.CurrentFile, SelectedItem.ItemName, item, NewFieldName)), SelectedItem).KeepInView = true;
+        var baseValue = BaseValueFor(SelectedItem.CurrentFile, SelectedItem.ItemName, fieldName, item);
+        var originalValue = LookupOrFallback(_originalValuesByKey, SelectedItem.CurrentFile, SelectedItem.ItemName, fieldName, item);
+        AddFieldRow(new EditorFieldViewModel(fieldName, item.Fields, baseValue, originalValue, StatChoicesForFields(),
+            ChoicesFor(SelectedItem.CurrentFile, fieldName, parsedValue ?? baseValue),
+            StatWithNoEffect(SelectedItem.CurrentFile, SelectedItem.ItemName, item, fieldName)), SelectedItem).KeepInView = true;
         ShowFields();
         RefreshAddableFields();
         Recount(SelectedItem);
@@ -265,11 +282,7 @@ public sealed partial class ExmodEditorViewModel
         }
 
         PushUndoSnapshot();
-        if (row is null)
-        {
-            row = new ExmodFileRow { CurrentFile = currentFile };
-            _package.Rows.Add(row);
-        }
+        row ??= AddTableRow(new ExmodFileRow { CurrentFile = currentFile });
 
         row.FileItems.Add(new ExmodFileItem { Name = NewItemName });
 

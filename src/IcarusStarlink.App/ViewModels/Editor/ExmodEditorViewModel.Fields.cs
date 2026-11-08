@@ -81,6 +81,31 @@ public sealed partial class ExmodEditorViewModel
         (gameRow?.FirstOrDefault(kv => string.Equals(kv.Key, field, StringComparison.OrdinalIgnoreCase)).Value
          ?? defaults?.FirstOrDefault(kv => string.Equals(kv.Key, field, StringComparison.OrdinalIgnoreCase)).Value);
 
+    /// <summary>
+    /// The key a typed field name goes under: the row's own key when it already has the field in
+    /// another case, else the game table's spelling, else the name as typed. A row's fields are
+    /// case-sensitive, so "maxstack" next to "MaxStack" would be a second field in the saved mod.
+    /// </summary>
+    private string FieldKeyFor(string currentFile, string rowName, ExmodFileItem item, string typed)
+    {
+        if (item.Fields.Keys.FirstOrDefault(k => string.Equals(k, typed, StringComparison.OrdinalIgnoreCase)) is { } existing)
+        {
+            return existing;
+        }
+
+        if (HasGameTable(currentFile))
+        {
+            var known = GameTables.Row(currentFile, rowName)?.FirstOrDefault(kv => string.Equals(kv.Key, typed, StringComparison.OrdinalIgnoreCase)).Key
+                ?? GameTables.Defaults(currentFile)?.FirstOrDefault(kv => string.Equals(kv.Key, typed, StringComparison.OrdinalIgnoreCase)).Key;
+            if (known is not null)
+            {
+                return known;
+            }
+        }
+
+        return typed;
+    }
+
     private void FilterAddableFields()
     {
         var search = AddFieldSearch.Trim();

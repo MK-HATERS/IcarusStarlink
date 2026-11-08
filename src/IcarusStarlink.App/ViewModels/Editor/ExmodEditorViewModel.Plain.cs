@@ -90,7 +90,7 @@ public sealed partial class ExmodEditorViewModel
     }
 
     private bool HasGameTable(string currentFile) =>
-        !_gameDataMissing && !string.Equals(currentFile, "EndOfMod", StringComparison.OrdinalIgnoreCase) && Directory.Exists(_dataFolder) && GameTables.Rows(currentFile) is not null;
+        !_gameDataMissing && !IsEndOfMod(currentFile) &&Directory.Exists(_dataFolder) && GameTables.Rows(currentFile) is not null;
 
     private readonly Dictionary<(string File, string Field), FieldChoices?> _fieldChoices = [];
 

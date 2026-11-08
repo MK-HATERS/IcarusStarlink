@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -26,7 +27,37 @@ public partial class ExmodEditorWindow : Window
 
         // Unsaved changes ask Save / Don't save / Cancel instead of vanishing with the window.
         Closing += (_, e) => e.Cancel = !viewModel.ConfirmClose();
-        Closed += (_, _) => viewModel.Detach();
+        Closed += (_, _) =>
+        {
+            if (Owner is { } owner)
+            {
+                owner.Closing -= Owner_Closing;
+            }
+
+            viewModel.Detach();
+        };
+    }
+
+    /// <summary>
+    /// Hears the main window close. MainWindow hooks its own "Close Starlink anyway?" in its
+    /// constructor, before any editor exists, so this runs after it and sees its answer.
+    /// </summary>
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        if (Owner is { } owner)
+        {
+            owner.Closing += Owner_Closing;
+        }
+    }
+
+    /// <summary>The app is closing for sure: this window can't stay open, so its prompt drops Cancel.</summary>
+    private void Owner_Closing(object? sender, CancelEventArgs e)
+    {
+        if (!e.Cancel && DataContext is ExmodEditorViewModel vm)
+        {
+            vm.ClosingWithApp = true;
+        }
     }
 
     /// <summary>
