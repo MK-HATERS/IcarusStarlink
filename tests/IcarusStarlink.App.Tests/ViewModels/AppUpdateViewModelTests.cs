@@ -1,4 +1,5 @@
 using System.IO;
+using System.Xml.Linq;
 using IcarusStarlink.App.Tests.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Catalog.AppUpdate;
@@ -281,5 +282,36 @@ public sealed class AppUpdateViewModelTests
 
         viewModel.CancelOrCloseCommand.Execute(null);
         Assert.False(await run);
+    }
+
+    /// <summary>
+    /// The update window's progress bar has its own style, to hide it once the update stops. That
+    /// style wasn't based on the app's ProgressBar style, so it dropped the theme's look and the bar
+    /// was drawn with Windows' own green one instead.
+    /// </summary>
+    [Fact]
+    public void UpdateWindowProgressBar_KeepsTheThemesLook()
+    {
+        var xamlPath = Path.Combine(RepoRoot(), "src", "IcarusStarlink.App", "Views", "Shell", "AppUpdateWindow.xaml");
+        var presentation = XNamespace.Get("http://schemas.microsoft.com/winfx/2006/xaml/presentation");
+        var progressBarStyles = XDocument.Load(xamlPath)
+            .Descendants(presentation + "ProgressBar.Style")
+            .Elements(presentation + "Style")
+            .ToList();
+
+        Assert.NotEmpty(progressBarStyles);
+        Assert.All(progressBarStyles, style =>
+            Assert.Equal("{StaticResource {x:Type ProgressBar}}", (string?)style.Attribute("BasedOn")));
+    }
+
+    private static string RepoRoot()
+    {
+        var folder = new DirectoryInfo(AppContext.BaseDirectory);
+        while (folder is not null && !File.Exists(Path.Combine(folder.FullName, "IcarusStarlink.slnx")))
+        {
+            folder = folder.Parent;
+        }
+
+        return folder?.FullName ?? throw new InvalidOperationException("IcarusStarlink.slnx not found above the test folder.");
     }
 }
