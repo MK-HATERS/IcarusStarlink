@@ -25,7 +25,7 @@ Full license text: <https://www.apache.org/licenses/LICENSE-2.0>
 
 AssetRipper.TextureDecoder (2.6.2) · BouncyCastle.Cryptography (2.6.2) ·
 CommunityToolkit.HighPerformance / CommunityToolkit.Mvvm (8.4.2) · FixedMathSharp (4.0.1) ·
-FluentFTP (54.2.0) · Fmod5Sharp (3.1.0) · GenericReader (2.3.0) · IndexRange (1.1.0) ·
+FluentFTP (55.1.0) · Fmod5Sharp (3.1.0) · GenericReader (2.3.0) · IndexRange (1.1.0) ·
 Infrablack.UE4Config (0.7.2.97) · K4os.Compression.LZ4 / K4os.Compression.LZ4.Streams /
 K4os.Hash.xxHash (1.3.8 / 1.0.8) · LZMA-SDK (22.1.1, MIT wrapper around the public-domain LZMA
 SDK) · MemoryPack / MemoryPack.Core / MemoryPack.Generator (1.21.4) ·
