@@ -16,4 +16,16 @@
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-v76p-62qx-wwq2" />
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-wmxv-xphr-5c9g" />
   </ItemGroup>
+
+  <!--
+    On GitHub Actions (which sets CI=true) a warning fails the build: a run's page shows only the
+    first 10 warnings of a step, so a new one could otherwise go unseen. Local builds are unchanged.
+    Left as warnings: NuGet's audit codes NU1900-NU1905 (the Audit workflow turns NU1901-NU1904 into
+    errors itself, and a new advisory must not fail every other run) and the vendored UeSaveGame
+    (its warnings aren't ours to fix).
+  -->
+  <PropertyGroup Condition="'$(CI)' == 'true' and '$(MSBuildProjectName)' != 'UeSaveGame'">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1900;NU1901;NU1902;NU1903;NU1904;NU1905</WarningsNotAsErrors>
+  </PropertyGroup>
 </Project>
