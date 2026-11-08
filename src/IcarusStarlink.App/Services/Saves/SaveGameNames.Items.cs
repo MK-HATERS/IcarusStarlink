@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json;
 
 namespace IcarusStarlink.App.Services;
@@ -37,12 +38,19 @@ public sealed partial class SaveGameNames
         return names;
     }
 
-    /// <summary>The game's own names for its currencies (D_MetaCurrency rows).</summary>
-    private static readonly Dictionary<string, string> CurrencyNames = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>
+    /// The names the game's own UI uses for its currencies, by D_MetaCurrency row (the table's
+    /// DisplayNames aren't used: several are "[DNT]" placeholders). Also the list of game
+    /// currencies when D_MetaCurrency isn't extracted.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, string> CurrencyLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["Credits"] = "Ren", ["Exotic1"] = "Exotics", ["Exotic_Red"] = "Red Exotics", ["Biomass"] = "Biomass",
         ["Exotic_Uranium"] = "Uranium", ["Licence"] = "Licences", ["Refund"] = "Respec Points", ["Biomass_Converter"] = "Flux",
     };
+
+    /// <summary>The game's currencies (D_MetaCurrency row names); empty when the table isn't extracted.</summary>
+    public IReadOnlySet<string> GameCurrencyRows => RowNameSet(Path.Combine("Currency", "D_MetaCurrency.json"));
 
     /// <summary>D_WorkshopItems row -> "50 Ren" (its ResearchCost).</summary>
     private Dictionary<string, IReadOnlyList<CostPart>> LoadWorkshopCosts() => Safe(() =>
@@ -56,7 +64,7 @@ public sealed partial class SaveGameNames
                     .Select(c => (Meta: c.TryGetProperty("Meta", out var m) && m.TryGetProperty("RowName", out var mr) ? mr.GetString() ?? "?" : "?",
                                   Amount: c.TryGetProperty("Amount", out var a) && a.ValueKind == JsonValueKind.Number ? a.GetInt32() : 0))
                     .Where(c => c.Amount > 0)
-                    .Select(c => new CostPart(CurrencyNames.GetValueOrDefault(c.Meta, c.Meta), c.Amount))
+                    .Select(c => new CostPart(CurrencyLabels.GetValueOrDefault(c.Meta, c.Meta), c.Amount))
                     .ToList();
                 if (parts.Count > 0)
                 {

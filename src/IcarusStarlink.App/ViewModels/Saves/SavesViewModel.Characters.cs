@@ -7,21 +7,38 @@ namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class SavesViewModel
 {
-    /// <summary>Real MetaRow keys → the names the game's own UI uses ("Ren, Exotics, Red, Biomass, Uranium, Licence, Respec"). An unrecognized key still shows, under its raw name — same preserve-everything philosophy as the repository.</summary>
-    private static readonly Dictionary<string, string> CurrencyLabels = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Credits"] = "Ren",
-        ["Exotic1"] = "Exotics",
-        ["Exotic_Red"] = "Red Exotics",
-        ["Biomass"] = "Biomass",
-        ["Biomass_Converter"] = "Flux",
-        ["Exotic_Uranium"] = "Uranium",
-        ["Licence"] = "Licences",
-        ["Refund"] = "Respec Points",
-    };
-
     /// <summary>MetaResources entries taken out, written at the next Save (a save can carry one the game never had, like Exotic_stabilized).</summary>
     private readonly List<SaveCurrencyViewModel> _removedCurrencies = [];
+
+    /// <summary>
+    /// One row per MetaResources entry. A currency is the game's when the extracted D_MetaCurrency
+    /// has it (a game update can add one); without that table, when it's one of the eight the game
+    /// had when this was written. An entry with a key the game doesn't have (Exotic_stabilized, in
+    /// a real save) still shows, under its raw name, said to be one.
+    /// </summary>
+    private void BuildCurrencies()
+    {
+        Currencies.Clear();
+        if (_profile?["MetaResources"] is not JsonArray resources)
+        {
+            return;
+        }
+
+        var gameRows = _gameNames.GameCurrencyRows;
+        var tableRead = gameRows.Count > 0;
+        foreach (var resource in resources.OfType<JsonObject>())
+        {
+            var key = SaveJson.String(resource["MetaRow"]) ?? "?";
+            var isGame = tableRead ? gameRows.Contains(key) : SaveGameNames.CurrencyLabels.ContainsKey(key);
+            var label = SaveGameNames.CurrencyLabels.GetValueOrDefault(key)
+                ?? (isGame ? SaveGameNames.HumanizeMountType(key) : $"{key} (not a game currency)");
+            Currencies.Add(new SaveCurrencyViewModel(resource, label, NotifyDirtyChanged)
+            {
+                IsGameCurrency = isGame,
+                GameTableRead = tableRead,
+            });
+        }
+    }
 
     /// <summary>Takes a currency the game doesn't have out of the save. A real one, or a mod's you have, can't be: set it to 0 instead.</summary>
     [RelayCommand]

@@ -156,6 +156,10 @@ public sealed class SaveGameNamesTests : IDisposable
         Write(@"Items\D_ItemsStatic.json", """
             { "Rows": [ { "Name": "Wood" } ] }
             """);
+        // Every table the mod-source read asks for: it used to parse these again after Warm.
+        Write(@"Bestiary\D_BestiaryData.json", """{ "Rows": [ { "Name": "Wolf" } ] }""");
+        Write(@"Accolades\D_Accolades.json", """{ "Rows": [ { "Name": "A1" } ] }""");
+        Write(@"Currency\D_MetaCurrency.json", """{ "Rows": [ { "Name": "Credits" } ] }""");
         var names = new SaveGameNames(_data);
 
         names.Warm();
@@ -163,6 +167,9 @@ public sealed class SaveGameNamesTests : IDisposable
 
         Assert.True(names.Talents.ContainsKey("Wood_Sticks"));
         Assert.Contains("Wood", names.RowNameSet("Items/D_ItemsStatic.json"));
+        Assert.Contains("Wolf", names.RowNameSet("Bestiary/D_BestiaryData.json"));
+        Assert.Contains("A1", names.RowNameSet("Accolades/D_Accolades.json"));
+        Assert.Contains("Credits", names.RowNameSet("Currency/D_MetaCurrency.json"));
         names.Invalidate();
         Assert.Empty(names.Talents);
         Assert.Empty(names.RowNameSet("Items/D_ItemsStatic.json"));

@@ -14,13 +14,21 @@ public sealed partial class SaveCurrencyViewModel : DirtyRow
     /// <summary>A currency the game has (D_MetaCurrency). False for a leftover like "Exotic_stabilized": the game ignores it, and it can be taken out.</summary>
     public bool IsGameCurrency { get; init; } = true;
 
-    /// <summary>Not a game currency, and no mod you have adds it: it can be taken out (a mod's own currency stays).</summary>
-    public bool IsUnknown => !IsGameCurrency && Source is not { IsRemovable: false };
+    /// <summary>The extracted D_MetaCurrency was read, so <see cref="IsGameCurrency"/> comes from the game's own table rather than the built-in list.</summary>
+    public bool GameTableRead { get; init; }
+
+    /// <summary>
+    /// Not a game currency, and no mod you have adds it: it can be taken out (a mod's own currency
+    /// stays). Not yet placed (Source null) counts only when the game's table wasn't read: then the
+    /// built-in list is all there is to go on. With the table read, an unplaced one may be a mod's
+    /// still being read, so it stays until it's placed.
+    /// </summary>
+    public bool IsUnknown => !IsGameCurrency && (Source is { IsRemovable: true } || (Source is null && !GameTableRead));
 
     /// <summary>Its MetaRow ("Exotic_stabilized").</summary>
     public string MetaRow => SaveJson.String(_node["MetaRow"]) ?? "";
 
-    /// <summary>Where a currency the game doesn't have comes from (SaveModSources); null for the game's own, or until read.</summary>
+    /// <summary>Where a currency the game doesn't have comes from (SaveModSources); null for the game's own, until the installed mods are read, or when nothing can be said.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsUnknown))]
     private Services.SaveRowSource? _source;

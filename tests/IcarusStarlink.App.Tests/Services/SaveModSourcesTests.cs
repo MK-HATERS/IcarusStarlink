@@ -97,6 +97,65 @@ public sealed class SaveModSourcesTests
         }
     }
 
+    /// <summary>
+    /// Regression: the game loads every pak under Content\Paks, but a pak in Paks\~mods or
+    /// Paks\LogicMods was neither read nor counted, so the rows it adds were called leftovers.
+    /// </summary>
+    [Theory]
+    [InlineData(@"~mods\ZZ_Test_P.pak", true)]
+    [InlineData(@"LogicMods\x.pak", true)]
+    [InlineData(@"mods\sub\y.pak", true)]
+    [InlineData(@"Loose_P.pak", true)]
+    [InlineData(@"mods\ZZ_A_P.pak", false)]
+    [InlineData(null, false)]
+    public void PaksTheGameLoadsButAreNotRead_TurnLeftoversOff(string? pak, bool expected)
+    {
+        var content = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_Content", Guid.NewGuid().ToString("N"));
+        var paks = Path.Combine(content, "Paks");
+        Directory.CreateDirectory(paks);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(paks, "pakchunk0-WindowsNoEditor.pak"), [1, 2, 3]);
+            if (pak is not null)
+            {
+                var path = Path.Combine(paks, pak);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllBytes(path, [1, 2, 3]);
+            }
+
+            Assert.Equal(expected, SaveModSources.HasPaksItCantRead(content));
+        }
+        finally
+        {
+            Directory.Delete(content, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RewardCountsIn_CountsEachRowsOwnRewards()
+    {
+        var ranks = SaveModSources.RewardCountsIn("""{"Rows":[{"Name":"Big","Rewards":[{},{},{},{},{}]},{"Name":"NoRewards"},{"Name":"Empty","Rewards":[]}]}"""u8.ToArray());
+
+        Assert.Equal(5, ranks["Big"]);
+        Assert.Equal(1, ranks["NoRewards"]);
+        Assert.Equal(1, ranks["Empty"]);
+        Assert.Empty(SaveModSources.RewardCountsIn("not json"u8.ToArray()));
+        Assert.Empty(SaveModSources.RewardCountsIn(null));
+    }
+
+    [Fact]
+    public void InstalledMaxRank_IsWhatTheInstalledTableGives()
+    {
+        var index = new SaveModSources.Index(
+            new Dictionary<string, HashSet<string>>(), new Dictionary<string, HashSet<string>>(), new Dictionary<string, Dictionary<string, List<string>>>(),
+            GameRowHistory.Empty, canTellInstalled: true, installedTalentRanks: new Dictionary<string, int> { ["Big"] = 5 });
+
+        Assert.Equal(5, index.InstalledMaxRank("Big"));
+        Assert.Null(index.InstalledMaxRank("Other"));
+        Assert.True(index.CanTellInstalled);
+        Assert.Null(SaveModSources.Index.Empty.InstalledMaxRank("Big"));
+    }
+
     /// <summary>Without knowing what's installed, nothing may be called a leftover.</summary>
     [Fact]
     public void WhenTheInstalledModsCantBeRead_NothingIsALeftover()

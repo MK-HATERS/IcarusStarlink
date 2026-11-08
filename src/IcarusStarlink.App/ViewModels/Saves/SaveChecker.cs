@@ -97,7 +97,7 @@ public static class SaveChecker
             var grantedByLearned = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var talent in learned.Values)
             {
-                AddRankFinding(findings, area, talent);
+                AddRankFinding(findings, area, talent, page.ModSources);
                 if (rules.GetValueOrDefault(talent.RowName) is not { } rule)
                 {
                     continue;
@@ -191,6 +191,11 @@ public static class SaveChecker
                     SafeInFixAll = currency.Source?.IsRemovable == true,
                 });
             }
+            else if (!currency.IsGameCurrency && currency.Source is null)
+            {
+                findings.Add(new(SaveCheckSeverity.Note, "Account",
+                    $"{currency.Label}: not in the game's currency table as Starlink last read it (from a mod, or a game update). It's left as it is."));
+            }
         }
 
         foreach (var flag in page.AccountFlags.Where(f => f.IsUnlocked && f.Kind == FlagKind.Unknown))
@@ -200,7 +205,7 @@ public static class SaveChecker
 
         foreach (var talent in page.WorkshopTalents.Where(t => t.Rank > 0))
         {
-            AddRankFinding(findings, "Account", talent);
+            AddRankFinding(findings, "Account", talent, page.ModSources);
             foreach (var (table, flagRow) in rules.GetValueOrDefault(talent.RowName)?.RequiredFlags ?? [])
             {
                 if (table == "D_AccountFlags" && accountFlags.GetValueOrDefault(flagRow) is { IsUnlocked: false } flag)
@@ -263,25 +268,37 @@ public static class SaveChecker
                 $"Set {entry.DisplayName} to {entry.PointsRequired:N0}", () => entry.PointsText = entry.PointsRequired.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         }
 
-        // Rows the game's tables don't have (like RockDog): a mod's you have stay; the rest can go.
+        // Rows the game's tables don't have (like RockDog): a mod's you have stay; only what's known
+        // to come from nothing you have can go.
+        var creatureTableRead = names.BestiaryCreatures.Count > 0;
         foreach (var entry in page.BestiaryEntries.Where(b => !b.IsInGameTables && b.EffectivePoints > 0))
         {
-            findings.Add(NotInGame("Bestiary", entry.DisplayName, "creature", entry.Source, () => entry.PointsText = "0"));
+            if (NotInGame("Bestiary", entry.DisplayName, "creature", entry.Source, creatureTableRead, () => entry.PointsText = "0") is { } finding)
+            {
+                findings.Add(finding);
+            }
         }
 
+        var accoladeTableRead = names.Accolades.Count > 0;
         foreach (var accolade in page.Accolades.Where(a => !a.IsInGameTables && a.IsCompleted))
         {
-            findings.Add(NotInGame("Accolades", accolade.DisplayName, "accolade", accolade.Source, () => accolade.IsCompleted = false));
+            if (NotInGame("Accolades", accolade.DisplayName, "accolade", accolade.Source, accoladeTableRead, () => accolade.IsCompleted = false) is { } finding)
+            {
+                findings.Add(finding);
+            }
         }
 
-        static SaveCheckFinding NotInGame(string area, string name, string what, SaveRowSource? source, Action takeOut) =>
-            source is { IsRemovable: false }
-                ? new(SaveCheckSeverity.Note, area, $"{name}: the game has no such {what}. {source.Label}, so it stays.")
-                : new(SaveCheckSeverity.Note, area, $"{name}: the game has no such {what} and ignores it.", $"Take {name} out", takeOut)
-                {
-                    // Sure only once it's known no mod you have gives it.
-                    SafeInFixAll = source?.IsRemovable == true,
-                };
+        // A null source isn't "no mod gives it": the installed mods may not be read yet, or couldn't
+        // be (or the extracted tables are older than the game). Such a row only gets a note.
+        static SaveCheckFinding? NotInGame(string area, string name, string what, SaveRowSource? source, bool tableRead, Action takeOut) => source switch
+        {
+            { IsRemovable: true } => new(SaveCheckSeverity.Note, area, $"{name}: the game has no such {what} and ignores it.", $"Take {name} out", takeOut),
+            { } kept => new(SaveCheckSeverity.Note, area, $"{name}: the game has no such {what}. {kept.Label}, so it stays."),
+            null when tableRead => new(SaveCheckSeverity.Note, area,
+                $"{name} isn't in the game's tables as Starlink last read them (from a mod, or a game update: run Refresh game data in Settings). It's left as it is."),
+            // The game's table wasn't extracted: nothing to compare with.
+            null => null,
+        };
 
         // --- Mounts (from the list itself; what's inside each mount comes with the mount editor) ---
         var mountTypes = names.MountTypeRowNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -346,14 +363,25 @@ public static class SaveChecker
         return [.. merged.OrderBy(f => f.Severity)];
     }
 
-    private static void AddRankFinding(List<SaveCheckFinding> findings, string area, SaveTalentViewModel talent)
+    /// <summary>
+    /// A rank above the highest the game's table gives, or an installed mod's own D_Talents gives
+    /// (a mod can add Rewards tiers). A sure Problem only when the installed mods were read whole;
+    /// otherwise a mod (or a game update newer than the extracted tables) may allow it, so it's a note.
+    /// </summary>
+    private static void AddRankFinding(List<SaveCheckFinding> findings, string area, SaveTalentViewModel talent, SaveModSources.Index? index)
     {
-        if (talent.MaxRank > 0 && talent.Rank > talent.MaxRank)
+        var max = Math.Max(talent.MaxRank, index?.InstalledMaxRank(talent.RowName) ?? 0);
+        if (talent.MaxRank <= 0 || talent.Rank <= max)
         {
-            findings.Add(new(SaveCheckSeverity.Problem, area,
-                $"{talent.DisplayName} is at rank {talent.Rank}; the game's highest is {talent.MaxRank}.",
-                $"Set {talent.DisplayName} to rank {talent.MaxRank}", () => talent.Rank = talent.MaxRank));
+            return;
         }
+
+        findings.Add(index is { CanTellInstalled: true }
+            ? new(SaveCheckSeverity.Problem, area,
+                $"{talent.DisplayName} is at rank {talent.Rank}; the game's highest is {max}.",
+                $"Set {talent.DisplayName} to rank {max}", () => talent.Rank = max)
+            : new(SaveCheckSeverity.Note, area,
+                $"{talent.DisplayName} is at rank {talent.Rank}; the game's own table allows {max}. A mod may allow more, so it's left as it is."));
     }
 
     private static Dictionary<string, SaveFlagViewModel> ByRow(IEnumerable<SaveFlagViewModel> flags)

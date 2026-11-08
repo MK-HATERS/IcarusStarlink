@@ -163,6 +163,9 @@ public sealed partial class SavesViewModel
     /// <summary>The last read of where mod rows come from, for rows made after it (a duplicated character); null until read.</summary>
     private SaveModSources.Index? _modSources;
 
+    /// <summary>For the save check: what the installed mods allow (talent ranks) and whether that could be read.</summary>
+    internal SaveModSources.Index? ModSources => _modSources;
+
     private void ClassifyTalents(IEnumerable<SaveTalentViewModel> talents)
     {
         if (_modSources is not { } index)

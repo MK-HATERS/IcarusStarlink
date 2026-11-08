@@ -62,7 +62,8 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
     public const string AccoladesFile = "Accolades-D_Accolades.json";
     public const string CurrencyFile = "Currency-D_MetaCurrency.json";
 
-    private static readonly string[] Files = [TalentsFile, ItemsFile, BestiaryFile, AccoladesFile, CurrencyFile];
+    /// <summary>Every game table a save row is checked against; SaveGameNames.Warm builds their row-name sets too, so a read here never parses them again.</summary>
+    internal static readonly string[] TableFiles = [TalentsFile, ItemsFile, BestiaryFile, AccoladesFile, CurrencyFile];
 
     /// <summary>Without these the save's talents and items can't be told apart: nothing is called a leftover then. The others only leave their own rows untold.</summary>
     private static readonly string[] RequiredFiles = [TalentsFile, ItemsFile];
@@ -71,14 +72,15 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
     public Index Read()
     {
         var installed = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var installedRanks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var canTellInstalled = false;
         if (settings.Current.IcarusContentPath is { Length: > 0 } content)
         {
             var mods = Path.Combine(content, "Paks", "mods");
             if (HasPaksItCantRead(content))
             {
-                // A pak in a subfolder of mods, or loose in Paks beside the game's own: the game loads
-                // it but it isn't read here, so its rows can't be told from leftovers.
+                // A pak the game loads from anywhere under Content\Paks except its own pakchunks and
+                // the paks directly in Paks\mods: it isn't read here, so its rows can't be told from leftovers.
                 canTellInstalled = false;
             }
             else if (!Directory.Exists(mods) || Directory.GetFiles(mods, "*.pak").Length == 0)
@@ -89,9 +91,15 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
             {
                 using (paks)
                 {
-                    foreach (var file in Files)
+                    foreach (var file in TableFiles)
                     {
-                        installed[file] = RowNamesIn(paks.TryRead(PakPath(file)));
+                        var bytes = paks.TryRead(PakPath(file));
+                        installed[file] = RowNamesIn(bytes);
+                        if (file == TalentsFile)
+                        {
+                            // A mod that adds Rewards tiers makes higher ranks legal in game.
+                            installedRanks = RewardCountsIn(bytes);
+                        }
                     }
                 }
 
@@ -127,7 +135,7 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
                 var folder = library.GetFolderPath(entry.FolderName);
                 if (!entry.IsOpaquePak)
                 {
-                    foreach (var row in ExmodFolder.Read(folder).Package.Rows.Where(r => Files.Contains(r.CurrentFile, StringComparer.OrdinalIgnoreCase)))
+                    foreach (var row in ExmodFolder.Read(folder).Package.Rows.Where(r => TableFiles.Contains(r.CurrentFile, StringComparer.OrdinalIgnoreCase)))
                     {
                         foreach (var item in row.FileItems)
                         {
@@ -138,7 +146,7 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
                 else
                 {
                     using var paks = ModPakContents.TryOpen(folder) ?? throw new IOException($"Can't read the paks of {name}.");
-                    foreach (var file in Files)
+                    foreach (var file in TableFiles)
                     {
                         foreach (var row in RowNamesIn(paks.TryRead(PakPath(file))))
                         {
@@ -175,14 +183,14 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
 
         // Without the game's own tables, or with them older than the game (an update not refreshed
         // yet), real game rows would read as leftovers: nothing is called one then.
-        var gameRows = Files.ToDictionary(f => f, GameRowNames, StringComparer.OrdinalIgnoreCase);
+        var gameRows = TableFiles.ToDictionary(f => f, GameRowNames, StringComparer.OrdinalIgnoreCase);
         if (RequiredFiles.Any(f => gameRows[f].Count == 0) || IsGameDataOutdated())
         {
             canTellInstalled = false;
         }
 
         return new Index(gameRows, installed, byMod, GameRowHistory.Load(GameRowHistory.LocalFileFor(dataFolder)), canTellInstalled,
-            gameNames?.TemplateStaticRows ?? TemplateItemRows(ReadGameFile("Items-D_ItemTemplate.json")));
+            gameNames?.TemplateStaticRows ?? TemplateItemRows(ReadGameFile("Items-D_ItemTemplate.json")), installedRanks);
     }
 
     /// <summary>The game's own rows of one table: from the shared reader (already parsed, and locked for this background read) when there is one.</summary>
@@ -299,16 +307,37 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
         }
     }
 
-    /// <summary>Paks the game loads that aren't read here: in subfolders of Paks\mods, or loose in Paks (not the game's own pakchunks).</summary>
-    private static bool HasPaksItCantRead(string contentPath)
+    /// <summary>
+    /// Paks the game loads that aren't read here. The game mounts every pak anywhere under
+    /// Content\Paks; only the paks directly in Paks\mods are read, and the game's own pakchunks
+    /// directly in Paks need no reading. Anything else (Paks\~mods, Paks\LogicMods, a subfolder of
+    /// mods, a loose pak beside the pakchunks) counts.
+    /// </summary>
+    internal static bool HasPaksItCantRead(string contentPath)
     {
         try
         {
             var paks = Path.Combine(contentPath, "Paks");
-            var mods = Path.Combine(paks, "mods");
-            var nested = Directory.Exists(mods) && Directory.GetDirectories(mods).Any(d => Directory.EnumerateFiles(d, "*.pak", SearchOption.AllDirectories).Any());
-            var loose = Directory.Exists(paks) && Directory.GetFiles(paks, "*.pak").Any(f => !Path.GetFileName(f).StartsWith("pakchunk", StringComparison.OrdinalIgnoreCase));
-            return nested || loose;
+            if (!Directory.Exists(paks))
+            {
+                return false;
+            }
+
+            static string Folder(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            var paksFolder = Folder(paks);
+            var modsFolder = Folder(Path.Combine(paks, "mods"));
+            foreach (var pak in Directory.EnumerateFiles(paks, "*.pak", SearchOption.AllDirectories))
+            {
+                var folder = Folder(Path.GetDirectoryName(pak)!);
+                var isGamesOwn = folder.Equals(paksFolder, StringComparison.OrdinalIgnoreCase)
+                    && Path.GetFileName(pak).StartsWith("pakchunk", StringComparison.OrdinalIgnoreCase);
+                if (!isGamesOwn && !folder.Equals(modsFolder, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -361,6 +390,42 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
         return names;
     }
 
+    /// <summary>
+    /// Each D_Talents row's highest rank: the length of its own Rewards array, 1 when it has none
+    /// (the rule SaveGameNames uses for the game's table). Empty when the file is missing or isn't JSON.
+    /// </summary>
+    internal static Dictionary<string, int> RewardCountsIn(byte[]? json)
+    {
+        var ranks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (json is null)
+        {
+            return ranks;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("Rows", out var rows) && rows.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var row in rows.EnumerateArray())
+                {
+                    if (row.ValueKind == JsonValueKind.Object && row.TryGetProperty("Name", out var n) && n.ValueKind == JsonValueKind.String
+                        && n.GetString() is { Length: > 0 } name)
+                    {
+                        var rewards = row.TryGetProperty("Rewards", out var r) && r.ValueKind == JsonValueKind.Array ? r.GetArrayLength() : 0;
+                        ranks[name] = Math.Max(1, rewards);
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return ranks;
+    }
+
     /// <param name="CanTellInstalled">False when the game folder or its installed paks couldn't be read: then nothing is called a leftover.</param>
     public sealed class Index(
         IReadOnlyDictionary<string, HashSet<string>> gameRows,
@@ -368,10 +433,18 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
         IReadOnlyDictionary<string, Dictionary<string, List<string>>> byMod,
         GameRowHistory history,
         bool canTellInstalled,
-        IReadOnlyDictionary<string, string>? templateItemRows = null)
+        IReadOnlyDictionary<string, string>? templateItemRows = null,
+        IReadOnlyDictionary<string, int>? installedTalentRanks = null)
     {
         public static Index Empty { get; } = new(new Dictionary<string, HashSet<string>>(), new Dictionary<string, HashSet<string>>(),
             new Dictionary<string, Dictionary<string, List<string>>>(), GameRowHistory.Empty, false);
+
+        /// <summary>True when what's installed was read whole: a row no installed or Library mod gives can then be called a leftover.</summary>
+        public bool CanTellInstalled => canTellInstalled;
+
+        /// <summary>The highest rank the installed paks' D_Talents gives a talent (a mod may add Rewards tiers); null when no installed pak has the row.</summary>
+        public int? InstalledMaxRank(string rowName) =>
+            installedTalentRanks is not null && installedTalentRanks.TryGetValue(rowName, out var rank) ? rank : null;
 
         /// <summary>Null for a row the game has today (not a mod's), or when nothing can be said.</summary>
         public SaveRowSource? Classify(string currentFile, string rowName)

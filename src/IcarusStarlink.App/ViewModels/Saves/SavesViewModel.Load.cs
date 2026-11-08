@@ -1,5 +1,3 @@
-using System.Text.Json.Nodes;
-
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>Loading a slot: reading its files off the UI thread and building each section, skipping one that can't be read.</summary>
@@ -158,22 +156,7 @@ public sealed partial class SavesViewModel
                 _characterNodes = [];
             });
 
-            LoadSection("currencies", () =>
-            {
-                if (_profile["MetaResources"] is JsonArray resources)
-                {
-                    foreach (var resource in resources.OfType<JsonObject>())
-                    {
-                        var key = SaveJson.String(resource["MetaRow"]) ?? "?";
-                        // A key the game doesn't have (Exotic_stabilized, in a real save) is said to be one:
-                        // it used to be labelled as if it were a real currency.
-                        Currencies.Add(new SaveCurrencyViewModel(resource, CurrencyLabels.GetValueOrDefault(key, $"{key} (not a game currency)"), NotifyDirtyChanged)
-                        {
-                            IsGameCurrency = CurrencyLabels.ContainsKey(key),
-                        });
-                    }
-                }
-            }, Currencies.Clear);
+            LoadSection("currencies", BuildCurrencies, Currencies.Clear);
 
             LoadSection("account flags", BuildAccountFlags, AccountFlags.Clear);
             LoadSection("unlocks (flags file)", BuildBinaryFlags, () =>

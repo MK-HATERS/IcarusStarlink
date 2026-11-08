@@ -181,8 +181,13 @@ public sealed partial class SaveGameNames(string dataFolder)
             _ = TalentLayouts;
             _ = TalentRankGates;
             _ = TalentIconPaths;
-            _ = RowNameSet(TalentsTable);
-            _ = RowNameSet(ItemsStaticTable);
+            // Every table SaveModSources checks rows against: its background read used to parse
+            // the bestiary, accolade and currency tables again under this lock.
+            foreach (var file in SaveModSources.TableFiles)
+            {
+                _ = RowNameSet(file.Replace('-', '/'));
+            }
+
             _tables.Clear();
         }
     }
