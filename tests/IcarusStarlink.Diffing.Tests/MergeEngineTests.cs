@@ -123,6 +123,34 @@ public class MergeEngineTests
         Assert.Equal("Tools", change.NewValue!.GetValue<string>());
     }
 
+    private const string AISetup = "AI-D_AISetup.json";
+
+    /// <summary>A creature's bait query as the game stores it: an FGameplayTagQuery object, not a list.</summary>
+    private static FieldChange BaitQuery(string food)
+    {
+        var value = JsonNode.Parse($$"""{"TagDictionary":[{"TagName":"GOAP.Food.{{food}}.Bait"}],"QueryTokenStream":[0,1,1,1,0],"AutoDescription":" ANY( GOAP.Food.{{food}}.Bait )"}""");
+        return new(AISetup, "Tamed_Kiwi", "ValidBaitTagQuery", OriginalValue: null, value, new DefaultSemanticClassifier().Classify(AISetup, "ValidBaitTagQuery", value));
+    }
+
+    /// <summary>
+    /// Two mods setting a creature's bait query used to turn it into a JSON list the game can't read
+    /// (with no conflict shown when they agreed). The query is one object: equal values stay that
+    /// object, and different ones are an ordinary conflict the later mod wins.
+    /// </summary>
+    [Fact]
+    public void Merge_TwoModsSettingABaitTagQuery_KeepItOneObject_AndDifferentOnesAreAnOrdinaryConflict()
+    {
+        var same = Assert.Single(MergeEngine.Merge([[BaitQuery("Carnivore")], [BaitQuery("Carnivore")]], new MergeRuleRegistry()));
+        Assert.IsType<JsonObject>(same.NewValue);
+
+        var a = BaitQuery("Carnivore");
+        var b = BaitQuery("Herbivore");
+        var resolved = Assert.Single(MergeEngine.Merge([[a], [b]], new MergeRuleRegistry()));
+        Assert.True(JsonNode.DeepEquals(b.NewValue, resolved.NewValue));
+        Assert.Single(MergeEngine.FindConflicts(["A", "B"], [[a], [b]]));
+        Assert.True(new MergeRuleRegistry().DefaultIsLastWriteWins(new FieldChangeGroup(AISetup, "Tamed_Kiwi", "ValidBaitTagQuery", [a, b])));
+    }
+
     [Fact]
     public void Merge_GameplayTagQuery_MixedSemanticsAcrossMods_DoesNotMisfireCombine()
     {
