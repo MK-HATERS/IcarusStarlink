@@ -48,10 +48,33 @@ public sealed class LibraryModRemover(
             Serilog.Log.Debug(ex, "Couldn't forget the fix choices of '{Folder}'", folderName);
         }
 
-        DeleteSourcePak(folderName);
+        MoveSourcePakForUndo(folderName, backup);
         PurgePreviewCache(folderName);
         ForgetNexusPicture(folderName);
         return new DeletedLibraryMod(folderName, backup);
+    }
+
+    /// <summary>
+    /// The saved source pak goes from the store to beside the backup: moved, not copied (it can be
+    /// hundreds of MB and Delete runs on the UI thread), and only once the folder is gone, so a
+    /// delete that fails leaves the mod its pak. Not moved, it's deleted as before.
+    /// </summary>
+    private void MoveSourcePakForUndo(string folderName, string backup)
+    {
+        try
+        {
+            if (Path.IsPathRooted(backup) && pakSourceStore?.TryGetPath(folderName) is { } pak)
+            {
+                File.Move(pak, backup + FolderBackup.SourcePakSuffix, overwrite: true);
+                return;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "Couldn't keep the saved source pak of '{Folder}' with its backup", folderName);
+        }
+
+        DeleteSourcePak(folderName);
     }
 
     /// <summary>
@@ -62,12 +85,31 @@ public sealed class LibraryModRemover(
     /// </summary>
     public string? Undo(DeletedLibraryMod deleted)
     {
-        var restored = library.RestoreDeletedMod(deleted.FolderName, deleted.BackupPath);
-        if (restored is null)
+        if (Stage(deleted) is not { } staged)
         {
             return null;
         }
 
+        var restored = PutBack(staged);
+        PutBackKept(deleted, restored);
+        return restored;
+    }
+
+    /// <summary>Undo's first step, the slow copy, safe off the UI thread: the backup copied out to a staging folder (null when the backup is gone).</summary>
+    public StagedDeletedMod? Stage(DeletedLibraryMod deleted) => library.StageDeletedMod(deleted.FolderName, deleted.BackupPath);
+
+    /// <summary>Undo's second step, on the UI thread like Import and Delete: the staged copy moved into the Library. Returns the folder name it came back as.</summary>
+    public string PutBack(StagedDeletedMod staged) => library.PutBackStagedMod(staged);
+
+    /// <summary>A staged copy that won't be put back after all.</summary>
+    public void Discard(StagedDeletedMod staged) => library.DiscardStagedMod(staged);
+
+    /// <summary>
+    /// Undo's last step, safe off the UI thread (the pak can be large): the saved source pak and fix
+    /// choices kept beside the backup, under the name the mod came back as. Best effort.
+    /// </summary>
+    public void PutBackKept(DeletedLibraryMod deleted, string restored)
+    {
         try
         {
             var pak = deleted.BackupPath + FolderBackup.SourcePakSuffix;
@@ -93,32 +135,18 @@ public sealed class LibraryModRemover(
         {
             Serilog.Log.Warning(ex, "Brought back '{Folder}' but couldn't put back its fix choices", restored);
         }
-
-        return restored;
     }
 
     /// <summary>
-    /// Copies the saved source pak and the fix choices beside the delete's backup (removed with it
-    /// by the keep-5 trim and Clean up backups). Best effort: without them Undo still brings the
-    /// mod back, only without live re-conversion or the remembered choices.
+    /// Keeps the fix choices beside the delete's backup (removed with it by the keep-5 trim and
+    /// Clean up backups; the source pak joins them in MoveSourcePakForUndo). Best effort: without
+    /// them Undo still brings the mod back, only without the remembered choices.
     /// </summary>
     private void KeepForUndo(string folderName, string backup)
     {
         if (!Path.IsPathRooted(backup))
         {
             return;
-        }
-
-        try
-        {
-            if (pakSourceStore?.TryGetPath(folderName) is { } pak)
-            {
-                File.Copy(pak, backup + FolderBackup.SourcePakSuffix, overwrite: true);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Serilog.Log.Warning(ex, "Couldn't keep the saved source pak of '{Folder}' with its backup", folderName);
         }
 
         try

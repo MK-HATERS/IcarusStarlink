@@ -31,6 +31,9 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     /// </summary>
     private readonly string _trashDirectory;
 
+    /// <summary>Beside Extracted_Mods too: an Undo of a Delete copies the backup here first (StageDeletedMod). Emptied at construction.</summary>
+    private readonly string _restoreStagingDirectory;
+
     private readonly string _modBackupsDirectory;
     private readonly LibraryMetaStore _metaStore;
     private readonly LibrarySearchIndex _searchIndex;
@@ -46,6 +49,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     {
         _extractedModsDirectory = extractedModsDirectory;
         _trashDirectory = Path.GetFullPath(extractedModsDirectory).TrimEnd('\\', '/') + ".deleting";
+        _restoreStagingDirectory = Path.GetFullPath(extractedModsDirectory).TrimEnd('\\', '/') + ".restoring";
         _modBackupsDirectory = modBackupsDirectory;
         _logger = logger;
         _metaStore = new LibraryMetaStore(metaDirectory, logger);
@@ -53,6 +57,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
 
         Directory.CreateDirectory(_extractedModsDirectory);
         Directories.TryDelete(_trashDirectory, ex => _logger.LogWarning(ex, "Couldn't clear '{Folder}', what was left of deleted mods", _trashDirectory));
+        Directories.TryDelete(_restoreStagingDirectory, ex => _logger.LogWarning(ex, "Couldn't clear '{Folder}', what was left of an Undo", _restoreStagingDirectory));
         RescanAll();
     }
 
@@ -646,12 +651,17 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         return true;
     }
 
+    /// <summary>Both steps of an Undo of a Delete on the calling thread (StageDeletedMod, then PutBackStagedMod); null when backupPath isn't a whole backup of folderName.</summary>
+    public string? RestoreDeletedMod(string folderName, string backupPath) =>
+        StageDeletedMod(folderName, backupPath) is { } staged ? PutBackStagedMod(staged) : null;
+
     /// <summary>
-    /// See ILibraryRepository.RestoreDeletedMod. The backup is copied, never moved, so it stays in
-    /// the history. A new mod may have taken the name since the delete: the old one then comes back
-    /// beside it under a free name, and the new one is left alone.
+    /// See ILibraryRepository.StageDeletedMod. The backup is copied, never moved, so it stays in the
+    /// history. The staging folder is beside Extracted_Mods (outside it, so a scan never lists it,
+    /// and on the same drive, so PutBackStagedMod is a quick move). Thread-safe: it reads only the
+    /// backup and writes only its own new staging folder.
     /// </summary>
-    public string? RestoreDeletedMod(string folderName, string backupPath)
+    public StagedDeletedMod? StageDeletedMod(string folderName, string backupPath)
     {
         if (!AssetPathGuard.IsSimpleFileName(folderName))
         {
@@ -666,17 +676,79 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             return null;
         }
 
-        var meta = ReadKeptLibraryInfo(backup) ?? new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow };
-        var restoredName = MakeUniqueFolderName(folderName);
-        var target = Path.Combine(_extractedModsDirectory, restoredName);
-        WriteNewModFolder(target, () =>
+        var staging = Path.Combine(_restoreStagingDirectory, $"{folderName}_{Guid.NewGuid():N}");
+        try
         {
-            FolderBackup.CopyDirectory(backup, target);
-            _metaStore.Save(restoredName, meta);
-        });
+            FolderBackup.CopyDirectory(backup, staging);
+        }
+        catch
+        {
+            // Best effort: the copy's own error is the one worth reporting.
+            Directories.TryDelete(staging);
+            throw;
+        }
 
-        RescanAll();
-        return restoredName;
+        return new StagedDeletedMod(folderName, backup, staging);
+    }
+
+    /// <summary>
+    /// See ILibraryRepository.PutBackStagedMod. A new mod may have taken the name since the delete:
+    /// the old one then comes back beside it under a free name, and the new one is left alone. The
+    /// name is picked and the folder moved in on the calling thread, the same as Import and Delete,
+    /// so neither can pick that name meanwhile. Only this one entry is new, so only it is read.
+    /// </summary>
+    public string PutBackStagedMod(StagedDeletedMod staged)
+    {
+        try
+        {
+            var meta = ReadKeptLibraryInfo(staged.BackupPath) ?? new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow };
+            var restoredName = MakeUniqueFolderName(staged.FolderName);
+            var target = Path.Combine(_extractedModsDirectory, restoredName);
+            WriteNewModFolder(target, () =>
+            {
+                try
+                {
+                    Directory.Move(staged.StagingPath, target);
+                }
+                catch (IOException ex) when ((ex.HResult & 0xFFFF) == ErrorNotSameDevice)
+                {
+                    // Extracted_Mods is a link to another drive: a move can't get there, so copy.
+                    FolderBackup.CopyDirectory(staged.StagingPath, target);
+                }
+
+                _metaStore.Save(restoredName, meta);
+            });
+
+            try
+            {
+                var (entry, searchableContent) = ReadModFolder(target, restoredName);
+                _cachedEntries = [.. _cachedEntries, entry];
+                _searchIndex.Insert(entry, searchableContent);
+            }
+            catch (Exception ex) when (ex is FormatException or JsonException or IOException or UnauthorizedAccessException)
+            {
+                // It's back on disk but can't be read: a full scan lists it as unreadable, as at start.
+                _logger.LogWarning(ex, "Brought back '{Folder}' but couldn't read it", restoredName);
+                RescanAll();
+            }
+
+            return restoredName;
+        }
+        finally
+        {
+            DiscardStagedMod(staged);
+        }
+    }
+
+    /// <summary>See ILibraryRepository.DiscardStagedMod. What can't be removed now goes on the next start.</summary>
+    public void DiscardStagedMod(StagedDeletedMod staged)
+    {
+        if (!Directory.Exists(staged.StagingPath))
+        {
+            return;
+        }
+
+        Directories.TryDelete(staged.StagingPath, ex => _logger.LogWarning(ex, "Couldn't clear '{Folder}'; it goes on the next start", staged.StagingPath));
     }
 
     /// <summary>The Library info a delete's backup label kept; null when there is none or it can't be read (the mod then comes back with fresh info).</summary>

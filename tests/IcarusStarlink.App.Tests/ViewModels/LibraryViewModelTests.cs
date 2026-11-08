@@ -323,6 +323,46 @@ public sealed partial class LibraryViewModelTests
         Assert.False(vm.CanUndoDelete);
     }
 
+    /// <summary>A newer mod took the folder name since the delete: the old one comes back under a free name, is ticked again under that name, and the notice says where it is.</summary>
+    [Fact]
+    public async Task UndoDelete_NameTakenSince_TicksTheModUnderItsNewName_AndSaysWhereItIs()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("ModA", name: "Mod A");
+        var vm = harness.Build();
+        var item = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
+        item.IsEnabled = true;
+        vm.DeleteOneItemCommand.Execute(item);
+        harness.Repository.PutBackUnderName["ModA"] = "ModA_2";
+
+        await vm.UndoDeleteCommand.ExecuteAsync(null);
+
+        Assert.True(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA_2").IsEnabled);
+        Assert.Contains("A newer mod uses the folder name ModA, so 'Mod A' is in ModA_2.", vm.StatusMessage);
+        Assert.Contains("It's ticked for Merge & Install again.", vm.StatusMessage);
+    }
+
+    /// <summary>One mod can't come back: the problem message still says the UE4SS half that went with the delete doesn't come back.</summary>
+    [Fact]
+    public async Task UndoDelete_PartlyFailed_StillSaysTheUe4ssHalfDoesNotComeBack()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) { ChooseAnswer = 0 } };
+        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.AddMod("ModB");
+        harness.Ue4ssModRepository.Staged.Add("WirelessPower");
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
+        var vm = harness.Build();
+        vm.DeleteAllCommand.Execute(null);
+        Assert.Equal("WirelessPower", string.Join(",", harness.Ue4ssModRepository.DeleteCalls));
+        harness.Repository.StageFailures.Add("ModB");
+
+        await vm.UndoDeleteCommand.ExecuteAsync(null);
+
+        Assert.Contains("Brought back 1 of 2", vm.StatusMessage);
+        Assert.Contains("ModB: The disk is full", vm.StatusMessage);
+        Assert.Contains("Undo doesn't bring back the UE4SS mod WirelessPower", vm.StatusMessage);
+    }
+
     /// <summary>Undo belongs to the delete notice: once another message replaces it, or it is closed, the button goes.</summary>
     [Fact]
     public void UndoDelete_GoesWhenTheNoticeIsClosedOrReplaced()
@@ -2456,13 +2496,34 @@ public sealed partial class LibraryViewModelTests
 
         public List<string> RestoreDeletedModCalls { get; } = [];
 
-        /// <summary>Like the real one: the deleted entry comes back whole (its Library info was kept with the backup).</summary>
-        public string? RestoreDeletedMod(string folderName, string backupPath)
+        /// <summary>Folder name → the free name PutBackStagedMod lands it under, as if a newer mod took the old one.</summary>
+        public Dictionary<string, string> PutBackUnderName { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Folder names whose backup can't be copied out (StageDeletedMod throws).</summary>
+        public HashSet<string> StageFailures { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public StagedDeletedMod? StageDeletedMod(string folderName, string backupPath)
         {
-            RestoreDeletedModCalls.Add(folderName);
-            if (!_deleted.Remove(folderName, out var entry))
+            if (StageFailures.Contains(folderName))
             {
-                return null;
+                throw new IOException("The disk is full.");
+            }
+
+            return _deleted.ContainsKey(folderName) ? new StagedDeletedMod(folderName, backupPath, "staged-" + folderName) : null;
+        }
+
+        /// <summary>Like the real one: the deleted entry comes back whole (its Library info was kept with the backup).</summary>
+        public string PutBackStagedMod(StagedDeletedMod staged)
+        {
+            RestoreDeletedModCalls.Add(staged.FolderName);
+            if (!_deleted.Remove(staged.FolderName, out var entry))
+            {
+                throw new IOException("The staged copy is gone.");
+            }
+
+            if (PutBackUnderName.TryGetValue(staged.FolderName, out var newName))
+            {
+                entry.FolderName = newName;
             }
 
             _entries.Add(entry);

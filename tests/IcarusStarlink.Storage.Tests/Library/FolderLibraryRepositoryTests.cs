@@ -1471,6 +1471,37 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.Equal("", repo.GetAll().Single(e => e.FolderName == folderName).Notes);
     }
 
+    /// <summary>Undo's slow copy goes to a staging folder outside Extracted_Mods: the Library doesn't list it until it's put back, and a copy not put back is removed.</summary>
+    [Fact]
+    public void StageDeletedMod_LeavesTheLibraryAlone_UntilPutBack()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        var backup = repo.BackupMod(folderName, ModBackupReasons.BeforeDelete);
+        repo.Delete(folderName);
+
+        var staged = repo.StageDeletedMod(folderName, backup);
+        Assert.NotNull(staged);
+        Assert.True(Directory.Exists(staged.StagingPath));
+        Assert.False(Path.GetFullPath(staged.StagingPath).StartsWith(Path.GetFullPath(_extractedModsDir) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+        repo.Refresh();
+        Assert.Empty(repo.GetAll());
+        Assert.False(Directory.Exists(Path.Combine(_extractedModsDir, folderName)));
+
+        Assert.Equal(folderName, repo.PutBackStagedMod(staged));
+        var entry = Assert.Single(repo.GetAll());
+        Assert.Equal(folderName, entry.FolderName);
+        Assert.Equal(folderName, Assert.Single(repo.Search(entry.Name.Split(' ')[0])).FolderName);
+        Assert.False(Directory.Exists(staged.StagingPath));
+        Assert.True(Directory.Exists(backup));
+
+        var again = repo.StageDeletedMod(folderName, backup);
+        Assert.NotNull(again);
+        repo.DiscardStagedMod(again);
+        Assert.False(Directory.Exists(again.StagingPath));
+    }
+
     /// <summary>Only a backup of that mod in the Backups folder: anything else is refused.</summary>
     [Fact]
     public void RestoreDeletedMod_NotABackupOfThatMod_ReturnsNull()

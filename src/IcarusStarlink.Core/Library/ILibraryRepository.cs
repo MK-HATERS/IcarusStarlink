@@ -139,13 +139,26 @@ public interface ILibraryRepository
     }
 
     /// <summary>
-    /// Undo of a Delete: puts the mod back from the backup its Delete took (BackupMod with
-    /// ModBackupReasons.BeforeDelete), with the Library info that backup's label kept. Lands under
-    /// folderName, or a free name when another mod has taken it since. Returns the folder name it
-    /// landed under, or null when backupPath isn't a whole backup of folderName. The default does
-    /// nothing, for repositories that keep no backups.
+    /// Undo of a Delete, first step: copies the backup its Delete took (BackupMod with
+    /// ModBackupReasons.BeforeDelete) to a staging folder outside the Library. The only step that
+    /// may run off the UI thread (it touches nothing the Library lists). Returns null when
+    /// backupPath isn't a whole backup of folderName. The default does nothing, for repositories
+    /// that keep no backups.
     /// </summary>
-    string? RestoreDeletedMod(string folderName, string backupPath) => null;
+    StagedDeletedMod? StageDeletedMod(string folderName, string backupPath) => null;
+
+    /// <summary>
+    /// Undo of a Delete, second step, on the UI thread like Import and Delete: moves the staged copy
+    /// in under its old folder name, or a free name when another mod has taken it since, with the
+    /// Library info the backup's label kept. Returns the folder name it landed under. On a failure
+    /// the staged copy is removed.
+    /// </summary>
+    string PutBackStagedMod(StagedDeletedMod staged) => throw new NotSupportedException("This Library keeps no backups.");
+
+    /// <summary>Removes a staged copy that isn't put back. Best effort.</summary>
+    void DiscardStagedMod(StagedDeletedMod staged)
+    {
+    }
 
     /// <summary>
     /// Creates a genuinely new mod under a fresh Extracted_Mods folder — for the "New mod…" action,
@@ -189,3 +202,6 @@ public interface ILibraryRepository
     /// </summary>
     string GetFolderPath(string folderName);
 }
+
+/// <summary>A deleted mod copied back out of its backup, waiting to be moved into the Library (ILibraryRepository.PutBackStagedMod).</summary>
+public sealed record StagedDeletedMod(string FolderName, string BackupPath, string StagingPath);

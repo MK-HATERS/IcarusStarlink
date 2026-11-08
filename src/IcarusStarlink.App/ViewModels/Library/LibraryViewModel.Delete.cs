@@ -5,6 +5,7 @@ using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
+using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Ue4ss;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -296,8 +297,10 @@ public sealed partial class LibraryViewModel
     /// Undo on the delete notice: each mod comes back from the backup its delete took, with its
     /// notes, Nexus link, source, pin and rename, its saved source pak and its fix choices
     /// (LibraryModRemover.Undo). One whose folder name a newer mod took comes back under a free
-    /// name. The copy runs off the UI thread (a pak mod can be large). A mod that was ticked for
-    /// Merge &amp; Install is ticked again.
+    /// name. Only the slow copies run off the UI thread (a pak mod can be large): the backup to a
+    /// staging folder first, then the source pak. The free name is picked and the folder moved in on
+    /// the UI thread, as Delete and Import do, so they can't pick the same name or race the
+    /// Library's list and search meanwhile. A mod that was ticked for Merge &amp; Install is ticked again.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanUndoDelete))]
     private async Task UndoDeleteAsync()
@@ -311,32 +314,55 @@ public sealed partial class LibraryViewModel
         }
 
         var remover = ModRemover;
-        var (restored, failures) = await Task.Run(() =>
+        var failures = new List<string>();
+        var staged = await Task.Run(() =>
         {
-            var back = new List<(UndoableDelete Deleted, string FolderName)>();
-            var failed = new List<string>();
+            var copies = new List<(UndoableDelete Deleted, StagedDeletedMod? Copy, string? Error)>();
             foreach (var deleted in toUndo)
             {
                 try
                 {
-                    if (remover.Undo(deleted.Mod) is { } folderName)
-                    {
-                        back.Add((deleted, folderName));
-                    }
-                    else
-                    {
-                        failed.Add($"{deleted.Name}: its backup is gone");
-                    }
+                    copies.Add((deleted, remover.Stage(deleted.Mod), null));
                 }
                 catch (Exception ex)
                 {
                     // Same UI boundary as Delete: one mod that can't be copied back doesn't stop the rest.
-                    failed.Add($"{deleted.Name}: {ex.Message.TrimEnd('.')}");
+                    copies.Add((deleted, null, ex.Message.TrimEnd('.')));
                 }
             }
 
-            return (back, failed);
+            return copies;
         });
+
+        var restored = new List<(UndoableDelete Deleted, string FolderName)>();
+        foreach (var (deleted, copy, error) in staged)
+        {
+            if (copy is null)
+            {
+                failures.Add($"{deleted.Name}: {error ?? "its backup is gone"}");
+                continue;
+            }
+
+            try
+            {
+                restored.Add((deleted, remover.PutBack(copy)));
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{deleted.Name}: {ex.Message.TrimEnd('.')}");
+            }
+        }
+
+        if (restored.Count > 0)
+        {
+            await Task.Run(() =>
+            {
+                foreach (var (deleted, folderName) in restored)
+                {
+                    remover.PutBackKept(deleted.Mod, folderName);
+                }
+            });
+        }
 
         // Its own handler reloads the rows (see DeleteMods).
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
@@ -368,7 +394,7 @@ public sealed partial class LibraryViewModel
         var done = restored.Count == 1 ? $"Brought back '{restored[0].Deleted.Name}'." : $"Brought back {restored.Count} mods.";
         if (failures.Count > 0)
         {
-            ReportProblem($"Brought back {restored.Count} of {toUndo.Count} — {string.Join("; ", failures)}.{movedNote}{tickedNote}");
+            ReportProblem($"Brought back {restored.Count} of {toUndo.Count} — {string.Join("; ", failures)}.{movedNote}{tickedNote}{ue4ssNote}");
         }
         else
         {

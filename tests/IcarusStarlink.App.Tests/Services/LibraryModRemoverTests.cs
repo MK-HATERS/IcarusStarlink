@@ -71,6 +71,26 @@ public sealed class LibraryModRemoverTests : IDisposable
         Assert.Equal("{\"choices\":1}", _fixService.ReadChoices(folderName));
     }
 
+    /// <summary>The saved source pak moves beside the backup only once the folder is gone: a delete that fails (a locked file) leaves the mod its pak.</summary>
+    [Fact]
+    public void Delete_FolderLocked_KeepsTheSavedSourcePakInTheStore()
+    {
+        var folderName = ImportMod();
+        var pak = Path.Combine(_root, "orig.pak");
+        File.WriteAllText(pak, "original pak");
+        _sources.Save(folderName, pak);
+        var lockedFile = Path.Combine(_library.GetFolderPath(folderName), "locked.txt");
+        File.WriteAllText(lockedFile, "x");
+
+        using (new FileStream(lockedFile, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.ThrowsAny<IOException>(() => _remover.Delete(folderName));
+        }
+
+        Assert.Single(_library.GetAll());
+        Assert.Equal("original pak", File.ReadAllText(_sources.TryGetPath(folderName)!));
+    }
+
     /// <summary>A new mod took the name: the deleted one's pak and choices go with it to its new name, not onto the new mod.</summary>
     [Fact]
     public void Undo_NameTakenSince_KeepsThePakAndChoicesWithTheRestoredMod()
