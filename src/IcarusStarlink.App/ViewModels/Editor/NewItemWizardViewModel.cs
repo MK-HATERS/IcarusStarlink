@@ -311,6 +311,20 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
             return false;
         }
 
+        // The bench box can be typed in; ItemCloner writes the name as it is, and a recipe at a bench
+        // that doesn't exist ("crafting bench") can't be made anywhere. The game's own spelling goes in.
+        var bench = string.IsNullOrWhiteSpace(SelectedBench) ? "Crafting_Bench" : SelectedBench.Trim();
+        if (IsRecipe && Benches.Count > 0)
+        {
+            if (Benches.FirstOrDefault(b => string.Equals(b, bench, StringComparison.OrdinalIgnoreCase)) is not { } known)
+            {
+                Error = "Pick a bench from the list.";
+                return false;
+            }
+
+            bench = known;
+        }
+
         try
         {
             Result = ItemCloner.Build(_game, new ItemCloneRequest
@@ -322,7 +336,7 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
                 OwnCopyFields = Links.Where(l => l.OwnCopy).Select(l => l.Field).ToHashSet(),
                 CopyBuff = CopyBuff,
                 Obtain = (ObtainMethod)ObtainIndex,
-                RecipeBench = string.IsNullOrWhiteSpace(SelectedBench) ? "Crafting_Bench" : SelectedBench.Trim(),
+                RecipeBench = bench,
                 UnlockWithSource = UnlockWithSource && CanUnlockWithSource,
                 WorkshopTree = UseExistingTree ? SelectedTree : null,
                 NewWorkshopTab = UseExistingTree ? null : (string.IsNullOrWhiteSpace(NewTabName) ? DisplayName.Trim() : NewTabName.Trim()),

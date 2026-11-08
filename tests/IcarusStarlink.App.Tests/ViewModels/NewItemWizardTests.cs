@@ -226,6 +226,25 @@ public sealed class NewItemWizardTests : IDisposable
         Assert.True(wizard.TryCreate(), wizard.Error);
     }
 
+    /// <summary>Regression: the bench box took any typed text ("crafting bench"), and the recipe went to a bench that doesn't exist, so the item couldn't be made.</summary>
+    [Fact]
+    public void TheBench_MustBeOneFromTheList()
+    {
+        var wizard = new NewItemWizardViewModel(new GameTableIndex(DataFolder), null);
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Envirosuit");
+        wizard.DisplayName = "Dragon Suit";
+        wizard.IsRecipe = true;
+
+        wizard.SelectedBench = "crafting bench";
+        Assert.False(wizard.TryCreate());
+        Assert.Equal("Pick a bench from the list.", wizard.Error);
+
+        wizard.SelectedBench = "crafting_bench";
+        Assert.True(wizard.TryCreate(), wizard.Error);
+        var recipe = wizard.Result!.SelectMany(r => r.FileItems).Single(i => i.Fields.ContainsKey("RecipeSets"));
+        Assert.Equal("Crafting_Bench", recipe.Fields["RecipeSets"]![0]!["RowName"]!.GetValue<string>());
+    }
+
     /// <summary>A review finding: any Undo rebuilt the rule rows from the snapshot, silently dropping rule edits not applied yet.</summary>
     [Fact]
     public void Editor_Undo_KeepsRuleEditsNotAppliedYet()
