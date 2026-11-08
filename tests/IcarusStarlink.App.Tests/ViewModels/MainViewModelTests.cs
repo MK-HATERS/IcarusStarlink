@@ -596,6 +596,209 @@ public class MainViewModelTests : IDisposable
     public void TheCloseQuestion_CanTellWhenStarlinkIsBeingShutDown() =>
         Assert.True(MainWindow.CanSeeAppShutdown);
 
+    // ---------------------------------------------------------------------------------------
+    // Play asks first when changes aren't in the game yet
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>A Play view model with its question answered by <paramref name="dialogs"/> and <paramref name="changes"/> not in the game.</summary>
+    private static MainViewModel BuildForPlayQuestion(List<string> opened, PlayDialogs dialogs, ChangesNotInGame? changes, AppSettings? settings = null)
+    {
+        var vm = new MainViewModel(new FakeServiceProvider(), new FakeThemeService(), new FakeSettingsService(settings ?? new AppSettings()),
+            new ActivityPanelViewModel(new FakeActivityLog()), new FakeGameProcess(), () => DateTime.UtcNow,
+            url => { opened.Add(url); return null; }, () => true, dialogs: dialogs);
+        vm.ChangesNotInGameSource = () => changes;
+        return vm;
+    }
+
+    /// <summary>Today a player ticks a mod, clicks Play and loads in without it: Play now says so, and "Merge & Install first" goes there instead of starting.</summary>
+    [Fact]
+    public void Play_ModsNotInTheGameYet_AsksFirst_AndMergeInstallFirstGoesThereWithoutStarting()
+    {
+        var opened = new List<string>();
+        var dialogs = new PlayDialogs { Answer = 0 };
+        var vm = BuildForPlayQuestion(opened, dialogs, new ChangesNotInGame(3, NeedsMergeInstall: true, "Lasers turned on, Bags turned off and 1 more"));
+        try
+        {
+            vm.LaunchGameCommand.Execute(null);
+
+            Assert.Empty(opened);
+            Assert.Equal(GamePlayState.Ready, vm.GamePlayState);
+            Assert.Equal("merge", vm.SelectedNavItem?.Id);
+            var asked = Assert.Single(dialogs.Asked);
+            Assert.Contains("3 changes aren't in the game yet", asked.Message);
+            Assert.Contains("Lasers turned on", asked.Message);
+            Assert.Equal("Merge & Install first", asked.First);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Only UE4SS changes: those go in with the Library's Apply, so that is where the first button goes.</summary>
+    [Fact]
+    public void Play_OnlyUe4ssChangesNotApplied_FirstButtonGoesToTheLibrary()
+    {
+        var opened = new List<string>();
+        var dialogs = new PlayDialogs { Answer = 0 };
+        var vm = BuildForPlayQuestion(opened, dialogs, new ChangesNotInGame(1, NeedsMergeInstall: false, "ArcFissionLibrary turned off"));
+        try
+        {
+            vm.LaunchGameCommand.Execute(null);
+
+            Assert.Empty(opened);
+            Assert.Equal("library", vm.SelectedNavItem?.Id);
+            var asked = Assert.Single(dialogs.Asked);
+            Assert.Contains("1 change isn't in the game yet", asked.Message);
+            Assert.Equal("Apply in Library first", asked.First);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    [Fact]
+    public void Play_ChangesNotInTheGame_PlayAnywayStarts_AndCancelDoesNothing()
+    {
+        var opened = new List<string>();
+        var dialogs = new PlayDialogs { Answer = null };
+        var settings = new AppSettings();
+        var vm = BuildForPlayQuestion(opened, dialogs, new ChangesNotInGame(2, NeedsMergeInstall: true, "A turned on, B turned on"), settings);
+        try
+        {
+            vm.LaunchGameCommand.Execute(null);
+            Assert.Empty(opened);
+            Assert.Null(vm.SelectedNavItem);
+
+            dialogs.Answer = 1;
+            vm.LaunchGameCommand.Execute(null);
+
+            Assert.Equal(["steam://run/1149460"], opened);
+            Assert.Equal(GamePlayState.Starting, vm.GamePlayState);
+            Assert.Equal(2, dialogs.Asked.Count);
+            Assert.True(settings.AskBeforePlayWithChangesNotInGame);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>"Don't ask again" plays, and Play doesn't ask again (Settings turns it back on).</summary>
+    [Fact]
+    public void Play_DontAskAgain_StartsAndStopsAsking()
+    {
+        var opened = new List<string>();
+        var dialogs = new PlayDialogs { Answer = 2 };
+        var settings = new AppSettings();
+        var now = new DateTime(2026, 11, 8, 12, 0, 0, DateTimeKind.Utc);
+        var vm = new MainViewModel(new FakeServiceProvider(), new FakeThemeService(), new FakeSettingsService(settings),
+            new ActivityPanelViewModel(new FakeActivityLog()), new FakeGameProcess(), () => now,
+            url => { opened.Add(url); return null; }, () => true, dialogs: dialogs);
+        vm.ChangesNotInGameSource = () => new ChangesNotInGame(1, NeedsMergeInstall: true, "A turned on");
+        try
+        {
+            vm.LaunchGameCommand.Execute(null);
+            Assert.Single(opened);
+            Assert.False(settings.AskBeforePlayWithChangesNotInGame);
+
+            now += MainViewModel.StartingTimeout;
+            vm.ApplyGameRunning(false);
+            vm.LaunchGameCommand.Execute(null);
+
+            Assert.Equal(2, opened.Count);
+            Assert.Single(dialogs.Asked);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Nothing waiting, or the game already running (a click brings it forward): no question.</summary>
+    [Fact]
+    public void Play_NothingWaitingOrTheGameRunning_DoesNotAsk()
+    {
+        var opened = new List<string>();
+        var dialogs = new PlayDialogs { Answer = null };
+        var vm = BuildForPlayQuestion(opened, dialogs, changes: null);
+        try
+        {
+            vm.LaunchGameCommand.Execute(null);
+            Assert.Single(opened);
+            Assert.Empty(dialogs.Asked);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+
+        var game = new FakeGameProcess { Running = true };
+        var focused = 0;
+        var running = new MainViewModel(new FakeServiceProvider(), new FakeThemeService(), new FakeSettingsService(new AppSettings()),
+            new ActivityPanelViewModel(new FakeActivityLog()), game, () => DateTime.UtcNow, _ => null, () => { focused++; return true; }, dialogs: dialogs);
+        running.ChangesNotInGameSource = () => new ChangesNotInGame(1, NeedsMergeInstall: true, "A turned on");
+        try
+        {
+            running.LaunchGameCommand.Execute(null);
+            Assert.Equal(1, focused);
+            Assert.Empty(dialogs.Asked);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(running);
+        }
+    }
+
+    /// <summary>The game watch says when Icarus closes (Running to Play), for Merge &amp; Install's "Install when Icarus closes"; not while it only starts or stays shut.</summary>
+    [Fact]
+    public void GameWatch_RunningThenClosed_SendsGameClosedOnce()
+    {
+        var vm = new MainViewModel(new FakeServiceProvider(), new FakeThemeService(), new FakeSettingsService(new AppSettings()),
+            new ActivityPanelViewModel(new FakeActivityLog()), new FakeGameProcess(), () => DateTime.UtcNow, _ => null, () => true);
+        var recipient = new object();
+        var closed = 0;
+        WeakReferenceMessenger.Default.Register<GameClosedMessage>(recipient, (_, _) => closed++);
+        try
+        {
+            vm.ApplyGameRunning(false);
+            Assert.Equal(0, closed);
+
+            vm.ApplyGameRunning(true);
+            vm.ApplyGameRunning(true);
+            Assert.Equal(0, closed);
+
+            vm.ApplyGameRunning(false);
+            vm.ApplyGameRunning(false);
+            Assert.Equal(1, closed);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+            WeakReferenceMessenger.Default.UnregisterAll(recipient);
+        }
+    }
+
+    /// <summary>Records Play's question; Answer is the button: 0, 1, 2 or null for Cancel.</summary>
+    private sealed class PlayDialogs : IDialogService
+    {
+        public int? Answer { get; set; }
+
+        public List<(string Message, string First, string Second, string Third)> Asked { get; } = [];
+
+        public int? Choose(string message, string title, IcarusStarlink.App.Views.ThemedConfirmSeverity severity, string first, string second, string third)
+        {
+            Asked.Add((message, first, second, third));
+            return Answer;
+        }
+
+        public bool Confirm(string message, string title, IcarusStarlink.App.Views.ThemedConfirmSeverity severity) => throw new InvalidOperationException($"Unexpected question: {title}");
+
+        public RenamePromptResult PromptRename(string currentName, string description = "", string? resetValue = null, string resetLabel = "", string resetTooltip = "",
+            string title = "", string fieldLabel = "") => throw new NotSupportedException();
+    }
+
     private sealed class FakeGameProcess : IGameProcessChecker
     {
         public bool Running { get; set; }

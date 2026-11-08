@@ -183,6 +183,22 @@ public sealed partial class SettingsViewModel
     partial void OnShowPopUpMessagesChanged(bool value) =>
         _settingsService.SetAndSave(s => s.ShowPopUpMessages, (s, v) => s.ShowPopUpMessages = v, value);
 
+    /// <summary>
+    /// Settings › Appearance › Messages › Ask before Play: Play asks first when changes aren't in
+    /// the game yet. Read from the settings each time (Play's "Don't ask again" turns it off).
+    /// </summary>
+    public bool AskBeforePlayWithChangesNotInGame
+    {
+        get => _settingsService.Current.AskBeforePlayWithChangesNotInGame;
+        set
+        {
+            if (_settingsService.SetAndSave(s => s.AskBeforePlayWithChangesNotInGame, (s, v) => s.AskBeforePlayWithChangesNotInGame = v, value))
+            {
+                OnPropertyChanged();
+            }
+        }
+    }
+
     /// <summary>Settings › Appearance › Size of text and controls: 90% to 150%.</summary>
     public IReadOnlyList<UiScaleChoice> UiScaleChoices => UiScale.Choices;
 

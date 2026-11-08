@@ -754,6 +754,26 @@ public sealed partial class LibraryViewModelTests
         Assert.Equal("ArcFissionLibrary turned off", vm.PendingUe4ssText);
     }
 
+    /// <summary>Play's question counts what the UE4SS bar shows: nothing before a change, the unticked row after, and that it goes in with Apply, not Merge &amp; Install.</summary>
+    [Fact]
+    public void DescribeChangesNotInGame_CountsTheUe4ssRowsWaitingForApply()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("ArcFissionLibrary", IsEnabled: true));
+        var vm = harness.Build();
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        Assert.Null(vm.DescribeChangesNotInGame());
+
+        vm.RootItems.OfType<Ue4ssModRowViewModel>().Single().IsEnabled = false;
+
+        var changes = vm.DescribeChangesNotInGame();
+        Assert.NotNull(changes);
+        Assert.Equal(1, changes.Count);
+        Assert.False(changes.NeedsMergeInstall);
+        Assert.Equal("ArcFissionLibrary turned off", changes.Text);
+    }
+
     /// <summary>The "On" checkbox: a user tick raises EnabledToggled (the view model turns that into a merge-queue change); a tick set FROM the queue must not, or the two would loop.</summary>
     [Fact]
     public void PakRowOnCheckbox_UserTickRaisesEnabledToggled_QueueSyncDoesNot()

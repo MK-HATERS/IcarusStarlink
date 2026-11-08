@@ -33,6 +33,26 @@ public sealed partial class LibraryViewModel
 
     private bool _mergeQueueSubscribed;
 
+    /// <summary>Mods turned on or off, or changed, since the last Merge &amp; Install (the data bar's count).</summary>
+    private int _pendingDataChangeCount;
+
+    /// <summary>
+    /// For Play's question: the changes the game doesn't have yet (the data bar's and the UE4SS
+    /// bar's), or null when it has everything.
+    /// </summary>
+    public ChangesNotInGame? DescribeChangesNotInGame()
+    {
+        var ue4ssWaiting = Ue4ssMods.Count(m => m.IsDirty);
+        if (!HasPendingPakChanges && ue4ssWaiting == 0)
+        {
+            return null;
+        }
+
+        var dataCount = HasPendingPakChanges ? Math.Max(_pendingDataChangeCount, 1) : 0;
+        var text = string.Join("\n", new[] { PendingDataText, PendingUe4ssText }.Where(t => t.Length > 0));
+        return new ChangesNotInGame(dataCount + ue4ssWaiting, NeedsMergeInstall: HasPendingPakChanges, text);
+    }
+
     private MergeInstallViewModel? TryGetMergeInstall()
     {
         try
@@ -223,6 +243,7 @@ public sealed partial class LibraryViewModel
         // ArcFission Library rebuilt its data since the merge: its new rows need a Merge & Install.
         var arcFission = mergeInstall?.ArcFissionNeedsMerge == true;
         HasPendingPakChanges = pendingPak > 0 || updatedCount > 0 || arcFission;
+        _pendingDataChangeCount = pendingDataChanges.Count + updatedCount;
         // Every mod counted as changed above, also one whose status reads "Needs Apply" (its Lua
         // half was ticked or unticked too): the bar used to count those without naming them.
         updatedNames.Sort(StringComparer.OrdinalIgnoreCase);

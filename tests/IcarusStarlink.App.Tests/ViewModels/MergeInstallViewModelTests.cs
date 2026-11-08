@@ -92,7 +92,8 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         bool withHealthCheck = false,
         Ue4ssPieces? ue4ss = null,
         IPatchModFetcher? fetcher = null,
-        FakeDaedalusCatalogClient? daedalus = null)
+        FakeDaedalusCatalogClient? daedalus = null,
+        FakeGameProcessChecker? game = null)
     {
         settingsService ??= new FakeSettingsService();
         libraryRepository ??= new FakeLibraryRepository();
@@ -126,7 +127,7 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
             outputPakPath,
             Path.Combine(_tempRoot, "Backups"),
             _messenger,
-            new FakeGameProcessChecker(gameRunning),
+            game ?? new FakeGameProcessChecker(gameRunning),
             gameDataFreshness,
             _dialogs,
             withHealthCheck ? new ModFixService(libraryRepository, dataFolder) : null,
@@ -241,7 +242,10 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
 
     private sealed class FakeGameProcessChecker(bool running) : IGameProcessChecker
     {
-        public bool IsRunning() => running;
+        /// <summary>Whether Icarus runs; a test can close it partway.</summary>
+        public bool Running { get; set; } = running;
+
+        public bool IsRunning() => Running;
     }
 
     private sealed class FakeGameDataFreshness : IGameDataFreshness

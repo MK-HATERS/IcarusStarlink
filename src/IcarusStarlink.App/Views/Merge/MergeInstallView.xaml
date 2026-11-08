@@ -314,6 +314,13 @@
                                Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                     <TextBlock Text="{Binding InstallStatusMessage}" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal" TextWrapping="Wrap" Margin="0,2,0,0"
                                Visibility="{Binding InstallStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+                    <!-- Install refused because Icarus runs: wait for it to close, then ask and install. -->
+                    <Button Content="Install when Icarus closes" Command="{Binding InstallWhenGameClosesCommand}" HorizontalAlignment="Left" Margin="0,6,0,0"
+                            Visibility="{Binding CanInstallWhenGameCloses, Converter={StaticResource BoolToVisibilityConverter}}"
+                            ToolTip="Waits for Icarus to close, then asks before it puts the pack you built in the game. Nothing is copied without that question."/>
+                    <Button Content="Don't wait" Command="{Binding StopWaitingForGameToCloseCommand}" HorizontalAlignment="Left" Margin="0,6,0,0"
+                            Visibility="{Binding IsWaitingForGameToClose, Converter={StaticResource BoolToVisibilityConverter}}"
+                            ToolTip="Stops waiting for Icarus to close. Nothing is installed."/>
                 </StackPanel>
 
                 <Grid Grid.Row="5" Margin="0,8,0,0" Visibility="{Binding IsRebuilding, Converter={StaticResource BoolToVisibilityConverter}}">

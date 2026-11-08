@@ -64,6 +64,9 @@ public sealed class AppSettings
     /// <summary>The left navigation is folded to icons only (its collapse button); remembered across restarts.</summary>
     public bool NavCollapsed { get; set; }
 
+    /// <summary>Play asks first when ticked mods or UE4SS changes aren't in the game yet. Off after "Don't ask again"; Settings › Appearance › Messages turns it back on.</summary>
+    public bool AskBeforePlayWithChangesNotInGame { get; set; } = true;
+
     /// <summary>Library: the data panel's share of the width (or height, when the panels are stacked) — where the splitter between the two panels was left.</summary>
     public double LibraryPanelSplit { get; set; } = 0.62;
 

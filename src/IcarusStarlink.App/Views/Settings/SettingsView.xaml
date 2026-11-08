@@ -710,8 +710,13 @@
                                     <TextBlock Text="Pop-ups under the bell" Style="{StaticResource ExpanderHeaderStateStyle}"/>
                                 </DockPanel>
                             </Expander.Header>
-                            <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Show pop-up messages" IsChecked="{Binding ShowPopUpMessages}" HorizontalAlignment="Left"
-                                      ToolTip="When something finishes or goes wrong (a merge, an import, a save), a small message pops up under the bell for a few seconds. Click one to close it; hold the mouse over it to keep it. Everything is still listed under the bell either way."/>
+                            <StackPanel>
+                                <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Show pop-up messages" IsChecked="{Binding ShowPopUpMessages}" HorizontalAlignment="Left"
+                                          ToolTip="When something finishes or goes wrong (a merge, an import, a save), a small message pops up under the bell for a few seconds. Click one to close it; hold the mouse over it to keep it. Everything is still listed under the bell either way."/>
+                                <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Ask before Play when changes aren't in the game yet" IsChecked="{Binding AskBeforePlayWithChangesNotInGame}"
+                                          HorizontalAlignment="Left" Margin="0,8,0,0"
+                                          ToolTip="When you click Play with mods ticked or unticked but not yet put in with Merge &amp; Install (or UE4SS changes not yet applied), Starlink asks first, so you don't load in without them."/>
+                            </StackPanel>
                         </Expander>
                         <!-- The skin editor is two dozen colour boxes most people never touch, so it
                              folds away under its own heading instead of filling the tab. -->

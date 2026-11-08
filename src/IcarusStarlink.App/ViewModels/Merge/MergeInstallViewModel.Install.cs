@@ -470,6 +470,7 @@ public sealed partial class MergeInstallViewModel
         }
 
         IsInstalling = true;
+        CanInstallWhenGameCloses = false;
         try
         {
             return await InstallCoreAsync();
@@ -502,6 +503,11 @@ public sealed partial class MergeInstallViewModel
         if (RefuseWhileGameRunning("Icarus is running — close it before installing, or the game keeps loading the old pack and the copy can fail halfway."
                 + (forFinder ? "" : " Then click Copy to game under Advanced actions (no need to build again).")))
         {
+            if (!forFinder)
+            {
+                OfferInstallWhenGameCloses();
+            }
+
             return InstallOutcome.NotDone;
         }
 

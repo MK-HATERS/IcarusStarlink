@@ -92,8 +92,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     public MainViewModel(IServiceProvider serviceProvider, IThemeService themeService, ISettingsService settingsService, ActivityPanelViewModel activityPanel,
         IGameProcessChecker? gameProcess = null, Func<DateTime>? clock = null, Func<string, Exception?>? openUrl = null, Func<bool>? focusGame = null,
-        BrokenModSearchStore? findBrokenModSearch = null, IActivityLog? activityLog = null)
+        BrokenModSearchStore? findBrokenModSearch = null, IActivityLog? activityLog = null, IDialogService? dialogs = null)
     {
+        _dialogs = dialogs;
         _serviceProvider = serviceProvider;
         _themeService = themeService;
         _settingsService = settingsService;
@@ -361,6 +362,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         if (CurrentPage is LibraryViewModel library)
         {
+            _libraryShownThisSession = library;
             library.OnPageShown();
         }
 

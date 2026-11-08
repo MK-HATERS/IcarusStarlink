@@ -468,6 +468,8 @@ public sealed partial class HelpViewModel : ObservableObject
 
             The **Theme** button at the bottom of the menu changes the colours: each click goes to the next theme (Icarus, Dark, Light, Custom). **Play**, **Mods**, **UE4SS**, **Game** and **Server** at the top right start the game or open those folders (if a folder isn't there, like UE4SS before it's installed, the bell says so). After a click, Play says **Starting…** until Icarus opens (clicking again does nothing, so the game is never started twice; after 2 minutes with no game it says Play again). If Windows can't ask Steam to start the game, Play stays and the bell says why. While Icarus runs it shows a green dot and **Running**, and a click brings the game's window to the front.
 
+            If you ticked or unticked mods and haven't done **Merge & Install** yet (or UE4SS changes aren't applied), **Play** asks first: go and put them in, play without them, or play and don't ask again (**Settings › Appearance › Messages** turns the question back on). If **Install** says Icarus is running, **Install when Icarus closes** waits for the game to close, then asks before it copies the pack you built.
+
             Inside the mod editor window:
 
             - **Ctrl+S** — save

@@ -3,10 +3,20 @@ using System.Runtime.InteropServices;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.App.Views;
 
 namespace IcarusStarlink.App.ViewModels;
+
+/// <summary>
+/// What the game doesn't have yet, for Play's question: how many changes, whether any is a mod
+/// for Merge &amp; Install (otherwise only UE4SS changes, which the Library's Apply puts in), and
+/// the Library bars' own words for them.
+/// </summary>
+public sealed record ChangesNotInGame(int Count, bool NeedsMergeInstall, string Text);
 
 /// <summary>What the header's Play button shows: Play, Starting… after a click, Running while Icarus is open.</summary>
 public enum GamePlayState
@@ -33,6 +43,26 @@ public sealed partial class MainViewModel
     private Func<bool> _focusGame = GameWindow.TryBringToFront;
     private DateTime _startingSince;
     private DispatcherTimer? _gameWatch;
+    private readonly IDialogService? _dialogs;
+
+    /// <summary>The Library page once it has been shown this session: it tracks what the game doesn't have yet. Never built just for Play.</summary>
+    private LibraryViewModel? _libraryShownThisSession;
+
+    /// <summary>What the game doesn't have yet, for Play's question; null when it has everything. Tests swap it.</summary>
+    internal Func<ChangesNotInGame?> ChangesNotInGameSource { get; set; } = () => null;
+
+    private ChangesNotInGame? DefaultChangesNotInGame()
+    {
+        try
+        {
+            return _libraryShownThisSession?.DescribeChangesNotInGame();
+        }
+        catch (Exception)
+        {
+            // Best-effort: Play must never fail over this question.
+            return null;
+        }
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PlayButtonText), nameof(PlayButtonToolTip), nameof(IsGameRunning), nameof(IsGameStarting))]
@@ -62,6 +92,7 @@ public sealed partial class MainViewModel
         _clock = clock ?? _clock;
         _open = open ?? _open;
         _focusGame = focusGame ?? _focusGame;
+        ChangesNotInGameSource = DefaultChangesNotInGame;
     }
 
     /// <summary>
@@ -86,6 +117,11 @@ public sealed partial class MainViewModel
             return;
         }
 
+        if (!AskAboutChangesNotInGame())
+        {
+            return;
+        }
+
         if (_open("steam://run/1149460") is { } error)
         {
             GamePlayState = GamePlayState.Ready;
@@ -95,6 +131,42 @@ public sealed partial class MainViewModel
 
         _startingSince = _clock();
         GamePlayState = GamePlayState.Starting;
+    }
+
+    /// <summary>
+    /// Ticked mods or UE4SS changes the game doesn't have yet: a player who clicked Play would load
+    /// in without them. Asks first (unless "Don't ask again" was chosen). True to start the game;
+    /// the first button goes to where they are put in (Merge &amp; Install, or the Library's Apply
+    /// for UE4SS changes only) instead of starting.
+    /// </summary>
+    private bool AskAboutChangesNotInGame()
+    {
+        if (_dialogs is null || !_settingsService.Current.AskBeforePlayWithChangesNotInGame || ChangesNotInGameSource() is not { Count: > 0 } changes)
+        {
+            return true;
+        }
+
+        var goFirst = changes.NeedsMergeInstall ? "Merge & Install first" : "Apply in Library first";
+        var what = changes.Count == 1 ? "1 change isn't" : $"{changes.Count} changes aren't";
+        var answer = _dialogs.Choose(
+            $"{what} in the game yet:\n{changes.Text}\n\n"
+                + (changes.NeedsMergeInstall
+                    ? "Merge & Install puts them in. If you play now, Icarus starts without them."
+                    : "Apply in the Library puts them in. If you play now, Icarus starts without them."),
+            "Not in the game yet", ThemedConfirmSeverity.Warning, goFirst, "Play anyway", "Play, don't ask again");
+        switch (answer)
+        {
+            case 0:
+                SelectedNavItem = NavItems.First(item => item.Id == (changes.NeedsMergeInstall ? "merge" : "library"));
+                return false;
+            case 1:
+                return true;
+            case 2:
+                _settingsService.SetAndSave(s => s.AskBeforePlayWithChangesNotInGame, (s, v) => s.AskBeforePlayWithChangesNotInGame = v, false);
+                return true;
+            default:
+                return false;
+        }
     }
 
     /// <summary>Checks once whether Icarus is running (off the UI thread) and updates the button.</summary>
@@ -109,7 +181,11 @@ public sealed partial class MainViewModel
         ApplyGameRunning(running);
     }
 
-    /// <summary>Running wins; otherwise Starting… holds until the game appears or the timeout passes, then Play.</summary>
+    /// <summary>
+    /// Running wins; otherwise Starting… holds until the game appears or the timeout passes, then Play.
+    /// Running to Play means Icarus closed: GameClosedMessage tells Merge &amp; Install (its
+    /// "Install when Icarus closes").
+    /// </summary>
     internal void ApplyGameRunning(bool running)
     {
         if (running)
@@ -118,7 +194,12 @@ public sealed partial class MainViewModel
         }
         else if (GamePlayState != GamePlayState.Starting || _clock() - _startingSince >= StartingTimeout)
         {
+            var wasRunning = GamePlayState == GamePlayState.Running;
             GamePlayState = GamePlayState.Ready;
+            if (wasRunning)
+            {
+                WeakReferenceMessenger.Default.Send(new GameClosedMessage());
+            }
         }
     }
 

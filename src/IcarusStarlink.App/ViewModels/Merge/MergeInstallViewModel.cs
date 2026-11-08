@@ -295,6 +295,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             viewModel.ConflictInputsChanged();
         });
 
+        // The header's game watch saw Icarus close: an "Install when Icarus closes" goes ahead (asking first).
+        _messenger.Register<GameClosedMessage>(this, (recipient, message) => _ = ((MergeInstallViewModel)recipient).OnGameClosedAsync());
+
         // Closing the app, an update or Refresh game data mid-build or mid-install: asked first.
         _messenger.Register<BackgroundWorkRequestMessage>(this, (recipient, message) =>
         {

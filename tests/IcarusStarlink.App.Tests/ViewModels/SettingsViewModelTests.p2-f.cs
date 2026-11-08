@@ -28,6 +28,22 @@ public sealed partial class SettingsViewModelTests
         typeof(AppUpdateViewModel).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(update);
 
     /// <summary>An unfinished scRGB colour ("sc#1") in a skin box says Not saved, the same as any other bad colour.</summary>
+    /// <summary>"Don't ask again" on Play's question turns this off; Settings turns it back on, saved straight away, and reads the setting as it is now.</summary>
+    [Fact]
+    public void AskBeforePlay_ReadsAndSavesTheSetting()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+        Assert.True(vm.AskBeforePlayWithChangesNotInGame);
+
+        harness.Settings.AskBeforePlayWithChangesNotInGame = false; // Play's "Don't ask again"
+        Assert.False(vm.AskBeforePlayWithChangesNotInGame);
+
+        vm.AskBeforePlayWithChangesNotInGame = true;
+
+        Assert.True(harness.Settings.AskBeforePlayWithChangesNotInGame);
+    }
+
     [Fact]
     public void SaveSkin_UnfinishedScRgbColour_SaysNotSavedInsteadOfClosing()
     {
