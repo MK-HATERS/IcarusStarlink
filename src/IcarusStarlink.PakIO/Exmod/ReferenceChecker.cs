@@ -24,8 +24,8 @@ public sealed record ReferenceReport(IReadOnlyList<BrokenReference> Broken, IRea
 /// have — a typo (BetterSupplies' packages use the mesh "Item_Meta_Ration"; the game's is
 /// "Mesh_Meta_Ration") or a row a game update renamed — is ignored at best and breaks the item at
 /// worst, with no message. The target table comes from the link's own DataTableName, else from the
-/// table's Defaults (where Icarus keeps it for top-level links); rows the mod adds itself count, and
-/// names compare like Unreal's do (ignoring case). Also: item-trait rows the game doesn't have that
+/// table's Defaults (where Icarus keeps it for top-level links); rows the mod adds itself count, a
+/// link the game's own row has too isn't counted, and names compare like Unreal's do (ignoring case). Also: item-trait rows the game doesn't have that
 /// nothing links to — StacksX10 still sets the weight of five items the game dropped.
 /// </summary>
 public static class ReferenceChecker
@@ -40,11 +40,25 @@ public static class ReferenceChecker
             .ToDictionary(g => g.Key, g => g.SelectMany(r => r.FileItems).Select(i => i.Name).ToHashSet(StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
         var linked = new HashSet<(string Table, string Row)>(new TableRowComparer());
 
+        // A link the game's own row has too isn't the mod's doing (the Library check skips it the same way); each game row is walked once.
+        var gameLinks = new Dictionary<ExmodFileItem, HashSet<string>>(ReferenceEqualityComparer.Instance);
+        bool GameRowHasLink(ModLink link)
+        {
+            if (!gameLinks.TryGetValue(link.Item, out var names))
+            {
+                names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                RowLinks.CollectRowNames(game.Row(link.Row.CurrentFile, link.Item.Name), names);
+                gameLinks[link.Item] = names;
+            }
+
+            return names.Contains(link.RowName);
+        }
+
         var broken = new List<BrokenReference>();
         VisitLinks(package, game, link =>
         {
             linked.Add((link.Table, link.RowName));
-            if (!game.HasRow(link.TargetFile, link.RowName) && modRows.GetValueOrDefault(link.Table)?.Contains(link.RowName) != true)
+            if (!game.HasRow(link.TargetFile, link.RowName) && modRows.GetValueOrDefault(link.Table)?.Contains(link.RowName) != true && !GameRowHasLink(link))
             {
                 broken.Add(new BrokenReference(link.Row.CurrentFile, link.Item.Name, link.Path, link.Table, link.RowName));
             }

@@ -74,6 +74,20 @@ public sealed class ReferenceCheckerTests : IDisposable
             report.Broken.Select(b => $"{b.FieldPath}|{b.TargetTable}|{b.MissingRow}"));
     }
 
+    /// <summary>
+    /// Regression: a mod row copied from the game's Bread recipe kept the game's own Dough_Bread input
+    /// (a row the game itself lacks), and every Save called it broken while the Library check, which
+    /// skips links the game's own row has, said nothing. A link the game row doesn't have is still reported.
+    /// </summary>
+    [Fact]
+    public void ALinkTheGamesOwnRowHasToo_IsNotBroken_ButANewOneIs()
+    {
+        var report = ReferenceChecker.Check(Mod(("Crafting-D_ProcessorRecipes.json", "Bread",
+            """{"Inputs":[{"Element":{"RowName":"Dough_Bread","DataTableName":"D_ItemsStatic"},"Count":2},{"Element":{"RowName":"Butter_Missing","DataTableName":"D_ItemsStatic"},"Count":1}]}""")), _game);
+
+        Assert.Equal(["Inputs[1].Element|Butter_Missing"], report.Broken.Select(b => $"{b.FieldPath}|{b.MissingRow}"));
+    }
+
     [Fact]
     public void RowsTheModAddsItself_CountAsExisting_AndNoneMeansEmpty()
     {
