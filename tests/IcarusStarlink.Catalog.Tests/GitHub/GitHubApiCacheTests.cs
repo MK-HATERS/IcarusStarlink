@@ -109,6 +109,42 @@ public sealed class GitHubApiCacheTests : IDisposable
         Assert.Empty(handler.SentETags);
     }
 
+    /// <summary>Regression: nothing was ever removed, so repos gone from the catalog stayed in the file for good.</summary>
+    [Fact]
+    public async Task OldAnswers_AreDroppedWhenTheFileIsWritten()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_file)!);
+        var old = DateTimeOffset.UtcNow.AddDays(-120).ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+        var recent = DateTimeOffset.UtcNow.AddDays(-1).ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+        File.WriteAllText(_file,
+            "{\"https://api.github.com/repos/o/gone\":{\"ETag\":null,\"Body\":\"old\",\"FetchedAt\":\"" + old + "\"},"
+            + "\"https://api.github.com/repos/o/kept\":{\"ETag\":null,\"Body\":\"kept\",\"FetchedAt\":\"" + recent + "\"}}");
+        GitHubApiCache.Configure(_file);
+
+        await GitHubApiCache.GetAsync(new HttpClient(new Sequence(() => Ok("one", "\"a\""))), Url, TimeSpan.FromHours(1));
+
+        var saved = File.ReadAllText(_file);
+        Assert.DoesNotContain("repos/o/gone", saved);
+        Assert.Contains("repos/o/kept", saved);
+        Assert.Contains("repos/o/r", saved);
+    }
+
+    [Fact]
+    public async Task AnswersKeptWithoutSaving_AreWrittenBySaveAsync()
+    {
+        GitHubApiCache.Configure(_file);
+        await GitHubApiCache.GetAsync(new HttpClient(new Sequence(() => Ok("one", "\"a\""))), Url, TimeSpan.FromHours(1), saveNow: false);
+        Assert.False(File.Exists(_file));
+
+        await GitHubApiCache.SaveAsync();
+        GitHubApiCache.Reset();
+        GitHubApiCache.Configure(_file);
+        var handler = new Sequence(() => Ok("two", "\"b\""));
+
+        Assert.Equal("one", await GitHubApiCache.GetAsync(new HttpClient(handler), Url, TimeSpan.FromHours(1)));
+        Assert.Empty(handler.SentETags);
+    }
+
     [Fact]
     public async Task UpdateCheck_UsesReleaseJson_WithoutTheApi()
     {

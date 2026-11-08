@@ -21,6 +21,16 @@ public static class GitHubApiCache
     private static Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private static string? _file;
 
+    /// <summary>Answers were kept since the file was last written.</summary>
+    private static bool _dirty;
+
+    /// <summary>
+    /// An answer not asked for again in this long is dropped when the file is written (a repo gone
+    /// from the catalog, an old commit lookup). Well past the longest freshness window, 30 days for
+    /// UE4SS commit dates (Ue4ssReleaseClient).
+    /// </summary>
+    private static readonly TimeSpan ForgetAfter = TimeSpan.FromDays(90);
+
     private sealed record Entry(string? ETag, string Body, DateTimeOffset FetchedAt);
 
     /// <summary>When the hourly limit was last hit and when GitHub said it clears; null while it isn't hit.</summary>
@@ -55,9 +65,12 @@ public static class GitHubApiCache
 
     /// <summary>
     /// The body of a GitHub API GET: a recent saved answer, a "not changed" one, or a fresh one.
-    /// Null when it can't be had (offline, limit hit with nothing saved, not found).
+    /// Null when it can't be had (offline, limit hit with nothing saved, not found). With saveNow
+    /// false a new answer is kept in memory only, and the caller writes the file once with
+    /// <see cref="SaveAsync"/> after a batch.
     /// </summary>
-    public static async Task<string?> GetAsync(HttpClient httpClient, string url, TimeSpan freshFor, CancellationToken cancellationToken = default)
+    public static async Task<string?> GetAsync(
+        HttpClient httpClient, string url, TimeSpan freshFor, CancellationToken cancellationToken = default, bool saveNow = true)
     {
         Entry? saved;
         lock (Gate)
@@ -86,7 +99,7 @@ public static class GitHubApiCache
         HttpResponseMessage response;
         try
         {
-            response = await httpClient.SendAsync(request, cancellationToken);
+            response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
@@ -97,7 +110,7 @@ public static class GitHubApiCache
         {
             if (response.StatusCode == HttpStatusCode.NotModified && saved is not null)
             {
-                Store(url, saved with { FetchedAt = DateTimeOffset.UtcNow });
+                Store(url, saved with { FetchedAt = DateTimeOffset.UtcNow }, saveNow);
                 return saved.Body;
             }
 
@@ -113,11 +126,14 @@ public static class GitHubApiCache
             }
 
             RateLimitResetsAt = null;
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            Store(url, new Entry(response.Headers.ETag?.ToString(), body, DateTimeOffset.UtcNow));
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            Store(url, new Entry(response.Headers.ETag?.ToString(), body, DateTimeOffset.UtcNow), saveNow);
             return body;
         }
     }
+
+    /// <summary>Writes the answers kept since the last save (GetAsync with saveNow: false), off the calling thread.</summary>
+    public static Task SaveAsync() => Task.Run(Save);
 
     /// <summary>Forgets saved answers and the limit (tests).</summary>
     public static void Reset()
@@ -126,6 +142,7 @@ public static class GitHubApiCache
         {
             _entries = new Dictionary<string, Entry>(StringComparer.Ordinal);
             _file = null;
+            _dirty = false;
             RateLimitResetsAt = null;
         }
     }
@@ -139,19 +156,38 @@ public static class GitHubApiCache
             ? DateTimeOffset.FromUnixTimeSeconds(seconds)
             : DateTimeOffset.Now.AddHours(1);
 
-    private static void Store(string url, Entry entry)
+    private static void Store(string url, Entry entry, bool saveNow)
     {
         lock (Gate)
         {
             _entries[url] = entry;
-            if (_file is null)
+            _dirty = true;
+            if (saveNow)
+            {
+                Save();
+            }
+        }
+    }
+
+    private static void Save()
+    {
+        lock (Gate)
+        {
+            if (!_dirty || _file is null)
             {
                 return;
+            }
+
+            var forgetBefore = DateTimeOffset.UtcNow - ForgetAfter;
+            foreach (var old in _entries.Where(pair => pair.Value.FetchedAt < forgetBefore).Select(pair => pair.Key).ToList())
+            {
+                _entries.Remove(old);
             }
 
             try
             {
                 AtomicFile.WriteAllText(_file, JsonSerializer.Serialize(_entries, Json));
+                _dirty = false;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

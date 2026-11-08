@@ -34,7 +34,16 @@ public sealed class GitHubRepoDateClient : IGitHubRepoDateClient
     {
         using var gate = new SemaphoreSlim(MaxConcurrentRequests);
 
-        var lookups = await Task.WhenAll(repos.Select(repo => FetchOneAsync(repo, gate, cancellationToken)));
+        ((string Owner, string Repo) Repo, DateTimeOffset? PushedAt)[] lookups;
+        try
+        {
+            lookups = await Task.WhenAll(repos.Select(repo => FetchOneAsync(repo, gate, cancellationToken))).ConfigureAwait(false);
+        }
+        finally
+        {
+            // One write of the cache file for the whole batch (each answer used to rewrite all of it).
+            await GitHubApiCache.SaveAsync().ConfigureAwait(false);
+        }
 
         var result = new Dictionary<(string, string), DateTimeOffset>();
         foreach (var (repo, pushedAt) in lookups)
@@ -51,11 +60,13 @@ public sealed class GitHubRepoDateClient : IGitHubRepoDateClient
     private async Task<((string Owner, string Repo) Repo, DateTimeOffset? PushedAt)> FetchOneAsync(
         (string Owner, string Repo) repo, SemaphoreSlim gate, CancellationToken cancellationToken)
     {
-        await gate.WaitAsync(cancellationToken);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             // A mod's "last updated" day doesn't need checking more than every few hours.
-            var body = await GitHubApiCache.GetAsync(_httpClient, $"https://api.github.com/repos/{repo.Owner}/{repo.Repo}", TimeSpan.FromHours(6), cancellationToken);
+            var body = await GitHubApiCache.GetAsync(
+                _httpClient, $"https://api.github.com/repos/{repo.Owner}/{repo.Repo}", TimeSpan.FromHours(6), cancellationToken, saveNow: false)
+                .ConfigureAwait(false);
             return (repo, body is null ? null : System.Text.Json.JsonSerializer.Deserialize<GitHubRepoDto>(body)?.PushedAt);
         }
         catch (Exception)
