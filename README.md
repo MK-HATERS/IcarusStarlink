@@ -158,7 +158,9 @@ HABITAT, Blacksand…). Search finds creatures, fish, places and grid squares ("
 has **Zoom to it** and **Copy** ("Olympus H2: Tier 3 cave · 7-11 cave worms"); **Map only** hides
 everything over the picture. The maps are made once and kept: **Reload** redraws only what a game
 update changed and says what changed, **Rebuild all maps** redraws everything, and Update
-everything can do it for you (off by default). Your choices of what to show are remembered.
+everything can do it for you (off by default). **Stop** stops after the map being drawn now: the
+maps drawn so far are kept, and Reload (or opening Map again) draws the rest. Your choices of what
+to show are remembered.
 
 ### Downloads & Nexus
 

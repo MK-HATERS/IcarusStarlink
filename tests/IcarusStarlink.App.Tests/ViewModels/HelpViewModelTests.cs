@@ -67,4 +67,33 @@ public class HelpViewModelTests
         Assert.DoesNotContain("previously", safety);
         Assert.DoesNotContain("Rebuild", safety);
     }
+
+    [Fact]
+    public void MapTopic_SaysRebuildRedrawsAndStopKeepsWhatWasDrawn()
+    {
+        // Regression: Help said Rebuild all maps deleted every map first, and never mentioned Stop.
+        var md = new HelpViewModel().Topics.First(t => t.Title == "Map").Markdown;
+
+        Assert.DoesNotContain("deletes them all", md);
+        Assert.Contains("**Stop**", md);
+        Assert.Contains("no Paks folder", md);
+    }
+
+    [Fact]
+    public void MergeTopic_HasASpaceAfterEveryColon()
+    {
+        // Regression: "…right-click menu):something broken" ran two sentences together.
+        var md = new HelpViewModel().Topics.First(t => t.Title == "Merge & Install").Markdown;
+
+        Assert.DoesNotContain("):something", md);
+    }
+
+    [Fact]
+    public void ServerTopic_SaysGameSettingsWaitForRestartWhileTheServerRuns()
+    {
+        var md = new HelpViewModel().Topics.First(t => t.Title == "Server").Markdown;
+
+        Assert.Contains("**Verify files**", md);
+        Assert.Contains("can't be saved", md);
+    }
 }
