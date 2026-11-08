@@ -255,7 +255,7 @@ public sealed partial class MergeInstallViewModel
 
                     break;
                 case MergeParticipantKind.Options:
-                    var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(snapshot.Options, _dataFolder, new MergeReport(), orderedModChanges);
+                    var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(snapshot.Options, _dataFolder, new MergeReport());
                     if (fixedOptionChanges.Count > 0)
                     {
                         orderedModChanges.Add(fixedOptionChanges);
