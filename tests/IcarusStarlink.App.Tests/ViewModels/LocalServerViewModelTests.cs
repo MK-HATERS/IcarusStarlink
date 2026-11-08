@@ -1077,6 +1077,60 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.False(File.Exists(DedicatedServerLayout.BanListPath(_install, null)));
     }
 
+    private OnlinePlayer JoinTestPlayer(LocalServerViewModel vm)
+    {
+        var log = DedicatedServerLayout.LogPath(_install, null, null);
+        Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+        File.WriteAllText(log, string.Join("\r\n",
+            "[2026.08.12-17.31.50:975][102]LogNet: Login request: ?Name=TestPlayer userId: Steam:UNKNOWN [0x1100001025E4C01] platform: Steam",
+            "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: TestPlayer") + "\r\n");
+        vm.Tick();
+        return vm.OnlinePlayers.Single(p => p.Name == "TestPlayer");
+    }
+
+    /// <summary>Regression: a /BanPlayer typed in game after the page read the ban list made Save ask, and No threw away the id Ban had just added. Ids only added to the box now merge with the newer file.</summary>
+    [Fact]
+    public void Ban_AfterAnInGameBanChangedTheFile_SaveKeepsBothWithoutAsking()
+    {
+        var (vm, _, _, dialogs) = Build(pick: _install, confirm: false);
+        vm.AddExistingServerCommand.Execute(null);
+        var player = JoinTestPlayer(vm);
+        var banPath = DedicatedServerLayout.BanListPath(_install, null);
+        Directory.CreateDirectory(Path.GetDirectoryName(banPath)!);
+        File.WriteAllText(banPath, "76561198000000555\r\n");
+
+        vm.BanPlayerCommand.Execute(player);
+        vm.SaveAccessListsCommand.Execute(null);
+
+        Assert.Empty(dialogs.Messages);
+        var saved = File.ReadAllLines(banPath).Where(l => l.Length > 0).ToList();
+        Assert.Equal(["76561198000000555", "76561198000000001"], saved);
+        Assert.Contains("76561198000000555", vm.BanListText);
+    }
+
+    /// <summary>An id put in a box and not saved is dropped when another server is picked: the add says it isn't saved yet, and picking another server says it was dropped.</summary>
+    [Fact]
+    public void AddToAdmins_ThenAnotherServerPicked_SaysTheChangeWasNotSaved()
+    {
+        var (vm, store, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        var first = vm.SelectedProfile!;
+        var other = new DedicatedServerProfile { Name = "Other", InstallFolder = Path.Combine(_root, "Other") };
+        store.Save(other);
+        vm.Profiles.Add(other);
+        var player = JoinTestPlayer(vm);
+
+        vm.AddPlayerToAdminsCommand.Execute(player);
+        Assert.Contains("not saved yet", vm.StatusMessage);
+        vm.SelectedProfile = other;
+
+        Assert.Contains("weren't saved", vm.StatusMessage);
+        Assert.Contains("admin list", vm.StatusMessage);
+        vm.StatusMessage = null;
+        vm.SelectedProfile = first;
+        Assert.DoesNotContain("weren't saved", vm.StatusMessage ?? "");
+    }
+
     /// <summary>The app's real path: the log is read off the UI thread (once, shared with automation) and the panels fill when it is in.</summary>
     [Fact]
     public async Task Log_IsReadOffTheUiThread_AndSharedWithAutomation()

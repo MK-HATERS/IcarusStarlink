@@ -18,8 +18,8 @@ public sealed record ServerLogEvent(ServerLogEventKind Kind, DateTime? Time, str
 
 public sealed record OnlinePlayer(string Name, string PlayerId, DateTime? Since)
 {
-    /// <summary>The 17-digit Steam64 id for the admin and ban lists; null when the log gave no Steam id.</summary>
-    public string? Steam64Id => ServerAccessLists.Steam64FromPlayerId(PlayerId);
+    /// <summary>The 17-digit Steam64 id for the admin and ban lists, worked out once from PlayerId; null when the log gave no Steam id.</summary>
+    public string? Steam64Id { get; } = ServerAccessLists.Steam64FromPlayerId(PlayerId);
 
     public bool HasSteam64Id => Steam64Id is not null;
 }

@@ -611,16 +611,17 @@
                                                             Command="{Binding DataContext.CopyPlayerIdCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                             CommandParameter="{Binding}"
                                                             ToolTip="Copy this player's Steam64 id"
-                                                            AutomationProperties.Name="Copy Steam64 id"/>
+                                                            AutomationProperties.Name="{Binding Name, StringFormat='Copy the Steam64 id of {0}'}"/>
                                                     <Button Content="Add to admins" Padding="6,0" FontSize="11" Margin="0,0,4,2"
                                                             Command="{Binding DataContext.AddPlayerToAdminsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                             CommandParameter="{Binding}"
-                                                            ToolTip="Put this player's id in the admin list on the Admins &amp; bans tab. Click Save lists there while the server is stopped."/>
+                                                            ToolTip="Put this player's id in the admin list on the Admins &amp; bans tab. Click Save lists there while the server is stopped."
+                                                            AutomationProperties.Name="{Binding Name, StringFormat='Add {0} to the admin list'}"/>
                                                     <Button Content="Ban" Padding="6,0" FontSize="11" Margin="0,0,4,2"
                                                             Command="{Binding DataContext.BanPlayerCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                             CommandParameter="{Binding}"
                                                             ToolTip="Put this player's id in the ban list on the Admins &amp; bans tab. Click Save lists there while the server is stopped. To ban right away, type /BanPlayer name in game chat."
-                                                            AutomationProperties.Name="Add to ban list"/>
+                                                            AutomationProperties.Name="{Binding Name, StringFormat='Add {0} to the ban list'}"/>
                                                 </WrapPanel>
                                             </StackPanel>
                                         </DataTemplate>

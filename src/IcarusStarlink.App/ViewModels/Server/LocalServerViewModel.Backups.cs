@@ -309,6 +309,19 @@ public sealed partial class LocalServerViewModel
             return true;
         }
 
+        if (onLoad is not null && LinesAddedAtEnd(onLoad, boxText) is { } added)
+        {
+            // Only ids added (Ban / Add to admins on the Players panel, or typed at the end):
+            // keep the newer file, in-game bans included, and add them after it.
+            var onDisk = ListLines(now).ToHashSet(StringComparer.Ordinal);
+            var extra = added.Where(onDisk.Add).ToList();
+            var merged = extra.Count == 0 ? now
+                : (now.Trim().Length == 0 ? "" : now.TrimEnd() + "\r\n") + string.Join("\r\n", extra) + "\r\n";
+            setOnLoad(now);
+            setBox(merged);
+            return true;
+        }
+
         if (_dialogService.Confirm(
                 $"The {label} on disk {(onLoad is null ? "couldn't be read when this page opened" : "changed since this page read it (the server's BanPlayer and UnbanPlayer chat commands edit the ban list)")}.\n\n" +
                 $"Replace it with the list shown here? Choose No to load the list that is on disk now instead; nothing is saved then.",
@@ -324,10 +337,26 @@ public sealed partial class LocalServerViewModel
         return false;
     }
 
-    private static bool SameListLines(string a, string b)
+    private static IEnumerable<string> ListLines(string text) => text.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0);
+
+    private static bool SameListLines(string a, string b) => ListLines(a).SequenceEqual(ListLines(b), StringComparer.Ordinal);
+
+    /// <summary>The lines after the loaded list when the box is that list with lines only added at the end; null for any other edit.</summary>
+    private static List<string>? LinesAddedAtEnd(string onLoad, string boxText)
     {
-        static IEnumerable<string> Lines(string text) => text.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0);
-        return Lines(a).SequenceEqual(Lines(b), StringComparer.Ordinal);
+        var loaded = ListLines(onLoad).ToList();
+        var box = ListLines(boxText).ToList();
+        return box.Count > loaded.Count && box.Take(loaded.Count).SequenceEqual(loaded, StringComparer.Ordinal)
+            ? box.Skip(loaded.Count).ToList()
+            : null;
+    }
+
+    /// <summary>Which box differs from the file as it was read; picking another server reloads both and drops that.</summary>
+    private string? UnsavedListNames()
+    {
+        var admins = !SameListLines(AdminWhitelistText, _adminListOnLoad ?? "");
+        var bans = !SameListLines(BanListText, _banListOnLoad ?? "");
+        return admins && bans ? "admin and ban lists" : admins ? "admin list" : bans ? "ban list" : null;
     }
 
     /// <summary>Writes both lists. The server reads them on start, and its own BanPlayer/UnbanPlayer commands rewrite the ban list while running — so edit while stopped.</summary>

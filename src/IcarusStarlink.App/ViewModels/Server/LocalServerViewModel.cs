@@ -185,12 +185,18 @@ public sealed partial class LocalServerViewModel : ObservableObject
         // What automation last saw for this server, straight away: until the next process scan,
         // Running used to stay the PREVIOUS server's, so Stop or Update in that second acted on it.
         Running = value is not null && _watches.TryGetValue(value.Id, out var watch) ? watch.Running : null;
+        // The boxes still hold the last server's lists here; reloading them drops what wasn't saved.
+        var unsavedLists = UnsavedListNames();
         LoadForm();
         AttachLog();
         Tick();
         RefreshServerExtras();
         LoadFirewall();
         RefreshOverview();
+        if (unsavedLists is not null)
+        {
+            StatusMessage = $"Changes to the last server's {unsavedLists} weren't saved (Save lists wasn't clicked). Pick that server again and redo them.";
+        }
     }
 
     [ObservableProperty]

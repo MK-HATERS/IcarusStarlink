@@ -146,7 +146,7 @@ public sealed partial class LocalServerViewModel
             return text;
         }
 
-        StatusMessage = $"Added {name} to the {label} on the Admins & bans tab. Click Save lists there while the server is stopped to make it count.";
+        StatusMessage = $"Added {name} to the {label} on the Admins & bans tab, not saved yet. Click Save lists there while the server is stopped to make it count.";
         var start = text.Length == 0 || text.EndsWith('\n') ? text : text + "\r\n";
         return $"{start}{id}\r\n";
     }
