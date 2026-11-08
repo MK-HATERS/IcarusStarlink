@@ -175,7 +175,7 @@ public sealed class NewItemWizardTests : IDisposable
         Assert.Contains("Every link", editor.ReferenceSummary);
     }
 
-    /// <summary>Regression:typing in the search box cleared the list, the ListBox pushed back a null selection, and the pick and every tick were lost.</summary>
+    /// <summary>Regression: typing in the search box cleared the list, the ListBox pushed back a null selection, and the pick and every tick were lost.</summary>
     [Fact]
     public void Wizard_Searching_KeepsThePickedItemAndItsTicks()
     {
@@ -199,7 +199,7 @@ public sealed class NewItemWizardTests : IDisposable
         Assert.True(wizard.HasSource);
     }
 
-    /// <summary>Regression:unticking Itemable silently dropped the typed name and description.</summary>
+    /// <summary>Regression: unticking Itemable silently dropped the typed name and description.</summary>
     [Fact]
     public void Wizard_ItemableCantBeUnticked_ItHoldsTheName()
     {
@@ -270,7 +270,30 @@ public sealed class NewItemWizardTests : IDisposable
         Assert.Null(wizard.DlcGateNote);
     }
 
-    /// <summary>Regression:any Undo rebuilt the rule rows from the snapshot, silently dropping rule edits not applied yet.</summary>
+    /// <summary>Regression: free updates gate their items too (Galileo is fishing, Laika is taming), and those items got the DLC note though every player has them.</summary>
+    [Fact]
+    public void AnItemFromAFreeUpdate_GetsNoDlcNote()
+    {
+        Write("Items/D_ItemsStatic.json", """
+            {"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"}},"Rows":[
+              {"Name":"Basic_Fishing_Rod","Itemable":{"RowName":"Item_Basic_Fishing_Rod"},"Metadata":{"RequiredFeatureLevel":{"RowName":"Galileo"}}},
+              {"Name":"Saddle_Moa","Itemable":{"RowName":"Item_Saddle_Moa"}}
+            ]}
+            """);
+        Write("Traits/D_Itemable.json", """
+            {"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Basic_Fishing_Rod"},
+              {"Name":"Item_Saddle_Moa","Metadata":{"RequiredFeatureLevel":{"RowName":"Laika"}}}]}
+            """);
+        var wizard = new NewItemWizardViewModel(new GameTableIndex(DataFolder), null);
+
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Basic_Fishing_Rod");
+        Assert.Null(wizard.DlcGateNote);
+
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Saddle_Moa");
+        Assert.Null(wizard.DlcGateNote);
+    }
+
+    /// <summary>Regression: any Undo rebuilt the rule rows from the snapshot, silently dropping rule edits not applied yet.</summary>
     [Fact]
     public void Editor_Undo_KeepsRuleEditsNotAppliedYet()
     {

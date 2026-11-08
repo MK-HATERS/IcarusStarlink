@@ -126,8 +126,14 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
         JsonObject?[] rows = [_game.Row(ItemsStaticFile, source.ItemName), itemable is null ? null : _game.Row(itemable.CurrentFile, itemable.RowName)];
         return rows
             .Select(r => TextAt(r?["Metadata"]?["RequiredFeatureLevel"]?["RowName"]))
-            .FirstOrDefault(gate => gate is { Length: > 0 } && gate != "None" && gate != "Core");
+            .FirstOrDefault(gate => gate is { Length: > 0 } && !NotDlcGates.Contains(gate));
     }
+
+    /// <summary>Feature levels every player has: the base game and the free updates (Galileo is fishing, Laika is taming).</summary>
+    private static readonly HashSet<string> NotDlcGates = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "None", "Core", "FirstCohort", "Styx", "Galileo", "Hypatia", "Laika",
+    };
 
     /// <summary>The feature level's DisplayName (INVTEXT("Great Hunts")) from D_FeatureLevels; the raw value when it isn't there.</summary>
     private string FeatureLevelName(string gate)
