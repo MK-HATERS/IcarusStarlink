@@ -289,8 +289,8 @@ public sealed partial class SavesViewModel : ObservableObject
         }
     }
 
-    /// <summary>The last PlayerData listing failed; its message is replaced once a listing works.</summary>
-    private bool _slotListFailed;
+    /// <summary>The message shown when the last PlayerData listing failed (null when it worked); cleared once a listing works, if it's still the one showing.</summary>
+    private string? _slotListError;
 
     /// <summary>
     /// Lists PlayerData again (at start, each time the page is shown, and on Reload with no slot):
@@ -310,13 +310,14 @@ public sealed partial class SavesViewModel : ObservableObject
         {
             // A read error used to be overwritten straight away by "No player saves found", which
             // told someone with a locked or unreadable folder that they had never run the game.
-            _slotListFailed = true;
             StatusMessage = $"Couldn't read the game's PlayerData folder: {ex.Message} Press Reload to try again.";
+            _slotListError = StatusMessage;
             return;
         }
 
-        var wasFailed = _slotListFailed;
-        _slotListFailed = false;
+        // Only the listing's own error is cleared: a message set since (a backup, a save) stays.
+        var wasFailed = _slotListError is not null && StatusMessage == _slotListError;
+        _slotListError = null;
         var changed = false;
         var ids = listed.Select(s => s.SteamId).ToHashSet(StringComparer.Ordinal);
         for (var i = Slots.Count - 1; i >= 0; i--)

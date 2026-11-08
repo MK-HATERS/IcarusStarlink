@@ -448,16 +448,24 @@ public sealed partial class SavesViewModel
 
             // The merge dropped repeated MetaResources entries: their rows were bound to entries
             // that are gone, and the one kept may hold another copy's count. Talents, creatures and
-            // accolades are matched by row name at Save, so their rows stay right.
+            // accolades are matched by row name at Save, so their rows stay right. Every file is
+            // written by now: a failure here is only the page's rows, never a failed Save.
             if (mergedProfile)
             {
-                BuildCurrencies();
-                if (_modSources is { } index)
+                try
                 {
-                    ClassifyOtherRows(index);
-                }
+                    BuildCurrencies();
+                    if (_modSources is { } index)
+                    {
+                        ClassifyOtherRows(index);
+                    }
 
-                NotifyLeftoversChanged();
+                    NotifyLeftoversChanged();
+                }
+                catch (Exception ex)
+                {
+                    _activityLog.Log($"Couldn't refresh the currency rows after saving: {ex.Message}", ActivityEntryKind.Warning);
+                }
             }
 
             // These writes changed the files' stamps; the new ones are the baseline for the next Save.

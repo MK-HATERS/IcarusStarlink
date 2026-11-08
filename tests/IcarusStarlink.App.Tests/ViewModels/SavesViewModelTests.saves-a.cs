@@ -301,6 +301,43 @@ public sealed partial class SavesViewModelTests
         }
     }
 
+    /// <summary>
+    /// Regression: when rebuilding the currency rows after a merge-save threw, a save that had
+    /// written every file was reported as "Save failed partway".
+    /// </summary>
+    [Fact]
+    public async Task MergeSave_RowRebuildThrows_StillReportsSaved()
+    {
+        var repository = CreditsTwice();
+        var vm = CreateViewModel(repository);
+        var saving = false;
+        NotifyCollectionChangedEventHandler throwOnRebuild = (_, e) =>
+        {
+            if (saving && e.Action == NotifyCollectionChangedAction.Reset)
+            {
+                throw new InvalidOperationException("row rebuild broke");
+            }
+        };
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            vm.FixFindingCommand.Execute(Assert.Single(vm.CheckFindings, f => f.Area == "Account" && f.Message.Contains("listed more than once")));
+            vm.Currencies.CollectionChanged += throwOnRebuild;
+            saving = true;
+
+            vm.SaveChangesCommand.Execute(null);
+
+            Assert.Equal(["Credits:50"], ((JsonArray)repository.Profile["MetaResources"]!).Select(r => $"{r!["MetaRow"]}:{r["Count"]}"));
+            Assert.StartsWith("Saved.", vm.StatusMessage);
+            Assert.False(vm.HasUnsavedChanges);
+        }
+        finally
+        {
+            vm.Currencies.CollectionChanged -= throwOnRebuild;
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     /// <summary>Regression: a talent or creature listed twice showed the last copy's value, while merging the repeats keeps the highest.</summary>
     [Fact]
     public async Task RepeatedTalentAndCreature_ShowTheHighestValue()
@@ -482,6 +519,62 @@ public sealed partial class SavesViewModelTests
             Assert.NotNull(vm.SelectedSlot);
             Assert.Single(vm.Characters);
             Assert.DoesNotContain("Couldn't read the game's PlayerData folder", vm.StatusMessage ?? "");
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>
+    /// Regression: once PlayerData could be listed again, the next listing cleared whatever the
+    /// page said by then, so a later message (here a backup's) vanished with the old error.
+    /// </summary>
+    [Fact]
+    public async Task PlayerDataReadableAgain_KeepsAMessageSetSinceTheError()
+    {
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 1), Characters = [MakeCharacter("Alpha", 0)] };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            repository.ListSlotsError = new IOException("locked");
+            vm.OnPageShown();
+            Assert.Contains("Couldn't read the game's PlayerData folder", vm.StatusMessage);
+
+            repository.ListSlotsError = null;
+            vm.BackupNowCommand.Execute(null);
+            var backedUp = vm.StatusMessage;
+            Assert.StartsWith("Backed up to", backedUp);
+
+            vm.OnPageShown();
+            await vm.WaitForPendingSlotLoadAsync();
+
+            Assert.Equal(backedUp, vm.StatusMessage);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Once PlayerData can be listed again, its own error goes away.</summary>
+    [Fact]
+    public async Task PlayerDataReadableAgain_ClearsItsOwnError()
+    {
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 1), Characters = [MakeCharacter("Alpha", 0)] };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            repository.ListSlotsError = new IOException("locked");
+            vm.OnPageShown();
+
+            repository.ListSlotsError = null;
+            vm.OnPageShown();
+            await vm.WaitForPendingSlotLoadAsync();
+
+            Assert.Null(vm.StatusMessage);
         }
         finally
         {
