@@ -302,14 +302,13 @@ public sealed partial class MergeInstallViewModel
     private int _changedSinceInstallVersion;
 
     /// <summary>
-    /// Big-plan item 8b: opens the pak-vs-pak comparison window (non-modal, like the editor's own
-    /// research windows) — built for verifying this app's rebuilt pak against classic IMM's own
-    /// installed merged pak during migration, but works for any two paks.
+    /// Opens the pak comparison window (non-modal, like the editor's research windows): checks
+    /// Starlink's built pak against another manager's merged pak, or any two paks.
     /// </summary>
     [RelayCommand]
     private void ComparePaks()
     {
-        var viewModel = new PakCompareViewModel(_pakCompareService, _settingsService, _outputPakPath);
+        var viewModel = new PakCompareViewModel(_pakCompareService, _settingsService, _outputPakPath, _dialogs);
         var window = new PakCompareWindow(viewModel) { Owner = Application.Current.MainWindow };
         window.Show();
     }

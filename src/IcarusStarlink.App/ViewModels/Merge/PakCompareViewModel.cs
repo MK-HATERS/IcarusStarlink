@@ -2,9 +2,9 @@ using System.Collections.ObjectModel;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.Compare;
-using Microsoft.Win32;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -19,14 +19,21 @@ public sealed partial class PakCompareViewModel : ObservableObject
     private readonly IPakCompareService _compareService;
     private readonly ISettingsService _settingsService;
 
+    /// <summary>The Browse buttons' file picker (tests pass a fake).</summary>
+    private readonly IDialogService _dialogs;
+
     [ObservableProperty]
     private string _firstPakPath = "";
 
     [ObservableProperty]
     private string _secondPakPath = "";
 
+    /// <summary>While a compare runs: the paths and Browse buttons are off, so the results always belong to the paths shown.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsNotComparing))]
     private bool _isComparing;
+
+    public bool IsNotComparing => !IsComparing;
 
     [ObservableProperty]
     private string? _summaryMessage;
@@ -42,10 +49,11 @@ public sealed partial class PakCompareViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasAssetDifferences;
 
-    public PakCompareViewModel(IPakCompareService compareService, ISettingsService settingsService, string defaultFirstPakPath)
+    public PakCompareViewModel(IPakCompareService compareService, ISettingsService settingsService, string defaultFirstPakPath, IDialogService? dialogs = null)
     {
         _compareService = compareService;
         _settingsService = settingsService;
+        _dialogs = dialogs ?? new WpfDialogService();
 
         // The most common first side is this app's own staged build — prefilled only when it
         // actually exists, so a fresh install doesn't open with a dead path.
@@ -73,11 +81,7 @@ public sealed partial class PakCompareViewModel : ObservableObject
         }
     }
 
-    private static string? PickPakFile()
-    {
-        var dialog = new OpenFileDialog { Filter = "Pak files (*.pak)|*.pak|All files (*.*)|*.*" };
-        return dialog.ShowDialog() == true ? dialog.FileName : null;
-    }
+    private string? PickPakFile() => _dialogs.PickFile("Pick a pak", "Pak files (*.pak)|*.pak|All files (*.*)|*.*");
 
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task CompareAsync()
