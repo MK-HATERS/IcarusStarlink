@@ -672,6 +672,70 @@ public sealed class ServerViewModelTests
         }
     }
 
+    /// <summary>
+    /// Regression: after a sync stopped part way at a mod, pressing Sync again found that mod's
+    /// folder on the server with nothing turning it on and wrote "BMod : 1", switching on a mod
+    /// only partly there (a cut-off file, another never sent).
+    /// </summary>
+    [Fact]
+    public async Task SyncUe4ssMods_AfterASyncStoppedPartWayAtAMod_NextSyncLeavesThatModOff()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        try
+        {
+            var mods = IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveModsFolder(settings.Current.IcarusContentPath!);
+            WriteFile(Path.Combine(mods, "mods.txt"), "AMod : 1\r\nBMod : 1\r\n");
+            WriteFile(Path.Combine(mods, "AMod", "Scripts", "main.lua"));
+            WriteFile(Path.Combine(mods, "BMod", "Scripts", "main.lua"));
+            WriteFile(Path.Combine(mods, "BMod", "Scripts", "more.lua"));
+            var ftp = new MemoryFtpClient { FailUploadContaining = "/BMod/" };
+            ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"] = "Keybinds : 1\r\n";
+            var vm = await ConnectedAsync(ftp, settings);
+            await vm.SyncUe4ssModsToServerCommand.ExecuteAsync(null);
+            ftp.FailUploadContaining = null;
+
+            await vm.SyncUe4ssModsToServerCommand.ExecuteAsync(null);
+
+            var txt = ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"];
+            Assert.Contains("AMod : 1", txt);
+            Assert.DoesNotContain("BMod", txt);
+            Assert.Contains("BMod", vm.ConnectionStatusMessage);
+            Assert.Contains("delete its folder", vm.ConnectionStatusMessage);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>A mod whose folder on the server holds every file of yours, at the same sizes, is still turned on when nothing there turns it on.</summary>
+    [Fact]
+    public async Task SyncUe4ssMods_WholeModNothingTurnsOn_IsTurnedOn()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        try
+        {
+            var mods = IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveModsFolder(settings.Current.IcarusContentPath!);
+            WriteFile(Path.Combine(mods, "mods.txt"), "CMod : 1\r\n");
+            WriteFile(Path.Combine(mods, "CMod", "Scripts", "main.lua"), "abc");
+            WriteFile(Path.Combine(mods, "CMod", "Scripts", "lib", "util.lua"), "util");
+            WriteFile(Path.Combine(mods, "CMod", "UE4SS.log"), "game log, stays home");
+            var ftp = new MemoryFtpClient();
+            ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"] = "Keybinds : 1\r\n";
+            ftp.Files[$"{RemoteUe4ss}/Mods/CMod/Scripts/main.lua"] = "abc";
+            ftp.Files[$"{RemoteUe4ss}/Mods/CMod/Scripts/lib/util.lua"] = "util";
+            var vm = await ConnectedAsync(ftp, settings);
+
+            await vm.SyncUe4ssModsToServerCommand.ExecuteAsync(null);
+
+            Assert.Contains("CMod : 1", ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"]);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
     /// <summary>A second listing that failed read as "no mods.txt there", and a new one holding only the uploaded mods went up over the server's whole list.</summary>
     [Fact]
     public async Task SyncUe4ssMods_ListingFailsBeforeModsTxtIsEdited_KeepsTheServersOtherLines()
@@ -788,6 +852,38 @@ public sealed class ServerViewModelTests
             Assert.Equal("old", ftp.Files[$"{RemoteUe4ss}/UE4SS.dll"]);
             Assert.Contains("again", vm.ConnectionStatusMessage);
             Assert.False(vm.IsBusy);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Regression: a server that refuses the rename gets the file straight over the live name, and
+    /// when that upload dropped part way the page said "Nothing on the server was changed", with no
+    /// word to sync again before starting the server and its cut-off UE4SS.dll.
+    /// </summary>
+    [Fact]
+    public async Task SyncUe4ssLoader_RenameRefusedAndDirectUploadDrops_SaysTheFileWasChanged()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        try
+        {
+            var loader = IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveLoaderFolder(settings.Current.IcarusContentPath!);
+            WriteFile(Path.Combine(loader, "UE4SS.dll"), "new");
+            WriteFile(IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveDwmapiPath(settings.Current.IcarusContentPath!));
+            var ftp = new MemoryFtpClient { RefuseRenames = true };
+            ftp.Files[$"{RemoteUe4ss}/UE4SS.dll"] = "old";
+            var vm = await ConnectedAsync(ftp, settings);
+            ftp.FailUploadAt = $"{RemoteUe4ss}/UE4SS.dll";
+
+            await vm.SyncUe4ssLoaderToServerCommand.ExecuteAsync(null);
+
+            Assert.Equal("partial", ftp.Files[$"{RemoteUe4ss}/UE4SS.dll"]);
+            Assert.DoesNotContain("Nothing on the server was changed", vm.ConnectionStatusMessage);
+            Assert.Contains("UE4SS.dll", vm.ConnectionStatusMessage);
+            Assert.Contains("before you start the server", vm.ConnectionStatusMessage);
         }
         finally
         {
@@ -1108,6 +1204,22 @@ public sealed class ServerViewModelTests
         Assert.Contains("couldn't be saved in Windows Credential Manager", vm.ConnectionStatusMessage);
     }
 
+    /// <summary>Regression: when the typed password couldn't be saved and the first folder listing also failed, the password message hid "Couldn't list", which went nowhere else.</summary>
+    [Fact]
+    public async Task ConnectAsync_PasswordNotSavedAndListingFails_SaysBoth()
+    {
+        var ftp = new MemoryFtpClient { ListingsBeforeFailure = 0 };
+        var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), ftp, credentialStore: new ThrowingCredentialStore());
+        vm.SelectedSite = vm.Sites.Single();
+        vm.PasswordInput = "typed";
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.True(vm.IsConnected);
+        Assert.Contains("couldn't be saved in Windows Credential Manager", vm.ConnectionStatusMessage);
+        Assert.Contains("Couldn't list", vm.ConnectionStatusMessage);
+    }
+
     /// <summary>The Encryption box shows every mode in plain words, and the unencrypted one says the password travels as plain text.</summary>
     [Fact]
     public void EncryptionChoices_CoverEveryMode_InPlainWords()
@@ -1321,6 +1433,12 @@ public sealed class ServerViewModelTests
         /// <summary>An upload whose remote path contains this fails part way (the file is left half there).</summary>
         public string? FailUploadContaining { get; set; }
 
+        /// <summary>An upload to exactly this remote path fails part way (the file is left half there).</summary>
+        public string? FailUploadAt { get; set; }
+
+        /// <summary>Every rename is refused, as on a host that doesn't allow it.</summary>
+        public bool RefuseRenames { get; set; }
+
         public Task<IReadOnlyList<FtpEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default)
         {
             if (ListingsBeforeFailure is { } left)
@@ -1334,9 +1452,9 @@ public sealed class ServerViewModelTests
             }
 
             var prefix = remotePath.TrimEnd('/') + "/";
-            var children = Files.Keys.Where(f => f.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                .Select(f => f[prefix.Length..])
-                .Select(rest => rest.Contains('/') ? new FtpEntry(rest[..rest.IndexOf('/')], true, null, null) : new FtpEntry(rest, false, 1, null))
+            var children = Files.Where(f => f.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .Select(f => (Path: f.Key[prefix.Length..], Size: (long)System.Text.Encoding.UTF8.GetByteCount(f.Value)))
+                .Select(f => f.Path.Contains('/') ? new FtpEntry(f.Path[..f.Path.IndexOf('/')], true, null, null) : new FtpEntry(f.Path, false, f.Size, null))
                 .DistinctBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             return Task.FromResult<IReadOnlyList<FtpEntry>>(children);
@@ -1344,7 +1462,8 @@ public sealed class ServerViewModelTests
 
         public Task UploadFileAsync(string localPath, string remotePath, CancellationToken cancellationToken = default)
         {
-            if (FailUploadContaining is { } failing && remotePath.Contains(failing, StringComparison.OrdinalIgnoreCase))
+            if ((FailUploadContaining is { } failing && remotePath.Contains(failing, StringComparison.OrdinalIgnoreCase))
+                || string.Equals(remotePath, FailUploadAt, StringComparison.OrdinalIgnoreCase))
             {
                 Files[remotePath] = "partial";
                 throw new IOException("Connection reset mid-upload.");
@@ -1373,6 +1492,11 @@ public sealed class ServerViewModelTests
 
         public Task RenameFileAsync(string fromRemotePath, string toRemotePath, CancellationToken cancellationToken = default)
         {
+            if (RefuseRenames)
+            {
+                throw new FtpOperationRejectedException("550 Rename not allowed.");
+            }
+
             Files[toRemotePath] = Files[fromRemotePath];
             Files.Remove(fromRemotePath);
             return Task.CompletedTask;

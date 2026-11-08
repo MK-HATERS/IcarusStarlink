@@ -126,8 +126,11 @@ public sealed partial class ServerViewModel
 
             await LoadDirectoryAsync(string.IsNullOrWhiteSpace(site.RemotePath) ? "/" : site.RemotePath);
 
-            // A listing that works clears the status line: say again how the connection stands.
-            ConnectionStatusMessage = passwordProblem ?? ConnectionStatusMessage ?? connectedMessage;
+            // A listing that works clears the status line: say again how the connection stands. A
+            // listing that failed says so, after the password problem if there is one, not instead.
+            ConnectionStatusMessage = passwordProblem is null
+                ? ConnectionStatusMessage ?? connectedMessage
+                : ConnectionStatusMessage is null ? passwordProblem : $"{passwordProblem} {ConnectionStatusMessage}";
         }
         catch (Exception ex)
         {

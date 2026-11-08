@@ -333,15 +333,25 @@ public sealed partial class ServerViewModel
 
             // Each file goes up under a temporary name and replaces the live one only once it has
             // fully arrived: a dropped connection used to leave a cut-off UE4SS.dll on the server.
-            // The loader first, the proxy dwmapi.dll that starts it last.
+            // The loader first, the proxy dwmapi.dll that starts it last. A file counts as changed
+            // from the moment anything is written over its live name, so a drop part way through
+            // the fallback upload (rename refused) isn't reported as "nothing changed".
+            void Changed(string relative)
+            {
+                if (!replaced.Contains(relative))
+                {
+                    replaced.Add(relative);
+                }
+            }
+
             foreach (var localFile in localFiles)
             {
                 var relative = Path.GetRelativePath(localLoaderFolder, localFile).Replace('\\', '/');
-                await ReplaceRemoteFileAsync(localFile, $"{RemoteLoaderPath}/{relative}");
-                replaced.Add(relative);
+                await ReplaceRemoteFileAsync(localFile, $"{RemoteLoaderPath}/{relative}", () => Changed(relative));
+                Changed(relative);
             }
 
-            await ReplaceRemoteFileAsync(Ue4ssGamePaths.ResolveDwmapiPath(contentPath), $"{RemoteWin64Path}/dwmapi.dll");
+            await ReplaceRemoteFileAsync(Ue4ssGamePaths.ResolveDwmapiPath(contentPath), $"{RemoteWin64Path}/dwmapi.dll", () => Changed("dwmapi.dll"));
 
             ConnectionStatusMessage = $"Synced UE4SS {localLabel} to '{_connectedSite?.Name}'.{couldntCheckNote}";
             _activityLog.Log($"Synced UE4SS loader ({localLabel}) to FTP site '{_connectedSite?.Name}'.", ActivityEntryKind.Success);
@@ -351,7 +361,7 @@ public sealed partial class ServerViewModel
             var reason = ex.Message.TrimEnd('.');
             ConnectionStatusMessage = replaced.Count == 0
                 ? $"UE4SS sync failed: {reason}. Nothing on the server was changed; try again."
-                : $"UE4SS sync stopped part way: {reason}. {replaced.Count} file(s) were already replaced ({string.Join(", ", replaced)}); run Sync UE4SS loader again before you start the server.";
+                : $"UE4SS sync stopped part way: {reason}. {replaced.Count} file(s) on the server were already changed ({string.Join(", ", replaced)}); run Sync UE4SS loader again before you start the server.";
             _activityLog.Log($"UE4SS loader sync to '{_connectedSite?.Name}': {ConnectionStatusMessage}", ActivityEntryKind.Warning);
         }
         finally
@@ -419,8 +429,10 @@ public sealed partial class ServerViewModel
     /// "name.uploading" and is renamed onto the real name only once it has fully arrived, so a
     /// dropped connection leaves the server's old file whole. A server that won't rename gets the
     /// file straight over the real name, and the temporary copy is tidied when it can be.
+    /// <paramref name="onLiveNameWritten"/> runs just before that direct upload: from then on a
+    /// dropped connection can leave the live file cut off.
     /// </summary>
-    private async Task ReplaceRemoteFileAsync(string localPath, string remotePath)
+    private async Task ReplaceRemoteFileAsync(string localPath, string remotePath, Action? onLiveNameWritten = null)
     {
         var temp = UploadingName(remotePath);
         await _connectedClient!.UploadFileAsync(localPath, temp);
@@ -430,6 +442,7 @@ public sealed partial class ServerViewModel
         }
         catch (FtpOperationRejectedException)
         {
+            onLiveNameWritten?.Invoke();
             await _connectedClient.UploadFileAsync(localPath, remotePath);
             try
             {
@@ -448,8 +461,8 @@ public sealed partial class ServerViewModel
     /// the server yet, then turns them on in the server's mods.txt (it used to upload
     /// every installed mod and switch none of them on there). A mod on in the game whose folder is
     /// already on the server but that nothing there turns on (no mods.txt line, no enabled.txt:
-    /// an earlier sync whose mods.txt step failed) is turned on too, without uploading it again.
-    /// Nothing is removed or written over: a mod's files on the server, and an existing line such
+    /// an earlier sync whose mods.txt step failed) is turned on too, without uploading it again,
+    /// when all its files are there; one only partly there stays off and is named. Nothing is removed or written over: a mod's files on the server, and an existing line such
     /// as "Name : 0", stay as the server has them.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
@@ -497,10 +510,17 @@ public sealed partial class ServerViewModel
             var missing = onInGame.Where(n => !remoteNames.Contains(n)).ToList();
 
             // Mods that went up on an earlier sync whose mods.txt step failed: on the server, but off.
-            var leftOff = await ModsNothingTurnsOnAsync([.. onInGame.Where(remoteNames.Contains)], remoteEntries);
+            // One only partly there (a sync that stopped part way at it) stays off.
+            var (leftOff, notWhole) = await ModsNothingTurnsOnAsync(localModsFolder, [.. onInGame.Where(remoteNames.Contains)], remoteEntries);
+            var notWholeNote = notWhole.Count > 0
+                ? $" {string.Join(", ", notWhole)} {(notWhole.Count == 1 ? "is" : "are")} only partly on the server (files missing or cut off), so "
+                    + $"{(notWhole.Count == 1 ? "it wasn't turned on: delete its folder" : "they weren't turned on: delete their folders")} there in the host's file manager, then sync again."
+                : "";
             if (missing.Count == 0 && leftOff.Count == 0)
             {
-                ConnectionStatusMessage = "The server already has every UE4SS mod that's on in your game.";
+                ConnectionStatusMessage = notWhole.Count > 0
+                    ? notWholeNote.TrimStart()
+                    : "The server already has every UE4SS mod that's on in your game.";
                 return;
             }
 
@@ -512,7 +532,12 @@ public sealed partial class ServerViewModel
 
             if (leftOff.Count > 0)
             {
-                steps.Add($"Turn on in its mods.txt (already on the server, but nothing there turns them on):\n{string.Join('\n', leftOff.Select(n => $"  - {n}"))}");
+                steps.Add($"Turn on in its mods.txt (already on the server with all their files, but nothing there turns them on):\n{string.Join('\n', leftOff.Select(n => $"  - {n}"))}");
+            }
+
+            if (notWhole.Count > 0)
+            {
+                steps.Add($"Left off (only partly on the server: delete the folder there, then sync again):\n{string.Join('\n', notWhole.Select(n => $"  - {n}"))}");
             }
 
             var prompt =
@@ -576,7 +601,8 @@ public sealed partial class ServerViewModel
                         $"UE4SS mod sync: {string.Join(", ", turnOn)} {(turnOn.Count == 1 ? "is" : "are")} on the server but NOT turned on: "
                         + $"the server's mods.txt couldn't be updated ({ex.Message.TrimEnd('.')}). Sync again to try once more, "
                         + "or add a line \"Name : 1\" for each to the server's ue4ss\\Mods\\mods.txt in your host's file manager."
-                        + (failure is not null ? $" Also, '{brokenOff}' is only partly on the server: delete its folder there, then sync again." : "");
+                        + (failure is not null ? $" Also, '{brokenOff}' is only partly on the server: delete its folder there, then sync again." : "")
+                        + notWholeNote;
                     _activityLog.Log(ConnectionStatusMessage, ActivityEntryKind.Warning);
                     return;
                 }
@@ -591,14 +617,15 @@ public sealed partial class ServerViewModel
                     $"UE4SS mod sync stopped part way: {failure.Message} "
                     + (done.Count > 0 ? $"{done.Count} mod(s) went up whole and were turned on ({string.Join(", ", done)}). " : "")
                     + leftOffNote
-                    + $"'{brokenOff}' is only partly on the server and was not turned on: delete its folder there in the host's file manager, then sync again.";
+                    + $"'{brokenOff}' is only partly on the server and was not turned on: delete its folder there in the host's file manager, then sync again."
+                    + notWholeNote;
                 _activityLog.Log($"UE4SS mod sync to '{_connectedSite?.Name}' stopped part way at '{brokenOff}': {failure.Message}", ActivityEntryKind.Warning);
                 return;
             }
 
-            ConnectionStatusMessage = missing.Count > 0
+            ConnectionStatusMessage = (missing.Count > 0
                 ? $"Uploaded {missing.Count} UE4SS mod(s) to '{_connectedSite?.Name}' and turned them on. {leftOffNote}They load when the server restarts."
-                : $"{leftOffNote}They load when the server restarts.";
+                : $"{leftOffNote}They load when the server restarts.") + notWholeNote;
             _activityLog.Log(
                 $"UE4SS mod sync to FTP site '{_connectedSite?.Name}': uploaded {missing.Count} ({string.Join(", ", missing)}), turned on {turnOn.Count} ({string.Join(", ", turnOn)}).",
                 ActivityEntryKind.Success);
@@ -630,13 +657,16 @@ public sealed partial class ServerViewModel
     /// Of these mods, already on the server, the ones nothing there turns on: no line in the
     /// server's mods.txt (an explicit "Name : 0" is the admin's choice and stays) and no enabled.txt
     /// in the mod's folder. When the mods.txt or a mod folder can't be read, that mod is left as it
-    /// is: only a mod Starlink could see is off gets turned on.
+    /// is: only a mod Starlink could see is off gets turned on. Such a mod that isn't whole on the
+    /// server (IsWholeOnServer) comes back in NotWhole instead: switching it on would start a mod
+    /// with files missing or cut off.
     /// </summary>
-    private async Task<IReadOnlyList<string>> ModsNothingTurnsOnAsync(IReadOnlyList<string> onServer, IReadOnlyList<FtpEntry> modsFolderListing)
+    private async Task<(IReadOnlyList<string> TurnOn, IReadOnlyList<string> NotWhole)> ModsNothingTurnsOnAsync(
+        string localModsFolder, IReadOnlyList<string> onServer, IReadOnlyList<FtpEntry> modsFolderListing)
     {
         if (onServer.Count == 0)
         {
-            return [];
+            return ([], []);
         }
 
         Ue4ssModsTxt list;
@@ -653,7 +683,7 @@ public sealed partial class ServerViewModel
             }
             catch (Exception)
             {
-                return [];
+                return ([], []);
             }
             finally
             {
@@ -665,13 +695,14 @@ public sealed partial class ServerViewModel
             list = Ue4ssModsTxt.Parse(null);
         }
 
-        var result = new List<string>();
+        var turnOn = new List<string>();
+        var notWhole = new List<string>();
         foreach (var name in onServer.Where(n => list.IsEnabled(n) is null))
         {
-            IReadOnlyList<FtpEntry> folder;
+            var remoteFiles = new Dictionary<string, long?>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                folder = await _connectedClient!.ListDirectoryAsync($"{RemoteModsRootPath}/{name}");
+                await ListRemoteFilesAsync($"{RemoteModsRootPath}/{name}", "", remoteFiles, depth: 0);
             }
             catch (Exception)
             {
@@ -679,14 +710,69 @@ public sealed partial class ServerViewModel
             }
 
             // A mod folder always holds something: an empty listing is one Starlink couldn't read.
-            if (folder.Count > 0
-                && !folder.Any(e => !e.IsDirectory && string.Equals(e.Name, Ue4ssModStart.EnabledFileName, StringComparison.OrdinalIgnoreCase)))
+            if (remoteFiles.Count == 0 || remoteFiles.ContainsKey(Ue4ssModStart.EnabledFileName))
             {
-                result.Add(name);
+                continue;
+            }
+
+            if (IsWholeOnServer(Path.Combine(localModsFolder, name), remoteFiles))
+            {
+                turnOn.Add(name);
+            }
+            else
+            {
+                notWhole.Add(name);
             }
         }
 
-        return result;
+        return (turnOn, notWhole);
+    }
+
+    /// <summary>
+    /// Whether every file of the game's copy of a mod that a sync sends (IsModFileForServer; its
+    /// enabled.txt aside) is in the server's copy at the same size, where the server gives a size.
+    /// A sync that stopped part way at a mod leaves files missing or one cut off.
+    /// </summary>
+    private static bool IsWholeOnServer(string localModFolder, IReadOnlyDictionary<string, long?> remoteFiles)
+    {
+        foreach (var localFile in Directory.GetFiles(localModFolder, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(localModFolder, localFile);
+            if (!ServerUe4ssSync.IsModFileForServer(localModFolder, relative)
+                || string.Equals(relative, Ue4ssModStart.EnabledFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!remoteFiles.TryGetValue(relative.Replace('\\', '/'), out var remoteSize)
+                || (remoteSize is { } size && size != new FileInfo(localFile).Length))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Every file under a server folder, by its path below that folder ("Scripts/main.lua") and the size the server lists. Stops 16 folders deep.</summary>
+    private async Task ListRemoteFilesAsync(string remoteFolder, string prefix, Dictionary<string, long?> files, int depth)
+    {
+        foreach (var entry in await _connectedClient!.ListDirectoryAsync(remoteFolder))
+        {
+            if (entry.Name is "." or ".." || entry.Name.Contains('/'))
+            {
+                continue;
+            }
+
+            if (!entry.IsDirectory)
+            {
+                files[prefix + entry.Name] = entry.SizeBytes;
+            }
+            else if (depth < 16)
+            {
+                await ListRemoteFilesAsync($"{remoteFolder}/{entry.Name}", $"{prefix}{entry.Name}/", files, depth + 1);
+            }
+        }
     }
 
     /// <summary>
