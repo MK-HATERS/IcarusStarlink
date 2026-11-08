@@ -83,6 +83,20 @@ public partial class App : Application
 
         _singleInstanceService = singleInstanceService;
 
+        // Everything lives beside the exe. Started from a folder Windows won't let it write to
+        // (Program Files, Controlled folder access), the first write below used to end Starlink
+        // with a crash box claiming a report was written. A second launch (above) writes nothing,
+        // so it is never stopped here.
+        if (!InstallFolderCheck.CanWrite(AppContext.BaseDirectory) || !InstallFolderCheck.CanWrite(_logsDirectory))
+        {
+            MessageBox.Show(
+                $"Icarus Starlink keeps your mods, settings and logs in its own folder, and Windows won't let it write there:\n\n{AppContext.BaseDirectory}\n\n"
+                + "Move the IcarusStarlink folder somewhere you own (for example Documents or D:\\Games) and start it from there.",
+                "Icarus Starlink can't start from this folder", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Shutdown();
+            return;
+        }
+
         // Started immediately, before the (potentially slow — DI host build, HTTP client
         // registration, Library scan, window show) rest of startup below: a second instance only
         // waits a few seconds on SendToRunningInstance before giving up silently, so if the pipe
@@ -232,7 +246,22 @@ public partial class App : Application
             {
                 var themeService = _host.Services.GetRequiredService<IThemeService>();
                 var settingsService = _host.Services.GetRequiredService<ISettingsService>();
-                themeService.ApplyTheme(settingsService.Current.ThemeName);
+                try
+                {
+                    themeService.ApplyTheme(settingsService.Current.ThemeName);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    // A theme that can't load (a broken custom skin file) must not stop Starlink
+                    // starting: Settings › Appearance, where it is fixed, is behind it. The saved
+                    // theme name stays as it is.
+                    var themeName = settingsService.Current.ThemeName;
+                    Log.Warning(ex, "Couldn't apply the {Theme} theme, using Icarus", themeName);
+                    TryGetActivityLog()?.Log(
+                        $"The {themeName} theme couldn't be loaded ({ex.Message}), so Starlink is using the Icarus theme. Settings › Appearance has the skin file.",
+                        ActivityEntryKind.Warning);
+                    themeService.ApplyTheme("Icarus");
+                }
 
                 // Settings › Appearance › Size of text and controls: every window from here on.
                 UiScale.Initialize(settingsService.Current.UiScale);
@@ -370,6 +399,20 @@ public partial class App : Application
     {
         CrashReportWriter.Write(_logsDirectory, e.Exception, "Unobserved task exception (a command or background task)", TryGetActivityLog());
         e.SetObserved();
+
+        // A button's work that failed this way used to vanish without a word to the player.
+        if (!IsClosing)
+        {
+            try
+            {
+                var failure = e.Exception.InnerExceptions.Count > 0 ? e.Exception.InnerExceptions[0] : e.Exception;
+                TryGetActivityLog()?.Log($"Something didn't finish: {failure.Message} Details are in the Logs folder.", ActivityEntryKind.Warning);
+            }
+            catch (Exception)
+            {
+                // Runs on the finalizer thread: telling the player is best-effort.
+            }
+        }
     }
 
     /// <summary>
