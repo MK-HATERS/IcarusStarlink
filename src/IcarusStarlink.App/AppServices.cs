@@ -467,7 +467,8 @@ internal static class AppServices
             patchService: sp.GetRequiredService<IPatchService>(),
             ue4ssMetaStore: sp.GetRequiredService<IUe4ssModMetaStore>(),
             patchImporter: sp.GetRequiredService<MergeInstallViewModel>(),
-            network: sp.GetRequiredService<INetworkAddressService>()));
+            network: sp.GetRequiredService<INetworkAddressService>(),
+            hostNotifier: sp.GetRequiredService<IHostNotifier>()));
         services.AddSingleton<IFirewallService, FirewallService>();
         // The Connect card's addresses: this PC's adapters, and api.ipify.org only on "Show my public IP".
         services.AddSingleton<INetworkAddressService>(sp => new NetworkAddressService(sp.GetRequiredService<HttpClient>()));
@@ -504,5 +505,8 @@ internal static class AppServices
         services.AddSingleton<HelpViewModel>();
 
         services.AddSingleton<MainWindow>();
+        // Server hosts: the taskbar flash when a server needs them, and the tray icon.
+        services.AddSingleton<HostTray>();
+        services.AddSingleton<IHostNotifier>(sp => sp.GetRequiredService<HostTray>());
     }
 }

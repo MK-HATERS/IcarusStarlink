@@ -386,6 +386,12 @@
 
                                 <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource FaintForegroundBrush}"
                                            Text="Automation runs only while Starlink is open. Every server in the list is watched, not just the selected one."/>
+
+                                <CheckBox IsChecked="{Binding KeepInTrayWhileHosting}" Margin="0,10,0,2">
+                                    <TextBlock Text="Keep Starlink in the tray when I close it" FontWeight="SemiBold"/>
+                                </CheckBox>
+                                <TextBlock Style="{StaticResource OptionHintStyle}"
+                                           Text="For every server. While a server runs or automation is on, closing the window hides Starlink to an icon by the clock, so automation keeps going. Click the icon to open it; right-click it to quit."/>
                             </StackPanel>
                             </Expander>
 

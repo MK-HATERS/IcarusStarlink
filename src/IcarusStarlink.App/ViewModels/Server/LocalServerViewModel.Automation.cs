@@ -327,7 +327,7 @@ public sealed partial class LocalServerViewModel
                 break;
 
             case AutomationActionKind.GaveUpAfterCrashes:
-                ReportAutomation(watch, $"'{p.Name}': {action.Reason}.", ActivityEntryKind.Warning);
+                ReportProblem(watch, $"'{p.Name}': {action.Reason}.");
                 break;
 
             case AutomationActionKind.ScheduledRestart:
@@ -362,7 +362,7 @@ public sealed partial class LocalServerViewModel
                 var made = await TryBackupAsync(p, ServerBackups.DailyReason);
                 if (made is null)
                 {
-                    ReportAutomation(watch, $"'{p.Name}': the daily backup failed (see the activity log). It tries again tomorrow.", ActivityEntryKind.Warning);
+                    ReportProblem(watch, $"'{p.Name}': the daily backup failed (see the activity log). It tries again tomorrow.");
                 }
                 else
                 {
@@ -376,6 +376,31 @@ public sealed partial class LocalServerViewModel
 
                 break;
         }
+    }
+
+    /// <summary>The Automation section's "Keep Starlink in the tray" switch: an app setting, for every server.</summary>
+    public bool KeepInTrayWhileHosting
+    {
+        get => _settings?.Current.KeepInTrayWhileHosting ?? false;
+        set
+        {
+            if (_settings is not null && _settings.SetAndSave(s => s.KeepInTrayWhileHosting, (s, v) => s.KeepInTrayWhileHosting = v, value))
+            {
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>A server in the list runs, or one has automation on: closing Starlink would stop watching it.</summary>
+    internal bool ServersNeedStarlink =>
+        _watches.Values.Any(w => w.Running is not null)
+        || Profiles.Any(p => p.AutoRestartOnCrash || p.DailyRestartEnabled || p.AutoUpdate || p.DailyBackup);
+
+    /// <summary>Something went wrong that automation can't fix by itself: logged like any report, and the taskbar button flashes.</summary>
+    private void ReportProblem(ServerWatch watch, string text)
+    {
+        ReportAutomation(watch, text, ActivityEntryKind.Warning);
+        _hostNotifier.NeedsAttention(text);
     }
 
     private void ReportAutomation(ServerWatch watch, string text, ActivityEntryKind kind)
@@ -486,7 +511,7 @@ public sealed partial class LocalServerViewModel
                 // hourly check instead of stopping it again on every beat.
                 watch.Automation.ForgetIntentionalStop(running.ProcessId);
                 watch.Automation.NoteUpdateFinished();
-                ReportAutomation(watch, $"'{watch.Profile.Name}': couldn't stop it to restart or update ({ex.Message}). It was left running.", ActivityEntryKind.Warning);
+                ReportProblem(watch, $"'{watch.Profile.Name}': couldn't stop it to restart or update ({ex.Message}). It was left running.");
                 return;
             }
 
@@ -595,11 +620,14 @@ public sealed partial class LocalServerViewModel
             NoteInstalledAsLatest(p);
         }
 
-        ReportAutomation(watch,
-            result.Success
-                ? $"'{p.Name}' updated{(backup is null ? "" : "; worlds and settings were backed up first")}."
-                : $"'{p.Name}': the update failed ({result.Message}). Starting the build it already had.",
-            result.Success ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
+        if (result.Success)
+        {
+            ReportAutomation(watch, $"'{p.Name}' updated{(backup is null ? "" : "; worlds and settings were backed up first")}.", ActivityEntryKind.Success);
+        }
+        else
+        {
+            ReportProblem(watch, $"'{p.Name}': the update failed ({result.Message}). Starting the build it already had.");
+        }
 
         if (SelectedProfile?.Id == p.Id)
         {
@@ -643,7 +671,7 @@ public sealed partial class LocalServerViewModel
         }
         catch (Exception ex)
         {
-            ReportAutomation(watch, $"Couldn't start '{p.Name}': {ex.Message}", ActivityEntryKind.Warning);
+            ReportProblem(watch, $"Couldn't start '{p.Name}': {ex.Message}");
             return false;
         }
 

@@ -39,6 +39,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
     private readonly string _backupsRoot;
     private readonly DispatcherTimer? _timer;
     private readonly IFirewallService? _firewall;
+    private readonly IHostNotifier _hostNotifier;
     private readonly List<string> _allLogLines = [];
 
     public LocalServerViewModel(
@@ -47,9 +48,10 @@ public sealed partial class LocalServerViewModel : ObservableObject
         string? mergedPakPath = null, string? backupsRoot = null, Func<string, string?>? pickFolder = null, Func<string?>? pickSteamCmdExe = null, bool startTimer = true,
         IFirewallService? firewall = null, string? dataFolder = null,
         Core.Library.ILibraryRepository? library = null, PakIO.Patches.IPatchService? patchService = null, Core.Ue4ss.IUe4ssModMetaStore? ue4ssMetaStore = null,
-        IPatchImporter? patchImporter = null, INetworkAddressService? network = null)
+        IPatchImporter? patchImporter = null, INetworkAddressService? network = null, IHostNotifier? hostNotifier = null)
     {
         _network = network;
+        _hostNotifier = hostNotifier ?? NullHostNotifier.Instance;
         // Set before SelectedProfile below: selecting a profile loads its CreateProspect, which
         // reads (and caches) ProspectChoices from this folder. As an init property it arrived
         // too late, so the dropdown only ever held "Don't create one".
@@ -92,6 +94,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
         }
 
         SelectedProfile = Profiles.FirstOrDefault();
+        // Closing the window asks this before keeping Starlink in the tray.
+        _hostNotifier.WatchServers(() => ServersNeedStarlink);
         Profiles.CollectionChanged += (_, _) =>
         {
             RaiseSteamCmdChanged();

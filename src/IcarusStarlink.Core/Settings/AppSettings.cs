@@ -67,6 +67,9 @@ public sealed class AppSettings
     /// <summary>Play asks first when ticked mods or UE4SS changes aren't in the game yet. Off after "Don't ask again"; Settings › Appearance › Messages turns it back on.</summary>
     public bool AskBeforePlayWithChangesNotInGame { get; set; } = true;
 
+    /// <summary>Server › Overview › Automation: closing the window while a server runs or automation is on keeps Starlink in the tray. Off by default; the updater and Windows shutting down always close it.</summary>
+    public bool KeepInTrayWhileHosting { get; set; }
+
     /// <summary>Library: the data panel's share of the width (or height, when the panels are stacked) — where the splitter between the two panels was left.</summary>
     public double LibraryPanelSplit { get; set; } = 0.62;
 

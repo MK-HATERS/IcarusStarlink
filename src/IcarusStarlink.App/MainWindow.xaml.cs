@@ -10,6 +10,9 @@ public partial class MainWindow : Window
     private readonly ISettingsService _settingsService;
     private readonly IServiceProvider _serviceProvider;
 
+    /// <summary>Quit on the tray icon: this close is meant, so it isn't turned into "keep in the tray".</summary>
+    private bool _quitAsked;
+
     public MainWindow(MainViewModel viewModel, ISettingsService settingsService, IServiceProvider serviceProvider)
     {
         InitializeComponent();
@@ -19,6 +22,22 @@ public partial class MainWindow : Window
         ToastHost.DataContext = serviceProvider.GetRequiredService<ToastsViewModel>();
 
         RestoreWindowBounds();
+
+        // Server hosts: the tray icon's Open brings the window back, its Quit closes Starlink for real.
+        var tray = serviceProvider.GetService<IcarusStarlink.App.Services.HostTray>();
+        tray?.Attach(this);
+        if (tray is not null)
+        {
+            tray.OpenRequested += (_, _) => tray.ShowFromTray();
+            tray.QuitRequested += (_, _) =>
+            {
+                tray.ShowFromTray();
+                _quitAsked = true;
+                Close();
+            };
+            Closed += (_, _) => tray.Dispose();
+        }
+
         Closing += (_, e) =>
         {
             // Written before the question, not after: when Windows shuts down or the updater's
@@ -26,6 +45,20 @@ public partial class MainWindow : Window
             // waiting on its auto-save delay and the window size used to be lost with it.
             FlushMergeWorkingState();
             SaveBounds();
+
+            // Opt-in (Server › Automation): closing while a server runs or automation is on hides
+            // Starlink to the tray so automation keeps going. The updater and Windows shutting
+            // down (IsAppShuttingDown) and Quit on the tray icon always close it.
+            var quitAsked = _quitAsked;
+            _quitAsked = false;
+            if (tray is not null
+                && IcarusStarlink.App.Services.CloseBehaviour.Decide(settingsService.Current.KeepInTrayWhileHosting, IsAppShuttingDown(), quitAsked, tray.ServersNeedStarlink())
+                    == IcarusStarlink.App.Services.CloseChoice.KeepInTray)
+            {
+                e.Cancel = true;
+                tray.HideToTray();
+                return;
+            }
 
             // Unsaved edits and running work (a merge, a download) used to vanish with the window,
             // with no question asked; every page answers AppBusyCheck for its own. A Find the broken

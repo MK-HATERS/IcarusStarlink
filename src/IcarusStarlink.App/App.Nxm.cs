@@ -18,6 +18,13 @@ public partial class App
             return;
         }
 
+        // Kept in the tray (Server › Automation): a second launch brings the hidden window back.
+        if (!MainWindow.IsVisible && Utilities.SafeServiceResolver.TryGetService<HostTray>(_host?.Services) is { IsInTray: true } tray)
+        {
+            tray.ShowFromTray();
+            return;
+        }
+
         if (MainWindow.WindowState == WindowState.Minimized)
         {
             MainWindow.WindowState = WindowState.Normal;

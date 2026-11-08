@@ -55,7 +55,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         var processes = new FakeProcesses();
         var dialogs = new FakeDialogs(confirm);
         var vm = new LocalServerViewModel(store, processes, dialogs, ActivityEntries, SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, () => pickExe, startTimer: false, firewall: Firewall,
-            library: library, patchService: patches, patchImporter: importer, network: Network)
+            library: library, patchService: patches, patchImporter: importer, network: Network, hostNotifier: Notifier)
         {
             StartPollDelay = TimeSpan.Zero,
             RunWorkInline = true,

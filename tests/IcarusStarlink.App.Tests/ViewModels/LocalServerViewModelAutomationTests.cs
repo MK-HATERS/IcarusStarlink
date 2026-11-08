@@ -438,6 +438,96 @@ public sealed partial class LocalServerViewModelTests
         Assert.Contains("were kept", vm.StatusMessage);
     }
 
+    private FakeHostNotifier Notifier { get; } = new();
+
+    /// <summary>One crash is restarted quietly; once the restarts are used up the taskbar button flashes, because the host has to look.</summary>
+    [Fact]
+    public async Task CrashRestartsUsedUp_AsksForTheHostsAttention_ButOneRestartDoesNot()
+    {
+        var (vm, _, processes, _) = BuildWithServer();
+        var now = DateTime.Today.AddHours(12);
+        vm.Clock = () => now;
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.RunAutomationBeatAsync();
+
+        await SeeItStopAsync(vm, processes);
+        Assert.Single(processes.Started);
+        Assert.Empty(Notifier.Messages);
+
+        for (var crash = 0; crash < 5 && Notifier.Messages.Count == 0; crash++)
+        {
+            await vm.RunAutomationBeatAsync(); // sees the restarted run
+            now = now.AddMinutes(1);
+            await SeeItStopAsync(vm, processes);
+        }
+
+        var message = Assert.Single(Notifier.Messages);
+        Assert.Contains(vm.SelectedProfile!.Name, message);
+    }
+
+    /// <summary>A failed automatic update flashes the taskbar too: the server is back on its old build.</summary>
+    [Fact]
+    public async Task FailedAutoUpdate_AsksForTheHostsAttention()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.LatestBuild = 2;
+        SteamCmd.FailWith = "disk full";
+        var (vm, _, processes, _) = BuildWithServer();
+        vm.AutoUpdate = true;
+        vm.Clock = () => DateTime.Today.AddHours(12);
+        processes.Running = new RunningServer(9, DateTime.Now);
+
+        await vm.RunAutomationBeatAsync(); // finds the newer build
+        await vm.RunAutomationBeatAsync(); // stops it, the update fails, starts the old build
+
+        Assert.Single(SteamCmd.Installs);
+        Assert.Contains(Notifier.Messages, m => m.Contains("update failed", StringComparison.Ordinal));
+    }
+
+    /// <summary>The tray switch is one app setting, off until the host turns it on.</summary>
+    [Fact]
+    public void KeepInTray_IsOffByDefault_AndSavedAsAnAppSetting()
+    {
+        var (vm, _, _, _) = BuildWithServer();
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        Assert.False(vm.KeepInTrayWhileHosting);
+        vm.KeepInTrayWhileHosting = true;
+
+        Assert.True(Settings.Current.KeepInTrayWhileHosting);
+        Assert.True(vm.KeepInTrayWhileHosting);
+        Assert.Contains(nameof(LocalServerViewModel.KeepInTrayWhileHosting), changed);
+    }
+
+    /// <summary>The page hands the main window its check, which is true while a server runs or automation is on.</summary>
+    [Fact]
+    public async Task ServersNeedStarlink_WhileOneRunsOrHasAutomationOn()
+    {
+        var (vm, _, processes, _) = BuildWithServer();
+        Assert.NotNull(Notifier.ServersNeedStarlink);
+
+        Assert.True(Notifier.ServersNeedStarlink!(), "crash restart is on for a new server");
+
+        vm.AutoRestartOnCrash = false;
+        Assert.False(Notifier.ServersNeedStarlink());
+
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.RunAutomationBeatAsync();
+        Assert.True(Notifier.ServersNeedStarlink());
+    }
+
+    private sealed class FakeHostNotifier : IHostNotifier
+    {
+        public List<string> Messages { get; } = [];
+
+        public Func<bool>? ServersNeedStarlink { get; private set; }
+
+        public void NeedsAttention(string message) => Messages.Add(message);
+
+        public void WatchServers(Func<bool> serversNeedStarlink) => ServersNeedStarlink = serversNeedStarlink;
+    }
+
     private sealed class FakeFirewall : IFirewallService
     {
         public List<FirewallRule> Rules { get; } = [];
