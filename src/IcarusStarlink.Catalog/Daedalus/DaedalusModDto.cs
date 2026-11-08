@@ -3,10 +3,11 @@ using System.Text.Json.Serialization;
 namespace IcarusStarlink.Catalog.Daedalus;
 
 /// <summary>
-/// Raw shape of one entry in Daedalus's mods.json, verified against the live endpoint.
-/// Deliberately no `required` members: one malformed entry among 500+
-/// shouldn't be able to throw away the whole catalog fetch, so a missing field just comes
-/// through as null/empty rather than failing deserialization of the entire array.
+/// Raw shape of one entry in Daedalus's mods.json, verified against the live endpoint. No
+/// `required` members, and DaedalusCatalogClient reads each entry on its own: a missing field
+/// comes through as null/empty, and an entry of the wrong shape (a number where text belongs, a
+/// list where an object belongs) is skipped, so one malformed entry among 500+ never throws away
+/// the whole catalog.
 /// </summary>
 internal sealed class DaedalusModDto
 {

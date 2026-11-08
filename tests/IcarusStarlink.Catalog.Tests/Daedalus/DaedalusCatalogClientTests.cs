@@ -181,6 +181,56 @@ public class DaedalusCatalogClientTests
         Assert.Equal(["building"], entries.Single(e => e.Id == "waldo--a-wzg-balance-overhaul").Categories);
     }
 
+    /// <summary>Regression: tags.json only fills the Category column, but a 404 there threw away the good mods.json and the whole Daedalus catalog read as "unavailable".</summary>
+    [Fact]
+    public async Task FetchAsync_TagsJsonUnavailable_StillReturnsModsWithNoCategories()
+    {
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/mods.json"] = ModsJson,
+        });
+
+        var entries = await new DaedalusCatalogClient(new HttpClient(handler)).FetchAsync();
+
+        Assert.Equal(3, entries.Count);
+        Assert.All(entries, e => Assert.Empty(e.Categories));
+    }
+
+    /// <summary>Regression: a broken tags.json threw away the good mods.json too.</summary>
+    [Fact]
+    public async Task FetchAsync_MalformedTagsJson_StillReturnsMods()
+    {
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/mods.json"] = ModsJson,
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/tags.json"] = "{",
+        });
+
+        var entries = await new DaedalusCatalogClient(new HttpClient(handler)).FetchAsync();
+
+        Assert.Equal(3, entries.Count);
+    }
+
+    /// <summary>Regression: one entry with a number where text belongs, or a list where an object belongs, threw for the whole mods.json and every other mod was lost.</summary>
+    [Fact]
+    public async Task FetchAsync_OneEntryWithAWrongTypedField_IsSkippedNotFatal()
+    {
+        const string mods = """
+            [ { "id": "good", "name": "Good Mod", "author": "Someone", "version": "1.0", "files": { "pak": "https://example.com/good.pak" } },
+              { "id": "num", "name": "Numeric Version", "author": "Someone", "version": 1.5, "files": { "pak": "https://example.com/n.pak" } },
+              { "id": "arr", "name": "Files As A List", "author": "Someone", "files": [] } ]
+            """;
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/mods.json"] = mods,
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/tags.json"] = "[]",
+        });
+
+        var entries = await new DaedalusCatalogClient(new HttpClient(handler)).FetchAsync();
+
+        Assert.Equal("good", Assert.Single(entries).Id);
+    }
+
     [Fact]
     public async Task FetchAsync_ReturnsAllModsFromModsJson()
     {

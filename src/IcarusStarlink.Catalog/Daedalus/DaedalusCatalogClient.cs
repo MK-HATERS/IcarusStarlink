@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace IcarusStarlink.Catalog.Daedalus;
 
@@ -18,20 +19,36 @@ public sealed class DaedalusCatalogClient(HttpClient httpClient) : IDaedalusCata
 
     public async Task<IReadOnlyList<CatalogEntry>> FetchAsync(CancellationToken cancellationToken = default)
     {
-        var modsTask = httpClient.GetFromJsonAsync<List<DaedalusModDto>>(ModsUrl, CatalogJsonOptions.Instance, cancellationToken);
-        var tagsTask = httpClient.GetFromJsonAsync<List<DaedalusTagDto>>(TagsUrl, CatalogJsonOptions.Instance, cancellationToken);
+        // mods.json's own failures still throw: that is a real outage of this source. Each entry is
+        // read on its own, so one of the wrong shape is skipped instead of losing all of them.
+        var modsTask = httpClient.GetFromJsonAsync<List<JsonElement>>(ModsUrl, CatalogJsonOptions.Instance, cancellationToken);
+        var tagsTask = FetchTagsAsync(cancellationToken);
         await Task.WhenAll(modsTask, tagsTask);
 
-        var categoriesByModKey = BuildCategoryIndex(tagsTask.Result ?? []);
+        var categoriesByModKey = BuildCategoryIndex(tagsTask.Result);
 
         // An explicit JSON null in a field deserializes as null despite the DTO's "" default — one
         // such entry used to NRE and take the whole catalog down, and a null description NRE'd
         // later in the search filter and crashed the app. An entry with no id,
         // name or author is unusable and skipped (the id keys the Library's Downloaded lookup, which
         // throws on a null key); other fields are coalesced.
-        return [.. (modsTask.Result ?? [])
-            .Where(dto => dto is not null && !string.IsNullOrWhiteSpace(dto.Id) && !string.IsNullOrWhiteSpace(dto.Name) && !string.IsNullOrWhiteSpace(dto.Author))
+        return [.. CatalogJsonList.ReadEach<DaedalusModDto>(modsTask.Result)
+            .Where(dto => !string.IsNullOrWhiteSpace(dto.Id) && !string.IsNullOrWhiteSpace(dto.Name) && !string.IsNullOrWhiteSpace(dto.Author))
             .Select(dto => ToEntry(dto, categoriesByModKey))];
+    }
+
+    /// <summary>tags.json only adds the Category column: when it can't be had (a 404, a timeout, a broken file), every mod comes through without categories instead of the whole Daedalus catalog failing.</summary>
+    private async Task<List<DaedalusTagDto>> FetchTagsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return CatalogJsonList.ReadEach<DaedalusTagDto>(
+                await httpClient.GetFromJsonAsync<List<JsonElement>>(TagsUrl, CatalogJsonOptions.Instance, cancellationToken));
+        }
+        catch (Exception ex) when ((ex is HttpRequestException or JsonException or NotSupportedException or TaskCanceledException) && !cancellationToken.IsCancellationRequested)
+        {
+            return [];
+        }
     }
 
     private static Dictionary<(string Name, string Author), List<string>> BuildCategoryIndex(List<DaedalusTagDto> tags)

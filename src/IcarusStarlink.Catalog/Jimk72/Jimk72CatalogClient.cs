@@ -18,8 +18,9 @@ public sealed class Jimk72CatalogClient(HttpClient httpClient) : IJimk72CatalogC
         // Same explicit-null guard as DaedalusCatalogClient: a JSON null overrides the DTO's ""
         // default, and a null name/author/description crashed the Downloads page (its search
         // filter and catalog key). An entry with no name or author is skipped; the rest coalesce.
-        return [.. (response?.Mods ?? [])
-            .Where(dto => dto is not null && !string.IsNullOrWhiteSpace(dto.Name) && !string.IsNullOrWhiteSpace(dto.Author))
+        // Each entry is read on its own: one of the wrong shape is skipped, not the whole list.
+        return [.. CatalogJsonList.ReadEach<Jimk72ModDto>(response?.Mods)
+            .Where(dto => !string.IsNullOrWhiteSpace(dto.Name) && !string.IsNullOrWhiteSpace(dto.Author))
             .Select(ToEntry)];
     }
 

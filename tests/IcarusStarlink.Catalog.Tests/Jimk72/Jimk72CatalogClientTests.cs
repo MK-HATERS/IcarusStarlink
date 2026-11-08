@@ -90,6 +90,28 @@ public class Jimk72CatalogClientTests
         Assert.Equal("", only.CompatibilityRaw);
     }
 
+    /// <summary>Regression: one entry with a number where text belongs threw for the whole list and every other mod was lost.</summary>
+    [Fact]
+    public async Task FetchAsync_OneEntryWithAWrongTypedField_IsSkippedNotFatal()
+    {
+        const string json = """
+            {
+              "mods": [
+                { "name": "Jimk Cupboard Signs", "author": "Jimk72", "version": "1.0", "compatibility": "All", "files": { "exmodz": "https://example.com/signs.EXMODZ" } },
+                { "name": "Numbered", "author": "x", "version": 2 }
+              ]
+            }
+            """;
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://raw.githubusercontent.com/Jimk72/Icarus_Mods/main/modinfo.json"] = json,
+        });
+
+        var entries = await new Jimk72CatalogClient(new HttpClient(handler)).FetchAsync();
+
+        Assert.Equal("Jimk Cupboard Signs", Assert.Single(entries).Name);
+    }
+
     [Fact]
     public async Task FetchAsync_IdIsSynthesizedFromNameAndAuthor()
     {
