@@ -50,6 +50,67 @@ public sealed partial class ServerFilesTests
     }
 
     /// <summary>
+    /// Regression: a zip with two entries whose names differ only in case staged both into the same
+    /// file, then the second move found nothing to move, and a restore that had finished was reported
+    /// as stopped part way.
+    /// </summary>
+    [Fact]
+    public void Restore_TwoEntriesThatDifferOnlyInCase_FinishesWithTheLastOne()
+    {
+        var install = Path.Combine(_root, "Server");
+        var prospects = DedicatedServerLayout.ProspectsFolder(install, null);
+        Directory.CreateDirectory(prospects);
+        File.WriteAllText(Path.Combine(prospects, "A.json"), "current");
+        var backups = Path.Combine(_root, "Backups");
+        var zip = Path.Combine(_root, "cased.zip");
+        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create))
+        {
+            using (var w = new StreamWriter(archive.CreateEntry("PlayerData/DedicatedServer/Prospects/A.json").Open()))
+            {
+                w.Write("first");
+            }
+
+            using (var w = new StreamWriter(archive.CreateEntry("PlayerData/DedicatedServer/Prospects/a.json").Open()))
+            {
+                w.Write("second");
+            }
+        }
+
+        var safety = ServerBackups.Restore(zip, install, null, backups);
+
+        Assert.True(File.Exists(safety));
+        Assert.Equal("second", File.ReadAllText(Path.Combine(prospects, "A.json")));
+        Assert.Empty(Directory.GetDirectories(Path.Combine(install, "Icarus"), "Saved.restoring-*"));
+    }
+
+    /// <summary>
+    /// Regression: when Saved is a junction to another drive each move is a copy then a delete, so a
+    /// failure on the first file can leave it cut off. That failure used to say Saved was unchanged
+    /// because no move had finished, and the player wasn't pointed to the before-restore backup.
+    /// </summary>
+    [Fact]
+    public void Restore_TheFirstMoveFails_SaysSavedMayHaveChanged()
+    {
+        var install = Path.Combine(_root, "Server");
+        var prospects = DedicatedServerLayout.ProspectsFolder(install, null);
+        Directory.CreateDirectory(prospects);
+        var world = Path.Combine(prospects, "A.json");
+        File.WriteAllText(world, "backup");
+        var backups = Path.Combine(_root, "Backups");
+        var zip = ServerBackups.CreateBackup(install, null, backups, "manual");
+
+        ServerRestoreException ex;
+        using (new FileStream(world, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            ex = Assert.Throws<ServerRestoreException>(() => ServerBackups.Restore(zip, install, null, backups));
+        }
+
+        Assert.True(ex.SavedChanged);
+        Assert.True(File.Exists(ex.SafetyBackupPath));
+        Assert.Empty(Directory.GetDirectories(Path.Combine(install, "Icarus"), "Saved.restoring-*"));
+    }
+
+    /// <summary>
     /// Regression: when the new build had no ISL-Merged.txt the server's old list stayed, and Export
     /// patch for players and Compare read it as the new build's mod list.
     /// </summary>

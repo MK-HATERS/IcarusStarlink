@@ -209,7 +209,9 @@ public static class ServerBackups
         var saved = Path.GetFullPath(DedicatedServerLayout.SavedFolder(installFolder, savedDirSuffix));
         // Beside Saved, so the moves stay on one volume; the game never reads this folder.
         var staging = $"{saved}.restoring-{DateTime.Now.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture)}";
-        var staged = new List<(string Staged, string Target)>();
+        // Keyed by target: entries that differ only in case are the same file on Windows, so the
+        // last one wins once instead of a second move finding its staged file already gone.
+        var staged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try
         {
             try
@@ -226,7 +228,7 @@ public static class ServerBackups
                     var stagedPath = Path.Combine(staging, Path.GetRelativePath(saved, target));
                     Directory.CreateDirectory(Path.GetDirectoryName(stagedPath)!);
                     entry.ExtractToFile(stagedPath, overwrite: true);
-                    staged.Add((stagedPath, target));
+                    staged[target] = stagedPath;
                 }
             }
             catch (Exception ex)
@@ -234,19 +236,21 @@ public static class ServerBackups
                 throw new ServerRestoreException($"The backup couldn't be read: {ex.Message}", safety, savedChanged: false, ex);
             }
 
-            var moved = 0;
+            // Counted before each move: when Saved is a junction to another drive a move is a copy
+            // then a delete, so a failed first move can already have cut its target off.
+            var attempted = 0;
             try
             {
-                foreach (var (stagedPath, target) in staged)
+                foreach (var (target, stagedPath) in staged)
                 {
+                    attempted++;
                     Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                     File.Move(stagedPath, target, overwrite: true);
-                    moved++;
                 }
             }
             catch (Exception ex)
             {
-                throw new ServerRestoreException($"The restore stopped part way: {ex.Message}", safety, savedChanged: moved > 0, ex);
+                throw new ServerRestoreException($"The restore stopped part way: {ex.Message}", safety, savedChanged: attempted > 0, ex);
             }
         }
         finally
