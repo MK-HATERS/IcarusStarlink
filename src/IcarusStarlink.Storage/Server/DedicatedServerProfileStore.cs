@@ -6,8 +6,8 @@ namespace IcarusStarlink.Storage.Server;
 /// <summary>
 /// Same shape as FtpSiteStore: one JSON list next to the app's other data. Every save rewrites the
 /// whole file from the in-memory list, so a list that loaded EMPTY because the file couldn't be
-/// read must never be saved over it (that wiped every server profile). Mirrors AppSettingsService:
-/// a locked/denied file is never written over this session; a corrupt one is kept aside as
+/// read must never be saved over it (that wiped every server profile). So a file that was locked or
+/// denied at startup is never written this session; a corrupt one is kept aside as
 /// .unreadable-*.bak before the first save; and the previous file is kept as .bak before each save.
 /// </summary>
 public sealed class DedicatedServerProfileStore : IDedicatedServerProfileStore
