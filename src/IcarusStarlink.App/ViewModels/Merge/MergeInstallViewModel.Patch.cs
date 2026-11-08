@@ -127,7 +127,8 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
                 return;
             }
 
-            await _patchService.ExportAsync(manifest, bundle, exportPath);
+            // Writing the zip (every bundled pak) is slow; kept off the UI thread so the window doesn't freeze.
+            await Task.Run(() => _patchService.ExportAsync(manifest, bundle, exportPath));
 
             var bundledCount = bundle.Exmods.Count + bundle.PakFolders.Count + bundle.Ue4ssFolders.Count;
             var parts = new List<string> { $"{manifest.Mods.Count} data mod(s)" };
@@ -347,7 +348,8 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         _isImportingPatch = true;
         try
         {
-            using var contents = await _patchService.ImportAsync(patchPath);
+            // Unpacking the patch's bundled paks and UE4SS folders is slow; kept off the UI thread.
+            using var contents = await Task.Run(() => _patchService.ImportAsync(patchPath));
             await ImportPatchContentsCoreAsync(contents);
         }
         catch (Exception ex)
