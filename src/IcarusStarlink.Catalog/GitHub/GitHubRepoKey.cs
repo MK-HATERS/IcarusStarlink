@@ -1,25 +1,36 @@
-using System.Text.RegularExpressions;
-
 namespace IcarusStarlink.Catalog.GitHub;
 
 /// <summary>
-/// Extracts (owner, repo) from any github.com URL shape the catalogs actually use — a
-/// releases/download link for a .pak, or a /raw/ link for an .EXMODZ — both put owner/repo
-/// directly after the host, so one pattern covers both.
+/// Extracts (owner, repo) from the GitHub link shapes the catalogs use: github.com's
+/// releases/download link for a .pak or /raw/ link for an .EXMODZ, and
+/// raw.githubusercontent.com/{owner}/{repo}/{branch}/… for a file served straight from a repo.
+/// All of them put owner/repo first in the path. The host must be one of those exactly:
+/// "github.com/" inside another address (another host, a query string) is not a GitHub link.
 /// </summary>
-public static partial class GitHubRepoKey
+public static class GitHubRepoKey
 {
-    [GeneratedRegex(@"github\.com/([^/]+)/([^/]+)/")]
-    private static partial Regex Pattern();
-
     public static (string Owner, string Repo)? Extract(string? url)
     {
-        if (string.IsNullOrEmpty(url))
+        if (string.IsNullOrWhiteSpace(url)
+            || !Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
+            || !IsGitHubHost(uri.Host))
         {
             return null;
         }
 
-        var match = Pattern().Match(url);
-        return match.Success ? (match.Groups[1].Value, match.Groups[2].Value) : null;
+        // Something must follow the repo (every download link has more path).
+        var parts = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 3 && IsName(parts[0]) && IsName(parts[1]) ? (parts[0], parts[1]) : null;
     }
+
+    /// <summary>github.com, www.github.com or raw.githubusercontent.com.</summary>
+    internal static bool IsGitHubHost(string host) =>
+        host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+        || host.Equals("www.github.com", StringComparison.OrdinalIgnoreCase)
+        || host.Equals("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A name GitHub allows (letters, digits, '-', '_', '.'): it becomes part of an api.github.com address.</summary>
+    private static bool IsName(string part) =>
+        part is not ("." or "..") && part.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.');
 }

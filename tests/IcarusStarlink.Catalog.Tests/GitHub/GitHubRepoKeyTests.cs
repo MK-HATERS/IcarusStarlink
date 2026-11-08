@@ -20,6 +20,24 @@ public class GitHubRepoKeyTests
         Assert.Equal(("AgentKush", "Icarus-mods"), key);
     }
 
+    /// <summary>Regression: mods hosted on raw.githubusercontent.com never got a Last Updated date.</summary>
+    [Fact]
+    public void Extract_RawGitHubUserContentUrl_ReturnsOwnerAndRepo()
+    {
+        var key = GitHubRepoKey.Extract("https://raw.githubusercontent.com/TheLysdexicOne/Icarus-Mods/main/Mods/Some_Mod.EXMODZ");
+
+        Assert.Equal(("TheLysdexicOne", "Icarus-Mods"), key);
+    }
+
+    /// <summary>Regression: "github.com/" anywhere in the text matched, inside another host or a query string.</summary>
+    [Theory]
+    [InlineData("https://example.com/download?from=github.com/a/b/c")]
+    [InlineData("https://notgithub.com/a/b/c")]
+    public void Extract_GitHubOnlyInsideAnotherAddress_ReturnsNull(string url)
+    {
+        Assert.Null(GitHubRepoKey.Extract(url));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
