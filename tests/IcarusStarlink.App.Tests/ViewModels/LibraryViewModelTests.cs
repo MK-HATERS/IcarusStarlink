@@ -90,7 +90,7 @@ public sealed partial class LibraryViewModelTests
         var harness = new TestHarness();
         var folderPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folderPath);
-        File.WriteAllBytes(Path.Combine(folderPath, "Cool_P.pak"), [1, 2, 3, 4]);
+        File.WriteAllBytes(Path.Combine(folderPath, "Cool_P.pak"), TestPaks.Bytes(1, 2, 3, 4));
         try
         {
             harness.PrebuiltPakImporter.Result = new LibraryEntry
@@ -2013,7 +2013,7 @@ public sealed partial class LibraryViewModelTests
         // A real file: Activate refuses a download whose file is gone (the pak importer here is a fake).
         var pakPath = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests", $"SomeMod-v2_{Guid.NewGuid():N}.pak");
         Directory.CreateDirectory(Path.GetDirectoryName(pakPath)!);
-        File.WriteAllBytes(pakPath, [1]);
+        File.WriteAllBytes(pakPath, TestPaks.Bytes(1));
         harness.PendingDownloadStore.EntriesList.Add(new PendingDownloadEntry
         {
             ModId = 555, FileId = 999, FileName = "SomeMod-v2.pak", LocalFilePath = pakPath,
@@ -2058,7 +2058,7 @@ public sealed partial class LibraryViewModelTests
         [
             new CatalogEntry(CatalogSource.Daedalus, "cat9", "Cool Mod", "Someone", "2.0", "d", "", null, null, null, "http://fake.test/files/Cool_Mod_P.pak", null, []),
         ];
-        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler("pak-bytes"u8.ToArray()));
+        harness.DownloadHttpClient = new HttpClient(new StaticByteResponseHandler(TestPaks.Bytes("pak-bytes")));
         harness.PrebuiltPakImporter.Result = new LibraryEntry
         {
             FolderName = "Cool_Mod", Name = "Cool Mod", Author = "Someone", Version = "2.0", Description = "", FileName = "Cool_Mod", IsOpaquePak = true,
@@ -2088,7 +2088,7 @@ public sealed partial class LibraryViewModelTests
         harness.AddMod("ModA", source: "Nexus", nexusModId: 5, isOpaquePak: true);
         Directory.CreateDirectory(harness.PendingDownloadsDirectory);
         var pak = Path.Combine(harness.PendingDownloadsDirectory, "ModA.pak");
-        File.WriteAllText(pak, "pak");
+        File.WriteAllBytes(pak, TestPaks.Bytes("pak"));
         harness.PendingDownloadStore.Add(new PendingDownloadEntry
         {
             ModId = 5, FileId = 9, FileName = "ModA.pak", LocalFilePath = pak, DownloadedAtUtc = DateTimeOffset.UtcNow,
@@ -2705,8 +2705,31 @@ public sealed partial class LibraryViewModelTests
         public Task<IReadOnlyList<NexusDownloadLink>> GetDownloadLinksAsync(
             string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
-        public Task<NexusModInfo?> GetModInfoAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+        /// <summary>Mod-level version lookups by mod ID; a mod not listed here fails (a network error, the Nexus limit).</summary>
+        public Dictionary<int, NexusModInfo> ModInfoById { get; } = [];
+
+        /// <summary>When set, answers every mod info request instead of ModInfoById (a test that holds them open).</summary>
+        public Func<int, Task<NexusModInfo?>>? ModInfoHandler { get; set; }
+
+        /// <summary>How many mod info requests were made.</summary>
+        public int GetModInfoCallCount { get; set; }
+
+        public Task<NexusModInfo?> GetModInfoAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
+        {
+            lock (ModInfoById)
+            {
+                GetModInfoCallCount++;
+            }
+
+            if (ModInfoHandler is not null)
+            {
+                return ModInfoHandler(modId);
+            }
+
+            return ModInfoById.TryGetValue(modId, out var info)
+                ? Task.FromResult<NexusModInfo?>(info)
+                : throw new NotSupportedException("Not exercised by these tests.");
+        }
         public Task<IReadOnlyList<NexusModInfo>> GetModListAsync(string apiKey, string gameDomain, NexusModList list, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
         public Task<IReadOnlyList<NexusModFile>> GetModFilesAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
@@ -2723,7 +2746,11 @@ public sealed partial class LibraryViewModelTests
 
         public Task<NexusModFileSet> GetModFileSetAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
         {
-            FileSetCalls.Add(modId);
+            lock (FileSetCalls)
+            {
+                FileSetCalls.Add(modId);
+            }
+
             if (FileSetHandler is not null)
             {
                 return FileSetHandler(modId);

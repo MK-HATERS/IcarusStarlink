@@ -299,10 +299,10 @@
                             Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
                             AutomationProperties.Name="{Binding Name, StringFormat='Get update: {0}'}">
                         <Button.ToolTip>
-                            <TextBlock Text="{Binding LatestVersion, StringFormat='Update available: v{0} — click to get it from Nexus'}"/>
+                            <TextBlock Text="{Binding LatestVersionText, StringFormat='Update available: {0} — click to get it from Nexus'}"/>
                         </Button.ToolTip>
                         <TextBlock FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}">
-                            <Run Text="Update v"/><Run Text="{Binding LatestVersion, Mode=OneWay}"/>
+                            <Run Text="Update "/><Run Text="{Binding LatestVersionText, Mode=OneWay}"/>
                         </TextBlock>
                     </Button>
                     <!-- Your own build, newer than Nexus's latest: no update badge; a click offers a Nexus version instead. -->
@@ -313,7 +313,7 @@
                             AutomationProperties.Name="{Binding Name, StringFormat='Your build: {0}'}">
                         <Button.ToolTip>
                             <TextBlock>
-                                <Run Text="Your own build: newer than Nexus's latest (v"/><Run Text="{Binding NewestOnNexusShown, Mode=OneWay}"/><Run Text="). Click to install a Nexus version instead."/>
+                                <Run Text="Your own build: newer than Nexus's latest ("/><Run Text="{Binding NewestOnNexusText, Mode=OneWay}"/><Run Text="). Click to install a Nexus version instead."/>
                             </TextBlock>
                         </Button.ToolTip>
                         <TextBlock Text="Your build" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
@@ -640,7 +640,7 @@
                         <!-- A TextBlock inside: WPF ignores a binding's StringFormat when it's set straight on
                              ToolTip (an object), so the tip showed only the bare version. -->
                         <Button.ToolTip>
-                            <TextBlock Text="{Binding LatestVersion, StringFormat='Update available: v{0} — click to update'}"/>
+                            <TextBlock Text="{Binding LatestVersionText, StringFormat='Update available: {0} — click to update'}"/>
                         </Button.ToolTip>
                         <TextBlock Text="Update" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
                     </Button>
@@ -652,7 +652,7 @@
                             AutomationProperties.Name="{Binding Name, StringFormat='Your build: {0}'}">
                         <Button.ToolTip>
                             <TextBlock>
-                                <Run Text="Your own build: newer than Nexus's latest (v"/><Run Text="{Binding NewestOnNexusShown, Mode=OneWay}"/><Run Text="). Click to install a Nexus version instead."/>
+                                <Run Text="Your own build: newer than Nexus's latest ("/><Run Text="{Binding NewestOnNexusText, Mode=OneWay}"/><Run Text="). Click to install a Nexus version instead."/>
                             </TextBlock>
                         </Button.ToolTip>
                         <TextBlock Text="Your build" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>

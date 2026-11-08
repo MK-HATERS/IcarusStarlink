@@ -293,7 +293,12 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         OnPropertyChanged(nameof(HasUpdateAvailable));
         OnPropertyChanged(nameof(IsAheadOfNexus));
         OnPropertyChanged(nameof(NewestOnNexusShown));
+        OnPropertyChanged(nameof(LatestVersionText));
+        OnPropertyChanged(nameof(NewestOnNexusText));
     }
+
+    /// <summary>The update's version as shown ("v1.2"; a version Nexus writes "v1.2" isn't doubled, none is "").</summary>
+    public string LatestVersionText => VersionLabel.For(LatestVersion);
 
     /// <summary>
     /// "Your build": linked to Nexus, and newer than the newest version there (the author's own
@@ -307,11 +312,14 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// "Your build" only when it's newer than all of them, not just the file it's tracked to.
     /// </summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsAheadOfNexus), nameof(HasUpdateAvailable), nameof(NewestOnNexusShown))]
+    [NotifyPropertyChangedFor(nameof(IsAheadOfNexus), nameof(HasUpdateAvailable), nameof(NewestOnNexusShown), nameof(NewestOnNexusText))]
     private string? _newestOnNexus;
 
     /// <summary>What "Your build" is compared with: the newest file on the page, else the latest the check found.</summary>
     public string? NewestOnNexusShown => NewestOnNexus ?? LatestVersion;
+
+    /// <summary>NewestOnNexusShown as shown in the "Your build" tooltip.</summary>
+    public string NewestOnNexusText => VersionLabel.For(NewestOnNexusShown);
 
     /// <summary>
     /// What "Check mods against game data" found doesn't fit the current game (ModHealthChecker):

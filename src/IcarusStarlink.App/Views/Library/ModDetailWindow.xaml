@@ -60,22 +60,20 @@
                             Background="{DynamicResource AccentBrush}"
                             Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}">
                         <TextBlock FontSize="10.5" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}">
-                            <Run Text="Update available: v"/><Run Text="{Binding LatestVersion, Mode=OneWay}"/>
+                            <Run Text="Update available: "/><Run Text="{Binding LatestVersionText, Mode=OneWay}"/>
                         </TextBlock>
                     </Border>
                     <Button Margin="6,0,0,4" Padding="7,2" VerticalAlignment="Center" FontSize="11"
                             Command="{Binding LibraryViewModel.GetUpdateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                             CommandParameter="{Binding}"
                             Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
-                            ToolTip="Database mod: downloads it again and replaces this copy (backed up first; pin, favourite and notes kept). Nexus mod: opens its Nexus page; use Mod Manager Download there."
+                            ToolTip="Downloads the newer version and installs it in place of this copy (backed up first; pin, favourite and notes kept). For a Nexus mod you pick the file first; without a Nexus API key in Settings, its Nexus page opens instead."
                             AutomationProperties.Name="Get update">
                         <TextBlock Text="Get update" VerticalAlignment="Center"/>
                     </Button>
                 </WrapPanel>
                 <TextBlock Margin="0,2,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}">
-                    <Run Text="{Binding Author, Mode=OneWay}"/>
-                    <Run Text=" · v"/>
-                    <Run Text="{Binding Version, Mode=OneWay}"/>
+                    <Run Text="{Binding Author, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding VersionText, Mode=OneWay}"/>
                 </TextBlock>
                 <ScrollViewer MaxHeight="80" VerticalScrollBarVisibility="Auto" Margin="0,0,0,12">
                     <TextBlock Text="{Binding Description}" Style="{StaticResource PageBodyTextStyle}"/>

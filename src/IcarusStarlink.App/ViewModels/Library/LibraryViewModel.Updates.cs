@@ -75,7 +75,7 @@ public sealed partial class LibraryViewModel
                 }
 
                 SearchNexusFor(item);
-                StatusMessage = "Found the mod's card on the Nexus page — use its Download button to pull the update through this app (sign in with your Nexus key in Settings to update straight from the Library).";
+                StatusMessage = Downloads.CanFetchFromNexus ? LinkToUpdateHere : SignInToUpdateHere;
                 return;
             }
 
@@ -86,6 +86,12 @@ public sealed partial class LibraryViewModel
             _updatesRunning.Remove(key);
         }
     }
+
+    /// <summary>Update without a Nexus key: the mod's Nexus page opens, but its Download asks for the key too.</summary>
+    private const string SignInToUpdateHere = "Sign in with your Nexus API key in Settings to update from here.";
+
+    /// <summary>Update on a Nexus mod with no mod ID recorded: its Nexus page is searched by name.</summary>
+    private const string LinkToUpdateHere = "Link this mod to its Nexus ID (right-click it) to update from here.";
 
     /// <summary>The rows whose update is running now ("data:" + folder name, "ue4ss:" + mod name): a second Update on one of them is refused.</summary>
     private readonly HashSet<string> _updatesRunning = new(StringComparer.OrdinalIgnoreCase);
@@ -140,7 +146,7 @@ public sealed partial class LibraryViewModel
 
     private bool ConfirmReplaceOwnBuild(string name, string? yours, string? nexus) =>
         _dialogService.ConfirmWithWords(
-            $"'{name}' here is your own build (v{yours}), newer than Nexus's latest (v{nexus}).\n\nReplace it with a version from Nexus? You choose the file next; your build is backed up first (Backups).",
+            $"'{name}' here is your own build ({VersionLabel.For(yours)}), newer than Nexus's latest ({VersionLabel.For(nexus)}).\n\nReplace it with a version from Nexus? You choose the file next; your build is backed up first (Backups).",
             "Replace your build", ThemedConfirmSeverity.Question, "Choose a Nexus version", "Keep my build");
 
     /// <summary>
@@ -214,7 +220,7 @@ public sealed partial class LibraryViewModel
                 return false;
             }
 
-            StatusMessage = $"Updated '{imported.Name}' to v{imported.Version}.{result.Summary}";
+            StatusMessage = $"Updated '{imported.Name}'{(VersionLabel.For(imported.Version) is { Length: > 0 } version ? " to " + version : "")}.{result.Summary}";
             _activityLog.Log($"Updated '{imported.Name}' from the catalog.", ActivityEntryKind.Success);
 
             // A real bug found live: HasUpdateAvailable compares Version against LatestVersion
@@ -547,7 +553,7 @@ public sealed partial class LibraryViewModel
 
         _nexusCatalogViewModel().SearchText = nexusModId.ToString(CultureInfo.InvariantCulture);
         WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("nexus"));
-        Ue4ssStatusMessage = "Found the mod's card on the Nexus page — use its Download button to pull the update through this app (sign in with your Nexus key in Settings to update straight from the Library).";
+        Ue4ssStatusMessage = SignInToUpdateHere;
     }
 
     /// <summary>The UE4SS row's "Your build" pill: as ReplaceOwnBuild, for the Lua half.</summary>
@@ -916,6 +922,9 @@ public sealed partial class LibraryViewModel
             var updatedCount = 0;
             // Mods whose check itself failed (no network, the Nexus rate limit) — "up to date" would be a guess for them.
             var failedCount = 0;
+            // Mods actually asked about (Nexus ones only with a key). "Up to date" is said only when
+            // one of them got an answer: without a key, a Library of only Nexus mods had nothing checked.
+            var askedCount = 0;
             var messages = new List<string>();
 
             if (nexusItems.Count > 0 || ue4ssItems.Count > 0)
@@ -930,6 +939,7 @@ public sealed partial class LibraryViewModel
                 }
                 else
                 {
+                    askedCount += nexusItems.Count + ue4ssItems.Count;
                     // Same batched GetModInfoAsync pattern for both collections — a UE4SS mod's own
                     // "current version" is whatever KnownVersion recorded at link time, since
                     // there's no live-installed version string to read the way a Library EXMOD/pak
@@ -940,22 +950,33 @@ public sealed partial class LibraryViewModel
                     updatedCount += perFileUpdates;
                     nexusItems = [.. nexusItems.Where(i => !resolvedItems.Contains(i))];
                     ue4ssItems = [.. ue4ssItems.Where(r => !resolvedRows.Contains(r.Name))];
-                    var (libraryUpdates, libraryFailures) = await ApplyNexusVersionsAsync(nexusItems, apiKey, i => i.NexusModId!.Value, (i, v) => i.LatestVersion = v, i => i.HasUpdateAvailable);
-                    updatedCount += libraryUpdates;
-                    failedCount += libraryFailures;
+
+                    // One lookup per mod: a data half and its Lua half share one Nexus mod ID.
+                    var versions = await FetchModVersionsAsync(
+                        nexusItems.Select(i => i.NexusModId!.Value).Concat(ue4ssItems.Select(r => r.NexusModId!.Value)), apiKey);
+                    foreach (var item in nexusItems)
+                    {
+                        var (updated, failed) = ApplyModVersion(versions[item.NexusModId!.Value], v => item.LatestVersion = v, () => item.HasUpdateAvailable);
+                        updatedCount += updated ? 1 : 0;
+                        failedCount += failed ? 1 : 0;
+                    }
+
                     // Resolved against the LIVE row by name at apply time: a reload of the UE4SS list while
                     // the Nexus lookups were in flight replaces every row, and stamping the version onto
                     // the captured (now orphaned) instance left no badge until the next manual check.
-                    var (ue4ssUpdates, ue4ssFailures) = await ApplyNexusVersionsAsync(ue4ssItems, apiKey, r => r.NexusModId!.Value,
-                        (r, v) => (Ue4ssMods.FirstOrDefault(m => m.Name == r.Name) ?? r).LatestVersion = v,
-                        r => (Ue4ssMods.FirstOrDefault(m => m.Name == r.Name) ?? r).HasUpdateAvailable);
-                    updatedCount += ue4ssUpdates;
-                    failedCount += ue4ssFailures;
+                    foreach (var captured in ue4ssItems)
+                    {
+                        var row = Ue4ssMods.FirstOrDefault(m => m.Name == captured.Name) ?? captured;
+                        var (updated, failed) = ApplyModVersion(versions[captured.NexusModId!.Value], v => row.LatestVersion = v, () => row.HasUpdateAvailable);
+                        updatedCount += updated ? 1 : 0;
+                        failedCount += failed ? 1 : 0;
+                    }
                 }
             }
 
             if (databaseItems.Count > 0)
             {
+                askedCount += databaseItems.Count;
                 try
                 {
                     // Reuses Downloads' own cached catalog instead of an independent re-fetch of
@@ -1004,9 +1025,15 @@ public sealed partial class LibraryViewModel
 
             if (!isAutomatic)
             {
-                messages.Add(updatedCount > 0
-                    ? $"{updatedCount} mod(s) have an update available."
-                    : failedCount > 0 ? "No updates found among the mods that could be checked." : "Everything checked is up to date.");
+                if (updatedCount > 0)
+                {
+                    messages.Add($"{updatedCount} mod(s) have an update available.");
+                }
+                else if (askedCount > failedCount)
+                {
+                    messages.Add(failedCount > 0 ? "No updates found among the mods that could be checked." : "Everything checked is up to date.");
+                }
+
                 if (failedCount > 0)
                 {
                     messages.Add($"Couldn't check {failedCount} mod(s) (network or Nexus limit) — try again later.");
@@ -1042,7 +1069,7 @@ public sealed partial class LibraryViewModel
             return (0, resolvedItems, resolvedNames);
         }
 
-        var sets = await Task.WhenAll(modIds.Select(async modId =>
+        var sets = await WhenAllCappedAsync(modIds, async modId =>
         {
             try
             {
@@ -1052,7 +1079,7 @@ public sealed partial class LibraryViewModel
             {
                 return (ModId: modId, Set: (NexusModFileSet?)null); // best-effort, like the mod-level check
             }
-        }));
+        });
         var setByMod = sets.Where(s => s.Set is not null).ToDictionary(s => s.ModId, s => s.Set!);
 
         var updates = 0;
@@ -1086,45 +1113,65 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
-    /// Batched per-item Nexus version lookup + apply, shared by CheckForUpdatesAsync's Library-mod
-    /// and UE4SS-mod checks above — both used to be near-identical copies differing only in which
-    /// property/type they touched. Returns how many of the checked items now have an update
-    /// available, for the caller's own running total.
+    /// The mod-level check: each distinct mod's headline version from Nexus, a few requests at a
+    /// time. A mod whose lookup failed (rate limit, a since-removed mod) is marked Failed; one bad
+    /// lookup doesn't stop the rest.
     /// </summary>
-    private async Task<(int Updates, int Failures)> ApplyNexusVersionsAsync<T>(
-        IReadOnlyList<T> items, string apiKey, Func<T, int> getNexusModId, Action<T, string> setLatestVersion, Func<T, bool> hasUpdateAvailable)
+    private async Task<Dictionary<int, (string? Version, bool Failed)>> FetchModVersionsAsync(IEnumerable<int> modIds, string apiKey)
     {
-        var results = await Task.WhenAll(items.Select(async item =>
+        var results = await WhenAllCappedAsync(modIds.Distinct(), async modId =>
         {
             try
             {
-                var info = await _nexusApiClient.GetModInfoAsync(apiKey, NxmHandlerCommand.IcarusDomain, getNexusModId(item));
-                return (Item: item, Version: info?.Version, Failed: info is null);
+                var info = await _nexusApiClient.GetModInfoAsync(apiKey, NxmHandlerCommand.IcarusDomain, modId);
+                return (ModId: modId, Version: info?.Version, Failed: info is null);
             }
             catch (Exception)
             {
-                // Best-effort per-mod — one bad lookup (rate limit, a since-removed mod) shouldn't
-                // stop the rest of the batch from checking. Counted as not checked.
-                return (Item: item, Version: (string?)null, Failed: true);
+                return (ModId: modId, Version: (string?)null, Failed: true);
             }
-        }));
+        });
+        return results.ToDictionary(r => r.ModId, r => (r.Version, r.Failed));
+    }
 
-        var updatedCount = 0;
-        var failedCount = results.Count(r => r.Failed);
-        foreach (var (item, version, _) in results)
+    /// <summary>Applies one mod's looked-up version to a row: whether the row now has an update, and whether its lookup failed.</summary>
+    private static (bool Updated, bool Failed) ApplyModVersion((string? Version, bool Failed) lookup, Action<string> setLatestVersion, Func<bool> hasUpdateAvailable)
+    {
+        if (lookup.Failed)
         {
-            if (string.IsNullOrEmpty(version))
-            {
-                continue;
-            }
-
-            setLatestVersion(item, version);
-            if (hasUpdateAvailable(item))
-            {
-                updatedCount++;
-            }
+            return (false, true);
         }
 
-        return (updatedCount, failedCount);
+        if (string.IsNullOrEmpty(lookup.Version))
+        {
+            return (false, false);
+        }
+
+        setLatestVersion(lookup.Version);
+        return (hasUpdateAvailable(), false);
+    }
+
+    /// <summary>
+    /// At most this many Nexus requests at once during a check: the client has no limiter of its
+    /// own, and every request still in flight when Nexus starts refusing (its rate limit) fails.
+    /// </summary>
+    private const int MaxNexusRequestsAtOnce = 4;
+
+    /// <summary>Task.WhenAll over the sources, running at most MaxNexusRequestsAtOnce at a time; results in source order.</summary>
+    private static async Task<TResult[]> WhenAllCappedAsync<TSource, TResult>(IEnumerable<TSource> sources, Func<TSource, Task<TResult>> run)
+    {
+        using var gate = new SemaphoreSlim(MaxNexusRequestsAtOnce);
+        return await Task.WhenAll(sources.Select(async source =>
+        {
+            await gate.WaitAsync();
+            try
+            {
+                return await run(source);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
     }
 }

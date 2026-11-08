@@ -130,7 +130,7 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
             }
 
             var name = NexusName is null ? $"Nexus mod #{NexusModId}" : $"Nexus: {NexusName}";
-            return KnownVersion is null ? name : $"{name} · v{KnownVersion}";
+            return VersionLabel.For(KnownVersion) is { Length: > 0 } version ? $"{name} · {version}" : name;
         }
     }
 
@@ -232,7 +232,12 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
         OnPropertyChanged(nameof(HasUpdateAvailable));
         OnPropertyChanged(nameof(IsAheadOfNexus));
         OnPropertyChanged(nameof(NewestOnNexusShown));
+        OnPropertyChanged(nameof(LatestVersionText));
+        OnPropertyChanged(nameof(NewestOnNexusText));
     }
+
+    /// <summary>The update's version as shown in the Update pill ("v1.2"; a version Nexus writes "v1.2" isn't doubled, none is "").</summary>
+    public string LatestVersionText => VersionLabel.For(LatestVersion);
 
     /// <summary>
     /// "Your build": linked to Nexus, and newer than the newest version there (the author's own
@@ -246,11 +251,14 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     /// "Your build" only when it's newer than all of them, not just the file it's tracked to.
     /// </summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsAheadOfNexus), nameof(HasUpdateAvailable), nameof(NewestOnNexusShown))]
+    [NotifyPropertyChangedFor(nameof(IsAheadOfNexus), nameof(HasUpdateAvailable), nameof(NewestOnNexusShown), nameof(NewestOnNexusText))]
     private string? _newestOnNexus;
 
     /// <summary>What "Your build" is compared with: the newest file on the page, else the latest the check found.</summary>
     public string? NewestOnNexusShown => NewestOnNexus ?? LatestVersion;
+
+    /// <summary>NewestOnNexusShown as shown in the "Your build" tooltip.</summary>
+    public string NewestOnNexusText => VersionLabel.For(NewestOnNexusShown);
 
     /// <summary>
     /// User-entered minimum UE4SS loader version this mod needs (e.g. "3.0.1") — set via this row's
@@ -273,7 +281,7 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     public bool HasVersionWarning => VersionCompatibility == Ue4ssVersionCompatibility.BelowMinimum;
 
     public string? VersionWarningTooltip => HasVersionWarning
-        ? $"Needs UE4SS v{MinUe4ssVersion} or newer, but you have v{_installedLoaderVersion}. It may not work right until you update UE4SS."
+        ? $"Needs UE4SS {VersionLabel.For(MinUe4ssVersion)} or newer, but you have {VersionLabel.For(_installedLoaderVersion)}. It may not work right until you update UE4SS."
         : null;
 
     private bool _isEnabled;

@@ -310,4 +310,195 @@ public sealed partial class LibraryViewModelTests
         Assert.Contains("CoolLua", vm.StatusMessage);
         Assert.Contains("UE4SS panel", vm.StatusMessage);
     }
+
+    // ---- Check for updates: how many Nexus requests ----
+
+    /// <summary>
+    /// Nexus requests held open until the test answers them. Thread-safe: once one is answered,
+    /// the next waiting request can start on another thread.
+    /// </summary>
+    private sealed class HeldRequests<T>
+    {
+        private readonly object _gate = new();
+        private readonly List<TaskCompletionSource<T>> _held = [];
+
+        public int Count
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _held.Count;
+                }
+            }
+        }
+
+        public Task<T> Hold()
+        {
+            var request = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_gate)
+            {
+                _held.Add(request);
+            }
+
+            return request.Task;
+        }
+
+        /// <summary>Answers every request, including the ones that start meanwhile, until the work ends (bounded, so a wrong build fails instead of hanging).</summary>
+        public async Task AnswerUntilDoneAsync(T answer, Task work)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!work.IsCompleted && DateTime.UtcNow < deadline)
+            {
+                TaskCompletionSource<T>[] pending;
+                lock (_gate)
+                {
+                    pending = [.. _held];
+                }
+
+                foreach (var request in pending)
+                {
+                    request.TrySetResult(answer);
+                }
+
+                await Task.WhenAny(work, Task.Delay(10));
+            }
+        }
+    }
+
+    private static Ue4ssModRowViewModel AddUe4ssRow(TestHarness harness, LibraryViewModel vm, string name, Ue4ssModMeta meta)
+    {
+        harness.Ue4ssModStateService.States.Add(new Ue4ssModState(name, IsEnabled: true));
+        harness.Ue4ssModMetaStore.Metas[name] = meta;
+        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
+        return vm.Ue4ssMods.Single(r => r.Name == name);
+    }
+
+    /// <summary>Regression: a mod's data half and its Lua half asked Nexus for the same mod twice.</summary>
+    [Fact]
+    public async Task CheckForUpdates_DataAndLuaHalvesOfOneMod_AskNexusOnce()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        harness.CredentialStore.ApiKey = "key";
+        harness.AddMod("Bags", source: "Nexus", nexusModId: 11);
+        harness.NexusApiClient.ModInfoById[11] = new NexusModInfo(11, "Bags", "someone", "", "2.0", null);
+        var vm = harness.Build();
+        AddUe4ssRow(harness, vm, "BagsLua", new Ue4ssModMeta { NexusModId = 11, NexusVersion = "1.0" });
+        harness.NexusApiClient.GetModInfoCallCount = 0;
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, harness.NexusApiClient.GetModInfoCallCount);
+        Assert.Equal("2.0", vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Bags").LatestVersion);
+        Assert.Equal("2.0", vm.Ue4ssMods.Single(r => r.Name == "BagsLua").LatestVersion);
+        Assert.Contains("2 mod(s) have an update", vm.UpdateCheckStatusMessage);
+    }
+
+    /// <summary>Regression: every mod without a recorded file asked Nexus at the same moment, so the Nexus limit failed most of them.</summary>
+    [Fact]
+    public async Task CheckForUpdates_ManyModsWithoutAFile_AskNexusAtMostFourAtOnce()
+    {
+        var harness = new TestHarness();
+        harness.CredentialStore.ApiKey = "key";
+        for (var modId = 1; modId <= 6; modId++)
+        {
+            harness.AddMod($"Mod{modId}", source: "Nexus", nexusModId: modId);
+        }
+
+        var vm = harness.Build();
+        var held = new HeldRequests<NexusModInfo?>();
+        harness.NexusApiClient.ModInfoHandler = _ => held.Hold();
+
+        var check = vm.CheckForUpdatesCommand.ExecuteAsync(null);
+        try
+        {
+            Assert.Equal(4, held.Count);
+        }
+        finally
+        {
+            await held.AnswerUntilDoneAsync(null, check);
+        }
+
+        Assert.True(check.IsCompleted, "the check should end once every request is answered");
+    }
+
+    /// <summary>The same cap for the per-file check of mods that know their Nexus file.</summary>
+    [Fact]
+    public async Task CheckForUpdates_ManyModsWithAFile_AskNexusAtMostFourAtOnce()
+    {
+        var harness = new TestHarness();
+        harness.CredentialStore.ApiKey = "key";
+        for (var modId = 1; modId <= 6; modId++)
+        {
+            harness.AddMod($"Mod{modId}", source: "Nexus", nexusModId: modId).NexusFileId = modId * 10;
+        }
+
+        var vm = harness.Build();
+        var held = new HeldRequests<NexusModFileSet>();
+        harness.NexusApiClient.FileSetHandler = _ => held.Hold();
+
+        var check = vm.CheckForUpdatesCommand.ExecuteAsync(null);
+        try
+        {
+            Assert.Equal(4, held.Count);
+        }
+        finally
+        {
+            await held.AnswerUntilDoneAsync(new NexusModFileSet([], []), check);
+        }
+
+        Assert.True(check.IsCompleted, "the check should end once every request is answered");
+    }
+
+    // ---- Update texts ----
+
+    /// <summary>Regression: with only Nexus mods and no key, Check for updates said "Everything checked is up to date." though nothing was checked.</summary>
+    [Fact]
+    public async Task CheckForUpdates_NexusModsWithNoKey_DoesNotSayUpToDate()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("ModA", source: "Nexus", nexusModId: 1);
+        var vm = harness.Build();
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        Assert.Contains("Sign in", vm.UpdateCheckStatusMessage);
+        Assert.DoesNotContain("up to date", vm.UpdateCheckStatusMessage);
+    }
+
+    /// <summary>Regression: a Nexus version written "v1.0" read "(vv1.0)" in the "Your build" question.</summary>
+    [Fact]
+    public async Task ReplaceOwnBuild_NexusVersionWrittenWithAV_AsksWithoutADoubleV()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("ModA", source: "Nexus", nexusModId: 1, version: "2.0");
+        var vm = harness.Build();
+        var row = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA");
+        row.NewestOnNexus = "v1.0";
+        Assert.True(row.IsAheadOfNexus);
+
+        await vm.ReplaceOwnBuildCommand.ExecuteAsync(row);
+
+        var question = Assert.Single(harness.DialogService.ConfirmWithWordsMessages);
+        Assert.Contains("(v2.0)", question);
+        Assert.Contains("(v1.0)", question);
+        Assert.DoesNotContain("vv", question);
+    }
+
+    /// <summary>Regression: a UE4SS mod whose Nexus version is written "v1.2" showed "Update vv1.2" and "Nexus: … · vv1.2".</summary>
+    [Fact]
+    public void Ue4ssRow_NexusVersionWrittenWithAV_ShowsOneV()
+    {
+        var harness = new TestHarness();
+        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
+        var vm = harness.Build();
+        var row = AddUe4ssRow(harness, vm, "CoolLua", new Ue4ssModMeta { NexusModId = 11, NexusVersion = "v1.2", NexusName = "Cool" });
+
+        row.LatestVersion = "v1.3";
+
+        Assert.Equal("Nexus: Cool · v1.2", row.NexusSummary);
+        Assert.Equal("v1.3", row.LatestVersionText);
+        Assert.Equal("v1.3", row.NewestOnNexusText);
+    }
 }
