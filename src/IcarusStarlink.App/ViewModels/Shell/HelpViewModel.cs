@@ -479,6 +479,8 @@ public sealed partial class HelpViewModel : ObservableObject
 
             If you ticked or unticked mods and haven't done **Merge & Install** yet (or UE4SS changes aren't applied), **Play** asks first: go and put them in, play without them, or play and don't ask again (**Settings › Appearance › Messages** turns the question back on). If **Install** says Icarus is running, **Install when Icarus closes** waits for the game to close, then asks before it copies the pack you built.
 
+            If Icarus crashes while Starlink is open, Starlink says so as soon as the game closes: the game's error, whether the crash went through UE4SS (then check your UE4SS mods first), and which UE4SS mods wrote errors to UE4SS.log that session. A graphics driver crash says so instead, since mods don't cause those. Pick **Find the broken mod**, **Copy crash report** (for a bug report; it never has your account ids) or **Open crash folder**. Each crash is told once, so it doesn't come back the next time you start Starlink.
+
             Inside the mod editor window:
 
             - **Ctrl+S** — save

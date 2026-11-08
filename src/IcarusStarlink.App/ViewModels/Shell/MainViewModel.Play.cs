@@ -113,6 +113,7 @@ public sealed partial class MainViewModel
         if (IsGameProcessRunning())
         {
             GamePlayState = GamePlayState.Running;
+            NoteGameRunning();
             _focusGame();
             return;
         }
@@ -184,13 +185,14 @@ public sealed partial class MainViewModel
     /// <summary>
     /// Running wins; otherwise Starting… holds until the game appears or the timeout passes, then Play.
     /// Running to Play means Icarus closed: GameClosedMessage tells Merge &amp; Install (its
-    /// "Install when Icarus closes").
+    /// "Install when Icarus closes"), and the crash check looks for a crash from that session.
     /// </summary>
     internal void ApplyGameRunning(bool running)
     {
         if (running)
         {
             GamePlayState = GamePlayState.Running;
+            NoteGameRunning();
         }
         else if (GamePlayState != GamePlayState.Starting || _clock() - _startingSince >= StartingTimeout)
         {
@@ -199,6 +201,7 @@ public sealed partial class MainViewModel
             if (wasRunning)
             {
                 WeakReferenceMessenger.Default.Send(new GameClosedMessage());
+                NoteGameClosed();
             }
         }
     }

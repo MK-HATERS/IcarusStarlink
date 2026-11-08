@@ -92,9 +92,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     public MainViewModel(IServiceProvider serviceProvider, IThemeService themeService, ISettingsService settingsService, ActivityPanelViewModel activityPanel,
         IGameProcessChecker? gameProcess = null, Func<DateTime>? clock = null, Func<string, Exception?>? openUrl = null, Func<bool>? focusGame = null,
-        BrokenModSearchStore? findBrokenModSearch = null, IActivityLog? activityLog = null, IDialogService? dialogs = null)
+        BrokenModSearchStore? findBrokenModSearch = null, IActivityLog? activityLog = null, IDialogService? dialogs = null,
+        string? gameCrashesFolder = null)
     {
         _dialogs = dialogs;
+        // Null: the game's own crash folder (%LocalAppData%\Icarus\Saved\Crashes).
+        _gameCrashesFolder = gameCrashesFolder;
         _serviceProvider = serviceProvider;
         _themeService = themeService;
         _settingsService = settingsService;

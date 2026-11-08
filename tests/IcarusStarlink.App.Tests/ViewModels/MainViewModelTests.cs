@@ -780,6 +780,260 @@ public class MainViewModelTests : IDisposable
         }
     }
 
+    // ---------------------------------------------------------------------------------------
+    // What happened right after a game crash
+    // ---------------------------------------------------------------------------------------
+
+    private static readonly DateTime CrashTestStart = new(2026, 11, 8, 12, 0, 0, DateTimeKind.Utc);
+
+    /// <summary>A crash folder in the shape Icarus writes, with the ids a notice must never show.</summary>
+    private string MakeGameCrash(string crashId, DateTime createdAtUtc, string errorMessage = "Unhandled Exception: EXCEPTION_ACCESS_VIOLATION",
+        string stack = "UE4SS 0x00007ffbfc300000 + 2c5680 Icarus-Win64-Shipping 0x00007ff6a0000000 + 1427f")
+    {
+        var crashesFolder = Path.Combine(_root, "Crashes");
+        var crashDir = Path.Combine(crashesFolder, crashId);
+        Directory.CreateDirectory(crashDir);
+        File.WriteAllText(Path.Combine(crashDir, "CrashContext.runtime-xml"),
+            $"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <FGenericCrashContext>
+                <RuntimeProperties>
+                    <CrashType>Crash</CrashType>
+                    <ErrorMessage>{errorMessage}</ErrorMessage>
+                    <MachineId>289810A14D926B6BC48AE4A426D364FD</MachineId>
+                    <EpicAccountId>d985d944a36141fb804fdafbfee1839c</EpicAccountId>
+                    <PCallStack>{stack}</PCallStack>
+                </RuntimeProperties>
+            </FGenericCrashContext>
+            """);
+        Directory.SetCreationTimeUtc(crashDir, createdAtUtc);
+        return crashesFolder;
+    }
+
+    private sealed class CrashSeams
+    {
+        public DateTime Now = CrashTestStart;
+        public readonly List<string> Opened = [];
+        public readonly List<string> Copied = [];
+        public readonly FakeActivityLog Log = new();
+        public readonly PlayDialogs Dialogs = new();
+        public readonly AppSettings Settings = new();
+    }
+
+    private MainViewModel BuildForCrashCheck(CrashSeams seams, BrokenModSearchStore? findBrokenModSearch = null)
+    {
+        var vm = new MainViewModel(new FakeServiceProvider(), new FakeThemeService(), new FakeSettingsService(seams.Settings),
+            new ActivityPanelViewModel(new FakeActivityLog()), new FakeGameProcess(), () => seams.Now,
+            url => { seams.Opened.Add(url); return null; }, () => true, findBrokenModSearch, seams.Log, seams.Dialogs,
+            gameCrashesFolder: Path.Combine(_root, "Crashes"));
+        vm.CopyToClipboard = seams.Copied.Add;
+        vm.CrashRecheckDelay = _ => Task.CompletedTask;
+        return vm;
+    }
+
+    /// <summary>One game session: Icarus seen running, then closed; waits for the crash check that the close starts.</summary>
+    private static async Task PlayOnce(MainViewModel vm, CrashSeams seams, Action? whileRunning = null)
+    {
+        vm.ApplyGameRunning(true);
+        seams.Now += TimeSpan.FromMinutes(10);
+        whileRunning?.Invoke();
+        vm.ApplyGameRunning(false);
+        await vm.CrashCheck;
+    }
+
+    private static List<string> CrashEntries(CrashSeams seams) =>
+        [.. seams.Log.Entries.Where(e => e.Message.Contains("Icarus crashed")).Select(e => e.Message)];
+
+    [Fact]
+    public async Task GameClosed_AfterACrash_SaysWhatHappenedOnce_AndOffersTheThreeActions()
+    {
+        var seams = new CrashSeams();
+        var vm = BuildForCrashCheck(seams);
+        try
+        {
+            await PlayOnce(vm, seams, () => MakeGameCrash("Crash1", CrashTestStart.AddMinutes(9)));
+
+            var entry = Assert.Single(CrashEntries(seams));
+            Assert.Contains("went through UE4SS", entry);
+            Assert.DoesNotContain("289810A14D926B6BC48AE4A426D364FD", entry, StringComparison.OrdinalIgnoreCase);
+            var asked = Assert.Single(seams.Dialogs.Asked);
+            Assert.Contains("went through UE4SS", asked.Message);
+            Assert.Equal(("Find the broken mod", "Copy crash report", "Open crash folder"), (asked.First, asked.Second, asked.Third));
+            Assert.Equal(CrashTestStart.AddMinutes(9), seams.Settings.LastReportedCrashAtUtc?.UtcDateTime);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>The same crash folder is never reported twice: not at the next close, not after Starlink starts again.</summary>
+    [Fact]
+    public async Task GameClosed_SameCrashAgain_ShowsNothing_EvenAfterARestart()
+    {
+        var seams = new CrashSeams();
+        var vm = BuildForCrashCheck(seams);
+        MainViewModel? restarted = null;
+        try
+        {
+            await PlayOnce(vm, seams, () => MakeGameCrash("Crash1", CrashTestStart.AddMinutes(9)));
+            await PlayOnce(vm, seams);
+
+            // Seen running from before the crash, so only the remembered crash keeps it quiet.
+            seams.Now = CrashTestStart;
+            restarted = BuildForCrashCheck(seams);
+            await PlayOnce(restarted, seams);
+
+            Assert.Single(CrashEntries(seams));
+            Assert.Single(seams.Dialogs.Asked);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+            if (restarted is not null)
+            {
+                WeakReferenceMessenger.Default.UnregisterAll(restarted);
+            }
+        }
+    }
+
+    /// <summary>A crash from before this game session (an earlier run) isn't this close's crash.</summary>
+    [Fact]
+    public async Task GameClosed_OnlyAnOlderCrash_ShowsNothing()
+    {
+        MakeGameCrash("Old", CrashTestStart.AddDays(-1));
+        var seams = new CrashSeams();
+        var vm = BuildForCrashCheck(seams);
+        try
+        {
+            await PlayOnce(vm, seams);
+
+            Assert.Empty(CrashEntries(seams));
+            Assert.Empty(seams.Dialogs.Asked);
+            Assert.Null(seams.Settings.LastReportedCrashAtUtc);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>The crash reporter can still be writing when the game's process is gone: one more look after a short wait.</summary>
+    [Fact]
+    public async Task GameClosed_CrashFolderAppearsALittleLater_IsFoundByTheSecondLook()
+    {
+        var seams = new CrashSeams();
+        var vm = BuildForCrashCheck(seams);
+        var waits = 0;
+        vm.CrashRecheckDelay = _ =>
+        {
+            waits++;
+            MakeGameCrash("Late", CrashTestStart.AddMinutes(9));
+            return Task.CompletedTask;
+        };
+        try
+        {
+            await PlayOnce(vm, seams);
+
+            Assert.Equal(1, waits);
+            Assert.Single(CrashEntries(seams));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    [Fact]
+    public async Task CrashNotice_CopyCrashReport_PutsTheReportOnTheClipboard_WithoutIds()
+    {
+        var seams = new CrashSeams();
+        seams.Dialogs.Answer = 1;
+        var vm = BuildForCrashCheck(seams);
+        try
+        {
+            await PlayOnce(vm, seams, () => MakeGameCrash("Crash1", CrashTestStart.AddMinutes(9)));
+
+            var copied = Assert.Single(seams.Copied);
+            Assert.Contains("Crash1", copied);
+            Assert.Contains("Went through UE4SS: yes", copied);
+            Assert.DoesNotContain("d985d944a36141fb804fdafbfee1839c", copied, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    [Fact]
+    public async Task CrashNotice_OpenCrashFolder_OpensThatCrashsFolder_AndFindTheBrokenModOpensTheFinder()
+    {
+        var seams = new CrashSeams();
+        seams.Dialogs.Answer = 2;
+        var vm = BuildForCrashCheck(seams);
+        var recipient = new object();
+        var finderOpened = 0;
+        WeakReferenceMessenger.Default.Register<OpenFindBrokenModMessage>(recipient, (_, _) => finderOpened++);
+        try
+        {
+            await PlayOnce(vm, seams, () => MakeGameCrash("Crash1", CrashTestStart.AddMinutes(9)));
+            Assert.Equal([Path.Combine(_root, "Crashes", "Crash1")], seams.Opened);
+
+            seams.Dialogs.Answer = 0;
+            await PlayOnce(vm, seams, () => MakeGameCrash("Crash2", seams.Now.AddMinutes(-1)));
+            Assert.Equal(1, finderOpened);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+            WeakReferenceMessenger.Default.UnregisterAll(recipient);
+        }
+    }
+
+    /// <summary>A graphics driver crash isn't a mod's doing: no Find the broken mod, and the words point at the driver.</summary>
+    [Fact]
+    public async Task CrashNotice_GraphicsDriverCrash_DoesNotOfferFindTheBrokenMod()
+    {
+        var seams = new CrashSeams();
+        var vm = BuildForCrashCheck(seams);
+        try
+        {
+            await PlayOnce(vm, seams, () => MakeGameCrash("Gpu", CrashTestStart.AddMinutes(9),
+                "CommandList-&gt;Close() failed with error DXGI_ERROR_DEVICE_REMOVED"));
+
+            Assert.Empty(seams.Dialogs.Asked);
+            var asked = Assert.Single(seams.Dialogs.AskedTwo);
+            Assert.Contains("graphics driver", asked.Message);
+            Assert.Equal(("Copy crash report", "Open crash folder"), (asked.Yes, asked.No));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>While Find the broken mod has some mods out, its own rounds ask whether the game broke: the crash is only noted in the bell.</summary>
+    [Fact]
+    public async Task CrashNotice_DuringAFindTheBrokenModSearch_IsOnlyNoted()
+    {
+        var store = new BrokenModSearchStore(Path.Combine(_root, "find_broken_mod.json"));
+        store.Save(new BrokenModSearchRecord { OriginalQueue = ["A", "B"], Installed = ["A"] });
+        var seams = new CrashSeams();
+        var vm = BuildForCrashCheck(seams, store);
+        try
+        {
+            await PlayOnce(vm, seams, () => MakeGameCrash("Crash1", CrashTestStart.AddMinutes(9)));
+
+            Assert.Single(CrashEntries(seams));
+            Assert.Empty(seams.Dialogs.Asked);
+            Assert.Empty(seams.Dialogs.AskedTwo);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
     /// <summary>Records Play's question; Answer is the button: 0, 1, 2 or null for Cancel.</summary>
     private sealed class PlayDialogs : IDialogService
     {
@@ -787,10 +1041,18 @@ public class MainViewModelTests : IDisposable
 
         public List<(string Message, string First, string Second, string Third)> Asked { get; } = [];
 
+        public List<(string Message, string Yes, string No)> AskedTwo { get; } = [];
+
         public int? Choose(string message, string title, IcarusStarlink.App.Views.ThemedConfirmSeverity severity, string first, string second, string third)
         {
             Asked.Add((message, first, second, third));
             return Answer;
+        }
+
+        public bool? ConfirmWithCancel(string message, string title, IcarusStarlink.App.Views.ThemedConfirmSeverity severity, string yesText, string noText)
+        {
+            AskedTwo.Add((message, yesText, noText));
+            return null;
         }
 
         public bool Confirm(string message, string title, IcarusStarlink.App.Views.ThemedConfirmSeverity severity) => throw new InvalidOperationException($"Unexpected question: {title}");
