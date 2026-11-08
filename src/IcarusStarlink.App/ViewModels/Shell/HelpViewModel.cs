@@ -85,6 +85,7 @@ public sealed partial class HelpViewModel : ObservableObject
             - A value saved here for a field one of the mod's Scale rules sets stays: the rule skips that row from then on (as **Keep my value** does in the mod editor), also when you put the field back to the game's value. The row shows on the rule's card in Scale rules, and its ✕ hands the row back to the rule.
             - **Save** writes every item's changes into that one mod; **Discard** throws away all of them. Only the values you changed go into the mod. Putting a value back to the game's takes it out again.
             - After saving, **Turn on & go to Merge & Install** ticks the mod and takes you there (or tick it in **Library** yourself). Open it in the mod editor to see exactly what it holds.
+            - **Other turned-on mods:** a ◆ in the list marks an item that another mod turned on in Merge & Install changes too. Its card says what the merge will use and from which mod, and when the Stacks or Slots multiplier is on (it applies after all mods). If you save a value another mod would still win, Save asks first: **Move my mod last** saves and puts your mod at the end of the merge list so it wins, **Save anyway** saves as it is, and Cancel saves nothing.
             """),
         new("When an install goes wrong", """
             # When an install goes wrong

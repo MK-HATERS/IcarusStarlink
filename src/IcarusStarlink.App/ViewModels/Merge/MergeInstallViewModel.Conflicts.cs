@@ -208,6 +208,43 @@ public sealed partial class MergeInstallViewModel
     /// </summary>
     private async Task<QueueConflicts> FindQueueConflictsAsync(BuildSnapshot snapshot, LoadedQueue loaded, CancellationToken cancellationToken = default)
     {
+        var (orderedModChanges, names, ids) = await QueueChangesAsync(snapshot, loaded, cancellationToken);
+        var (conflicts, newItemCollisions) = await Task.Run(() =>
+        {
+            // Base-aware filtering (see MergeEngine.Merge's own doc comment) needs real current
+            // base values for whatever files this preview's own candidates touch — genuinely
+            // best-effort: a report here is thrown away, not surfaced, and any read failure (a
+            // locked/permission-denied base file — ReadBaseTables' own File.ReadAllText has no
+            // catch for that, unlike a merely-missing file) falls back to no filtering rather than
+            // blocking the conflict badge/picker entirely. The same baseTablesByFile is what
+            // lets FindNewItemNameCollisions tell a genuinely new item apart from an existing one
+            // every real EXMOD-sourced FieldChange otherwise always marks IsNewItem: true (see its
+            // own doc comment) — without it, this would fall back to that unreliable raw flag.
+            var baseTablesByFile = TryBaseTablesFor(orderedModChanges);
+            return (
+                MergeEngine.FindConflicts(names, orderedModChanges, baseTablesByFile),
+                MergeEngine.FindNewItemNameCollisions(names, orderedModChanges, baseTablesByFile));
+        });
+        return new QueueConflicts(conflicts, newItemCollisions, names, ids);
+    }
+
+    /// <summary>The base tables the merged changes touch; null when one can't be read (then nothing is filtered: best-effort).</summary>
+    private IReadOnlyDictionary<string, JsonObject>? TryBaseTablesFor(IEnumerable<IReadOnlyList<FieldChange>> orderedModChanges)
+    {
+        try
+        {
+            return BaseTablesFor(orderedModChanges.SelectMany(c => c).Select(c => c.CurrentFile));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Every part of the merge in merge order with its changes (per stat), its unique display name and its winner id: see FindQueueConflictsAsync.</summary>
+    private async Task<(List<IReadOnlyList<FieldChange>> Changes, List<string> Names, List<string> Ids)> QueueChangesAsync(
+        BuildSnapshot snapshot, LoadedQueue loaded, CancellationToken cancellationToken)
+    {
         var classifier = new DefaultSemanticClassifier();
         var unrealPak = snapshot.UnrealPakExePath;
         var canUnpack = !string.IsNullOrWhiteSpace(unrealPak);
@@ -284,32 +321,7 @@ public sealed partial class MergeInstallViewModel
             orderedModChanges[i] = StatEntries.Split(orderedModChanges[i]);
         }
 
-        var (conflicts, newItemCollisions) = await Task.Run(() =>
-        {
-            // Base-aware filtering (see MergeEngine.Merge's own doc comment) needs real current
-            // base values for whatever files this preview's own candidates touch — genuinely
-            // best-effort: a report here is thrown away, not surfaced, and any read failure (a
-            // locked/permission-denied base file — ReadBaseTables' own File.ReadAllText has no
-            // catch for that, unlike a merely-missing file) falls back to no filtering rather than
-            // blocking the conflict badge/picker entirely. The same baseTablesByFile is what
-            // lets FindNewItemNameCollisions tell a genuinely new item apart from an existing one
-            // every real EXMOD-sourced FieldChange otherwise always marks IsNewItem: true (see its
-            // own doc comment) — without it, this would fall back to that unreliable raw flag.
-            IReadOnlyDictionary<string, JsonObject>? baseTablesByFile = null;
-            try
-            {
-                baseTablesByFile = BaseTablesFor(orderedModChanges.SelectMany(c => c).Select(c => c.CurrentFile));
-            }
-            catch (Exception)
-            {
-                // Best-effort — see the comment above.
-            }
-
-            return (
-                MergeEngine.FindConflicts(names, orderedModChanges, baseTablesByFile),
-                MergeEngine.FindNewItemNameCollisions(names, orderedModChanges, baseTablesByFile));
-        });
-        return new QueueConflicts(conflicts, newItemCollisions, names, ids);
+        return (orderedModChanges, names, ids);
     }
 
     /// <summary>Guards RecomputeConflictCountAsync against two overlapping runs (the queue/options changing again while a previous background recompute is still in flight) finishing out of order — same "only the newest request's result is applied" shape as NexusCatalogViewModel's own _loadVersion.</summary>

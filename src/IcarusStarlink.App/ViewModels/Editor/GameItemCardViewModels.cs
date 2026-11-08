@@ -634,6 +634,13 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
     /// <summary>Something was typed on this card (valid or not): switching items keeps it.</summary>
     public bool HasTyped => Fields.Any(f => f.IsTyped);
 
+    /// <summary>What the user's other turned-on mods do to this row (set by the page): "Weight: game 100 · with your turned-on mods 200, from Big Bags."</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOtherModLines))]
+    private IReadOnlyList<string> _otherModLines = [];
+
+    public bool HasOtherModLines => OtherModLines.Count > 0;
+
     /// <summary>"Only changed values" hides every value of this card: it says so instead of showing an empty card.</summary>
     [ObservableProperty]
     private bool _allHidden;

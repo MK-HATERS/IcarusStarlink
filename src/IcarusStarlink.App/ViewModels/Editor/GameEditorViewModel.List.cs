@@ -181,6 +181,11 @@ public sealed partial class GameEditorViewModel
             item.IsInTargetMod = changed.Contains(item.Name);
         }
 
+        if (_queueState is not null)
+        {
+            _ = RefreshOtherModsAsync(reread: false); // "other" mods are every mod but this one
+        }
+
         TargetModText = changed.Count switch
         {
             0 => "This mod changes no game item yet",

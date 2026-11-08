@@ -269,6 +269,10 @@
                               ToolTip="The mod chosen under Save to: its items have a dot in the list">
                         <TextBlock Text="{Binding TargetModText}" TextWrapping="Wrap"/>
                     </CheckBox>
+                    <!-- Read from Merge & Install's list each time the page is shown. -->
+                    <TextBlock Text="{Binding OtherModsText}" TextWrapping="Wrap" FontSize="11.5" Margin="0,0,0,4" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               ToolTip="Mods turned on in Merge &amp; Install change these items too. Open one to see what the merge keeps."
+                               Visibility="{Binding OtherModsText, Converter={StaticResource NullToVisibilityConverter}}"/>
                     <DockPanel>
                         <Button DockPanel.Dock="Right" Content="Clear filters" Command="{Binding ClearFiltersCommand}" Padding="6,0" FontSize="11.5"
                                 ToolTip="Every item again: no search, all categories"/>
@@ -329,6 +333,9 @@
                                             <Ellipse Width="7" Height="7" Margin="4,0,2,0" Fill="{DynamicResource AccentBrush}" VerticalAlignment="Center"
                                                      ToolTip="The mod chosen under Save to changes this item"
                                                      Visibility="{Binding IsInTargetMod, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                            <TextBlock Text="&#x25C6;" FontSize="10" Margin="4,0,2,0" VerticalAlignment="Center" Foreground="{DynamicResource WarningBrush}"
+                                                       ToolTip="Another mod turned on in Merge &amp; Install changes this item too"
+                                                       Visibility="{Binding IsChangedByOtherMods, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                         </StackPanel>
                                     </Grid>
                                 </DataTemplate>
@@ -434,6 +441,21 @@
                                                             <RadioButton Content="Give this item its own copy (only it changes)" IsChecked="{Binding OwnCopy}" Margin="0,0,16,0"/>
                                                             <RadioButton Content="{Binding AllItemsText}" IsChecked="{Binding ChangeForAll}"/>
                                                         </WrapPanel>
+                                                    </StackPanel>
+                                                </Border>
+
+                                                <!-- What the other turned-on mods do to this row, and whose value the merge keeps. -->
+                                                <Border Margin="0,0,0,6" Padding="9,7" CornerRadius="4" Background="{DynamicResource WarningSoftBrush}"
+                                                        Visibility="{Binding HasOtherModLines, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                    <StackPanel>
+                                                        <TextBlock Text="When your turned-on mods are merged:" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                        <ItemsControl ItemsSource="{Binding OtherModLines}" Margin="0,2,0,0">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <TextBlock Text="{Binding}" FontSize="12" TextWrapping="Wrap" Margin="0,1,0,0"/>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
                                                     </StackPanel>
                                                 </Border>
 

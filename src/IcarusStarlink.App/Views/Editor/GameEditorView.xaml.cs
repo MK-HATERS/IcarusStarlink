@@ -17,6 +17,8 @@ public partial class GameEditorView : UserControl
         if (IsVisible && DataContext is GameEditorViewModel viewModel)
         {
             await viewModel.EnsureLoadedAsync();
+            // What the other turned-on mods change, read again each time the page is shown.
+            await viewModel.RefreshOtherModsAsync();
         }
     }
 }

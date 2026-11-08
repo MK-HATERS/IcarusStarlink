@@ -57,6 +57,54 @@ public static class MergeEngine
     }
 
     /// <summary>
+    /// Per value any mod changes: which mods change it (by their index in orderedModChanges) and
+    /// what Merge keeps, through the same grouping and rules as Merge. winnerModIndexes is the
+    /// saved winners by mod index; one applies only where the value is a real conflict and that mod
+    /// changes it, as Merge &amp; Install turns saved winners into Merge's picks. The Editor page shows
+    /// this so it never disagrees with the build.
+    /// </summary>
+    public static IReadOnlyList<FieldOutcome> Explain(
+        IReadOnlyList<IReadOnlyList<FieldChange>> orderedModChanges,
+        MergeRuleRegistry registry,
+        IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? winnerModIndexes = null,
+        IReadOnlyDictionary<string, JsonObject>? baseTablesByFile = null)
+    {
+        var outcomes = new List<FieldOutcome>();
+        foreach (var (key, perMod) in GroupByField(orderedModChanges, baseTablesByFile))
+        {
+            var changes = perMod.Select(c => c.Change).ToList();
+            var indexes = perMod.Select(c => c.ModIndex).ToList();
+            int? picked = null;
+            var inConflict = changes.Count > 1 && !changes.All(c => JsonNode.DeepEquals(c.NewValue, changes[0].NewValue));
+            if (inConflict && winnerModIndexes is not null && winnerModIndexes.TryGetValue(key, out var winnerMod) && indexes.IndexOf(winnerMod) is >= 0 and var at)
+            {
+                picked = at;
+            }
+
+            FieldChange resolved;
+            if (picked is { } index)
+            {
+                resolved = changes[index];
+            }
+            else
+            {
+                var (hasBaseValue, baseValue) = baseTablesByFile is not null
+                    ? TryGetBaseValue(baseTablesByFile, key.CurrentFile, key.ItemName, key.FieldName)
+                    : (false, null);
+                resolved = registry.Resolve(new FieldChangeGroup(key.CurrentFile, key.ItemName, key.FieldName, changes, hasBaseValue, baseValue));
+            }
+
+            // The mod whose own value is kept: the last one with it (null when the rules combined them).
+            var winner = picked is { } p ? indexes[p]
+                : changes.FindLastIndex(c => JsonNode.DeepEquals(c.NewValue, resolved.NewValue) && c.IsFieldRemoved == resolved.IsFieldRemoved) is >= 0 and var last ? indexes[last]
+                : (int?)null;
+            outcomes.Add(new FieldOutcome(key.CurrentFile, key.ItemName, key.FieldName, indexes, changes, resolved, winner, picked));
+        }
+
+        return outcomes;
+    }
+
+    /// <summary>
     /// Finds every field two or more DIFFERENT mods touch with genuinely different values — the set
     /// a human might want to review before Rebuild, via the advanced conflict picker Merge's own
     /// manualPicks parameter feeds into. A field several mods happen to set to the identical value

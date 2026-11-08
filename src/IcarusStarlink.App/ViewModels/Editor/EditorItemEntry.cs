@@ -46,6 +46,10 @@ public sealed partial class EditorItemEntry(GameItemInfo info, GameIconLoader? i
     [ObservableProperty]
     private bool _isInTargetMod;
 
+    /// <summary>Another turned-on mod changes one of this item's rows (a ◆ in the list).</summary>
+    [ObservableProperty]
+    private bool _isChangedByOtherMods;
+
     /// <summary>Ticked in the list for a bulk edit.</summary>
     [ObservableProperty]
     private bool _isTicked;

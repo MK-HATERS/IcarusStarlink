@@ -58,9 +58,12 @@ public sealed partial class GameEditorViewModel : ObservableObject
     /// <param name="activityLog">Saves and failed saves also go to the app-wide activity feed (null in tests).</param>
     /// <param name="iconDecoder">The game's item icons for the list (null in tests: no icons).</param>
     /// <param name="messenger">The app's messages (the shared messenger unless a test gives its own).</param>
-    public GameEditorViewModel(ILibraryRepository repository, string dataFolder, IActivityLog? activityLog = null, IBaseGameIconDecoder? iconDecoder = null, IMessenger? messenger = null)
+    /// <param name="queueReader">Merge &amp; Install's queue, for what the other turned-on mods change (null: not shown).</param>
+    public GameEditorViewModel(ILibraryRepository repository, string dataFolder, IActivityLog? activityLog = null, IBaseGameIconDecoder? iconDecoder = null, IMessenger? messenger = null,
+        IMergeQueueReader? queueReader = null)
     {
         _repository = repository;
+        _queueReader = queueReader;
         _messenger = messenger ?? WeakReferenceMessenger.Default;
         _writer = new OwnModWriter(repository, _messenger);
         _activityLog = activityLog;
@@ -527,6 +530,13 @@ public sealed partial class GameEditorViewModel : ObservableObject
             // A value typed on a row a Scale rule sets puts the row on the rule's skip list.
             var nowSkipped = package.ScaleRules.Sum(r => r.ExceptRows.Count) - exceptBefore;
 
+            // Asked before anything is written: another turned-on mod may still win what's saved.
+            var moveLast = false;
+            if (!target.IsNew && !AskAboutLosingValues(folder, package, edited, out moveLast))
+            {
+                return;
+            }
+
             if (target.IsNew)
             {
                 folder = _repository.CreateBlankMod(NewModName.Trim(), NewModAuthor.Trim()).FolderName;
@@ -572,9 +582,14 @@ public sealed partial class GameEditorViewModel : ObservableObject
             var skipped = nowSkipped > 0
                 ? $" {nowSkipped} value(s) a Scale rule sets now stay as you typed them: the rule skips those rows (see Scale rules in the mod editor)."
                 : "";
-            StatusMessage = $"Saved {lines.Count} change(s) to '{name}'{items}.{backup}{skipped} To use it in game: Turn on & go to Merge & Install, then Install.{warning}";
+            var movedNote = moveLast ? MoveSavedModLast(folder, name) : "";
+            StatusMessage = $"Saved {lines.Count} change(s) to '{name}'{items}.{backup}{skipped}{movedNote} To use it in game: Turn on & go to Merge & Install, then Install.{warning}";
             _activityLog?.Log($"Saved {lines.Count} change(s) to '{name}'{items} in the Editor.", ActivityEntryKind.Success);
             SavedModFolder = folder;
+            if (_queueState is not null)
+            {
+                _ = RefreshOtherModsAsync(); // the mod (and maybe its place in the list) changed
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException or InvalidOperationException or System.Text.Json.JsonException)
         {
@@ -729,6 +744,8 @@ public sealed partial class GameEditorViewModel : ObservableObject
                     card.ShowOnlyChanged(ShowChangedValuesOnly);
                     Sections.Add(card);
                 }
+
+                UpdateOtherModLines(cards);
             }
         }
 
