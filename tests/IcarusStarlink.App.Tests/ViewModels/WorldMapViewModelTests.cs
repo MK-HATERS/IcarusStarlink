@@ -459,19 +459,23 @@ public sealed class WorldMapViewModelTests : IDisposable
 
     /// <summary>Regression: a world whose picture file was gone said the game has no picture for it, instead of saying to redraw it.</summary>
     [Fact]
-    public void AMapWhosePictureFileIsMissing_SaysToReload_NotThatTheGameHasNone()
+    public async Task AMapWhosePictureFileIsMissing_SaysToReload_NotThatTheGameHasNone()
     {
         var map = new WorldMapInfo("Terrain_016", "Olympus", false, [new WorldTile(0, 0, "PROC/x0_y0.uasset")], [], []);
-        var store = new WorldMapStore(Path.Combine(_root, "World"), () => [map], new MapRenderer { WithPicture = true });
+        var renderer = new MapRenderer { WithPicture = true };
+        var store = new WorldMapStore(Path.Combine(_root, "World"), () => [map], renderer);
         store.Reload(everything: false);
         File.Delete(store.PicturePath(map.Id));
         var vm = new WorldMapViewModel(store, GameReady(), Path.Combine(_root, "Data"));
+        renderer.Drawn.Clear();
 
-        vm.SelectedMap = new WorldMapItemViewModel(map);
+        await vm.LoadAsync();
 
+        Assert.Empty(renderer.Drawn);
+        Assert.Equal(map.Id, vm.SelectedMap?.Map.Id);
         Assert.DoesNotContain("The game has no map picture", vm.MapNote);
         Assert.Contains("Reload", vm.MapNote);
-        Assert.Contains("Reload", vm.MapEmptyText);
+        Assert.Contains("missing", vm.MapEmptyText);
     }
 
     /// <summary>Regression: with no game folder set, the map area said the game has no picture for the world.</summary>

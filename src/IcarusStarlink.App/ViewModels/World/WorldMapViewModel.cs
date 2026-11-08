@@ -468,8 +468,25 @@ public sealed partial class WorldMapViewModel : ObservableObject, IcarusStarlink
         try
         {
             StatusMessage = everything ? "Drawing every map again…" : "Checking the game's map files…";
-            var progress = new Progress<string>(text => StatusMessage = text);
-            var result = await Task.Run(() => _store.Reload(everything, progress, stop.Token));
+            // A "Drawing …" line still queued when the reload ends is dropped, so it can't replace the final message.
+            var drawing = true;
+            var progress = new Progress<string>(text =>
+            {
+                if (Volatile.Read(ref drawing))
+                {
+                    StatusMessage = text;
+                }
+            });
+            WorldMapReloadResult result;
+            try
+            {
+                result = await Task.Run(() => _store.Reload(everything, progress, stop.Token));
+            }
+            finally
+            {
+                Volatile.Write(ref drawing, false);
+            }
+
             // Never opened this session (Update everything): the maps are listed, the picked one waits for the page.
             ShowMaps(result.Maps, showPicked: !forGameUpdate || _isShown);
             _loadedOnce = true;
