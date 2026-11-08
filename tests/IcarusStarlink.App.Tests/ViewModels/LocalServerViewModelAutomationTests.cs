@@ -18,7 +18,7 @@ public sealed partial class LocalServerViewModelTests
 
     private void AppendLog(params string[] lines) => File.AppendAllText(LogPath, string.Join("\r\n", lines) + "\r\n");
 
-    private const string JoinLine = "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: MK-HATERS";
+    private const string JoinLine = "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: TestPlayer";
 
     private (LocalServerViewModel Vm, FakeStore Store, FakeProcesses Processes, FakeDialogs Dialogs) BuildWithServer(bool confirm = true)
     {
@@ -143,7 +143,7 @@ public sealed partial class LocalServerViewModelTests
     /// <summary>
     /// Stop, then an Update that keeps SteamCMD busy for longer than the old
     /// 3-minute "intended stop" note lasted. The beat that finally sees the server gone must not
-    /// call it a crash and start it again.
+    /// call it a crash and start it again: the only start is the Update's own, once it is done.
     /// </summary>
     [Fact]
     public async Task StopThenALongUpdate_IsStillNotACrash()
@@ -158,13 +158,13 @@ public sealed partial class LocalServerViewModelTests
         await vm.RunAutomationBeatAsync();
         processes.StopIsClean = false;
 
-        await vm.UpdateServerCommand.ExecuteAsync(null); // asks, stops, updates
+        await vm.UpdateServerCommand.ExecuteAsync(null); // asks, stops, updates, starts it again
         now = now.AddMinutes(20);
         await vm.RunAutomationBeatAsync();
         await vm.RunAutomationBeatAsync();
 
         Assert.Single(SteamCmd.Installs);
-        Assert.Empty(processes.Started);
+        Assert.Single(processes.Started);
     }
 
     /// <summary>Right before automation starts a server it looks again: a server already running (started by hand meanwhile) isn't started twice.</summary>
@@ -301,7 +301,7 @@ public sealed partial class LocalServerViewModelTests
         vm.Tick();
 
         Assert.Equal("1 / 6", vm.PlayersTile);
-        Assert.Equal("MK-HATERS", vm.PlayersHint);
+        Assert.Equal("TestPlayer", vm.PlayersHint);
         Assert.Equal("8.0 GB", vm.MemoryTile);
         Assert.Equal("PID 1234", vm.MemoryHint);
         Assert.StartsWith("1h 3", vm.UptimeTile);

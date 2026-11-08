@@ -137,7 +137,12 @@ public sealed partial class LocalServerViewModel
 
     private void ReadInstalledBuild()
     {
-        LatestBuildId = null;
+        // What a check of this server already found (also the hourly check of a server that
+        // wasn't selected then), for the branch the form shows; it used to be cleared on select.
+        LatestBuildId = SelectedProfile is { } selected && _watches.TryGetValue(selected.Id, out var watch)
+            && watch.LatestKnown is { } known && known.Branch == SteamCmd.NormalizeBranch(Branch)
+            ? known.Build
+            : null;
         if (SelectedProfile is not { } p || !File.Exists(DedicatedServerLayout.AppManifestPath(p.InstallFolder)))
         {
             InstalledBuildId = null;
@@ -406,11 +411,17 @@ public sealed partial class LocalServerViewModel
         var checkedBranch = SteamCmd.NormalizeBranch(Branch);
         var box = KeepSteamCmdBoxTitle();
         var token = BeginSteamCmdRun($"Checking '{SelectedProfile?.Name}' for an update", checkedId);
+        // A check has no percentage: the bar moves. After an install or update it used to stay full.
+        SteamCmdProgress = 0;
         IsSteamCmdBusy = true;
         try
         {
             var latest = await _steamCmd.GetLatestBuildIdAsync(checkedBranch, token);
             SteamCmdStatus = null;
+            if (latest is { } found && Profiles.FirstOrDefault(p => p.Id == checkedId) is { } checkedProfile)
+            {
+                GetWatch(checkedProfile).LatestKnown = (checkedBranch, found);
+            }
 
             // The server list isn't locked during a check: the answer belongs to the server (and
             // branch) asked about, never to one picked meanwhile.
@@ -507,10 +518,13 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        if (Running is not null)
+        // A server that was running is started again afterwards, also after a failed update (on the
+        // build it already had), as Restart with update and automation do. It used to be left stopped.
+        var wasRunning = Running is not null;
+        if (wasRunning)
         {
             if (!_dialogService.Confirm(
-                    $"'{profile.Name}' is running. Stop it to update?\n\nConnected players are disconnected. {ServerShutdownNotes.DescribeSaving(ReadIniSettings(profile))}",
+                    $"'{profile.Name}' is running. Stop it, update, then start it again?\n\nConnected players are disconnected. {ServerShutdownNotes.DescribeSaving(ReadIniSettings(profile))}",
                     "Update server", ThemedConfirmSeverity.Warning)
                 || !await StopCoreAsync(profile, ask: false))
             {
@@ -533,6 +547,7 @@ public sealed partial class LocalServerViewModel
                 // Clears the pending update the hourly check found: otherwise automation would stop
                 // the server again once it was empty, to install the build it already has.
                 GetWatch(profile).Automation.NoteUpdateFinished();
+                NoteInstalledAsLatest(profile);
             }
 
             if (SelectedProfile?.Id == profile.Id)
@@ -558,6 +573,39 @@ public sealed partial class LocalServerViewModel
         }
 
         RefreshBackups();
+        if (wasRunning)
+        {
+            await StartAgainAfterUpdateAsync(profile);
+        }
+    }
+
+    /// <summary>Starts a server Update stopped. When it can't (another server was selected by the end), the result says it was left stopped.</summary>
+    private async Task StartAgainAfterUpdateAsync(DedicatedServerProfile profile)
+    {
+        var updateResult = StatusMessage;
+        if (SelectedProfile is not { } current || current.Id != profile.Id)
+        {
+            StatusMessage = $"{updateResult} It was stopped for the update: Start it when you're ready.";
+            return;
+        }
+
+        if (Running is not null)
+        {
+            return; // already started again meanwhile
+        }
+
+        // The saved profile (the form was saved before the update), not half-typed edits since.
+        await StartCoreAsync(current);
+        StatusMessage = $"{updateResult} {StatusMessage}";
+    }
+
+    /// <summary>After a successful update the installed build is the latest one known for the server's branch.</summary>
+    private void NoteInstalledAsLatest(DedicatedServerProfile profile)
+    {
+        if (ReadManifest(profile).BuildId is { } build)
+        {
+            GetWatch(profile).LatestKnown = (SteamCmd.NormalizeBranch(profile.Branch), build);
+        }
     }
 
     /// <summary>SteamCMD's output for the current (or last) run, shown in the SteamCMD box itself — the Log tab only exists once a server is in the list, which it isn't during a first install.</summary>

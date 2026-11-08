@@ -52,6 +52,9 @@ public sealed partial class LocalServerViewModel
 
         /// <summary>An automation beat has looked at this server at least once (so a run seen after that is a start, not one already going when Starlink opened).</summary>
         public bool Observed { get; set; }
+
+        /// <summary>The newest build Steam named for this server's branch (a check, or the build an update installed), so selecting it shows what its hourly check found.</summary>
+        public (string Branch, int Build)? LatestKnown { get; set; }
     }
 
     /// <summary>The watch whose log, players and events the panels show (the selected server's, once its first read is in).</summary>
@@ -396,7 +399,8 @@ public sealed partial class LocalServerViewModel
         }
 
         var added = false;
-        foreach (var line in lines.Where(IsVisible))
+        var filter = LogFilter?.Trim() ?? "";
+        foreach (var line in lines.Where(l => IsVisible(l, filter)))
         {
             LogLines.Add(line);
             added = true;
@@ -416,7 +420,8 @@ public sealed partial class LocalServerViewModel
     private void RebuildVisibleLog()
     {
         LogLines.Clear();
-        foreach (var line in _allLogLines.Where(IsVisible))
+        var filter = LogFilter?.Trim() ?? "";
+        foreach (var line in _allLogLines.Where(l => IsVisible(l, filter)))
         {
             LogLines.Add(line);
         }
@@ -424,8 +429,9 @@ public sealed partial class LocalServerViewModel
         ScrollLogIfFollowing();
     }
 
-    private bool IsVisible(string line) =>
+    /// <summary><paramref name="filter"/> is LogFilter already trimmed (once per batch, not once per line).</summary>
+    private bool IsVisible(string line, string filter) =>
         line.Length > 0
         && (!HideNoise || !ServerLogFilter.IsNoise(line))
-        && (string.IsNullOrWhiteSpace(LogFilter) || line.Contains(LogFilter.Trim(), StringComparison.OrdinalIgnoreCase));
+        && (filter.Length == 0 || line.Contains(filter, StringComparison.OrdinalIgnoreCase));
 }

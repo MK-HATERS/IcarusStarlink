@@ -209,7 +209,8 @@ public sealed partial class LocalServerViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RunStateText), nameof(IsNotBusy))]
     [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand), nameof(UpdateServerCommand),
-        nameof(CheckForUpdateCommand), nameof(InstallNewServerCommand), nameof(InstallSteamCmdCommand))]
+        nameof(CheckForUpdateCommand), nameof(InstallNewServerCommand), nameof(InstallSteamCmdCommand),
+        nameof(AddExistingServerCommand), nameof(RemoveProfileCommand))]
     private bool _isBusy;
 
     public bool IsRunning => Running is not null;
@@ -235,7 +236,10 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
     // ---- Commands ----
 
-    [RelayCommand]
+    /// <summary>Adding a server selects it, so it waits while the list is locked (IsNotBusy): a start in progress used to read the new selection and report "didn't appear".</summary>
+    private bool CanAddExistingServer() => !IsBusy;
+
+    [RelayCommand(CanExecute = nameof(CanAddExistingServer))]
     private void AddExistingServer()
     {
         var picked = _pickFolder("Select the dedicated server's install folder (the one with IcarusServer.exe)");
@@ -331,7 +335,13 @@ public sealed partial class LocalServerViewModel : ObservableObject
     /// Removes the list entry only. Starlink's own firewall rules for it are offered for removal
     /// in a second question: once the profile is gone nothing in Starlink could find them again.
     /// </summary>
-    [RelayCommand(CanExecute = nameof(CanUseProfile))]
+    /// <summary>
+    /// Not while the server starts, stops or updates, nor while automation restarts it: removing
+    /// it then dropped its watch, and the restart carried on and launched a server nothing watched.
+    /// </summary>
+    private bool CanRemoveProfile() => SelectedProfile is not null && !IsBusy && !IsAutomationBusy;
+
+    [RelayCommand(CanExecute = nameof(CanRemoveProfile))]
     private async Task RemoveProfileAsync()
     {
         if (SelectedProfile is not { } profile)

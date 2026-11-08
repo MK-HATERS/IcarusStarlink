@@ -421,6 +421,7 @@ public sealed partial class LocalServerViewModel
         UpdateServerCommand.NotifyCanExecuteChanged();
         // Check for update greys out with Update (CanUpdate): it must come back with it too.
         CheckForUpdateCommand.NotifyCanExecuteChanged();
+        RemoveProfileCommand.NotifyCanExecuteChanged();
         RaiseServerFilesChanged();
     }
 
@@ -518,6 +519,7 @@ public sealed partial class LocalServerViewModel
         var box = KeepSteamCmdBoxTitle();
         var token = BeginSteamCmdRun($"Checking '{p.Name}' for an update", p.Id);
         SteamCmdStatus = "asking Steam for the latest build…";
+        SteamCmdProgress = 0; // no percentage for a check: the bar moves (it stayed full after an update)
         IsSteamCmdBusy = true;
         // A check takes seconds. One that hangs would keep SteamCMD busy for good, and every other
         // check, update and updating daily restart waits while it is. It gives up after
@@ -532,6 +534,11 @@ public sealed partial class LocalServerViewModel
                 && (installedBuild != latest
                     || (installedBranch is not null && !string.Equals(installedBranch, SteamCmd.NormalizeBranch(p.Branch), StringComparison.OrdinalIgnoreCase)));
             watch.Automation.NoteUpdateCheck(Clock(), available);
+            if (latest is { } found)
+            {
+                // Kept per server: selecting this one later shows what was found, even when another was selected now.
+                watch.LatestKnown = (SteamCmd.NormalizeBranch(p.Branch), found);
+            }
 
             // Looked at after the answer: the owner may have picked another server or branch meanwhile.
             if (SelectedProfile?.Id == p.Id && string.Equals(SteamCmd.NormalizeBranch(Branch), SteamCmd.NormalizeBranch(p.Branch), StringComparison.Ordinal))
@@ -581,6 +588,11 @@ public sealed partial class LocalServerViewModel
         var backup = await TryBackupAsync(p, "before-update");
         var result = await RunSteamCmdAsync($"Updating '{p.Name}'", p.Id, p.InstallFolder, token => _steamCmd.InstallOrUpdateAsync(p.InstallFolder, SteamCmd.NormalizeBranch(p.Branch), line => OnSteamCmdLineFor(p.Id, line), token));
         watch.Automation.NoteUpdateFinished();
+        if (result.Success)
+        {
+            NoteInstalledAsLatest(p);
+        }
+
         ReportAutomation(watch,
             result.Success
                 ? $"'{p.Name}' updated{(backup is null ? "" : "; worlds and settings were backed up first")}."

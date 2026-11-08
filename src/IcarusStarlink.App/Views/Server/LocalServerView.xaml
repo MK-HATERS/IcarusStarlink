@@ -525,7 +525,7 @@
                             <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearLogCommand}" Margin="8,0,0,0"
                                     ToolTip="Clears this view only; the server's log file is not touched"/>
                             <Grid DockPanel.Dock="Right" Width="200">
-                                <TextBox Text="{Binding LogFilter, UpdateSourceTrigger=PropertyChanged}"
+                                <TextBox Text="{Binding LogFilter, UpdateSourceTrigger=PropertyChanged, Delay=250}"
                                          ToolTip="Show only lines containing this text" AutomationProperties.Name="Filter log"/>
                                 <TextBlock Text="Filter…" Style="{StaticResource PlaceholderTextStyle}"
                                            Visibility="{Binding LogFilter, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>

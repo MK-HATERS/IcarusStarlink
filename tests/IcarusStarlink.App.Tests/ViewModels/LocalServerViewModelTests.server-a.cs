@@ -342,4 +342,188 @@ public sealed partial class LocalServerViewModelTests
         Assert.Contains(false, seen);
         Assert.True(seen.LastOrDefault(false));
     }
+
+    // ---- The server list is locked while a server starts, stops or updates ----
+
+    /// <summary>Regression: Add existing server… stayed clickable during a Start; it changed the selection, and the start then reported "didn't appear" for a server that did.</summary>
+    [Fact]
+    public async Task AddExistingServer_IsGreyedWhileAServerStarts()
+    {
+        var (vm, _, processes, _) = BuildWithServer();
+        var seen = new List<bool>();
+        vm.AddExistingServerCommand.CanExecuteChanged += (_, _) => seen.Add(vm.AddExistingServerCommand.CanExecute(null));
+        bool? canAdd = null;
+        processes.DuringStart = () => canAdd = vm.AddExistingServerCommand.CanExecute(null);
+
+        await vm.StartCommand.ExecuteAsync(null);
+
+        Assert.False(canAdd);
+        Assert.Contains(false, seen);
+        Assert.True(seen.LastOrDefault(false), "Add existing server… wasn't told it can run again after the start");
+    }
+
+    /// <summary>Regression: Remove stayed clickable while automation restarted the server; the restart carried on and launched a server nothing watched any more.</summary>
+    [Fact]
+    public async Task Remove_IsGreyedWhileAutomationRestartsTheServer()
+    {
+        var (vm, _, processes, _) = BuildWithServer();
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.RunAutomationBeatAsync();
+        bool? canRemove = null;
+        processes.DuringStart = () => canRemove = vm.RemoveProfileCommand.CanExecute(null);
+
+        processes.Running = null;
+        await vm.RunAutomationBeatAsync();
+        await vm.RunAutomationBeatAsync();
+
+        Assert.NotNull(canRemove);
+        Assert.False(canRemove);
+        Assert.True(vm.RemoveProfileCommand.CanExecute(null));
+    }
+
+    // ---- Check for update and Update ----
+
+    /// <summary>Regression: after an update the box showed a full 100 % bar while a later check was still asking Steam.</summary>
+    [Fact]
+    public async Task CheckForUpdate_AfterAnUpdate_ShowsAMovingBar()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.LatestBuild = 2;
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+        Assert.Equal(100, vm.SteamCmdProgress);
+
+        bool? unknown = null;
+        SteamCmd.CheckHook = _ =>
+        {
+            unknown = vm.SteamCmdProgressUnknown;
+            return Task.FromResult<int?>(2);
+        };
+        await vm.CheckForUpdateCommand.ExecuteAsync(null);
+
+        Assert.True(unknown);
+    }
+
+    /// <summary>The hourly check's own run resets the bar the same way.</summary>
+    [Fact]
+    public async Task HourlyCheck_AfterAnUpdate_ShowsAMovingBar()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.LatestBuild = 2;
+        var (vm, _, processes, _) = BuildWithServer();
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+        Assert.Equal(100, vm.SteamCmdProgress);
+        vm.AutoUpdate = true;
+        vm.Clock = () => DateTime.Today.AddHours(12);
+        processes.Running = new RunningServer(9, DateTime.Today.AddHours(2));
+        bool? unknown = null;
+        SteamCmd.CheckHook = _ =>
+        {
+            unknown = vm.SteamCmdProgressUnknown;
+            return Task.FromResult<int?>(2);
+        };
+
+        await vm.RunAutomationBeatAsync();
+
+        Assert.True(unknown);
+    }
+
+    /// <summary>Regression: when the hourly check found an update for a server that wasn't selected, selecting it showed "Build 1 · public" with no word of the update.</summary>
+    [Fact]
+    public async Task AutomationFoundAnUpdate_ForAnotherServer_ShowsWhenItIsSelected()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.LatestBuild = 2;
+        var (vm, store, processes, _) = BuildWithServer();
+        var a = vm.SelectedProfile!;
+        vm.AutoUpdate = true;
+        vm.Clock = () => DateTime.Today.AddHours(12);
+        var b = new DedicatedServerProfile { Name = "Other", InstallFolder = Path.Combine(_root, "Other") };
+        store.Save(b);
+        vm.Profiles.Add(b);
+        vm.SelectedProfile = b;
+        processes.RunningFor = p => p.Id == a.Id ? new RunningServer(9, DateTime.Today.AddHours(2)) : null;
+
+        await vm.RunAutomationBeatAsync();
+        Assert.Equal(1, SteamCmd.Checks);
+        vm.SelectedProfile = vm.Profiles.First(p => p.Id == a.Id);
+
+        Assert.Equal(2, vm.LatestBuildId);
+        Assert.Contains("update available (build 2)", vm.BuildSummary);
+    }
+
+    /// <summary>Regression: Update on a running server stopped it and left it stopped, with nothing saying so.</summary>
+    [Fact]
+    public async Task Update_ARunningServer_StartsItAgainAfterwards()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.LatestBuild = 2;
+        var (vm, _, processes, dialogs) = BuildWithServer();
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.TickAsync();
+
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+
+        Assert.Contains("start it again", Assert.Single(dialogs.Messages));
+        Assert.Equal([9], processes.Stopped);
+        Assert.Single(SteamCmd.Installs);
+        Assert.Single(processes.Started);
+        Assert.NotNull(vm.Running);
+        Assert.Contains("Updated", vm.StatusMessage);
+        Assert.Contains("is running", vm.StatusMessage);
+    }
+
+    /// <summary>A failed update still starts the server again, on the build it already had (as automation does).</summary>
+    [Fact]
+    public async Task Update_ARunningServer_FailedUpdate_StartsTheBuildItHad()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.LatestBuild = 2;
+        SteamCmd.FailWith = "Error! App '2089300' state is 0x202 after update job.";
+        var (vm, _, processes, _) = BuildWithServer();
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.TickAsync();
+
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+
+        Assert.Single(processes.Started);
+        Assert.Contains("Update failed", vm.StatusMessage);
+        Assert.Contains("is running", vm.StatusMessage);
+    }
+
+    /// <summary>When it can't be started again (another server was selected by the end), the result says it was left stopped.</summary>
+    [Fact]
+    public async Task Update_ARunningServer_NotStartedAgain_SaysItWasLeftStopped()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.LatestBuild = 2;
+        var (vm, store, processes, _) = BuildWithServer();
+        var other = new DedicatedServerProfile { Name = "Other", InstallFolder = Path.Combine(_root, "Other") };
+        store.Save(other);
+        vm.Profiles.Add(other);
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.TickAsync();
+        SteamCmd.DuringInstall = () => vm.SelectedProfile = other;
+
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+
+        Assert.Empty(processes.Started);
+        Assert.Contains("stopped for the update", vm.StatusMessage);
+    }
+
+    /// <summary>A stopped server stays stopped after Update.</summary>
+    [Fact]
+    public async Task Update_AStoppedServer_DoesNotStartIt()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.LatestBuild = 2;
+        var (vm, _, processes, _) = BuildWithServer();
+
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+
+        Assert.Single(SteamCmd.Installs);
+        Assert.Empty(processes.Started);
+        Assert.DoesNotContain("stopped for the update", vm.StatusMessage);
+    }
 }
