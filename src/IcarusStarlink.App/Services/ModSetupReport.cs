@@ -53,6 +53,66 @@ public sealed class ModSetupReport(
         return () => Build(values, merge, mergeProblem);
     }
 
+    /// <summary>Capture, as Markdown for pasting into Discord or a Nexus bug report (Library › Check › Copy my setup).</summary>
+    public Func<string> CaptureMarkdown()
+    {
+        var build = Capture();
+        return () => ToMarkdown(build());
+    }
+
+    /// <summary>
+    /// The plain report as Markdown: a title, each "== part ==" in bold and each line a list item
+    /// (indented lines nested under the one above). Characters Markdown would read as formatting
+    /// in a mod name are escaped.
+    /// </summary>
+    public static string ToMarkdown(string report)
+    {
+        var text = new StringBuilder();
+        text.AppendLine("## My Icarus mod setup");
+        text.AppendLine();
+        foreach (var raw in report.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = raw.TrimEnd();
+            if (line.Length == 0)
+            {
+                text.AppendLine();
+            }
+            else if (line.StartsWith("== ", StringComparison.Ordinal) && line.EndsWith(" ==", StringComparison.Ordinal) && line.Length > 6)
+            {
+                text.AppendLine($"**{EscapeMarkdown(line[3..^3])}**");
+            }
+            else if (line.StartsWith("  ", StringComparison.Ordinal))
+            {
+                var inner = line.TrimStart();
+                text.AppendLine(char.IsDigit(inner[0]) && inner.Contains(". ", StringComparison.Ordinal)
+                    ? $"  {EscapeMarkdown(inner)}"
+                    : $"  - {EscapeMarkdown(inner)}");
+            }
+            else
+            {
+                text.AppendLine($"- {EscapeMarkdown(line.StartsWith("- ", StringComparison.Ordinal) ? line[2..] : line)}");
+            }
+        }
+
+        return text.ToString().TrimEnd() + Environment.NewLine;
+    }
+
+    private static string EscapeMarkdown(string text)
+    {
+        var escaped = new StringBuilder(text.Length);
+        foreach (var c in text)
+        {
+            if (c is '*' or '_' or '`' or '~' or '|' or '<' or '>' or '#')
+            {
+                escaped.Append('\\');
+            }
+
+            escaped.Append(c);
+        }
+
+        return escaped.ToString();
+    }
+
     private string Build(SettingsValues current, MergeQueueSnapshot? merge, string? mergeProblem)
     {
         var text = new StringBuilder();

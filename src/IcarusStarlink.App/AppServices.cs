@@ -186,6 +186,19 @@ internal static class AppServices
         // The saved Find the broken mod search: the finder writes it, and closing the main window
         // asks first while it has only some of the player's mods in the game.
         services.AddSingleton(new BrokenModSearchStore(Path.Combine(appDataDirectory, "find_broken_mod.json")));
+        // The bug-report kit's mod setup: the diagnostics zip's mod-setup.txt and Library › Check › Copy my setup.
+        // The Merge page is resolved only when it's made. If it hasn't been opened yet, this builds it
+        // (Library scan, profile load) on the UI thread: a short stall, accepted so the report shows the real queue.
+        services.AddSingleton(sp => new ModSetupReport(
+            () => sp.GetRequiredService<ILibraryRepository>().GetAll(),
+            () => sp.GetRequiredService<ISettingsService>().Current,
+            folder => sp.GetRequiredService<IUe4ssModStateService>().GetAll(folder),
+            () =>
+            {
+                var merge = sp.GetRequiredService<MergeInstallViewModel>();
+                return new MergeQueueSnapshot(
+                    [.. merge.Queue.Select(e => e.DisplayNameOverride ?? e.Name)], merge.ActiveOptionsSummary, merge.SelectedProfileName);
+            }));
         services.AddSingleton<MainViewModel>();
         services.AddSingleton(sp => new LibraryViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
@@ -236,6 +249,8 @@ internal static class AppServices
             GameUpdates = sp.GetRequiredService<GameUpdateDetector>(),
             GameFileFingerprints = sp.GetRequiredService<GameFileFingerprintStore>(),
             GameUpdateCoordinator = sp.GetRequiredService<GameUpdateCoordinator>,
+            // Check › Copy my setup: the same mod setup as the diagnostics zip's mod-setup.txt.
+            ModSetupReport = sp.GetRequiredService<ModSetupReport>(),
         });
         services.AddSingleton(sp => new GameUpdateDetector(sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<IUnrealPakService>()));
         services.AddSingleton(_ => GameFileFingerprintStore.Load(Path.Combine(appDataDirectory, "Cache", "game_file_fingerprints.json")));
@@ -389,19 +404,8 @@ internal static class AppServices
             Path.Combine(appDataDirectory, "settings.json"),
             Path.Combine(appDataDirectory, "Staged_UE4SS"),
             sp.GetRequiredService<IGameDataFreshness>(),
-            // The diagnostics zip's mod-setup.txt; the Merge page is resolved only when exporting. If it
-            // hasn't been opened yet, this builds it (Library scan, profile load) on the UI thread when
-            // Export is pressed: a short stall, accepted so the report shows the real queue.
-            modSetupReport: new ModSetupReport(
-                () => sp.GetRequiredService<ILibraryRepository>().GetAll(),
-                () => sp.GetRequiredService<ISettingsService>().Current,
-                folder => sp.GetRequiredService<IUe4ssModStateService>().GetAll(folder),
-                () =>
-                {
-                    var merge = sp.GetRequiredService<MergeInstallViewModel>();
-                    return new MergeQueueSnapshot(
-                        [.. merge.Queue.Select(e => e.DisplayNameOverride ?? e.Name)], merge.ActiveOptionsSummary, merge.SelectedProfileName);
-                }))
+            // The diagnostics zip's mod-setup.txt (registered with the Library page, which copies it too).
+            modSetupReport: sp.GetRequiredService<ModSetupReport>())
         {
             Ue4ssConfig = new Ue4ssConfigViewModel(
                 sp.GetRequiredService<ISettingsService>(),

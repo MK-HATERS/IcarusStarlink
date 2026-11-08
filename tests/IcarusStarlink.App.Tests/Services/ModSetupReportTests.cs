@@ -129,4 +129,16 @@ public class ModSetupReportTests : IDisposable
 
         Assert.Contains("Game folder: not set", text);
     }
+
+    [Fact]
+    public void ToMarkdown_BoldsEachPart_ListsEachLine_NestsIndentedLines_AndKeepsTheQueueNumbered()
+    {
+        var markdown = ModSetupReport.ToMarkdown(
+            "== UE4SS ==\nUE4SS build: 3.0.1\nUE4SS mods:\n  Wireless_Power: on\n\n== Merge queue ==\nQueue, in the order the Merge page lists it:\n  1. Stack*Sizes\n");
+
+        Assert.Equal(
+            "## My Icarus mod setup\n\n**UE4SS**\n- UE4SS build: 3.0.1\n- UE4SS mods:\n  - Wireless\\_Power: on\n\n"
+            + "**Merge queue**\n- Queue, in the order the Merge page lists it:\n  1. Stack\\*Sizes\n",
+            markdown.Replace("\r\n", "\n"));
+    }
 }

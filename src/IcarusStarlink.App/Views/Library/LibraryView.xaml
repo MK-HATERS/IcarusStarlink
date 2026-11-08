@@ -867,6 +867,8 @@
                                               ToolTip="What the last Update everything fixed, what still needs a look, and which mods replace game files the update changed. Roll back is there too."/>
                                     <MenuItem Header="Find the broken mod…" Command="{Binding FindBrokenModCommand}"
                                               ToolTip="Something broken in game and you don't know which mod does it? Tests your mods in rounds until it finds the one. Your saves are backed up first and your mods go back at the end."/>
+                                    <MenuItem Header="Copy my setup" Command="{Binding CopyMySetupCommand}"
+                                              ToolTip="Copies your mods, their versions, the Merge queue, what's in the game and your UE4SS mods, ready to paste into Discord or a Nexus bug report. Your Windows user name is hidden."/>
                                     <Separator/>
                                     <MenuItem Header="Check endorsements" Command="{Binding CheckEndorsementsCommand}" IsEnabled="{Binding CanCheckEndorsements}"
                                               ToolTip="Gets your Nexus endorsements and shows which of your Nexus mods you haven't endorsed yet. Greyed out while it is already running." ToolTipService.ShowOnDisabled="True"/>

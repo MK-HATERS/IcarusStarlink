@@ -2256,6 +2256,9 @@ public sealed partial class LibraryViewModelTests
             return entry;
         }
 
+        /// <summary>When set, the mod setup Copy my setup copies (null: as when the app hasn't wired it).</summary>
+        public ModSetupReport? ModSetupReport { get; set; }
+
         /// <summary>The fix service Library and the replacement share (as the app wires them).</summary>
         public ModFixService? FixService { get; private set; }
 
@@ -2285,6 +2288,7 @@ public sealed partial class LibraryViewModelTests
                 ThumbnailCacheDirectory, PakPreviewCacheDirectory, DialogService)
             {
                 SharedFixService = FixService,
+                ModSetupReport = ModSetupReport,
             };
         }
     }

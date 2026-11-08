@@ -320,6 +320,10 @@ public static class DiagnosticsExporter
         return new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
+    /// <summary>The text with this Windows user's own folder hidden, as every bug-report entry has it (Copy my setup uses it too).</summary>
+    public static string HideUserFolder(string text) =>
+        HideUserFolder(text, UserFolderPattern(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
+
     private static string HideUserFolder(string text, Regex? userFolder) =>
         userFolder is null ? text : userFolder.Replace(text, UserFolderStandIn);
 
