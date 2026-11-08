@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -127,10 +128,14 @@ public sealed partial class SavesViewModel
         }
     }
 
+    /// <summary>
+    /// Makes the points mod. The game's curves are read and the new ones built off the UI thread
+    /// (mounting the game's paks takes a moment); the Library write and its message stay here.
+    /// </summary>
     [RelayCommand]
-    private void MakePointsMod()
+    private async Task MakePointsModAsync()
     {
-        if (_pointsMod is null || _playerGrowth is not { } growth)
+        if (_pointsMod is not { } pointsMod || _playerGrowth is not { } growth)
         {
             return;
         }
@@ -141,14 +146,29 @@ public sealed partial class SavesViewModel
             return;
         }
 
+        List<PointsCurveChange> changes = [.. PointsEditors.Select(e => new PointsCurveChange(e.Field, e.Multiplier, e.KeepRising))];
+        PointsModStatus = "Making the mod…";
         try
         {
-            var folder = _pointsMod.Build([.. PointsEditors.Select(e => new PointsCurveChange(e.Field, e.Multiplier, e.KeepRising))], growth);
+            var prepared = await Task.Run(() => pointsMod.Prepare(changes, growth));
+            var removesOldOne = prepared is null && pointsMod.Existing is not null;
+            if (removesOldOne && !_dialogService.Confirm(
+                    $"Every multiplier is back to the game's own points, so {PlayerPointsMod.DisplayName} isn't needed.\n\n"
+                    + "Take it out of your Library? If it's turned on in Merge & Install, the game keeps the changed points until you run Merge & Install again.",
+                    "Take the points mod out", ThemedConfirmSeverity.Warning))
+            {
+                PointsModStatus = $"{PlayerPointsMod.DisplayName} is still in your Library. Nothing was changed.";
+                return;
+            }
+
+            var folder = pointsMod.Commit(prepared, changes);
             PointsModFolder = folder;
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
-            PointsModStatus = folder is null
-                ? "Everything matches the game's own points, so there's no mod to make (an old one was taken out of the Library)."
-                : $"Made {PlayerPointsMod.DisplayName} in your Library. Turn it on in Merge & Install and rebuild; it counts in game, and here, once installed.";
+            PointsModStatus = folder is not null
+                ? $"Made {PlayerPointsMod.DisplayName} in your Library. Turn it on in Merge & Install and rebuild; it counts in game, and here, once installed."
+                : removesOldOne
+                ? $"Took {PlayerPointsMod.DisplayName} out of your Library. If it was installed, run Merge & Install to put the game's own points back in game."
+                : "Everything matches the game's own points, so there's no mod to make.";
             _activityLog.Log(PointsModStatus, ActivityEntryKind.Success);
         }
         catch (Exception ex)
@@ -184,7 +204,11 @@ public sealed partial class SavesViewModel
 
     /// <summary>Why the typed level wasn't used; null when it was.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasLevelError))]
     private string? _levelError;
+
+    /// <summary>The Level box shows its red border.</summary>
+    public bool HasLevelError => LevelError is not null;
 
     /// <summary>The XP curve is read, so a level can be turned into XP.</summary>
     public bool CanSetLevel => _playerGrowth?.Experience is not null && SelectedCharacter is not null;
@@ -206,6 +230,17 @@ public sealed partial class SavesViewModel
         if (growth.MaxLevel > 0 && level > growth.MaxLevel)
         {
             LevelError = $"Levels go up to {growth.MaxLevel:N0} with what's installed (Remove Level Cap in Merge & Install raises that).";
+            return;
+        }
+
+        // The character's own level typed back (after trying another): its own XP, not the level's
+        // start, or Save would drop its progress into that level.
+        var cap = growth.MaxLevel > 0 ? growth.MaxLevel : int.MaxValue;
+        if (xpCurve.LevelFor(character.SavedXp, cap) == level)
+        {
+            LevelError = null;
+            character.XpText = character.SavedXp.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            OnPropertyChanged(nameof(SelectedLevelText));
             return;
         }
 

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json.Nodes;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO.Assets;
 using IcarusStarlink.PakIO.Container;
@@ -11,6 +12,9 @@ namespace IcarusStarlink.App.Services;
 /// <param name="Multiplier">The game's points at every level times this (2 = twice as many).</param>
 /// <param name="KeepRising">Past the curve's last level, points keep coming at the same rate (else they stop there).</param>
 public sealed record PointsCurveChange(string Field, double Multiplier, bool KeepRising);
+
+/// <summary>The points mod built in memory (PlayerPointsMod.Prepare), ready to write into the Library (Commit).</summary>
+public sealed record PreparedPointsMod(ExmodPackage Package, IReadOnlyList<ExmodAssetEntry> Assets);
 
 /// <summary>
 /// "Change points per level" on the Saves page: a Library mod, "Starlink Player Points", made the
@@ -60,19 +64,19 @@ public sealed class PlayerPointsMod(ILibraryRepository library, IBaseGameContent
     public LibraryEntry? Existing => library.GetAll().FirstOrDefault(e => string.Equals(e.FileName, FileName, StringComparison.OrdinalIgnoreCase) && e.MadeInStarlink);
 
     /// <summary>Makes (or remakes) the mod; returns its Library folder, or null when nothing differs from the game (an old copy is then removed).</summary>
-    public string? Build(IReadOnlyList<PointsCurveChange> changes, PlayerGrowth growth)
+    public string? Build(IReadOnlyList<PointsCurveChange> changes, PlayerGrowth growth) => Commit(Prepare(changes, growth), changes);
+
+    /// <summary>
+    /// Builds the mod's package and curves in memory: reads the game's curves and writes nothing,
+    /// so it can run off the UI thread. Null when nothing differs from the game.
+    /// </summary>
+    public PreparedPointsMod? Prepare(IReadOnlyList<PointsCurveChange> changes, PlayerGrowth growth)
     {
         var real = changes.Where(c => growth.GameCurvesByField.TryGetValue(c.Field, out var gameCurve)
                 && (Math.Abs(c.Multiplier - 1) > 1e-9 || c.KeepRising != gameCurve.LinearAfter))
             .ToList();
-        var existing = Existing;
         if (real.Count == 0)
         {
-            if (existing is not null)
-            {
-                library.Delete(existing.FolderName);
-            }
-
             return null;
         }
 
@@ -116,18 +120,121 @@ public sealed class PlayerPointsMod(ILibraryRepository library, IBaseGameContent
             ],
         };
 
-        var folderName = existing?.FolderName ?? library.CreateBlankMod(DisplayName, "Icarus Starlink").FolderName;
-        var folder = library.GetFolderPath(folderName);
-        var oldAssets = Path.Combine(folder, AssetFolder.Replace('/', Path.DirectorySeparatorChar));
-        if (Directory.Exists(oldAssets))
+        return new PreparedPointsMod(package, assets);
+    }
+
+    /// <summary>
+    /// Writes a prepared mod into the Library (made there the first time) and returns its folder.
+    /// Null prepared: nothing differs from the game, so an old copy is taken out and null returned.
+    /// A failed write leaves the old copy as it was.
+    /// </summary>
+    public string? Commit(PreparedPointsMod? prepared, IReadOnlyList<PointsCurveChange> changes)
+    {
+        var existing = Existing;
+        if (prepared is null)
         {
-            Directory.Delete(oldAssets, recursive: true);
+            if (existing is not null)
+            {
+                library.Delete(existing.FolderName);
+            }
+
+            return null;
         }
 
-        ExmodFolder.Write(folder, new ExmodPackageContents(package, assets));
-        File.WriteAllText(Path.Combine(folder, SettingsFile), System.Text.Json.JsonSerializer.Serialize(changes));
+        var folderName = existing?.FolderName ?? library.CreateBlankMod(DisplayName, "Icarus Starlink").FolderName;
+        try
+        {
+            WriteWithRollback(library.GetFolderPath(folderName), new ExmodPackageContents(prepared.Package, prepared.Assets),
+                System.Text.Json.JsonSerializer.Serialize(changes));
+        }
+        catch (Exception) when (existing is null)
+        {
+            // Made by this call: a blank mod left behind would show in the Library as a broken copy.
+            try
+            {
+                library.Delete(folderName);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+
+            throw;
+        }
+
         library.Refresh();
         return folderName;
+    }
+
+    /// <summary>
+    /// Writes the mod over its last copy, all or nothing: the old .EXMOD, curves and settings (a few
+    /// KB) are kept in memory first, and a failed write puts them back and removes what it added.
+    /// The old curves used to be deleted first, so a failed write left the Player row pointing at
+    /// curves that were gone. Once written, curves the new mod no longer uses are removed.
+    /// </summary>
+    internal static void WriteWithRollback(string folder, ExmodPackageContents contents, string settingsJson)
+    {
+        var exmodFolder = Path.Combine(folder, "Extracted Mods");
+        var assetFolder = Path.Combine(folder, AssetFolder.Replace('/', Path.DirectorySeparatorChar));
+        var settingsPath = Path.Combine(folder, SettingsFile);
+        List<string> FilesNow() =>
+        [
+            .. new[] { exmodFolder, assetFolder }.Where(Directory.Exists)
+                .SelectMany(d => Directory.GetFiles(d, "*", SearchOption.AllDirectories))
+                .Append(settingsPath)
+                .Where(File.Exists),
+        ];
+
+        var before = FilesNow().ToDictionary(path => path, File.ReadAllBytes, StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            ExmodFolder.Write(folder, contents);
+            AtomicFile.WriteAllText(settingsPath, settingsJson);
+        }
+        catch (Exception)
+        {
+            foreach (var added in FilesNow().Where(path => !before.ContainsKey(path)))
+            {
+                TryDelete(added);
+            }
+
+            foreach (var (path, bytes) in before)
+            {
+                try
+                {
+                    if (!File.Exists(path) || !File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes))
+                    {
+                        AtomicFile.WriteAllBytes(path, bytes);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
+
+            throw;
+        }
+
+        var used = contents.Assets
+            .Select(a => Path.GetFullPath(Path.Combine(folder, a.RelativePath.Replace('/', Path.DirectorySeparatorChar))))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (Directory.Exists(assetFolder))
+        {
+            foreach (var old in Directory.GetFiles(assetFolder, "*", SearchOption.AllDirectories).Where(f => !used.Contains(Path.GetFullPath(f))))
+            {
+                TryDelete(old);
+            }
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     public static string Label(string field) => field switch
