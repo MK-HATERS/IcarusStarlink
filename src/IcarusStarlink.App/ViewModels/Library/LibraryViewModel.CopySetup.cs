@@ -1,6 +1,5 @@
 using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Services;
-using IcarusStarlink.App.Utilities;
 
 namespace IcarusStarlink.App.ViewModels;
 
