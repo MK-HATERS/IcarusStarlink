@@ -66,6 +66,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
         _activityLog = activityLog;
         _dataFolder = dataFolder;
         _icons = iconDecoder is null ? null : new GameIconLoader(iconDecoder);
+        _filterDebounce = new DebounceTimer(TimeSpan.FromMilliseconds(250), RefreshFilter);
         NewModAuthor = Environment.UserName;
         // Game data changes under the page when Refresh game data runs.
         _messenger.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).ResetGameData());
@@ -209,6 +210,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
         var dataFolder = _dataFolder;
         var gameReady = _game;
+        var version = ++_loadVersion;
         _loading = Task.Run(() =>
         {
             var game = gameReady ?? OpenGameData(dataFolder);
@@ -218,14 +220,27 @@ public sealed partial class GameEditorViewModel : ObservableObject
         try
         {
             var (game, items) = await _loading;
-            FinishLoading(game, items);
+            if (version == _loadVersion)
+            {
+                FinishLoading(game, items);
+            }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or System.Text.Json.JsonException)
+        catch (Exception ex)
         {
-            _loading = null;
-            NoDataMessage = $"Couldn't read the game's items: {ex.Message}. Run Refresh game data in Settings, then open the Editor again.";
+            // Every error: this runs from the page's async void IsVisibleChanged, where an exception
+            // would reach the app's crash handler. A load that Refresh game data overtook says nothing:
+            // its message would cover the list read since.
+            if (version == _loadVersion)
+            {
+                _loading = null;
+                Serilog.Log.Warning(ex, "The Editor page couldn't read the game's items");
+                NoDataMessage = $"Couldn't read the game's items: {ex.Message}. Run Refresh game data in Settings, then open the Editor again.";
+            }
         }
     }
+
+    /// <summary>Moves on when Refresh game data abandons a running first load, so that load's result (or error) is never shown.</summary>
+    private int _loadVersion;
 
     /// <summary>The item list now (Open from the mod editor, tests): waits for a background load already running instead of reading the tables twice.</summary>
     public void EnsureLoaded()
@@ -268,9 +283,11 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
         NoDataMessage = null;
         _allItems = [.. items.Select(info => new EditorItemEntry(info, _icons))];
+        _itemsByName.Clear();
         foreach (var entry in _allItems)
         {
             entry.PropertyChanged += OnEntryPropertyChanged;
+            _itemsByName.TryAdd(entry.Name, entry); // the first of two rows with one name, as a search from the top finds
         }
 
         TicksChanged();
@@ -288,12 +305,16 @@ public sealed partial class GameEditorViewModel : ObservableObject
         RefreshFilter();
     }
 
-    private EditorItemEntry? FindItem(string name) => _allItems.FirstOrDefault(i => string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase));
+    /// <summary>The list's items by row name: "Your changes" looks each waiting item up on every keystroke.</summary>
+    private readonly Dictionary<string, EditorItemEntry> _itemsByName = new(StringComparer.OrdinalIgnoreCase);
+
+    private EditorItemEntry? FindItem(string name) => _itemsByName.GetValueOrDefault(name);
 
     /// <summary>
     /// Shows one game item (from the mod editor's "Open in Editor"). With the mod it came from, and
     /// that's one of the user's own mods, that mod becomes the save target, so the values shown are
     /// the mod's and saving goes back into it (not the game's values into whatever was picked before).
+    /// Any other mod can't take changes: Save to stays, and the status line says why.
     /// </summary>
     public void Open(string itemName, string? targetFolder = null)
     {
@@ -305,10 +326,23 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
         SelectedItem = item; // what was typed for the item on show waits for Save
         RefreshFilter(); // the filters may hide it; make sure this one is in the list
-        if (targetFolder is not null && Targets.FirstOrDefault(t => t.FolderName == targetFolder) is { } target)
+        if (targetFolder is null)
+        {
+            return;
+        }
+
+        if (Targets.FirstOrDefault(t => t.FolderName == targetFolder) is { } target)
         {
             SelectedTarget = target;
+            return;
         }
+
+        // A downloaded or classic mod: Save to stays as it was, and the page says so (it used to
+        // show the game's values without a word, as if they were that mod's).
+        var modName = _repository.GetAll().FirstOrDefault(e => e.FolderName == targetFolder)?.Name ?? targetFolder;
+        StatusMessage = SelectedTarget is { IsNew: false } current
+            ? $"'{modName}' isn't one of your own mods, so changes can't go into it. Shown: the game's values with the changes in '{current.Display}'; Save goes into '{current.Display}'."
+            : $"'{modName}' isn't one of your own mods, so changes can't go into it. Shown: the game's values; Save makes a new mod.";
     }
 
     /// <summary>Asks before typed changes are thrown away (Discard, an item's × in Your changes). Tests swap in an answer.</summary>
@@ -453,6 +487,12 @@ public sealed partial class GameEditorViewModel : ObservableObject
                     return;
                 }
 
+                if (NewModNameProblem(NewModName) is { } problem)
+                {
+                    StatusMessage = problem + " Change the name, then Save.";
+                    return;
+                }
+
                 package = ModTemplateContent.Create(ModTemplate.Blank, NewModName.Trim(), NewModAuthor.Trim());
                 folder = "";
             }
@@ -527,6 +567,15 @@ public sealed partial class GameEditorViewModel : ObservableObject
             _activityLog?.Log($"Editor: couldn't save: {ex.Message}", ActivityEntryKind.Warning);
         }
     }
+
+    /// <summary>
+    /// Why Windows can't take this new mod's name as its file name (spaces become _), in plain
+    /// words; null when it can. The write would refuse it later with a message about EXMOD fields.
+    /// </summary>
+    internal static string? NewModNameProblem(string name) =>
+        IcarusStarlink.PakIO.Safety.AssetPathGuard.IsSimpleFileName(name.Trim().Replace(' ', '_'))
+            ? null
+            : "A mod name can't contain \\ / : * ? \" < > |, or be a name Windows keeps for itself (like CON or NUL).";
 
     /// <summary>
     /// Two items changing one shared row "for all" to different values: whichever is written last
@@ -719,50 +768,66 @@ public sealed partial class GameEditorViewModel : ObservableObject
         RefreshTargetMarks(); // a save or a change in Library can change what the mod touches
     }
 
+    /// <summary>
+    /// Refresh game data finished: the list and the cards are read again from the new tables. This
+    /// runs inside the broadcast, after the refresh already succeeded: a table that can't be read is
+    /// said here and never thrown, so Settings doesn't report "Refresh failed" and the listeners
+    /// after this one still hear about the new data.
+    /// </summary>
     private void ResetGameData()
     {
-        var shown = _shownItem?.Name;
-        if (_loading is { } running)
+        try
         {
-            // The first load was still reading the old tables: let it end, and don't use what it read
-            // (it finds the list rebuilt below and leaves it).
-            try
+            var shown = _shownItem?.Name;
+            if (_loading is { } running)
             {
-                running.GetAwaiter().GetResult();
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or System.Text.Json.JsonException)
-            {
-                // The new data is read again below.
+                // The first load was still reading the old tables: let it end, and don't use what it
+                // read (its own continuation sees the version moved on and leaves the list alone).
+                _loadVersion++;
+                try
+                {
+                    running.GetAwaiter().GetResult();
+                }
+                catch (Exception)
+                {
+                    // The new data is read again below.
+                }
+
+                _loading = null;
             }
 
-            _loading = null;
+            _game = null;
+            _allItems = [];
+            _itemsByName.Clear();
+            _itemChoices = null;
+            _statChoices = null;
+            _linkChoices.Clear();
+            QuickStarts.Clear();
+            EnsureLoaded();
+
+            // The list was rebuilt: the item on show is a new entry now (the old one would sit in the list twice).
+            if (shown is not null && FindItem(shown) is { } again)
+            {
+                _refreshingFilter = true;
+                try
+                {
+                    SelectedItem = again;
+                }
+                finally
+                {
+                    _refreshingFilter = false;
+                }
+
+                RefreshFilter();
+            }
+
+            // Refresh game data used to throw away whatever was typed here, without a word.
+            ReloadKeepingTyped("aren't in the refreshed game data");
         }
-
-        _game = null;
-        _allItems = [];
-        _itemChoices = null;
-        _statChoices = null;
-        _linkChoices.Clear();
-        QuickStarts.Clear();
-        EnsureLoaded();
-
-        // The list was rebuilt: the item on show is a new entry now (the old one would sit in the list twice).
-        if (shown is not null && FindItem(shown) is { } again)
+        catch (Exception ex)
         {
-            _refreshingFilter = true;
-            try
-            {
-                SelectedItem = again;
-            }
-            finally
-            {
-                _refreshingFilter = false;
-            }
-
-            RefreshFilter();
+            Serilog.Log.Warning(ex, "The Editor page couldn't read the refreshed game data");
+            NoDataMessage = $"Couldn't read the game's items: {ex.Message}. Run Refresh game data in Settings, then open the Editor again.";
         }
-
-        // Refresh game data used to throw away whatever was typed here, without a word.
-        ReloadKeepingTyped("aren't in the refreshed game data");
     }
 }

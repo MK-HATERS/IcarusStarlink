@@ -24,6 +24,14 @@ public partial class NewModDialog : Window
             return;
         }
 
+        // The name becomes the mod's file name: refused here in plain words, not later as an EXMOD error.
+        if (ViewModels.GameEditorViewModel.NewModNameProblem(NameBox.Text) is { } problem)
+        {
+            ErrorText.Text = problem + " Change the name.";
+            ErrorText.Visibility = Visibility.Visible;
+            return;
+        }
+
         ModName = NameBox.Text.Trim();
         ModAuthor = AuthorBox.Text.Trim();
         SelectedTemplate = CraftableRadio.IsChecked == true ? ModTemplate.CraftableOrDeployableItem

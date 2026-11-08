@@ -133,7 +133,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         Assert.True(Weight(vm).IsShown);
         Assert.All(itemable.Fields.Where(f => f != Weight(vm)), f => Assert.False(f.IsShown));
         Assert.All(vm.Sections.Where(s => s != itemable && s.Fields.Count > 0), s => Assert.True(s.AllHidden));
-        Assert.Single(vm.PendingChanges);
+        Assert.Single(vm.PendingGroups.SelectMany(g => g.Changes));
 
         // Put back to the game's value, it stays in view (no field vanishes under the cursor).
         Weight(vm).UseGameValueCommand.Execute(null);
@@ -158,13 +158,13 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         Assert.True(vm.HasNoPendingChanges);
 
         weight.ValueText = "50";
-        var change = Assert.Single(vm.PendingChanges);
+        var change = Assert.Single(vm.PendingGroups.SelectMany(g => g.Changes));
         Assert.Contains("Weight: 50", change.Text);
         Assert.False(vm.HasNoPendingChanges);
 
         change.Field.UndoChangeCommand.Execute(null);
         Assert.Equal(before, weight.ValueText);
-        Assert.Empty(vm.PendingChanges);
+        Assert.Empty(vm.PendingGroups.SelectMany(g => g.Changes));
         Assert.Equal(0, vm.PendingCount);
     }
 
@@ -247,6 +247,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         vm.Sections.Single(s => s.Section.Key == "Itemable").Fields.Single(f => f.Label == "Weight").ValueText = "50";
 
         vm.FilterText = "stone";
+        vm.FlushFilter();
 
         Assert.Equal("Envirosuit", vm.SelectedItem?.Name);
         Assert.Equal(1, vm.PendingCount);
@@ -372,6 +373,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         Weight(vm).ValueText = "50";
         vm.SelectedItem = Item(vm, "Stone");
         vm.FilterText = "stone";
+        vm.FlushFilter();
 
         vm.OpenPendingItemCommand.Execute(vm.PendingGroups.Single(g => g.ItemName == "Envirosuit"));
 
@@ -545,7 +547,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         recipe.Fields.Single(f => f.Label == "Needs Xigo Envirosuit").ValueText = "5";
 
         Assert.Equal(3, vm.PendingCount);
-        Assert.Contains(vm.PendingChanges, c => c.Text.EndsWith("Needs Leather: taken out", StringComparison.Ordinal));
+        Assert.Contains(vm.PendingGroups.SelectMany(g => g.Changes), c => c.Text.EndsWith("Needs Leather: taken out", StringComparison.Ordinal));
 
         vm.NewModName = "Cheaper suit";
         vm.SaveCommand.Execute(null);
@@ -571,7 +573,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         Assert.Equal(0, vm.PendingCount);
 
         leather.DropCommand.Execute(null);
-        vm.PendingChanges.Single().Field.UndoChangeCommand.Execute(null);
+        vm.PendingGroups.SelectMany(g => g.Changes).Single().Field.UndoChangeCommand.Execute(null);
         Assert.False(leather.IsDropped);
         Assert.Equal(0, vm.PendingCount);
     }
@@ -1055,6 +1057,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
 
         vm.SelectedCategory = vm.Categories[0];
         vm.FilterText = "xigo";
+        vm.FlushFilter();
         Assert.Equal([1, 1, 0], vm.Categories.Select(c => c.Count));
     }
 
@@ -1065,9 +1068,11 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         var vm = Open();
 
         vm.FilterText = "rock";
+        vm.FlushFilter();
         Assert.Equal(["Stone"], Names(vm));
 
         vm.FilterText = "nothing like this";
+        vm.FlushFilter();
         Assert.True(vm.HasNoMatches);
 
         vm.ClearFiltersCommand.Execute(null);
@@ -1442,5 +1447,92 @@ public sealed partial class GameEditorViewModelTests : IDisposable
 
         Assert.StartsWith("Saved", vm.StatusMessage);
         Assert.DoesNotContain("no ingredients", vm.StatusMessage); // a free craft by hand can be on purpose
+    }
+
+    /// <summary>Regression: the × on a waiting item's last change emptied its group in Your changes, but the item kept its pencil in the list.</summary>
+    [Fact]
+    public void UndoingAWaitingItemsLastChange_TakesItsPencilAway()
+    {
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "50";
+        vm.SelectedItem = Item(vm, "Stone");
+        Assert.True(Item(vm, "Envirosuit").HasUnsavedChanges);
+
+        vm.PendingGroups.Single(g => g.ItemName == "Envirosuit").Changes.Single().Field.UndoChangeCommand.Execute(null);
+
+        Assert.Empty(vm.PendingGroups);
+        Assert.False(Item(vm, "Envirosuit").HasUnsavedChanges);
+    }
+
+    /// <summary>Regression: a table that couldn't be read while the page reloaded after Refresh game data threw out of the message, so Settings said "Refresh failed" and later listeners never heard of the new data.</summary>
+    [Fact]
+    public void RefreshGameData_WithATableThatCantBeRead_SaysSo_InsteadOfThrowing()
+    {
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "50";
+        Write("Items/D_ItemsStatic.json", "{ not json");
+
+        Assert.Null(Record.Exception(() => WeakReferenceMessenger.Default.Send(new WeeklyChangeReportUpdatedMessage())));
+
+        Assert.StartsWith("Couldn't read the game's items", vm.NoDataMessage);
+    }
+
+    /// <summary>Regression: the first load only caught a few kinds of error, so a table that isn't a table threw out of the page's async load instead of saying so.</summary>
+    [Fact]
+    public async Task TheFirstLoad_ATableThatIsntATable_SaysSo()
+    {
+        Write("Items/D_ItemsStatic.json", "[]");
+        var vm = new GameEditorViewModel(_library, DataFolder);
+
+        await vm.EnsureLoadedAsync();
+
+        Assert.StartsWith("Couldn't read the game's items", vm.NoDataMessage);
+    }
+
+    /// <summary>Regression: a mod name Windows can't use as a file name failed with "EXMOD field 'fileName' must be a simple name, not a path".</summary>
+    [Fact]
+    public void ANewModNameWithCharactersWindowsCantUse_IsRefusedInPlainWords()
+    {
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "50";
+        vm.NewModName = "Bread: better";
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.StartsWith("A mod name can't contain", vm.StatusMessage);
+        Assert.Contains("Change the name, then Save.", vm.StatusMessage);
+        Assert.Empty(_library.GetAll());
+        Assert.Equal(1, vm.PendingCount); // nothing typed is lost
+    }
+
+    /// <summary>Regression: "Open in Editor" from a downloaded mod kept Save to as it was without a word, as if the values shown were that mod's.</summary>
+    [Fact]
+    public void OpenFromAModThatIsntYours_KeepsSaveTo_AndSaysWhy()
+    {
+        var nexus = ImportNexusMod();
+        var vm = Open();
+
+        WeakReferenceMessenger.Default.Send(new OpenGameItemMessage("Envirosuit", nexus));
+
+        Assert.Equal("Envirosuit", vm.SelectedItem?.Name);
+        Assert.True(vm.IsNewTarget);
+        Assert.Contains("'From Nexus' isn't one of your own mods", vm.StatusMessage);
+        Assert.Contains("Save makes a new mod", vm.StatusMessage);
+    }
+
+    /// <summary>The search runs once the typing stops, not on every key (each pass goes through every item).</summary>
+    [Fact]
+    public void TheSearch_WaitsForTheTypingToStop()
+    {
+        var vm = Open();
+
+        vm.FilterText = "rock";
+
+        Assert.Equal(["Envirosuit", "Stone"], Names(vm));
+        vm.FlushFilter();
+        Assert.Equal(["Stone"], Names(vm));
     }
 }

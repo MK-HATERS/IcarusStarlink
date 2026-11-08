@@ -72,7 +72,13 @@ public sealed partial class GameEditorViewModel
     [ObservableProperty]
     private string _targetModText = "";
 
-    partial void OnFilterTextChanged(string value) => RefreshFilter();
+    /// <summary>The search runs once the typing stops: each pass goes through every item (3,090) and can change thousands of list rows.</summary>
+    private readonly DebounceTimer _filterDebounce;
+
+    partial void OnFilterTextChanged(string value) => _filterDebounce.Restart();
+
+    /// <summary>Runs a search still waiting for the typing to stop (tests: the timer never ticks without a message loop).</summary>
+    internal void FlushFilter() => _filterDebounce.Flush();
 
     partial void OnSelectedCategoryChanged(EditorCategoryChoice? value) => RefreshFilter();
 
@@ -101,6 +107,7 @@ public sealed partial class GameEditorViewModel
         }
 
         RefreshFilter();
+        _filterDebounce.Cancel(); // the emptied search is already shown
     }
 
     /// <summary>The chips and drop-downs offer only what the loaded game data has.</summary>

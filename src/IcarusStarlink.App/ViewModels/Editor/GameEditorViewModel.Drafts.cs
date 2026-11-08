@@ -34,9 +34,6 @@ public sealed partial class GameEditorViewModel
     /// <summary>Item name → its cards, built against the current target mod, with typed changes on them.</summary>
     private readonly Dictionary<string, List<GameItemSectionViewModel>> _drafts = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>"Your changes", one line per changed value of every item, each with its own × (undo).</summary>
-    public ObservableCollection<EditorPendingChange> PendingChanges { get; } = [];
-
     /// <summary>"Your changes" grouped by item: the shown item first, then the others by name.</summary>
     public ObservableCollection<EditorPendingGroup> PendingGroups { get; } = [];
 
@@ -194,9 +191,12 @@ public sealed partial class GameEditorViewModel
         }
 
         var dropped = 0;
+        // One lookup for every waiting item (a fresh one per item scans whole tables, ~18 ms each):
+        // the target isn't changed while they're rebuilt.
+        var lookup = Game is { } current ? new GameItemLookup(current, target) : null;
         foreach (var (name, old) in _drafts.ToList())
         {
-            List<GameItemSectionViewModel> cards = Game is { } game && GameItemEditor.Describe(game, target, name) is { } view ? BuildCards(game, view) : [];
+            List<GameItemSectionViewModel> cards = lookup is not null && GameItemEditor.Describe(lookup.Game, target, name, lookup) is { } view ? BuildCards(lookup.Game, view) : [];
             dropped += CarryTyped(old, cards);
             if (cards.Any(c => c.HasTyped))
             {
@@ -235,11 +235,11 @@ public sealed partial class GameEditorViewModel
 
         PendingCount = groups.Sum(g => g.Changes.Count);
         EditedItemCount = groups.Count;
-        ObservableCollectionSync.SyncTo(PendingChanges, [.. groups.SelectMany(g => g.Changes)]);
         ObservableCollectionSync.SyncTo(PendingGroups, groups);
 
-        // The pencil in the list: typed for and not saved (half-typed numbers too).
-        var unsaved = _drafts.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // The pencil in the list: typed for and not saved (half-typed numbers too). A waiting item
+        // whose last change was undone with × keeps its cards here, but has nothing typed.
+        var unsaved = _drafts.Where(d => d.Value.Any(c => c.HasTyped)).Select(d => d.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (_shownItem is { } current && Sections.Any(s => s.HasTyped))
         {
             unsaved.Add(current.Name);
