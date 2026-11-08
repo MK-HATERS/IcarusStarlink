@@ -87,11 +87,84 @@ public partial class App
         }
     }
 
+    /// <summary>
+    /// Links that arrived while a Starlink window was open on top (the manual install, a question).
+    /// Handled once it closes, one at a time and in order: handling one at once put its download
+    /// and its own questions over the open window. UI thread only, like the startup queue.
+    /// </summary>
+    private readonly Queue<string> _nxmUrlsWhileModal = new();
+
+    private bool _waitingForModalToClose;
+
     private void HandleNxmUrl(string nxmUrl)
     {
         if (!_isReadyForNxmUrls || _host is null)
         {
             _nxmUrlsDuringStartup.Enqueue(nxmUrl);
+            return;
+        }
+
+        // A link that comes while others still wait goes behind them.
+        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal || _nxmUrlsWhileModal.Count > 0)
+        {
+            _nxmUrlsWhileModal.Enqueue(nxmUrl);
+            HandleQueuedNxmUrlsLater();
+            return;
+        }
+
+        HandleNxmUrlNow(nxmUrl);
+    }
+
+    /// <summary>Takes the next waiting link once no window is open on top: now (next dispatcher cycle) if none is, else when it closes.</summary>
+    private void HandleQueuedNxmUrlsLater()
+    {
+        if (!System.Windows.Interop.ComponentDispatcher.IsThreadModal)
+        {
+            WhileRunning(System.Windows.Threading.DispatcherPriority.Normal, HandleNextQueuedNxmUrl);
+            return;
+        }
+
+        if (_waitingForModalToClose)
+        {
+            return;
+        }
+
+        _waitingForModalToClose = true;
+        System.Windows.Interop.ComponentDispatcher.LeaveThreadModal += OnLeaveThreadModal;
+    }
+
+    private void OnLeaveThreadModal(object? sender, EventArgs e)
+    {
+        System.Windows.Interop.ComponentDispatcher.LeaveThreadModal -= OnLeaveThreadModal;
+        _waitingForModalToClose = false;
+        WhileRunning(System.Windows.Threading.DispatcherPriority.Normal, HandleNextQueuedNxmUrl);
+    }
+
+    /// <summary>One waiting link; the next waits for its turn (the one just handled may open a window of its own).</summary>
+    private void HandleNextQueuedNxmUrl()
+    {
+        if (_nxmUrlsWhileModal.Count == 0)
+        {
+            return;
+        }
+
+        if (System.Windows.Interop.ComponentDispatcher.IsThreadModal)
+        {
+            HandleQueuedNxmUrlsLater();
+            return;
+        }
+
+        HandleNxmUrlNow(_nxmUrlsWhileModal.Dequeue());
+        if (_nxmUrlsWhileModal.Count > 0)
+        {
+            HandleQueuedNxmUrlsLater();
+        }
+    }
+
+    private void HandleNxmUrlNow(string nxmUrl)
+    {
+        if (_host is null)
+        {
             return;
         }
 
