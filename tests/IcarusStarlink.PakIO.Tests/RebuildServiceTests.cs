@@ -67,8 +67,16 @@ public class RebuildServiceTests : IDisposable
         public Dictionary<string, Dictionary<string, string>> FakeExtractedFilesByPakPath { get; } = [];
 
         public Task<IReadOnlyList<string>> ListPakContentsAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<string>>(
-                FakeExtractedFilesByPakPath.TryGetValue(pakFilePath, out var files) ? [.. files.Keys] : []);
+            ListException is { } listFailure
+                ? throw listFailure
+                : Task.FromResult<IReadOnlyList<string>>(
+                    FakeExtractedFilesByPakPath.TryGetValue(pakFilePath, out var files) ? [.. files.Keys] : []);
+
+        /// <summary>Thrown by ListPakContentsAsync, the after-packing check that every staged file made it in.</summary>
+        public Exception? ListException { get; set; }
+
+        /// <summary>Thrown by VerifyPakAsync, the after-packing integrity check.</summary>
+        public Exception? VerifyException { get; set; }
         public List<string> ExtractedPakPaths { get; } = [];
 
         public string? PakPathToFailExtracting { get; set; }
@@ -172,7 +180,9 @@ public class RebuildServiceTests : IDisposable
         public PakVerifyResult? SimulatedVerifyResult { get; set; }
 
         public Task<PakVerifyResult> VerifyPakAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default) =>
-            Task.FromResult(SimulatedVerifyResult ?? new PakVerifyResult(IsHealthy: true, "healthy, 0 files checked"));
+            VerifyException is { } verifyFailure
+                ? throw verifyFailure
+                : Task.FromResult(SimulatedVerifyResult ?? new PakVerifyResult(IsHealthy: true, "healthy, 0 files checked"));
     }
 
     /// <summary>Records each report on the calling thread, in order.</summary>
@@ -264,6 +274,38 @@ public class RebuildServiceTests : IDisposable
             service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []));
 
         Assert.Contains("1 errors out of 1 files checked", ex.Message);
+        Assert.False(File.Exists(_outputPakPath));
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(_outputPakPath)!, InstallManifestNames.PakManifest)));
+    }
+
+    /// <summary>
+    /// A cancel during the after-packing checks used to be caught as "Couldn't verify…": the
+    /// unverified pak was kept and its list written, a finished build that Install would take.
+    /// Now the cancel goes through and neither the pak nor its list is left behind.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RebuildAsync_CancelledWhileVerifying_KeepsNoPakAndNoList(bool duringIntegrityCheck)
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var mod = MakeMod("Faster Crafting", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
+            new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) });
+        var pakService = new FakeUnrealPakService();
+        if (duringIntegrityCheck)
+        {
+            pakService.VerifyException = new OperationCanceledException();
+        }
+        else
+        {
+            pakService.ListException = new OperationCanceledException();
+        }
+
+        var service = new RebuildService(pakService);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.RebuildAsync([mod], new GameplayOptions(), _dataFolder, _unrealPakExePath, _outputPakPath, []));
+
         Assert.False(File.Exists(_outputPakPath));
         Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(_outputPakPath)!, InstallManifestNames.PakManifest)));
     }

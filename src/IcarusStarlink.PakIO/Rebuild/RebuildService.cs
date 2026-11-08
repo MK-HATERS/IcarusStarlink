@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Diffing;
@@ -131,20 +132,8 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
     /// a good build into "Rebuild failed" — and, when the build had failed, hid its real error
     /// behind the cleanup's own. A leftover scratch folder costs only disk space.
     /// </summary>
-    private void TryDeleteScratch(string directory)
-    {
-        try
-        {
-            if (Directory.Exists(directory))
-            {
-                Directory.Delete(directory, recursive: true);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            logger?.LogWarning(ex, "Couldn't remove the merge's scratch folder {Directory}; left behind", directory);
-        }
-    }
+    private void TryDeleteScratch(string directory) =>
+        Directories.TryDelete(directory, ex => logger?.LogWarning(ex, "Couldn't remove the merge's scratch folder {Directory}; left behind", directory));
 
     /// <summary>
     /// The synchronous half of RebuildAsync (see its own remarks on why this runs via Task.Run):
@@ -429,11 +418,33 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
             .Select(f => Path.GetRelativePath(stagingDirectory, f).Replace('\\', '/'))
             .ToList();
         var packedFileCount = await unrealPakService.CreatePakAsync(unrealPakExePath, stagingDirectory, outputPakPath, cancellationToken);
-        await VerifyEveryStagedFileWasActuallyPackedAsync(unrealPakExePath, outputPakPath, stagedRelativePaths, report, cancellationToken);
-        await VerifyPakIntegrityAsync(unrealPakExePath, outputPakPath, report, cancellationToken);
+        try
+        {
+            await VerifyEveryStagedFileWasActuallyPackedAsync(unrealPakExePath, outputPakPath, stagedRelativePaths, report, cancellationToken);
+            await VerifyPakIntegrityAsync(unrealPakExePath, outputPakPath, report, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // A pak that wasn't verified is never left where Install would take it for a finished build.
+            TryDeleteFile(outputPakPath);
+            throw;
+        }
+
         var manifestPath = WriteManifest(manifestNames, gameplayOptions, outputPakPath);
 
         return new RebuildResult(mergedTableCount, packedFileCount, outputPakPath, manifestPath, report.Warnings, report.Notes);
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Install still refuses it: no manifest is written for this build.
+        }
     }
 
     public async Task<IReadOnlyList<(string PakName, IReadOnlyList<FieldChange> Changes)>> ComputePrebuiltPakFieldChangesAsync(
@@ -600,7 +611,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
                     + $"(UnrealPak.exe itself dropped them, not this app's own merge): {shown}{suffix}.");
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             report.AddWarning($"Couldn't independently verify the pak's own contents after building it: {ex.Message}");
         }
@@ -630,7 +641,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
                     $"UnrealPak.exe itself reports the built pak as corrupted ({result.Message}) — it was NOT kept or installed. Try Rebuild again; if it repeats, check free disk space and your UnrealPak.exe copy (Settings → Check).");
             }
         }
-        catch (Exception ex) when (ex is not PakIntegrityException)
+        catch (Exception ex) when (ex is not PakIntegrityException and not OperationCanceledException)
         {
             report.AddWarning($"Couldn't independently verify the pak's own integrity after building it: {ex.Message}");
         }
