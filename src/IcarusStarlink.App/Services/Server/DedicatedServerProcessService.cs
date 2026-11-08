@@ -99,9 +99,13 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
         var typed = Path.GetFullPath(installFolder);
         var roots = new List<string> { WithSeparator(typed) };
         // A folder that can't be opened yet (a drive not mounted) isn't remembered: it is asked again next time.
-        if (!FinalFolders.TryGetValue(typed, out string? final) &&(final = ResolveFinalFolder(typed)) is not null)
+        if (!FinalFolders.TryGetValue(typed, out var final))
         {
-            FinalFolders[typed] = final;
+            final = ResolveFinalFolder(typed);
+            if (final is not null)
+            {
+                FinalFolders[typed] = final;
+            }
         }
 
         if (final is not null && !string.Equals(WithSeparator(final), roots[0], StringComparison.OrdinalIgnoreCase))

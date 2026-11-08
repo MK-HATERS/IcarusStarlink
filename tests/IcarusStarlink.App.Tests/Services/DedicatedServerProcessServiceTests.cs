@@ -54,7 +54,10 @@ public sealed class DedicatedServerProcessServiceTests : IDisposable
 
         var roots = DedicatedServerProcessService.InstallRoots(Path.Combine(link, "IcarusServer"));
 
-        Assert.True(DedicatedServerProcessService.IsUnderInstall(Path.Combine(exeFolder, "IcarusServer-Win64-Shipping.exe"), roots));
+        // The exe as Windows reports it: by its final path, which is also the long form when TEMP
+        // is an 8.3 short path (C:\Users\JAMES~1\...).
+        var reportedExe = Path.Combine(DedicatedServerProcessService.ResolveFinalFolder(exeFolder)!, "IcarusServer-Win64-Shipping.exe");
+        Assert.True(DedicatedServerProcessService.IsUnderInstall(reportedExe, roots));
     }
 
     [Fact]
@@ -62,7 +65,12 @@ public sealed class DedicatedServerProcessServiceTests : IDisposable
     {
         Directory.CreateDirectory(_root);
 
-        Assert.Equal(Path.GetFullPath(_root).TrimEnd('\\'), DedicatedServerProcessService.ResolveFinalFolder(_root)?.TrimEnd('\\'), ignoreCase: true);
+        // Compared by the folder's own name and existence, not the whole path: the final path is
+        // the long form, while TEMP can be an 8.3 short path (C:\Users\JAMES~1\...).
+        var final = DedicatedServerProcessService.ResolveFinalFolder(_root);
+        Assert.NotNull(final);
+        Assert.True(Directory.Exists(final));
+        Assert.Equal(Path.GetFileName(_root), Path.GetFileName(final.TrimEnd('\\')), ignoreCase: true);
         Assert.Null(DedicatedServerProcessService.ResolveFinalFolder(Path.Combine(_root, "missing")));
     }
 
