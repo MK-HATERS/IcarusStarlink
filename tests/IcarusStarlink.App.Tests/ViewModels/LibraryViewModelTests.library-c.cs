@@ -290,6 +290,29 @@ public sealed partial class LibraryViewModelTests
         Assert.Equal([7], harness.NexusApiClient.FileSetCalls);
     }
 
+    /// <summary>
+    /// Regression: a second outdated download of the same Nexus mod, with no recorded file, was
+    /// skipped as "the other half" without a word: neither run nor named in "Not updated".
+    /// </summary>
+    [Fact]
+    public async Task UpdateAll_SecondDownloadOfTheSameModWithNoKnownFile_IsNamedNotSkippedSilently()
+    {
+        var harness = new TestHarness();
+        harness.CredentialStore.ApiKey = "key";
+        harness.AddMod("FirstCopy", source: "Nexus", nexusModId: 1);
+        harness.AddMod("SecondCopy", source: "Nexus", nexusModId: 1);
+        var vm = harness.Build();
+        foreach (var row in vm.RootItems.OfType<LibraryItemViewModel>())
+        {
+            row.LatestVersion = "2.0";
+        }
+
+        await vm.UpdateAllCommand.ExecuteAsync(null);
+
+        Assert.Contains("FirstCopy", vm.StatusMessage);
+        Assert.Contains("SecondCopy", vm.StatusMessage);
+    }
+
     /// <summary>An account Nexus says isn't Premium can't download through the API: Update all names the mods, as before.</summary>
     [Fact]
     public async Task UpdateAll_AccountNotPremium_OnlyNamesTheMods()

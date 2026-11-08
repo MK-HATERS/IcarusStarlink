@@ -406,10 +406,17 @@ public sealed partial class LibraryViewModel
                 continue;
             }
 
-            // The other half of a download already updated (same mod, same file; an unknown file
-            // counts as the same, since the file choice offers every file of the mod).
-            if (started.Any(s => s.ModId == target.ModId && (s.FileId is null || target.FileId is null || s.FileId == target.FileId)))
+            // The other half of a download already updated: same mod, same known file.
+            if (started.Any(s => s.ModId == target.ModId && s.FileId is not null && s.FileId == target.FileId))
             {
+                continue;
+            }
+
+            // Another download of a mod already updated, with no known file to tell them apart:
+            // a second file choice for the same mod would be a guess, so it's named instead.
+            if (started.Any(s => s.ModId == target.ModId && (s.FileId is null || target.FileId is null)))
+            {
+                notRun.Add(target.Name);
                 continue;
             }
 
@@ -418,7 +425,6 @@ public sealed partial class LibraryViewModel
                 continue; // its own Update pill is running it
             }
 
-            started.Add(target);
             try
             {
                 var item = nexusItems.FirstOrDefault(i => DataUpdateKey(i) == target.Key);
@@ -428,6 +434,8 @@ public sealed partial class LibraryViewModel
                     continue;
                 }
 
+                // Counted only once it really runs: a refused row's other half still gets its turn.
+                started.Add(target);
                 item?.FlushPendingSave();
                 StatusMessage = $"Getting '{target.Name}' from Nexus… ({started.Count} of {targets.Count})";
                 await FetchNexusUpdateAsync(target.ModId, target.Name);
@@ -647,10 +655,9 @@ public sealed partial class LibraryViewModel
     /// <summary>
     /// Manually connects a Library entry (however it got here — a manual Import, or an unmatched
     /// entry from a future bulk import) to a real Nexus mod ID, so it starts participating in
-    /// update-checking like anything activated through the real nxm:// pipeline. Best-effort
-    /// enrichment afterward (real name/author/version via the API) mirrors
-    /// DownloadsViewModel.EnrichOpaquePakFromNexusAsync's own two-step shape — a rejected/missing
-    /// key just means the ID link itself still succeeds without the extra display data.
+    /// update-checking like anything activated through the real nxm:// pipeline.
+    /// LinkFolderToNexusAsync saves the link first, then fills in the real name, author and version
+    /// from Nexus as a best effort: a rejected or missing key still leaves the link in place.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task LinkToNexus(LibraryItemViewModel? item)
@@ -841,6 +848,9 @@ public sealed partial class LibraryViewModel
                     notEndorsedCount++;
                 }
             }
+
+            // A UE4SS row's thumb is greyed out once endorsed; ask again now its status changed.
+            EndorseUe4ssModCommand.NotifyCanExecuteChanged();
 
             if (!quiet)
             {

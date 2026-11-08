@@ -64,7 +64,17 @@ public sealed partial class LibraryItemViewModel
             // Nothing is read on the UI thread: a .ubulk or .uexp can be hundreds of MB. Images and
             // small files are read in the background; a big text file shows its start; any other
             // big file shows only its size, without reading it.
-            var fullPath = AssetPathGuard.ResolveWithinDirectory(_repository.GetFolderPath(FolderName), value);
+            string fullPath;
+            try
+            {
+                fullPath = AssetPathGuard.ResolveWithinDirectory(_repository.GetFolderPath(FolderName), value);
+            }
+            catch (FormatException)
+            {
+                SelectedAssetPreview = "(this file is outside the mod's folder — not read)";
+                return;
+            }
+
             var length = new FileInfo(fullPath).Length;
             var extension = Path.GetExtension(value);
             if (ImageExtensions.Contains(extension) || length <= PreviewReadLimit)
