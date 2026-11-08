@@ -164,8 +164,8 @@ public static partial class ItemCloner
         var buff = consumable is null ? null : game.Row(consumable.CurrentFile, consumable.RowName)?["Modifier"]?["Modifier"]?["RowName"]?.GetValue<string>();
         var unlock = recipe.Value?["Requirement"]?["RowName"]?.GetValue<string>();
 
-        var workshop = (game.Rows(WorkshopItems) ?? []).FirstOrDefault(kv => RowNameOf(kv.Value?["Item"]) is { } item && products.Contains(item));
-        var talent = workshop.Key is null ? default : (game.Rows(Talents) ?? []).FirstOrDefault(kv => string.Equals(RowNameOf(kv.Value?["ExtraData"]), workshop.Key, StringComparison.OrdinalIgnoreCase));
+        var workshop = (game.Rows(WorkshopItems) ?? []).FirstOrDefault(kv => RowLinks.RowNameOf(kv.Value?["Item"]) is { } item && products.Contains(item));
+        var talent = workshop.Key is null ? default : (game.Rows(Talents) ?? []).FirstOrDefault(kv => string.Equals(RowLinks.RowNameOf(kv.Value?["ExtraData"]), workshop.Key, StringComparison.OrdinalIgnoreCase));
 
         return new ItemCloneSource(
             itemName, displayName, links, templateName is not null,
@@ -227,6 +227,11 @@ public static partial class ItemCloner
                 copy["Modifier"]!["Modifier"] = new JsonObject { ["RowName"] = buffName };
             }
 
+            if (link.Field == "Inventory" && copy["Inventories"] is JsonArray storages)
+            {
+                CopyStorages(game, existingMod, storages, source.ItemName, newName, rows, Add);
+            }
+
             Add(link.CurrentFile, copyName, copy);
             staticRow[link.Field] = new JsonObject { ["RowName"] = copyName };
         }
@@ -268,20 +273,54 @@ public static partial class ItemCloner
         return [.. rows.Select(kv => new ExmodFileRow { CurrentFile = kv.Key, FileItems = kv.Value })];
     }
 
+    /// <summary>
+    /// An inventory row only lists storages; the slots live in the D_InventoryInfo rows it names. The
+    /// item's own inventory gets its own copy of each (a storage listed twice is copied once), so its
+    /// slots change without touching the game's row the source item and others share.
+    /// </summary>
+    private static void CopyStorages(
+        GameTableIndex game, ExmodPackage? existingMod, JsonArray storages, string sourceItem, string newName,
+        Dictionary<string, List<ExmodFileItem>> rows, Action<string, string, JsonObject> add)
+    {
+        var copies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in storages.OfType<JsonObject>())
+        {
+            if (RowLinks.LinkedRow(entry) is not { } info
+                || game.CurrentFileFor(RowLinks.StringOf(entry["DataTableName"]) ?? "D_InventoryInfo") is not { } infoFile
+                || game.Row(infoFile, info) is not { } infoRow)
+            {
+                continue;
+            }
+
+            if (!copies.TryGetValue($"{infoFile}|{info}", out var copyName))
+            {
+                var wanted = info.Contains(sourceItem, StringComparison.OrdinalIgnoreCase)
+                    ? Regex.Replace(info, Regex.Escape(sourceItem), newName.Replace("$", "$$"), RegexOptions.IgnoreCase)
+                    : $"{info}_{newName}";
+                // Not a row the game or the mod has, nor one this Build already adds.
+                copyName = wanted;
+                for (var i = 2; game.HasRow(infoFile, copyName) || HasRow(existingMod, infoFile, copyName)
+                    || rows.GetValueOrDefault(infoFile)?.Any(r => string.Equals(r.Name, copyName, StringComparison.OrdinalIgnoreCase)) == true; i++)
+                {
+                    copyName = $"{wanted}_{i}";
+                }
+
+                var infoCopy = (JsonObject)infoRow.DeepClone();
+                RewriteLocalization(infoCopy, copyName, GameTableIndex.TableNameOf(infoFile), null);
+                add(infoFile, copyName, infoCopy);
+                copies[$"{infoFile}|{info}"] = copyName;
+            }
+
+            entry["RowName"] = copyName;
+        }
+    }
+
     /// <summary>Adds Build's rows to a mod (EndOfMod stays last).</summary>
     public static void AddToPackage(ExmodPackage package, IEnumerable<ExmodFileRow> newRows)
     {
         foreach (var newRow in newRows)
         {
-            var row = package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, newRow.CurrentFile, StringComparison.OrdinalIgnoreCase));
-            if (row is null)
-            {
-                var end = package.Rows.FindIndex(r => ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile));
-                package.Rows.Insert(end < 0 ? package.Rows.Count : end, newRow);
-                continue;
-            }
-
-            row.FileItems.AddRange(newRow.FileItems);
+            package.GetOrAddRow(newRow.CurrentFile).FileItems.AddRange(newRow.FileItems);
         }
     }
 
@@ -392,10 +431,7 @@ public static partial class ItemCloner
             && credits["Amount"]?.GetValue<int>() is { } amount ? amount : null;
 
     private static bool OutputsItem(JsonNode? recipe, IReadOnlySet<string> productNames) =>
-        recipe?["Outputs"] is JsonArray outputs && outputs.Any(o => RowNameOf((o as JsonObject)?["Element"]) is { } name && productNames.Contains(name));
-
-    private static string? RowNameOf(JsonNode? link) =>
-        (link as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
+        recipe?["Outputs"] is JsonArray outputs && outputs.Any(o => RowLinks.RowNameOf((o as JsonObject)?["Element"]) is { } name && productNames.Contains(name));
 
     /// <summary>Item_Envirosuit → Item_Dragon_Suit; a shared row ("IO_Undersuit") → the item's own name (Itemable keeps the game's "Item_" convention).</summary>
     private static string CopyName(ItemLink link, string sourceItem, string newName) =>

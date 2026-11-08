@@ -326,4 +326,46 @@ public sealed class ItemClonerTests : IDisposable
 
         Assert.Contains("Consumable", ex.Message);
     }
+
+    /// <summary>
+    /// Regression: an own Inventory copy only copied the D_Inventory row, which just lists storages;
+    /// the slots live in the D_InventoryInfo rows it names, which stayed the game's (shared with the
+    /// source crate and every other item listing them), so the new crate's slots couldn't change alone.
+    /// </summary>
+    [Fact]
+    public void Build_OwnInventory_AlsoCopiesItsStorageRows()
+    {
+        void W(string relative, string json)
+        {
+            var path = Path.Combine(_root, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
+        }
+
+        W("Items/D_ItemsStatic.json", """
+            {"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"},"Inventory":{"RowName":"None","DataTableName":"D_Inventory"}},"Rows":[
+              {"Name":"Crate_A","Inventory":{"RowName":"Inv_AC"}},
+              {"Name":"Crate_C","Inventory":{"RowName":"Inv_AC"}}
+            ]}
+            """);
+        W("Traits/D_Inventory.json", """
+            {"RowStruct":"S","Defaults":{"Inventories":[]},"Rows":[
+              {"Name":"Inv_AC","Inventories":[{"RowName":"Shared_Info","DataTableName":"D_InventoryInfo"},{"RowName":"shared_info","DataTableName":"D_InventoryInfo"}]}
+            ]}
+            """);
+        W("Inventory/D_InventoryInfo.json", """{"RowStruct":"S","Defaults":{"StartingSlots":20},"Rows":[{"Name":"Shared_Info","InventoryID":{"Value":"General"},"StartingSlots":20}]}""");
+        var game = new GameTableIndex(_root);
+
+        var rows = ItemCloner.Build(game, new ItemCloneRequest
+        {
+            SourceItem = "Crate_A", NewName = "Big_Crate", DisplayName = "Big Crate", OwnCopyFields = new HashSet<string> { "Inventory" },
+        });
+
+        var info = Assert.Single(rows.Single(r => r.CurrentFile == "Inventory-D_InventoryInfo.json").FileItems); // a storage listed twice is copied once
+        Assert.Equal("Shared_Info_Big_Crate", info.Name);
+        Assert.Equal(20, info.Fields["StartingSlots"]!.GetValue<int>());
+        var storages = (JsonArray)Row(rows, "Traits-D_Inventory.json", "Big_Crate")["Inventories"]!;
+        Assert.All(storages, s => Assert.Equal("Shared_Info_Big_Crate", RowName(s)));
+        Assert.Equal("D_InventoryInfo", storages[0]!["DataTableName"]!.GetValue<string>());
+    }
 }
