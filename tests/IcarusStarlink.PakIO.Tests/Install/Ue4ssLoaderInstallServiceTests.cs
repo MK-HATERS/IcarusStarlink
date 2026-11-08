@@ -181,7 +181,7 @@ public class Ue4ssLoaderInstallServiceTests : IDisposable
     }
 
     /// <summary>Every dev build since 3.0.1 ships dwmapi.dll plus a ue4ss\ folder that mirrors Binaries\Win64\ue4ss (the real UE4SS_v3.0.1-1181-g83330635.zip layout).</summary>
-    private string CreateFakeDevBuildZip()
+    private string CreateFakeDevBuildZip(params (string Name, string Content)[] extraEntries)
     {
         var zipPath = Path.Combine(_tempDir, $"UE4SS_v3.0.1-1181-g83330635_{Guid.NewGuid():N}.zip");
         using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
@@ -192,7 +192,139 @@ public class Ue4ssLoaderInstallServiceTests : IDisposable
         WriteEntry(archive, "ue4ss/Mods/mods.txt", "Keybinds : 1");
         WriteEntry(archive, "ue4ss/Mods/Keybinds/Scripts/main.lua", "-- dev keybinds");
         WriteEntry(archive, "ue4ss/UE4SS_SDK_Backends/UE4SS.json", "{}");
+        foreach (var (name, content) in extraEntries)
+        {
+            WriteEntry(archive, name, content);
+        }
+
         return zipPath;
+    }
+
+    private string CreateZip(params (string Name, string Content)[] entries)
+    {
+        var zipPath = Path.Combine(_tempDir, $"UE4SS_{Guid.NewGuid():N}.zip");
+        using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
+        foreach (var (name, content) in entries)
+        {
+            WriteEntry(archive, name, content);
+        }
+
+        return zipPath;
+    }
+
+    private void Seed(string path, string content)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+    }
+
+    /// <summary>
+    /// Regression: an entry that would land outside the game's folders was only caught when the
+    /// install reached it, after dwmapi.dll (the zip's first file) had already been replaced.
+    /// </summary>
+    [Fact]
+    public async Task InstallOrUpdateAsync_AnEntryThatWouldLandOutsideTheFolder_IsRefusedBeforeAnythingIsWritten()
+    {
+        Seed(Path.Combine(LoaderFolder, "UE4SS.dll"), "old dll");
+        Seed(Path.Combine(Win64Folder, "dwmapi.dll"), "old dwmapi");
+        var zipPath = CreateZip(("dwmapi.dll", "new dwmapi"), ("ue4ss/UE4SS.dll", "new dll"), ("ue4ss/../evil.dll", "evil"));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.InstallOrUpdateAsync(_fakeContentPath, zipPath, _backupDirectory));
+
+        Assert.Contains("Nothing was changed", ex.Message);
+        Assert.Equal("old dwmapi", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "dwmapi.dll")));
+        Assert.Equal("old dll", await File.ReadAllTextAsync(Path.Combine(LoaderFolder, "UE4SS.dll")));
+        Assert.False(File.Exists(Path.Combine(Win64Folder, "evil.dll")));
+    }
+
+    /// <summary>An entry declared over the size budget is refused the same way, before anything is written.</summary>
+    [Fact]
+    public async Task InstallOrUpdateAsync_AnEntryOverTheSizeLimit_IsRefusedBeforeAnythingIsWritten()
+    {
+        Seed(Path.Combine(Win64Folder, "dwmapi.dll"), "old dwmapi");
+        var zipPath = Path.Combine(_tempDir, $"UE4SS_{Guid.NewGuid():N}.zip");
+        using (var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create))
+        {
+            WriteEntry(archive, "dwmapi.dll", "new dwmapi");
+            WriteEntry(archive, "ue4ss/UE4SS.dll", "new dll");
+            using var stream = archive.CreateEntry("ue4ss/huge.bin", CompressionLevel.Fastest).Open();
+            var zeros = new byte[1024 * 1024];
+            for (long written = 0; written <= IcarusStarlink.PakIO.Container.ExmodSizeLimits.MaxAssetEntryBytes; written += zeros.Length)
+            {
+                stream.Write(zeros, 0, (int)Math.Min(zeros.Length, IcarusStarlink.PakIO.Container.ExmodSizeLimits.MaxAssetEntryBytes + 1 - written));
+            }
+        }
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.InstallOrUpdateAsync(_fakeContentPath, zipPath, _backupDirectory));
+
+        Assert.Contains("Nothing was changed", ex.Message);
+        Assert.Equal("old dwmapi", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "dwmapi.dll")));
+        Assert.False(File.Exists(Path.Combine(LoaderFolder, "UE4SS.dll")));
+    }
+
+    /// <summary>
+    /// Regression: a file that couldn't be replaced partway (locked by antivirus, a full disk) left
+    /// the files written before it as they were: a new dwmapi.dll next to the old UE4SS.dll.
+    /// </summary>
+    [Fact]
+    public async Task InstallOrUpdateAsync_AFileThatCantBeReplaced_PutsBackWhatWasWritten()
+    {
+        var dllPath = Path.Combine(LoaderFolder, "UE4SS.dll");
+        Seed(dllPath, "old dll");
+        Seed(Path.Combine(LoaderFolder, "LICENSE"), "old license");
+        Seed(Path.Combine(Win64Folder, "dwmapi.dll"), "old dwmapi");
+        var zipPath = CreateZip(("dwmapi.dll", "new dwmapi"), ("ue4ss/LICENSE", "MIT"), ("ue4ss/UE4SS.dll", "new dll"));
+
+        // Readable (so the backup can copy it), but not replaceable.
+        using (new FileStream(dllPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            await Assert.ThrowsAnyAsync<IOException>(() =>
+                _service.InstallOrUpdateAsync(_fakeContentPath, zipPath, _backupDirectory));
+        }
+
+        Assert.Equal("old dwmapi", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "dwmapi.dll")));
+        Assert.Equal("old license", await File.ReadAllTextAsync(Path.Combine(LoaderFolder, "LICENSE")));
+        Assert.Equal("old dll", await File.ReadAllTextAsync(dllPath));
+        Assert.Empty(Directory.GetFiles(Win64Folder, "*.tmp", SearchOption.AllDirectories));
+    }
+
+    /// <summary>
+    /// Regression: Mods\shared\ (UE4SS's own Lua library) was treated like a mod and kept, so an
+    /// update from 3.0.1 left the old UEHelpers.lua and mods calling the newer helpers failed to load.
+    /// </summary>
+    [Fact]
+    public async Task InstallOrUpdateAsync_UpdatesUe4ssOwnLuaLibrary_ButNotTheModsOrThePlayersOwnFiles()
+    {
+        var helpers = Path.Combine(LoaderFolder, "Mods", "shared", "UEHelpers", "UEHelpers.lua");
+        var ownLib = Path.Combine(LoaderFolder, "Mods", "shared", "MyLib", "lib.lua");
+        var keybinds = Path.Combine(LoaderFolder, "Mods", "Keybinds", "Scripts", "main.lua");
+        var modsTxt = Path.Combine(LoaderFolder, "Mods", "mods.txt");
+        Seed(helpers, "-- 3.0.1 helpers");
+        Seed(ownLib, "mine");
+        Seed(keybinds, "my keybinds");
+        Seed(modsTxt, "Keybinds : 1");
+
+        await _service.InstallOrUpdateAsync(_fakeContentPath, CreateFakeDevBuildZip(("ue4ss/Mods/shared/UEHelpers/UEHelpers.lua", "-- 1181 helpers")), _backupDirectory);
+
+        Assert.Equal("-- 1181 helpers", await File.ReadAllTextAsync(helpers));
+        Assert.Equal("mine", await File.ReadAllTextAsync(ownLib));
+        Assert.Equal("my keybinds", await File.ReadAllTextAsync(keybinds));
+        Assert.Equal("Keybinds : 1", await File.ReadAllTextAsync(modsTxt));
+    }
+
+    /// <summary>The same for the flat 3.0.1 layout, where Mods\ sits at the zip's root.</summary>
+    [Fact]
+    public async Task InstallOrUpdateAsync_FlatLayout_UpdatesUe4ssOwnLuaLibrary()
+    {
+        var helpers = Path.Combine(LoaderFolder, "Mods", "shared", "UEHelpers", "UEHelpers.lua");
+        Seed(helpers, "-- old helpers");
+        var zipPath = CreateZip(("dwmapi.dll", "new dwmapi"), ("UE4SS.dll", "new dll"), ("Mods/shared/UEHelpers/UEHelpers.lua", "-- new helpers"));
+
+        await _service.InstallOrUpdateAsync(_fakeContentPath, zipPath, _backupDirectory);
+
+        Assert.Equal("-- new helpers", await File.ReadAllTextAsync(helpers));
     }
 
     [Fact]
