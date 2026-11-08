@@ -1,5 +1,4 @@
 using System.IO.Compression;
-using System.Text;
 using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Safety;
 using SharpCompress.Archives;
@@ -8,7 +7,7 @@ using SharpCompress.Common;
 namespace IcarusStarlink.PakIO.Container;
 
 /// <summary>
-/// Reads/writes the .EXMODZ zip layout confirmed against real samples during planning: one
+/// Reads/writes the .EXMODZ zip layout as real samples have it: one
 /// "Extracted Mods/&lt;fileName&gt;.EXMOD" JSON entry, alongside a folder tree of already-compiled
 /// binary assets plus a loose readme/image. Read(string) also accepts a plain RAR or 7z archive
 /// with the same internal layout — real Nexus mod authors sometimes upload one of those instead of
@@ -78,7 +77,7 @@ public static class ExmodzArchive
         }
 
         throw new FormatException(
-            $"'{Path.GetFileName(zipFilePath)}' is a {archiveType} archive, which IcarusStarlink doesn't " +
+            $"'{Path.GetFileName(zipFilePath)}' is a {archiveType} archive, which Starlink doesn't " +
             "support — extract it yourself, then use Import folder... instead.");
     }
 
@@ -143,9 +142,7 @@ public static class ExmodzArchive
         // The .EXMOD entry is just as untrusted as the asset entries below it — see
         // ArchiveEntryReader's own doc comment for why a plain unbounded ReadToEnd() isn't used.
         var exmodBytes = ArchiveEntryReader.ReadExactly("Archive's .EXMOD entry", exmodEntry.Length, exmodEntry.Open, sizeBudget);
-        // TrimStart handles a leading UTF-8 BOM some tools write; StreamReader used to do
-        // this implicitly, decoding raw bytes ourselves doesn't.
-        var json = Encoding.UTF8.GetString(exmodBytes).TrimStart('\uFEFF');
+        var json = ExmodText.Decode(exmodBytes);
         var package = ExmodJson.Parse(json);
 
         var assets = new List<ExmodAssetEntry>();

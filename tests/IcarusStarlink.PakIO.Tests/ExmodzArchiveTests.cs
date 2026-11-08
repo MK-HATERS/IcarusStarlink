@@ -414,6 +414,33 @@ public class ExmodzArchiveTests
         Assert.Throws<FormatException>(() => ExmodzArchive.Read(stream));
     }
 
+    /// <summary>
+    /// Regression: an .EXMOD saved as Windows-1252 ("ANSI" in Notepad) had its 0x93/0x94 smart
+    /// quotes read as U+FFFD, and saving the mod wrote the replacement characters back for good.
+    /// </summary>
+    [Fact]
+    public void Read_ExmodSavedAsWindows1252_KeepsItsSmartQuotes()
+    {
+        byte[] json =
+        [
+            .. """{"name": "N", "author": "A", "version": "1", "description": "Say """u8,
+            0x93, .. "hi"u8, 0x94,
+            .. "\", \"fileName\": \"Ansi_Mod\"}"u8,
+        ];
+        using var stream = new MemoryStream();
+        using (var archive = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        using (var entryStream = archive.CreateEntry("Extracted Mods/Ansi_Mod.EXMOD").Open())
+        {
+            entryStream.Write(json);
+        }
+
+        stream.Position = 0;
+
+        var result = ExmodzArchive.Read(stream);
+
+        Assert.Equal("Say “hi”", result.Package.Description);
+    }
+
     private static MemoryStream BuildRawZip(string exmodJson, string exmodEntryName, params (string Name, byte[] Content)[] assetEntries)
     {
         var stream = new MemoryStream();

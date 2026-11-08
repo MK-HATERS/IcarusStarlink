@@ -3,7 +3,7 @@ namespace IcarusStarlink.PakIO.Container;
 /// <summary>
 /// One non-EXMOD file inside an EXMODZ package — already-compiled binary Unreal assets
 /// (.uasset/.uexp/.ubulk), a readme, a preview image. We never parse these, only copy them
-/// through verbatim, per the real EXMODZ samples inspected during planning.
+/// through verbatim, as real EXMODZ samples carry them.
 /// </summary>
 public sealed record ExmodAssetEntry(string RelativePath, byte[] Content)
 {

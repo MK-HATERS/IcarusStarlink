@@ -142,4 +142,41 @@ public class AnyArchiveExtractorTests
             Directory.Delete(destDir, recursive: true);
         }
     }
+
+    /// <summary>
+    /// Regression: a download cut off midway reached the player as "Import failed: End of Central
+    /// Directory record could not be found.", with no next step. It now says the zip may be damaged
+    /// and to download it again.
+    /// </summary>
+    [Fact]
+    public void ExtractToDirectory_CutOffZip_SaysItsDamaged()
+    {
+        var zipPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink.Tests.{Guid.NewGuid():N}.zip");
+        var destDir = CreateTempDirectory();
+        try
+        {
+            using (var archive = new System.IO.Compression.ZipArchive(File.Create(zipPath), System.IO.Compression.ZipArchiveMode.Create))
+            {
+                foreach (var name in new[] { "readme.txt", "Mods/A/main.lua", "Mods/A/enabled.txt" })
+                {
+                    using var s = archive.CreateEntry(name).Open();
+                    s.Write("some content"u8);
+                }
+            }
+
+            // The first local header stays whole (what the format sniff reads); the end-of-central-
+            // directory record at the end is cut short, as in a download that stopped early.
+            var bytes = File.ReadAllBytes(zipPath);
+            File.WriteAllBytes(zipPath, bytes[..^10]);
+
+            var ex = Assert.Throws<FormatException>(() => AnyArchiveExtractor.ExtractToDirectory(zipPath, destDir));
+            Assert.Contains("Download it again", ex.Message);
+            Assert.Contains(Path.GetFileName(zipPath), ex.Message);
+        }
+        finally
+        {
+            File.Delete(zipPath);
+            Directory.Delete(destDir, recursive: true);
+        }
+    }
 }

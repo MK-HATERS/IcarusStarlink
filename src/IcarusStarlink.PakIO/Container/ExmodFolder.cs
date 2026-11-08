@@ -1,4 +1,3 @@
-using System.Text;
 using IcarusStarlink.Core.IO;
 using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Safety;
@@ -180,8 +179,7 @@ public static class ExmodFolder
     private static ExmodPackage ReadPackage(string exmodFilePath, ExmodSizeBudget sizeBudget)
     {
         var exmodBytes = ReadAllBytesBounded(exmodFilePath, $"'{exmodFilePath}'", sizeBudget);
-        // TrimStart handles a leading UTF-8 BOM some tools write.
-        return ExmodJson.Parse(Encoding.UTF8.GetString(exmodBytes).TrimStart('\uFEFF'));
+        return ExmodJson.Parse(ExmodText.Decode(exmodBytes));
     }
 
     private static IEnumerable<string> EnumerateAssetPaths(IReadOnlyList<string> allFiles, string folderPath, string exmodFilePath, HashSet<string> seenAssetPaths)

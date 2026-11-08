@@ -236,6 +236,43 @@ public class ExmodFolderTests : IDisposable
         Assert.Throws<FormatException>(() => ExmodFolder.Read(_tempDir));
     }
 
+    /// <summary>
+    /// Regression: an .EXMOD saved as Windows-1252 ("ANSI" in Notepad) had its 0x93/0x94 smart
+    /// quotes read as U+FFFD, and saving the mod wrote the replacement characters back for good.
+    /// </summary>
+    [Fact]
+    public void Read_ExmodSavedAsWindows1252_KeepsItsSmartQuotes()
+    {
+        Directory.CreateDirectory(_tempDir);
+        byte[] json =
+        [
+            .. """{"name": "N", "author": "A", "version": "1", "description": "Say """u8,
+            0x93, .. "hi"u8, 0x94,
+            .. "\", \"fileName\": \"Ansi_Mod\"}"u8,
+        ];
+        File.WriteAllBytes(Path.Combine(_tempDir, "Ansi_Mod.EXMOD"), json);
+
+        var result = ExmodFolder.Read(_tempDir);
+
+        Assert.Equal("Say “hi”", result.Package.Description);
+    }
+
+    [Fact]
+    public void Read_ExmodInUtf8WithABom_StillReadsAsUtf8()
+    {
+        Directory.CreateDirectory(_tempDir);
+        byte[] json =
+        [
+            0xEF, 0xBB, 0xBF,
+            .. """{"name": "N", "author": "A", "version": "1", "description": "Say “hi” é", "fileName": "Utf8_Mod"}"""u8,
+        ];
+        File.WriteAllBytes(Path.Combine(_tempDir, "Utf8_Mod.EXMOD"), json);
+
+        var result = ExmodFolder.Read(_tempDir);
+
+        Assert.Equal("Say “hi” é", result.Package.Description);
+    }
+
     [Fact]
     public void Read_FolderWithNoExmodFile_ThrowsFormatException()
     {

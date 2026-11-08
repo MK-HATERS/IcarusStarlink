@@ -27,22 +27,33 @@ public static class AnyArchiveExtractor
 
         if (archiveType == ArchiveType.Zip)
         {
-            using var zip = ZipFile.OpenRead(archiveFilePath);
-            foreach (var entry in zip.Entries)
+            // The format sniff only reads the first header: a download cut off midway, or an entry
+            // that's encrypted or packed a way .NET can't read, fails later with ZipArchive's own
+            // wording. The guards' and the size budget's FormatExceptions pass through as they are.
+            try
             {
-                // A genuine directory entry's own FullName ends in a path separator — but not every
-                // real-world zip writer uses the ZIP spec's own forward-slash convention: PowerShell's
-                // Compress-Archive cmdlet (a real, ordinary tool a mod author might use) writes
-                // directory entries as e.g. "BP\Objects\", backslash-terminated. Checking only '/'
-                // let a would-be directory entry fall through to ExtractEntry as if it were a real
-                // file, which then failed with a confusing "could not find a part of the path" —
-                // found by actually importing a Compress-Archive-produced zip, not by inspection.
-                if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\'))
+                using var zip = ZipFile.OpenRead(archiveFilePath);
+                foreach (var entry in zip.Entries)
                 {
-                    continue;
-                }
+                    // A genuine directory entry's own FullName ends in a path separator — but not every
+                    // real-world zip writer uses the ZIP spec's own forward-slash convention: PowerShell's
+                    // Compress-Archive cmdlet (a real, ordinary tool a mod author might use) writes
+                    // directory entries as e.g. "BP\Objects\", backslash-terminated. Checking only '/'
+                    // let a would-be directory entry fall through to ExtractEntry as if it were a real
+                    // file, which then failed with a confusing "could not find a part of the path" —
+                    // found by actually importing a Compress-Archive-produced zip, not by inspection.
+                    if (entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\'))
+                    {
+                        continue;
+                    }
 
-                ExtractEntry(entry.FullName.Replace('\\', '/'), entry.Length, entry.Open, destinationDirectory, sizeBudget);
+                    ExtractEntry(entry.FullName.Replace('\\', '/'), entry.Length, entry.Open, destinationDirectory, sizeBudget);
+                }
+            }
+            catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
+            {
+                throw new FormatException(
+                    $"Couldn't read '{Path.GetFileName(archiveFilePath)}': the zip may be damaged or only partly downloaded. Download it again.", ex);
             }
 
             return;
@@ -72,7 +83,7 @@ public static class AnyArchiveExtractor
         }
 
         throw new FormatException(
-            $"'{Path.GetFileName(archiveFilePath)}' is a {archiveType} archive, which IcarusStarlink doesn't support.");
+            $"'{Path.GetFileName(archiveFilePath)}' is a {archiveType} archive, which Starlink doesn't support.");
     }
 
     private static void ExtractEntry(string relativePath, long declaredLength, Func<Stream> open, string destinationDirectory, ExmodSizeBudget sizeBudget)
