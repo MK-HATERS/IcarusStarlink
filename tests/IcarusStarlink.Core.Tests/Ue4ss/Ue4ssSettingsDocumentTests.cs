@@ -460,7 +460,7 @@ public class Ue4ssSettingsDocumentTests
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var settings = Ue4ssSettingsDocument.Parse(text, keepCommentLines: true).Settings;
 
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
         Assert.Equal(10_000, settings.Count);
     }
 

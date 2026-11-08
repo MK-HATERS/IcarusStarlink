@@ -53,7 +53,7 @@ public static class Ue4ssServerFiles
         return [.. Directory.GetDirectories(gameModsFolder)
             .Select(Path.GetFileName)
             .OfType<string>()
-            .Where(n => !frameworkMods.Contains(n) &&Ue4ssModStart.IsMod(gameModsFolder, n) && Ue4ssModStart.Starts(gameModsFolder, n, list))
+            .Where(n => !frameworkMods.Contains(n) && Ue4ssModStart.IsMod(gameModsFolder, n) && Ue4ssModStart.Starts(gameModsFolder, n, list))
             .Order(StringComparer.OrdinalIgnoreCase)];
     }
 }
