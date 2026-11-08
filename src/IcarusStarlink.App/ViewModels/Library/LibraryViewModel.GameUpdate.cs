@@ -36,8 +36,6 @@ public sealed partial class LibraryViewModel
     /// <summary>The bar under both panels: the game updated, or mods in the game lost their ticks. What isn't in the game yet shows in each panel's own bar.</summary>
     public bool ShowPendingBar => HasGameUpdate || CanTickWhatsInTheGame;
 
-    partial void OnHasPendingChangesChanged(bool value) => OnPropertyChanged(nameof(ShowPendingBar));
-
     /// <summary>Builds already announced this session (one pop-up per update, not one per visit).</summary>
     private readonly HashSet<string> _announcedGameBuilds = new(StringComparer.OrdinalIgnoreCase);
 

@@ -28,14 +28,6 @@ namespace IcarusStarlink.App.ViewModels;
 /// <summary>The "On" tick's link to the merge queue, each row's Status, and the "not in the game yet" bars.</summary>
 public sealed partial class LibraryViewModel
 {
-    /// <summary>True when an "On" tick differs from what the installed merged pak contains (Merge &amp; Install needed) or a UE4SS tick differs from disk (Apply needed).</summary>
-    [ObservableProperty]
-    private bool _hasPendingChanges;
-
-    /// <summary>"2 changes not in the game yet: 1 UE4SS change and 1 pak mod".</summary>
-    [ObservableProperty]
-    private string _pendingChangesSummary = "";
-
     [ObservableProperty]
     private bool _hasPendingPakChanges;
 
@@ -227,36 +219,10 @@ public sealed partial class LibraryViewModel
             item.InstallStatusDetail = detail;
         }
 
-        var pendingLua = Ue4ssMods.Count(m => m.IsDirty);
         InGameNotTickedCount = inGameNotTicked;
         // ArcFission Library rebuilt its data since the merge: its new rows need a Merge & Install.
         var arcFission = mergeInstall?.ArcFissionNeedsMerge == true;
         HasPendingPakChanges = pendingPak > 0 || updatedCount > 0 || arcFission;
-        HasPendingChanges = HasPendingPakChanges || pendingLua > 0;
-        var parts = new List<string>();
-        if (pendingLua > 0)
-        {
-            parts.Add(pendingLua == 1 ? "1 UE4SS change" : $"{pendingLua} UE4SS changes");
-        }
-
-        if (pendingPak > 0)
-        {
-            parts.Add(pendingPak == 1 ? "1 pak mod" : $"{pendingPak} pak mods");
-        }
-
-        if (updatedCount > 0)
-        {
-            parts.Add(updatedCount == 1 ? "1 changed mod" : $"{updatedCount} changed mods");
-        }
-
-        if (arcFission)
-        {
-            parts.Add("ArcFission's data (WirelessPower and other ArcFission mods) changed since the last merge");
-        }
-
-        PendingChangesSummary = parts.Count == 0
-            ? ""
-            : $"Changes waiting: {string.Join(" and ", parts)}";
         // Every mod counted as changed above, also one whose status reads "Needs Apply" (its Lua
         // half was ticked or unticked too): the bar used to count those without naming them.
         updatedNames.Sort(StringComparer.OrdinalIgnoreCase);

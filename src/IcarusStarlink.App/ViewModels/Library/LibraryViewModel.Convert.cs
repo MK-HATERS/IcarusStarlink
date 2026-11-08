@@ -218,7 +218,7 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
-    /// Runs silently after every successful "Update data folder" (see the WeeklyChangeReportUpdatedMessage
+    /// Runs silently after every successful "Refresh game data" (see the WeeklyChangeReportUpdatedMessage
     /// registration above) — not a manual action, since it's meant to keep every convertible/converted
     /// mod current with whatever the game now looks like, without anyone having to remember to ask.
     /// Two things happen, neither ever touching a hand-edited mod:

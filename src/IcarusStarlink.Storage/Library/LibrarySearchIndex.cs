@@ -5,11 +5,11 @@ namespace IcarusStarlink.Storage.Library;
 
 /// <summary>
 /// A disposable, in-memory FTS5 index over the library — never a source of truth (that's the
-/// Extracted_Mods folder itself). Rebuild() does a full rebuild from a fresh folder scan (used
-/// once, at startup); Insert/Remove/UpdateNotes make targeted changes afterward so a single
-/// mod's metadata edit doesn't require re-reading every other mod's package. In-memory rather
-/// than a persisted cache file: library sizes are modest (dozens of mods), so even the full
-/// rebuild is cheap, and this avoids stale-cache-file management entirely.
+/// Extracted_Mods folder itself). Rebuild() does a full rebuild on every full folder rescan;
+/// Insert/Remove/UpdateNotes make targeted changes in between so a single mod's metadata edit
+/// doesn't require re-reading every other mod's package. In-memory rather than a persisted
+/// cache file: the full rebuild is cheap next to the folder scan that feeds it, and this avoids
+/// stale-cache-file management entirely.
 /// </summary>
 internal sealed class LibrarySearchIndex : IDisposable
 {

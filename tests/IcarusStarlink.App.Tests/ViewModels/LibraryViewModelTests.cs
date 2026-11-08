@@ -611,7 +611,8 @@ public sealed partial class LibraryViewModelTests
         Assert.Equal("UE4SS", arcFission.TypeLabel);
         Assert.Equal("In game", arcFission.InstallStatus);
         Assert.True(arcFission.IsInGame);
-        Assert.False(vm.HasPendingChanges);
+        Assert.Equal("", vm.PendingDataText);
+        Assert.Equal("", vm.PendingUe4ssText);
 
         // Two panels: data mods on the left, UE4SS mods on the right, each by name.
         Assert.Equal(["Steadfast Structures", "Wireless Power"], vm.DataRootItems.OfType<LibraryItemViewModel>().Select(i => i.Name));
@@ -747,9 +748,8 @@ public sealed partial class LibraryViewModelTests
 
         Assert.Equal("Needs Apply", row.InstallStatus);
         Assert.True(row.NeedsAction);
-        Assert.True(vm.HasPendingChanges);
         Assert.True(vm.HasPendingUe4ssChanges);
-        Assert.Contains("1 UE4SS change", vm.PendingChangesSummary);
+        Assert.Equal("ArcFissionLibrary turned off", vm.PendingUe4ssText);
     }
 
     [Fact]

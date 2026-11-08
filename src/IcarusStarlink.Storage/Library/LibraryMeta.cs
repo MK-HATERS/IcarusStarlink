@@ -1,6 +1,6 @@
 namespace IcarusStarlink.Storage.Library;
 
-/// <summary>The sidecar (.immmeta.json) content — library-only metadata not already present in the mod's own EXMOD file.</summary>
+/// <summary>The Library_Meta\&lt;folder&gt;.json sidecar's content — library-only metadata not already present in the mod's own EXMOD file.</summary>
 internal sealed class LibraryMeta
 {
     public bool IsPinned { get; set; }
