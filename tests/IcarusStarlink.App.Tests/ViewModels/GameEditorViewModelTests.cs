@@ -575,6 +575,81 @@ public sealed class GameEditorViewModelTests : IDisposable
         Assert.Equal(0, vm.PendingCount);
     }
 
+    private void WriteBenches() => Write("Crafting/D_RecipeSets.json", """
+        {"RowStruct":"S","Defaults":{},"Rows":[
+          {"Name":"Character","RecipeSetName":"NSLOCTEXT(\"D_RecipeSets\", \"Character-RecipeSetName\", \"Character\")"},
+          {"Name":"Fabricator","RecipeSetName":"NSLOCTEXT(\"D_RecipeSets\", \"Fabricator-RecipeSetName\", \"Fabricator\")"},
+          {"Name":"Manufacturer","RecipeSetName":"NSLOCTEXT(\"D_RecipeSets\", \"Manufacturer-RecipeSetName\", \"Manufacturer\")"}
+        ]}
+        """);
+
+    /// <summary>
+    /// "Add bench" makes a recipe at another bench too, and a bench's ✕ takes one out: Save writes
+    /// the recipe's whole new bench list. Moving a recipe = add the new bench, ✕ the old one.
+    /// </summary>
+    [Fact]
+    public void Benches_AddedAndTakenOut_SaveAsTheWholeNewList()
+    {
+        WriteEnvirosuitRecipe();
+        WriteBenches();
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        var recipe = vm.Sections.Single(s => s.Section.Key == "Recipe:Envirosuit_Recipe");
+        Assert.True(recipe.HasBenchPicker);
+        Assert.DoesNotContain(recipe.BenchChoices!, c => c.Name == "None");
+
+        var byHand = recipe.Fields.Single(f => f.Label == "Made at");
+        Assert.False(byHand.ShowDrop); // the only bench: a recipe needs one
+
+        recipe.AddBenchCommand.Execute(null);
+        Assert.Equal("Pick a bench from the list first.", recipe.BenchError);
+        recipe.BenchToAdd = recipe.BenchChoices!.Single(c => c.Name == "Character");
+        recipe.AddBenchCommand.Execute(null);
+        Assert.Equal("It's already made there.", recipe.BenchError);
+
+        recipe.BenchToAdd = recipe.BenchChoices!.Single(c => c.Name == "Fabricator");
+        recipe.AddBenchCommand.Execute(null);
+        Assert.Null(recipe.BenchError);
+        var fabricator = recipe.Fields.Single(f => f.Label == "Made at (2)");
+        Assert.Equal("added by you", fabricator.GameText);
+        Assert.Equal(recipe.Fields.IndexOf(byHand) + 1, recipe.Fields.IndexOf(fabricator)); // with the other benches, not after the ingredients
+        Assert.True(byHand.ShowDrop);
+
+        byHand.DropCommand.Execute(null);
+        Assert.True(byHand.IsDropped);
+        Assert.False(fabricator.ShowDrop); // now the last one left
+
+        vm.NewModName = "Fabricated suit";
+        vm.SaveCommand.Execute(null);
+
+        var benches = (System.Text.Json.Nodes.JsonArray)Read(_library, Assert.Single(_library.GetAll()).FolderName)
+            .Rows.Single(r => r.CurrentFile == "Crafting-D_ProcessorRecipes.json").FileItems.Single().Fields["RecipeSets"]!;
+        var bench = Assert.Single(benches)!;
+        Assert.Equal("Fabricator", bench["RowName"]!.GetValue<string>());
+        Assert.Equal("D_RecipeSets", bench["DataTableName"]!.GetValue<string>());
+    }
+
+    /// <summary>↺ on an added bench takes it out again; when the game's bench was taken out meanwhile, it comes back instead of leaving none.</summary>
+    [Fact]
+    public void RemovingTheOnlyBenchLeft_BringsTheGamesBack()
+    {
+        WriteEnvirosuitRecipe();
+        WriteBenches();
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        var recipe = vm.Sections.Single(s => s.Section.Key == "Recipe:Envirosuit_Recipe");
+        var byHand = recipe.Fields.Single(f => f.Label == "Made at");
+        recipe.BenchToAdd = recipe.BenchChoices!.Single(c => c.Name == "Manufacturer");
+        recipe.AddBenchCommand.Execute(null);
+        byHand.DropCommand.Execute(null);
+
+        recipe.Fields.Single(f => f.Label == "Made at (2)").UseGameValueCommand.Execute(null);
+
+        Assert.False(byHand.IsDropped);
+        Assert.False(byHand.ShowDrop);
+        Assert.Equal(0, vm.PendingCount);
+    }
+
     /// <summary>In the real game data, 47 items' text ends in a space ("…exposure resistance. "), and opening one showed a change nobody made.</summary>
     [Fact]
     public void GameTextEndingInASpace_IsNotAChange()

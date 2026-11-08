@@ -26,7 +26,7 @@ public sealed record EditPath(string Top, IReadOnlyList<object> Steps)
 public sealed record EditableField(EditPath Path, string Label, string Description, EditableKind Kind, JsonNode? GameValue, JsonNode? CurrentValue, bool Inherited, string? LinkTable = null);
 
 /// <summary>One game row an item uses, as a section of the Editor page.</summary>
-/// <param name="Lists">The row's lists of amounts as they are now (a recipe's "Inputs"), by field: adding or taking out an entry rewrites the whole list from this.</param>
+/// <param name="Lists">The row's lists as they are now (a recipe's "Inputs" and its benches, "RecipeSets"), by field: adding or taking out an entry rewrites the whole list from this.</param>
 public sealed record EditableSection(
     string Key, string Title, string CurrentFile, string RowName, string GameRowName, int SharedBy,
     IReadOnlyList<EditableField> Fields, IReadOnlyList<string> StatGroups, IReadOnlyDictionary<string, JsonArray>? Lists = null)
@@ -120,7 +120,7 @@ public static partial class GameItemEditor
     {
         ["SpoiledItem"] = ("Spoils into", "What it turns into once it spoils."),
         ["DefaultRecipeSet"] = ("Recipe list", "The list of recipes it works from (a furnace's own list, a bench's)."),
-        ["RecipeSets"] = ("Made at", "The bench, or By hand, where this recipe is crafted."),
+        ["RecipeSets"] = ("Made at", "The bench, or By hand, where this recipe is crafted. Add bench (below) makes it at another one too; ✕ takes one out."),
     };
 
     private static readonly HashSet<string> InheritedWorthShowing = new(StringComparer.OrdinalIgnoreCase)
@@ -323,7 +323,9 @@ public static partial class GameItemEditor
                         (original as JsonObject)?["RowName"], link["RowName"], false, LinkTableOf(link, defaults?[top])));
                     break;
                 case JsonArray links when Links.TryGetValue(top, out var listText) && links.All(e => e is JsonObject o && o.ContainsKey("RowName")):
-                    // A list of links (a recipe's benches): one drop-down per entry.
+                    // A list of links (a recipe's benches): one drop-down per entry. Kept whole too:
+                    // adding or taking out a bench rewrites the list.
+                    lists[top] = (JsonArray)links.DeepClone();
                     for (var i = 0; i < links.Count; i++)
                     {
                         var entry = (JsonObject)links[i]!;

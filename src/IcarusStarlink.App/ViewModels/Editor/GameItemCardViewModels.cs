@@ -93,7 +93,7 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     /// <summary>Takes whole numbers only (a stat, a stack size): a bulk multiply rounds for it.</summary>
     internal bool IsWholeNumber => _wholeNumber;
 
-    public string GameText => Field.GameValue is null ? "game: not set" : $"game: {ShownAs(_gameText)}{(Field.Inherited ? " (table default)" : "")}";
+    public string GameText => AddedEntry is not null ? "added by you" : Field.GameValue is null ? "game: not set" : $"game: {ShownAs(_gameText)}{(Field.Inherited ? " (table default)" : "")}";
 
     /// <summary>A link by its in-game name, an on/off value in words; anything else as it is.</summary>
     private string ShownAs(string text) => Field.Kind switch
@@ -154,23 +154,34 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     /// <summary>Differs from what was shown, valid or not (a half-typed number is kept when switching items too).</summary>
     public bool IsTyped => IsDropped || ValueText.Trim() != _startText.Trim(); // game text can end in a space ("…resistance. "): not a change
 
-    /// <summary>An entry of a list (a recipe ingredient) that can be taken out with its ×.</summary>
+    /// <summary>An entry of a list (a recipe ingredient or bench) that can be taken out with its ×.</summary>
     public bool CanDrop { get; init; }
 
-    /// <summary>Taken out of its list (a recipe ingredient): saved as the list without it; ↺ puts it back.</summary>
+    /// <summary>Taken out of its list (a recipe ingredient or bench): saved as the list without it; ↺ puts it back.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DiffersFromGame), nameof(IsPending), nameof(Error), nameof(ShowDrop))]
     private bool _isDropped;
 
-    /// <summary>The × beside an ingredient: there while it's in the list.</summary>
-    public bool ShowDrop => CanDrop && !IsDropped;
+    /// <summary>The only entry its list still has (a recipe's one bench): no × then, a recipe needs a bench.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowDrop))]
+    private bool _isLastOfList;
+
+    /// <summary>The × beside an ingredient or bench: there while it's in the list (not on a recipe's last bench).</summary>
+    public bool ShowDrop => CanDrop && !IsDropped && !IsLastOfList;
 
     /// <summary>For an entry added here: the row it names and that row's table ("Stone", "D_ItemsStatic").</summary>
     internal (string Row, string Table)? AddedEntry { get; init; }
 
-    /// <summary>The × beside an ingredient: takes it out of the recipe.</summary>
+    /// <summary>The × beside an ingredient or bench: takes it out of the recipe.</summary>
     [RelayCommand]
-    private void Drop() => IsDropped = true;
+    private void Drop()
+    {
+        if (!IsLastOfList)
+        {
+            IsDropped = true;
+        }
+    }
 
     /// <summary>A value the game doesn't have (a stat the mod adds), emptied by ↺: it comes out of the mod again.</summary>
     private bool IsRemoved => Field.GameValue is null && ValueText.Trim().Length == 0;
@@ -275,17 +286,103 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
             IngredientPicker = new ItemPickerViewModel(items, AddIngredient);
         }
 
+        if (CanEditBenches && linkChoices is not null)
+        {
+            BenchChoices = [.. linkChoices(BenchTable).Where(c => c.Name != "None")];
+        }
+
         foreach (var field in section.Fields)
         {
             var decimalField = field.Kind == EditableKind.Number ? game?.IsDecimalField(section.CurrentFile, field.Path.Top, GameItemFieldViewModel.DecimalSteps(field.Path)) : null;
             Add(new GameItemFieldViewModel(field, decimalField, field.LinkTable is { } table ? linkChoices?.Invoke(table) : null)
             {
-                CanDrop = CanEditIngredients && IsIngredient(field.Path),
+                CanDrop = (CanEditIngredients && IsIngredient(field.Path)) || (CanEditBenches && IsBench(field.Path)),
             });
         }
+
+        MarkLastBench();
     }
 
     private const string Ingredients = "Inputs";
+
+    private const string Benches = "RecipeSets";
+
+    private const string BenchTable = "D_RecipeSets";
+
+    /// <summary>A recipe card with a bench list: benches can be added and taken out (never the last one).</summary>
+    public bool CanEditBenches =>
+        Section.Key.StartsWith(GameItemEditor.RecipeSection + ":", StringComparison.Ordinal) && Section.Lists?.ContainsKey(Benches) == true;
+
+    /// <summary>"Add bench": every bench, by its in-game name (recipe cards only).</summary>
+    public IReadOnlyList<LinkChoice>? BenchChoices { get; }
+
+    public bool HasBenchPicker => BenchChoices is { Count: > 0 };
+
+    [ObservableProperty]
+    private LinkChoice? _benchToAdd;
+
+    [ObservableProperty]
+    private string? _benchError;
+
+    private static bool IsBench(EditPath path) => path.Top == Benches && path.Steps.Count == 2 && path.Steps[0] is int;
+
+    private IEnumerable<GameItemFieldViewModel> KeptBenches => Fields.Where(f => IsBench(f.Field.Path) && !f.IsDropped);
+
+    /// <summary>A recipe made nowhere can't be crafted: the one bench left loses its ×.</summary>
+    private void MarkLastBench()
+    {
+        var kept = KeptBenches.ToList();
+        foreach (var bench in Fields.Where(f => IsBench(f.Field.Path)))
+        {
+            bench.IsLastOfList = kept.Count == 1 && kept[0] == bench;
+        }
+    }
+
+    /// <summary>Adds the picked bench to the recipe's list, or says why not.</summary>
+    [RelayCommand]
+    private void AddBench()
+    {
+        if (BenchToAdd is not { } bench)
+        {
+            BenchError = "Pick a bench from the list first.";
+            return;
+        }
+
+        if (KeptBenches.Any(f => string.Equals(f.ValueText.Trim(), bench.Name, StringComparison.OrdinalIgnoreCase)))
+        {
+            BenchError = "It's already made there.";
+            return;
+        }
+
+        var index = Section.Lists![Benches].Count + Fields.Count(f => IsBench(f.Field.Path) && f.AddedEntry is not null);
+        var lastBench = Fields.LastOrDefault(f => IsBench(f.Field.Path));
+        Add(at: lastBench is null ? null : Fields.IndexOf(lastBench) + 1, field: new GameItemFieldViewModel(new EditableField(new EditPath(Benches, [index, "RowName"]), $"Made at ({Fields.Count(f => IsBench(f.Field.Path)) + 1})",
+            "Added by you: it can be made here too. ↺ takes it out again.", EditableKind.Link, null, null, false, BenchTable), linkChoices: BenchChoices)
+        {
+            ValueText = bench.Name,
+            AddedEntry = (bench.Name, BenchTable),
+            RemoveAdded = field =>
+            {
+                Fields.Remove(field);
+                if (!KeptBenches.Any())
+                {
+                    // Taking out the only bench left: the game's benches come back instead of none.
+                    foreach (var dropped in Fields.Where(f => IsBench(f.Field.Path)))
+                    {
+                        dropped.IsDropped = false;
+                    }
+                }
+
+                MarkLastBench();
+                _changed();
+            },
+        });
+        BenchError = null;
+        BenchToAdd = null;
+        AllHidden = false;
+        MarkLastBench();
+        _changed();
+    }
 
     /// <summary>A recipe card with an ingredient list: ingredients can be added and taken out.</summary>
     public bool CanEditIngredients =>
@@ -369,11 +466,15 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
         foreach (var added in Fields.Where(f => f.Field.Path.Top == top && f.AddedEntry is not null))
         {
             var (row, table) = added.AddedEntry!.Value;
-            list.Add(new JsonObject
-            {
-                ["Element"] = new JsonObject { ["RowName"] = row, ["DataTableName"] = table },
-                [(string)added.Field.Path.Steps[1]] = added.NewValue(),
-            });
+            // A bench is a link itself ({"RowName", "DataTableName"}), its drop-down can repoint it;
+            // an ingredient is an amount of a linked item.
+            list.Add(top == Benches
+                ? new JsonObject { ["RowName"] = added.NewValue(), ["DataTableName"] = table }
+                : new JsonObject
+                {
+                    ["Element"] = new JsonObject { ["RowName"] = row, ["DataTableName"] = table },
+                    [(string)added.Field.Path.Steps[1]] = added.NewValue(),
+                });
         }
 
         return list;
@@ -458,15 +559,28 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
         return null;
     }
 
-    private void Add(GameItemFieldViewModel field)
+    /// <param name="at">Where on the card (an added bench goes right under the others); null: at the end.</param>
+    private void Add(GameItemFieldViewModel field, int? at = null)
     {
         field.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is nameof(GameItemFieldViewModel.ValueText) or nameof(GameItemFieldViewModel.IsDropped))
             {
+                if (e.PropertyName == nameof(GameItemFieldViewModel.IsDropped) && IsBench(field.Field.Path))
+                {
+                    MarkLastBench();
+                }
+
                 _changed();
             }
         };
-        Fields.Add(field);
+        if (at is { } index && index < Fields.Count)
+        {
+            Fields.Insert(index, field);
+        }
+        else
+        {
+            Fields.Add(field);
+        }
     }
 }

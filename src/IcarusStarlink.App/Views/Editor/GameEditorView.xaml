@@ -505,6 +505,15 @@
                                                                           SelectedValue="{Binding LinkValue}" IsEditable="True" IsTextSearchEnabled="True" TextSearch.TextPath="Display"
                                                                           AutomationProperties.Name="{Binding Label}"
                                                                           Visibility="{Binding IsLink, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                                    <ComboBox.Style>
+                                                                        <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding IsDropped}" Value="True">
+                                                                                    <Setter Property="IsEnabled" Value="False"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </ComboBox.Style>
                                                                     <ComboBox.ItemsPanel>
                                                                         <ItemsPanelTemplate>
                                                                             <VirtualizingStackPanel/>
@@ -542,10 +551,10 @@
                                                                     <TextBlock Text="{Binding GameText}" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" MaxWidth="180" TextTrimming="CharacterEllipsis"
                                                                                ToolTip="{Binding GameText}"/>
                                                                     <Button Content="&#x21BA;" Command="{Binding UseGameValueCommand}" Margin="6,0,0,0" Padding="5,0"
-                                                                            ToolTip="Back to the game's value (a taken-out ingredient goes back in)" AutomationProperties.Name="Back to the game's value"
+                                                                            ToolTip="Back to the game's value (a taken-out ingredient or bench goes back in; one you added goes)" AutomationProperties.Name="Back to the game's value"
                                                                             Visibility="{Binding DiffersFromGame, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                                     <Button Content="&#x2715;" Command="{Binding DropCommand}" Margin="6,0,0,0" Padding="5,0"
-                                                                            ToolTip="Take this ingredient out of the recipe (↺ puts it back)" AutomationProperties.Name="{Binding Label, StringFormat='Take out {0}'}"
+                                                                            ToolTip="Take this out of the recipe (↺ puts it back)" AutomationProperties.Name="{Binding Label, StringFormat='Take out {0}'}"
                                                                             Visibility="{Binding ShowDrop, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                                 </StackPanel>
                                                                 <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3">
@@ -560,6 +569,28 @@
 
                                                 <ContentControl Margin="0,0,0,0" Content="{Binding Picker}" ContentTemplate="{StaticResource StatPickerTemplate}"
                                                                 Visibility="{Binding CanAddStat, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                <!-- A recipe's benches: pick one, add it (made there too); ✕ beside a bench takes it out, never the last. -->
+                                                <Border Margin="0,4,0,0" Padding="10,8" CornerRadius="4" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
+                                                        Visibility="{Binding HasBenchPicker, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                    <StackPanel>
+                                                        <TextBlock Text="Add bench" FontWeight="SemiBold"/>
+                                                        <TextBlock Text="Makes it at another bench too. To move it, add the new bench, then ✕ the old one." FontSize="11.5" TextWrapping="Wrap"
+                                                                   Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,2,0,0"/>
+                                                        <DockPanel Margin="0,6,0,0">
+                                                            <Button DockPanel.Dock="Right" Content="Add bench" Command="{Binding AddBenchCommand}" Padding="8,2" Margin="8,0,0,0"/>
+                                                            <ComboBox ItemsSource="{Binding BenchChoices}" SelectedItem="{Binding BenchToAdd}" DisplayMemberPath="Display"
+                                                                      IsEditable="True" IsTextSearchEnabled="True" TextSearch.TextPath="Display" AutomationProperties.Name="Bench to add">
+                                                                <ComboBox.ItemsPanel>
+                                                                    <ItemsPanelTemplate>
+                                                                        <VirtualizingStackPanel/>
+                                                                    </ItemsPanelTemplate>
+                                                                </ComboBox.ItemsPanel>
+                                                            </ComboBox>
+                                                        </DockPanel>
+                                                        <TextBlock Text="{Binding BenchError}" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,0"
+                                                                   Visibility="{Binding BenchError, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                                    </StackPanel>
+                                                </Border>
                                                 <!-- A recipe's ingredients: search an item, add it (1 to start); ✕ beside one takes it out. -->
                                                 <Border Margin="0,4,0,0" Padding="10,8" CornerRadius="4" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"
                                                         Visibility="{Binding HasIngredientPicker, Converter={StaticResource BoolToVisibilityConverter}}">
