@@ -18,13 +18,6 @@ namespace IcarusStarlink.App.ViewModels;
 /// <summary>Conflicts: the one conflict check behind the badge, the review window and the build's picks, the saved winners, and moving winners between ids and the names the window shows.</summary>
 public sealed partial class MergeInstallViewModel
 {
-    // --- Advanced conflict picker ---
-    // Null means "no manual picks" (every conflict resolves via the registry's own default rule).
-    // Invalidated (reset to null) whenever Queue changes at all — a pick's own index only means
-    // the mod it meant when it was made; any Add/Remove/Move/Clear could change which mod that
-    // index now refers to, or whether the field is even still a conflict at all.
-    private IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? _manualPicks;
-
     /// <summary>
     /// Conflict winners (see Profile.ConflictWinners), loaded and saved with the profile: "file|row|field"
     /// → the winner's id, its Library folder name (FolderName/pak name for one pak of a prebuilt
@@ -44,13 +37,6 @@ public sealed partial class MergeInstallViewModel
 
     /// <summary>How many conflict winners the user has picked for this profile.</summary>
     public int SavedWinnerCount => _winners.Count;
-
-    /// <summary>Test-only seam — see AssemblyInfo.cs's own InternalsVisibleTo grant. Lets a test set up a stored manual pick and then assert whether a given invalidation trigger correctly cleared it, without a real conflict-picker dialog flow.</summary>
-    internal IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? ManualPicksForTesting
-    {
-        get => _manualPicks;
-        set => _manualPicks = value;
-    }
 
     [ObservableProperty]
     private string? _conflictStatusMessage;
@@ -82,9 +68,9 @@ public sealed partial class MergeInstallViewModel
     [ObservableProperty]
     private IReadOnlyDictionary<string, IReadOnlyList<string>> _conflictingModNamesByMod = new Dictionary<string, IReadOnlyList<string>>();
 
+    /// <summary>The queued mods' content, the game data or a conflict-affecting option changed: the old conflict line goes and the badge is counted again.</summary>
     private void InvalidateManualPicks()
     {
-        _manualPicks = null;
         ConflictStatusMessage = null;
         _ = RecomputeConflictCountAsync();
     }
@@ -392,15 +378,14 @@ public sealed partial class MergeInstallViewModel
     /// The snapshot's winners turned into the merge's per-field picks for its queue (a pick's
     /// position among the mods changing that value, counted the way Rebuild merges: see
     /// FindQueueConflictsAsync), plus how many saved winners for mods in this build no longer match
-    /// a conflict (the value isn't changed differently any more, or that mod doesn't change it). A
-    /// test's ManualPicksForTesting is used when nothing was picked.
+    /// a conflict (the value isn't changed differently any more, or that mod doesn't change it).
     /// </summary>
     private async Task<(IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? Picks, int Unmatched)> ResolveWinnerPicksAsync(
         BuildSnapshot snapshot, LoadedQueue loaded)
     {
         if (snapshot.Winners.Count == 0)
         {
-            return (snapshot.ManualPicks, 0);
+            return (null, 0);
         }
 
         var found = await FindQueueConflictsAsync(snapshot, loaded);
@@ -467,7 +452,6 @@ public sealed partial class MergeInstallViewModel
 
             if (conflicts.Count == 0 && newItemCollisions.Count == 0 && between.Count == 0 && perMod.Count == 0)
             {
-                _manualPicks = null;
                 ConflictStatusMessage = $"Nothing to look at among {modNames.Count} mod(s): no conflicts, nothing clashing between mods, and no problems in the queued mods.";
                 return;
             }

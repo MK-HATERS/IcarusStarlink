@@ -216,17 +216,13 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             SelectedProfileName = "Default";
         }
 
-        // Any queue change at all invalidates existing conflict picks — see _manualPicks' own
-        // comment for why an Add/Remove/Move/Clear can silently change what a pick's index means.
-        // The actual conflict/validation recompute is debounced (_recomputeDebounceTimer, above)
-        // rather than kicked off directly here — a multi-select "Add to merge queue" or a fast
-        // drag-reorder fires this handler many times in a row, and each one used to independently
-        // relaunch the full recompute path with only a version counter to discard the stale result;
-        // the wasted work still happened. The cheap, synchronous resets below still happen on every
-        // single mutation, so status text never lingers stale even mid-burst.
+        // Any queue change clears the conflict status line and saves the working state. The
+        // conflict/validation recompute is debounced (_recomputeDebounceTimer, above) rather than
+        // kicked off directly here: a multi-select "Add to merge queue" or a fast drag-reorder fires
+        // this handler many times in a row. The cheap, synchronous resets below still happen on
+        // every single mutation, so status text never lingers stale even mid-burst.
         Queue.CollectionChanged += (_, _) =>
         {
-            _manualPicks = null;
             ConflictStatusMessage = null;
             OnPropertyChanged(nameof(HasQueuedMods));
             OnPropertyChanged(nameof(IsQueueEmpty));
@@ -256,13 +252,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         // own fingerprint check already catches that correctly on the NEXT recompute regardless,
         // but clearing it here too means a rename/re-import/delete under a REUSED folder name can
         // never serve another mod's stale cached content, however unlikely that coincidence is.
-        // Also invalidates any manual conflict pick: MergeEngine.Merge applies a pick as a plain
-        // index into that field's candidate list, rebuilt fresh from each queued mod's CURRENT
-        // content at Rebuild time — if a queued mod's own EXMOD content just changed (this message
-        // firing IS that signal), the same in-range index can now mean a different value entirely,
-        // and there is no way to detect that from the index alone. Same reasoning already applied
-        // to Queue.CollectionChanged/InvalidateManualPicks above; this was the one other place a
-        // pick's own meaning can silently change out from under it.
+        // A queued mod's content may have changed, so the conflict line is cleared and the badge
+        // and the check counted again.
         _messenger.Register<LibraryChangedMessage>(this, (recipient, message) =>
         {
             var viewModel = (MergeInstallViewModel)recipient;
@@ -277,13 +268,10 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             _ = viewModel.RefreshChangedSinceInstallAsync();
         });
 
-        // _dataFolder's own contents only ever change via a real "Update data folder" run — the
-        // same trigger GameDataIndexCache and LibraryViewModel already invalidate their own base-data
-        // caches on. Also invalidates any manual conflict pick, for the same reason as
-        // LibraryChangedMessage's own handler above: MergeEngine.Merge re-resolves each field's
-        // candidate list (which now starts from the FRESH base data this message signals) at
-        // Rebuild time, and a pick stored as a plain index has no way to detect that its own
-        // meaning may have shifted underneath it.
+        // _dataFolder's own contents only change through Refresh game data, which sends this message
+        // (GameDataIndexCache and LibraryViewModel drop their own caches on it too). The cached game
+        // tables and pak diffs are dropped, the conflict line is cleared, and the badge and the
+        // check are counted again against the new data.
         _messenger.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, message) =>
         {
             var viewModel = (MergeInstallViewModel)recipient;

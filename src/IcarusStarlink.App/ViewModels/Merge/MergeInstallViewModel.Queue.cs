@@ -383,8 +383,7 @@ public sealed partial class MergeInstallViewModel
 
     /// <summary>Drag-and-drop reordering (MergeInstallView's own code-behind drives the actual drag
     /// gesture — WPF has no clean MVVM path for it) — same Queue.Move the up/down buttons already
-    /// use, so it triggers the identical CollectionChanged-driven manual-pick invalidation above
-    /// for free.</summary>
+    /// use, so the same CollectionChanged handler clears the conflict line, recounts and saves.</summary>
     public void ReorderQueueEntry(LibraryEntry entry, int targetIndex)
     {
         if (RefuseWhileRebuilding())

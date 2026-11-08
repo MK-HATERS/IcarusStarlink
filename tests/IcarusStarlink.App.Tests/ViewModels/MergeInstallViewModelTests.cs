@@ -56,7 +56,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// ILibraryRepository.GetFolderPath + ExmodFolder.Read regardless of which other dependency is
 /// faked, so a real folder is the only way to reach any of this ViewModel's own logic at all.
 /// </summary>
-public sealed class MergeInstallViewModelTests : IDisposable
+public sealed partial class MergeInstallViewModelTests : IDisposable
 {
     private readonly string _tempRoot = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
 
@@ -1049,35 +1049,30 @@ public sealed class MergeInstallViewModelTests : IDisposable
     }
 
     // ---------------------------------------------------------------------------------------
-    // 1b. Manual conflict picks must be invalidated whenever a queued mod's own content or the
-    //     base data folder changes — not just on a Queue mutation. MergeEngine.Merge applies a
-    //     pick as a plain index into that field's candidate list, rebuilt fresh at Rebuild time;
-    //     if the content behind that index changed, the SAME index can now mean something else
-    //     entirely, with no way to detect that from the index alone.
+    // 1b. The conflict status line goes when a queued mod's own content or the game data changes,
+    //     not only on a Queue mutation: what it said may no longer be true.
     // ---------------------------------------------------------------------------------------
 
     [Fact]
-    public void LibraryChangedMessage_InvalidatesAnyStoredManualPick()
+    public void LibraryChangedMessage_ClearsTheConflictStatusLine()
     {
         var vm = CreateViewModel();
-        var pick = new Dictionary<(string, string, string), int> { [("File.json", "Item", "Field")] = 0 };
-        vm.ManualPicksForTesting = pick;
+        vm.ConflictStatusMessage = "x";
 
         _messenger.Send(new LibraryChangedMessage());
 
-        Assert.Null(vm.ManualPicksForTesting);
+        Assert.Null(vm.ConflictStatusMessage);
     }
 
     [Fact]
-    public void WeeklyChangeReportUpdatedMessage_InvalidatesAnyStoredManualPick()
+    public void WeeklyChangeReportUpdatedMessage_ClearsTheConflictStatusLine()
     {
         var vm = CreateViewModel();
-        var pick = new Dictionary<(string, string, string), int> { [("File.json", "Item", "Field")] = 0 };
-        vm.ManualPicksForTesting = pick;
+        vm.ConflictStatusMessage = "x";
 
         _messenger.Send(new WeeklyChangeReportUpdatedMessage());
 
-        Assert.Null(vm.ManualPicksForTesting);
+        Assert.Null(vm.ConflictStatusMessage);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -1390,11 +1385,11 @@ public sealed class MergeInstallViewModelTests : IDisposable
 
     /// <summary>
     /// Regression: RebuildAsync's own Library import sends LibraryChangedMessage, and this VM's
-    /// handler for that message wiped the manual conflict picks — so a second Install of the same
-    /// reviewed queue silently resolved last-wins. Picks must survive the self-sent message.
+    /// handler for that message cleared the conflict status line the player had just read. The
+    /// line must survive the self-sent message.
     /// </summary>
     [Fact]
-    public async Task RebuildAsync_Success_KeepsTheManualConflictPicksForTheNextRebuild()
+    public async Task RebuildAsync_Success_KeepsTheConflictStatusLine()
     {
         var libraryRepository = new FakeLibraryRepository();
         libraryRepository.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
@@ -1407,14 +1402,13 @@ public sealed class MergeInstallViewModelTests : IDisposable
         settingsService.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
         var vm = CreateViewModel(libraryRepository: libraryRepository, rebuildService: rebuildService, settingsService: settingsService);
         vm.Queue.Add(MakeEntry("ModA"));
-        var pick = new Dictionary<(string, string, string), int> { [("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime")] = 0 };
-        vm.ManualPicksForTesting = pick;
+        vm.ConflictStatusMessage = "1 conflict(s), 1 won by your pick";
 
         var succeeded = await vm.RebuildAsync();
 
         Assert.True(succeeded);
         Assert.Equal(1, libraryRepository.ImportPakCallCount);
-        Assert.Same(pick, vm.ManualPicksForTesting);
+        Assert.Equal("1 conflict(s), 1 won by your pick", vm.ConflictStatusMessage);
     }
 
     [Fact]
@@ -2381,8 +2375,8 @@ public sealed class MergeInstallViewModelTests : IDisposable
 
     /// <summary>
     /// The build already put its pak in the Library: Install doesn't import it again (which filed it
-    /// under whichever profile was selected by then and dropped the picks). When the build's import
-    /// failed, Install imports it under the profile it was built from, keeping the picks.
+    /// under whichever profile was selected by then). When the build's import failed, Install
+    /// imports it under the profile it was built from.
     /// </summary>
     [Fact]
     public async Task Install_AfterABuild_ImportsTheBuiltPackOnlyIfTheBuildCouldnt_UnderTheBuildsProfile()
@@ -2412,14 +2406,11 @@ public sealed class MergeInstallViewModelTests : IDisposable
         Assert.True(await vm.RebuildAsync());
         libraryRepository.ImportPakException = null;
         vm.SelectedProfileName = "Solo";
-        var pick = new Dictionary<(string, string, string), int> { [("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime")] = 0 };
-        vm.ManualPicksForTesting = pick;
 
         Assert.Equal(MergeInstallViewModel.InstallOutcome.Installed, await vm.InstallAsync());
 
         Assert.Equal(3, libraryRepository.ImportPakCallCount);
         Assert.Equal("Coop", libraryRepository.LastMergedPackProfileName);
-        Assert.Same(pick, vm.ManualPicksForTesting);
     }
 
     /// <summary>An install in progress is reported to AppBusyCheck's question (the update, the close prompt and Refresh game data ask it); nothing once it's done.</summary>
@@ -2509,13 +2500,23 @@ public sealed class MergeInstallViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task FindBrokenRound_DoesNotUseConflictPicks_WhichArePositionsInTheWholeQueue()
+    public async Task FindBrokenRound_ASavedWinnerForAModLeftOutOfTheRound_IsNotUsed()
     {
-        var (vm, _, rebuild, _, _) = FinderSetup();
-        vm.ManualPicksForTesting = new Dictionary<(string, string, string), int> { [("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime")] = 2 };
+        var (vm, library, rebuild, _, _) = FinderSetup();
+        library.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        library.FolderPaths["ModB"] = CreateExmodFolder("ModB", BuildCraftTimeExmodJson("ModB", craftTime: 99), out _);
+        library.FolderPaths["ModC"] = CreateExmodFolder("ModC", BuildCraftTimeExmodJson("ModC", craftTime: 7), out _);
+        vm.RestoreWorkingState(new Profile
+        {
+            Name = "Coop",
+            MergeQueueFolderNames = ["ModA", "ModB", "ModC"],
+            ConflictWinners = new() { [CraftTimeWinnerKey] = "ModC" },
+        });
+        Assert.Equal("ModC", vm.WinnersForTesting[CraftTimeWinnerKey]);
 
-        await vm.InstallForFinderAsync(["ModA", "ModC"]);
+        await vm.InstallForFinderAsync(["ModA", "ModB"]);
 
+        Assert.Equal(["ModA", "ModB"], rebuild.LastQueuedMods!.Select(m => m.Package.Name));
         Assert.Null(rebuild.LastManualPicks);
     }
 

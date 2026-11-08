@@ -428,7 +428,6 @@ public sealed partial class MergeInstallViewModel
         GameplayOptions Options,
         string OptionsSummary,
         IReadOnlyDictionary<string, string> Winners,
-        IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? ManualPicks,
         ArcFissionScan? ArcFission,
         string ProfileName,
         string UnrealPakExePath);
@@ -442,8 +441,6 @@ public sealed partial class MergeInstallViewModel
         BuildGameplayOptionsFromUi(),
         ActiveOptionsSummary,
         new Dictionary<string, string>(_winners, StringComparer.OrdinalIgnoreCase),
-        // Picks are positions among the queued mods: with part of the queue they'd mean other mods.
-        _finderOnly is null ? _manualPicks : null,
         ScanArcFission(),
         SelectedProfileName ?? "Default",
         _settingsService.Current.UnrealPakExePath ?? "");
@@ -469,17 +466,13 @@ public sealed partial class MergeInstallViewModel
     private bool _builtPackInLibrary;
 
     /// <summary>
-    /// ImportBuiltPakIntoLibrary without losing the conflict picks. The import sends
-    /// LibraryChangedMessage, and this VM's own handler for that message invalidates manual
-    /// conflict picks — right for an external change (a queued mod's content moved under the
-    /// picks), wrong here, where the only change is the app's own built pack landing in the
-    /// Library, which no pick refers to. Before this, every successful Rebuild silently
-    /// discarded the picks, so a second Install of the same queue resolved last-wins instead of
-    /// what the user had reviewed. The picks and their status line are carried across it.
+    /// ImportBuiltPakIntoLibrary without losing the conflict status line. The import sends
+    /// LibraryChangedMessage, and this VM's own handler for that message clears the line (right
+    /// for an outside change to a queued mod, wrong here, where the only change is the app's own
+    /// built pack landing in the Library), so the line is carried across it.
     /// </summary>
     private void ImportBuiltPakKeepingPicks(string profileName)
     {
-        var picksBeforeImport = _manualPicks;
         var pickStatusBeforeImport = ConflictStatusMessage;
         try
         {
@@ -488,7 +481,6 @@ public sealed partial class MergeInstallViewModel
         }
         finally
         {
-            _manualPicks = picksBeforeImport;
             ConflictStatusMessage = pickStatusBeforeImport;
         }
     }

@@ -83,13 +83,11 @@ public sealed partial class MergeInstallViewModel
     private static string ShortLabel(object level) =>
         (string)LevelLabelConverter.Convert(level, typeof(string), null, CultureInfo.InvariantCulture);
 
-    // Speed/Player/XP Boost and Disable Temperatures (Category 1 — the ones that are a real
-    // FieldChange) also invalidate any existing manual
-    // conflict picks and recompute the badge — toggling one of these changes whether the "Built-in
-    // gameplay options" synthetic entry even exists, which can change what a stored pick's index
-    // means the same way an Add/Remove/Move/Clear on Queue already does. Category 2 options
-    // (Craft Cost, Stacks/Slots multiplier, ...) stay their own separate post-merge pass (unchanged
-    // by that plan) and only need the summary refresh, not a conflict recompute.
+    // Speed/Player/XP Boost, Disable Temperatures and Remove Level Cap (Category 1, the ones that
+    // are a real FieldChange) also clear the conflict line and recount the badge: toggling one
+    // changes what the "Built-in gameplay options" entry takes part in. Category 2 options (Craft
+    // Cost, Stacks/Slots multiplier, ...) are their own post-merge pass and only need the summary
+    // refresh, not a conflict recount.
     partial void OnSpeedBoostChanged(BoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
     partial void OnPlayerBoostChanged(BoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
     partial void OnXpBoostChanged(XpBoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
