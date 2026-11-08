@@ -10,6 +10,7 @@ namespace IcarusStarlink.PakIO.Exmod;
 public sealed class GameItemNames(GameTableIndex game)
 {
     private const string ItemsStatic = "Items-D_ItemsStatic.json";
+    private const string ItemTemplate = "Items-D_ItemTemplate.json";
     private const string ItemableFile = "Traits-D_Itemable.json";
     private Dictionary<(string Table, string Row), string?>? _itemByRow;
 
@@ -17,8 +18,17 @@ public sealed class GameItemNames(GameTableIndex game)
     public string? ItemFor(string currentFile, string rowName)
     {
         var table = GameTableIndex.TableNameOf(currentFile);
+        if (string.Equals(table, "D_ItemTemplate", StringComparison.OrdinalIgnoreCase)
+            && RowLinks.LinkedRow(game.Row(ItemTemplate, rowName)?["ItemStaticData"]) is { } item
+            && game.GameRowName(ItemsStatic, item) is { } found)
+        {
+            // Many templates are named unlike their item (Stone_Furnace makes Kit_Stone_Furnace).
+            return found;
+        }
+
         if (string.Equals(table, "D_ItemsStatic", StringComparison.OrdinalIgnoreCase) || string.Equals(table, "D_ItemTemplate", StringComparison.OrdinalIgnoreCase))
         {
+            // A template only the mod has, or none that names its item: its own name.
             return game.GameRowName(ItemsStatic, rowName);
         }
 
