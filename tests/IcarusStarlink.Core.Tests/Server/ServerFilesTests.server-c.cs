@@ -30,6 +30,38 @@ public sealed partial class ServerFilesTests
         Assert.Empty(Directory.GetDirectories(Path.Combine(install, "Icarus"), "Saved.restoring-*"));
     }
 
+    /// <summary>An entry with ':' in a name (a hidden NTFS stream) or a Windows device name is skipped; the rest is restored.</summary>
+    [Fact]
+    public void Restore_SkipsEntriesWithAStreamOrDeviceName()
+    {
+        var install = Path.Combine(_root, "Server");
+        var prospects = DedicatedServerLayout.ProspectsFolder(install, null);
+        Directory.CreateDirectory(prospects);
+        File.WriteAllText(Path.Combine(prospects, "A.json"), "current");
+        var backups = Path.Combine(_root, "Backups");
+        var zip = Path.Combine(_root, "odd.zip");
+        using (var archive = ZipFile.Open(zip, ZipArchiveMode.Create))
+        {
+            foreach (var (name, text) in new[]
+                     {
+                         ("PlayerData/DedicatedServer/Prospects/A.json", "backup"),
+                         ("PlayerData/DedicatedServer/Prospects/a:b", "stream"),
+                         ("PlayerData/DedicatedServer/Prospects/CON", "device"),
+                         ("PlayerData/nul.txt/B.json", "device folder"),
+                     })
+            {
+                using var w = new StreamWriter(archive.CreateEntry(name).Open());
+                w.Write(text);
+            }
+        }
+
+        ServerBackups.Restore(zip, install, null, backups);
+
+        Assert.Equal("backup", File.ReadAllText(Path.Combine(prospects, "A.json")));
+        Assert.Equal(["A.json"], Directory.GetFiles(prospects).Select(Path.GetFileName));
+        Assert.False(Directory.Exists(Path.Combine(DedicatedServerLayout.SavedFolder(install, null), "PlayerData", "nul.txt")));
+    }
+
     /// <summary>A whole backup still lands in Saved, and no staging folder is left beside it.</summary>
     [Fact]
     public void Restore_AGoodBackup_ReplacesTheWorldsAndLeavesNoStagingFolder()

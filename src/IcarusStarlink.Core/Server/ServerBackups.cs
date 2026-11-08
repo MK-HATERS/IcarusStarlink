@@ -196,6 +196,22 @@ public static class ServerBackups
                 .Select(f => new ServerBackupInfo(f.FullName, Path.GetFileNameWithoutExtension(f.Name), f.LastWriteTime, f.Length))]
             : [];
 
+    private static readonly HashSet<string> WindowsDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+
+    /// <summary>
+    /// No segment of a zip entry's path holds ':' (a drive or an NTFS alternate stream) or is a
+    /// Windows device name, with or without an extension ("CON", "nul.txt").
+    /// </summary>
+    private static bool IsPlainEntryName(string entryName) =>
+        entryName.Split('/', '\\').All(segment =>
+            !segment.Contains(':')
+            && !WindowsDeviceNames.Contains(segment.Split('.')[0].TrimEnd(' ')));
+
     /// <summary>
     /// Backs up the current state, then puts the zip's files over Saved (the server must be stopped).
     /// Every entry is first extracted into a staging folder beside Saved, so a damaged zip, a full
@@ -219,6 +235,11 @@ public static class ServerBackups
                 using var archive = ZipFile.OpenRead(zipPath);
                 foreach (var entry in archive.Entries.Where(e => e.Name.Length > 0))
                 {
+                    if (!IsPlainEntryName(entry.FullName))
+                    {
+                        continue; // a hidden NTFS stream or a device name: never a file Starlink backed up
+                    }
+
                     var target = Path.GetFullPath(Path.Combine(saved, entry.FullName));
                     if (!target.StartsWith(saved + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                     {
