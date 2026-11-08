@@ -1,5 +1,6 @@
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Ue4ss;
@@ -358,15 +359,9 @@ public static class ManualInstaller
     /// <summary>Best-effort removal of a scratch folder (a file still locked by antivirus, or read-only from a .rar, is left for Windows' temp cleanup).</summary>
     public static void TryDelete(string? folder)
     {
-        try
+        if (folder is not null)
         {
-            if (folder is not null && Directory.Exists(folder))
-            {
-                Directory.Delete(folder, recursive: true);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
+            Directories.TryDelete(folder);
         }
     }
 }

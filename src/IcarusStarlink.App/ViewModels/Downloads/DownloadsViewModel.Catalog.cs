@@ -732,7 +732,7 @@ public sealed partial class DownloadsViewModel
             ?? throw new InvalidOperationException($"'{catalogEntry.Name}' downloaded but couldn't be recorded.");
     }
 
-    /// <summary>Called from LibraryView's own DataGrid.SelectionChanged code-behind (the IMM Database tab lives there now) — DataGrid.SelectedItems isn't a bindable DependencyProperty, same limitation the EXMOD editor's own mass-edit selection already works around.</summary>
+    /// <summary>Called from ImmDatabaseView's DataGrid.SelectionChanged code-behind (Views/Database/ImmDatabaseView.xaml.cs) — DataGrid.SelectedItems isn't a bindable DependencyProperty, same limitation the EXMOD editor's own mass-edit selection already works around.</summary>
     public void SetSelectedCatalogEntries(IReadOnlyList<CatalogEntryViewModel> entries)
     {
         _selectedCatalogEntriesForBatch = entries;
