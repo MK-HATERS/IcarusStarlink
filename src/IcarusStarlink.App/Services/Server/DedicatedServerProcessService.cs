@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -25,7 +26,7 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
             return null;
         }
 
-        var root = Path.GetFullPath(profile.InstallFolder).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var roots = InstallRoots(profile.InstallFolder);
         RunningServer? unsure = null;
         foreach (var name in new[] { DedicatedServerLayout.ShippingProcessName, DedicatedServerLayout.LauncherProcessName })
         {
@@ -37,7 +38,7 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
                     {
                         var (exe, commandLine) = ReadImageAndCommandLine(process.Id);
                         exe ??= process.MainModule?.FileName;
-                        if (exe is null || !exe.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                        if (exe is null || !IsUnderInstall(exe, roots))
                         {
                             continue;
                         }
@@ -71,6 +72,74 @@ public sealed class DedicatedServerProcessService : IDedicatedServerProcessServi
 
         return null;
     }
+
+    /// <summary>Final folder per install folder text: FindRunning runs every second, and the answer only changes if a link is remade.</summary>
+    private static readonly ConcurrentDictionary<string, string> FinalFolders = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The install folder as typed and as Windows reports a running exe's path (junctions, symlinks
+    /// and SUBST drives resolved), each ending in a separator. A server adopted through a link used
+    /// to be matched against the typed path only, so it never counted as running.
+    /// </summary>
+    internal static IReadOnlyList<string> InstallRoots(string installFolder)
+    {
+        var typed = Path.GetFullPath(installFolder);
+        var roots = new List<string> { WithSeparator(typed) };
+        // A folder that can't be opened yet (a drive not mounted) isn't remembered: it is asked again next time.
+        if (!FinalFolders.TryGetValue(typed, out string? final) &&(final = ResolveFinalFolder(typed)) is not null)
+        {
+            FinalFolders[typed] = final;
+        }
+
+        if (final is not null && !string.Equals(WithSeparator(final), roots[0], StringComparison.OrdinalIgnoreCase))
+        {
+            roots.Add(WithSeparator(final));
+        }
+
+        return roots;
+    }
+
+    private static string WithSeparator(string folder) => folder.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+    internal static bool IsUnderInstall(string exe, IEnumerable<string> roots) =>
+        roots.Any(root => exe.StartsWith(root, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The folder's final path the way Windows reports process images (GetFinalPathNameByHandle:
+    /// every junction, symlink and SUBST drive on the way resolved); null when it can't be opened.
+    /// Directory.ResolveLinkTarget resolves only the last part of the path, not a junction above it.
+    /// </summary>
+    internal static string? ResolveFinalFolder(string folder)
+    {
+        using var handle = CreateFile(folder, 0, FileShareReadWriteDelete, IntPtr.Zero, OpenExisting, FileFlagBackupSemantics, IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            return null;
+        }
+
+        var buffer = new char[32768];
+        var length = GetFinalPathNameByHandle(handle, buffer, (uint)buffer.Length, 0);
+        if (length == 0 || length >= buffer.Length)
+        {
+            return null;
+        }
+
+        var path = new string(buffer, 0, (int)length);
+        return path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase) ? @"\\" + path[8..]
+            : path.StartsWith(@"\\?\", StringComparison.Ordinal) ? path[4..]
+            : path;
+    }
+
+    private const uint FileShareReadWriteDelete = 0x1 | 0x2 | 0x4;
+    private const uint OpenExisting = 3;
+    private const uint FileFlagBackupSemantics = 0x02000000;
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "CreateFileW")]
+    private static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFile(
+        string fileName, uint desiredAccess, uint shareMode, IntPtr securityAttributes, uint creationDisposition, uint flagsAndAttributes, IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "GetFinalPathNameByHandleW")]
+    private static extern uint GetFinalPathNameByHandle(Microsoft.Win32.SafeHandles.SafeFileHandle file, [Out] char[] path, uint size, uint flags);
 
     /// <summary>The exe path and the full command line of a process, each null when Windows won't say.</summary>
     private static (string? Exe, string? CommandLine) ReadImageAndCommandLine(int processId)
