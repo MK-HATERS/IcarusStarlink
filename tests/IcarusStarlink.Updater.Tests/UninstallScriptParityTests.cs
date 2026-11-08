@@ -34,6 +34,28 @@ public sealed class UninstallScriptParityTests
         Assert.Matches(@"for %%D in \([^)]*\bruntimes\b[^)]*\)", script);
     }
 
+    /// <summary>
+    /// Regression: Staged_UE4SS holds every UE4SS mod that is turned off (and ones imported but
+    /// never turned on), yet the uninstaller removed it even when the player chose to keep their
+    /// data: after a reinstall those mods were gone from the Library and from disk.
+    /// </summary>
+    [Fact]
+    public void KeepingData_NeverRemovesTurnedOffUe4ssMods()
+    {
+        var script = File.ReadAllText(FindUninstallScript());
+        var folderLists = Regex.Matches(script, @"for %%D in \(([^)]*)\) do")
+            .Select(m => m.Groups[1].Value.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        var alwaysRemoved = Assert.Single(folderLists, list => list.Contains("runtimes"));
+        Assert.DoesNotContain("Staged_UE4SS", alwaysRemoved);
+
+        var removedWithTheData = Assert.Single(folderLists, list => list.Contains("Extracted_Mods"));
+        Assert.Contains("Staged_UE4SS", removedWithTheData);
+        Assert.Contains("Ue4ss_Meta", removedWithTheData);
+        Assert.Contains("Profiles_Backups", removedWithTheData);
+    }
+
     private static string FindUninstallScript()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
