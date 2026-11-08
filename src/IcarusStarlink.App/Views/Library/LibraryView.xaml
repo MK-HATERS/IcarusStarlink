@@ -440,6 +440,11 @@
                                   Command="{Binding PlacementTarget.Tag.RenameItemCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
                                   ToolTip="Changes the name Library shows for this mod. Its files aren't touched."/>
+                        <MenuItem Header="Export for sharing…"
+                                  Command="{Binding PlacementTarget.Tag.ExportModForSharingCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}" IsEnabled="{Binding IsOwnMod}"
+                                  ToolTip="Saves this mod as one .EXMODZ file you can give to friends or post on Nexus. They add it with Import, here or in the classic mod manager. Greyed out: you didn't make this mod in Starlink."
+                                  ToolTipService.ShowOnDisabled="True"/>
                         <MenuItem Header="Edit config…"
                                   Command="{Binding PlacementTarget.Tag.EditLinkedUe4ssConfigCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"

@@ -2,13 +2,14 @@ using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.App.ViewModels;
 
-/// <summary>One mod's right-click actions: back up, restore a backup, reinstall the original, rename, and open the EXMOD editor.</summary>
+/// <summary>One mod's right-click actions: back up, restore a backup, reinstall the original, rename, export for sharing, and open the EXMOD editor.</summary>
 public sealed partial class LibraryViewModel
 {
     /// <summary>Snapshots the mod's whole folder — a safety net before a risky manual edit, independent of the EXMOD editor's own transient per-field preview.</summary>
@@ -171,6 +172,60 @@ public sealed partial class LibraryViewModel
         catch (Exception ex)
         {
             ReportProblem($"Couldn't rename: {ex.Message}{LockedFileNextStep(ex)}");
+        }
+    }
+
+    /// <summary>Set while an export for sharing runs, so a second click doesn't start another.</summary>
+    private bool _isExportingForSharing;
+
+    /// <summary>
+    /// Writes one of the user's own mods as an .EXMODZ file they pick, for a friend or Nexus
+    /// (ModShareExport). Only a mod made in Starlink: anyone else's mod is theirs to share. The
+    /// file is written through a temp file, so an earlier file at that path stays until the new one
+    /// is whole.
+    /// </summary>
+    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    private async Task ExportModForSharing(LibraryItemViewModel? item)
+    {
+        if (item is null || _isExportingForSharing)
+        {
+            return;
+        }
+
+        if (!item.IsOwnMod)
+        {
+            ReportProblem($"Only mods you made in Starlink can be exported for sharing. '{item.Name}' came from somewhere else, so share a link to where you got it.");
+            return;
+        }
+
+        if (ModBusyReason(item, "so the file has your latest changes") is { } busy)
+        {
+            ReportProblem(busy);
+            return;
+        }
+
+        if (_dialogService.PickSaveFile("Export for sharing", ModShareExport.FileFilter, ModShareExport.DefaultFileName(item.Name, item.Version)) is not { } path)
+        {
+            return;
+        }
+
+        var name = item.Name;
+        _isExportingForSharing = true;
+        try
+        {
+            await ModShareExport.ExportAsync(_repository.GetFolderPath(item.FolderName), path);
+            StatusMessage = $"Exported '{name}' to '{path}'. Friends can add it with Import on the Library page, or in the classic mod manager. "
+                + "If it uses parts of someone else's mod, give them credit and check they allow it before you post it.";
+            _activityLog.Log($"Exported '{name}' for sharing to '{path}'.", ActivityEntryKind.Success);
+        }
+        catch (Exception ex)
+        {
+            ReportProblem($"Couldn't export '{name}': {ex.Message}{LockedFileNextStep(ex)}");
+            _activityLog.Log($"Exporting '{name}' for sharing failed: {ex.Message}", ActivityEntryKind.Warning);
+        }
+        finally
+        {
+            _isExportingForSharing = false;
         }
     }
 

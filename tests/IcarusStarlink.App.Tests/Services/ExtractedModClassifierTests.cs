@@ -159,6 +159,27 @@ public sealed class ExtractedModClassifierTests : IDisposable
         Assert.Equal(0, ue4ssModRepository.ImportFromFolderCallCount);
     }
 
+    /// <summary>A mod the user exported for sharing, unpacked by a friend's Starlink: one EXMOD mod, not a pak or a UE4SS mod.</summary>
+    [Fact]
+    public async Task ClassifyAndImport_AnExportedForSharingFile_ImportsAsOneExmodMod()
+    {
+        var modFolder = Path.Combine(_extractedDir, "..", Guid.NewGuid().ToString("N"));
+        _scratchFolders.Add(modFolder);
+        ExmodFolder.Write(modFolder, ModShareExportTests.OwnModWithAsset());
+        var exported = Path.Combine(modFolder, "..", Guid.NewGuid().ToString("N") + ".EXMODZ");
+        await ModShareExport.ExportAsync(modFolder, exported);
+        ZipFile.ExtractToDirectory(exported, _extractedDir);
+        File.Delete(exported);
+        var libraryRepository = new FakeLibraryRepository();
+
+        var result = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "My Faster Smelter 1.2.EXMODZ", libraryRepository, new FakeUe4ssModRepository(), new FakePrebuiltPakImporter(), "SomeDataFolder", null);
+
+        Assert.Equal(PendingDownloadActivationKind.Library, result.Kind);
+        Assert.False(result.IsOpaquePak);
+        Assert.Equal(1, libraryRepository.ImportCallCount);
+    }
+
     [Fact]
     public async Task ClassifyAndImport_ExmodFileNestedInASubfolder_StillDetectedViaTheRecursiveScan()
     {

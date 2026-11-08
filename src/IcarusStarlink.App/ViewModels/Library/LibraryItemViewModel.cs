@@ -379,6 +379,10 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     /// <summary>An opaque .pak entry has no .EXMOD to edit — the inline row Edit action hides itself rather than opening an editor with nothing to show.</summary>
     public bool CanEdit => !IsOpaquePak;
 
+    /// <summary>A mod the user made in Starlink (LibraryEntry.IsOwnMod): only these can be exported for sharing.</summary>
+    [ObservableProperty]
+    private bool _isOwnMod;
+
     partial void OnIsOpaquePakChanged(bool value)
     {
         OnPropertyChanged(nameof(CanEdit));
@@ -520,6 +524,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         _description = entry.Description;
         _variantLabel = entry.Variant;
         _isOpaquePak = entry.IsOpaquePak;
+        _isOwnMod = entry.IsOwnMod;
         PakCount = entry.IsOpaquePak ? Math.Max(1, entry.PakFileNames.Count) : 0;
         PakFileNames = entry.PakFileNames;
         _isLocallyEdited = entry.IsLocallyEdited;
@@ -564,6 +569,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         Description = entry.Description;
         VariantLabel = entry.Variant;
         IsOpaquePak = entry.IsOpaquePak;
+        IsOwnMod = entry.IsOwnMod;
         // Status ("in game") and the bundle check read these: a restore or reinstall can change them.
         PakCount = entry.IsOpaquePak ? Math.Max(1, entry.PakFileNames.Count) : 0;
         PakFileNames = entry.PakFileNames;

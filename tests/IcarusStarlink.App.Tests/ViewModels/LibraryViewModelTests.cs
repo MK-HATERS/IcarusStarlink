@@ -2243,14 +2243,14 @@ public sealed partial class LibraryViewModelTests
         public LibraryEntry AddMod(
             string folderName, string? name = null, string author = "Someone", string version = "1.0",
             bool isPinned = false, bool isFavorite = false, string notes = "", string? source = null,
-            string? catalogEntryId = null, int? nexusModId = null, bool isOpaquePak = false)
+            string? catalogEntryId = null, int? nexusModId = null, bool isOpaquePak = false, bool madeInStarlink = false)
         {
             var entry = new LibraryEntry
             {
                 FolderName = folderName, Name = name ?? folderName, Author = author, Version = version,
                 Description = "A test mod.", FileName = folderName, IsPinned = isPinned, IsFavorite = isFavorite,
                 Notes = notes, Source = source, CatalogEntryId = catalogEntryId, NexusModId = nexusModId,
-                IsOpaquePak = isOpaquePak, ImportedAtUtc = DateTimeOffset.UtcNow,
+                IsOpaquePak = isOpaquePak, ImportedAtUtc = DateTimeOffset.UtcNow, MadeInStarlink = madeInStarlink,
             };
             Repository.Seed(entry);
             return entry;
@@ -2905,6 +2905,17 @@ public sealed partial class LibraryViewModelTests
         public RenamePromptResult PromptRenameResult { get; set; } = new(Cancelled: true, NewDisplayName: null);
         public int PromptRenameCallCount { get; private set; }
         public string? LastPromptRenameCurrentName { get; private set; }
+
+        /// <summary>What the save-file picker answers (null = cancelled), and the file name it was offered.</summary>
+        public string? SaveFilePath { get; set; }
+
+        public string? LastSaveFileDefaultName { get; private set; }
+
+        public string? PickSaveFile(string title, string filter, string defaultFileName, string? initialDirectory = null)
+        {
+            LastSaveFileDefaultName = defaultFileName;
+            return SaveFilePath;
+        }
 
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {
