@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO;
 using IcarusStarlink.PakIO.Container;
@@ -22,6 +23,13 @@ namespace IcarusStarlink.Storage.Library;
 public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageImporter, IDisposable
 {
     private readonly string _extractedModsDirectory;
+
+    /// <summary>
+    /// Beside Extracted_Mods (outside it, so a scan never lists it): Delete moves a mod's folder here
+    /// first, then deletes it. Emptied at construction, in case a delete couldn't finish last time.
+    /// </summary>
+    private readonly string _trashDirectory;
+
     private readonly string _modBackupsDirectory;
     private readonly LibraryMetaStore _metaStore;
     private readonly LibrarySearchIndex _searchIndex;
@@ -36,12 +44,14 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     public FolderLibraryRepository(string extractedModsDirectory, string metaDirectory, string modBackupsDirectory, ILogger<FolderLibraryRepository> logger)
     {
         _extractedModsDirectory = extractedModsDirectory;
+        _trashDirectory = Path.GetFullPath(extractedModsDirectory).TrimEnd('\\', '/') + ".deleting";
         _modBackupsDirectory = modBackupsDirectory;
         _logger = logger;
         _metaStore = new LibraryMetaStore(metaDirectory, logger);
         _searchIndex = new LibrarySearchIndex();
 
         Directory.CreateDirectory(_extractedModsDirectory);
+        Directories.TryDelete(_trashDirectory, ex => _logger.LogWarning(ex, "Couldn't clear '{Folder}', what was left of deleted mods", _trashDirectory));
         RescanAll();
     }
 
@@ -72,14 +82,14 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         var folderName = MakeUniqueFolderName(baseName);
         var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
         var targetPakPath = Path.Combine(targetFolder, Path.GetFileName(pakFilePath));
-        CopyIntoNewModFolder(targetFolder, [(pakFilePath, targetPakPath)]);
 
         // A sibling ISL-Merged.txt next to the pak being imported means this is one of this app's
         // own previously-Rebuild-and-Installed paks, re-imported as its own Library entry (matches
         // classic IMM's own original idea — see RebuildService/InstallService's own doc comments).
         // Read here, at import time, rather than derived later: the source manifest sits in a
         // staging/game folder this repository has no other reason to know about, and it may not
-        // even still exist by the time something needs this list.
+        // even still exist by the time something needs this list. Read before the copy, so a read
+        // that fails leaves nothing behind.
         var sourceManifestPath = Path.Combine(Path.GetDirectoryName(pakFilePath)!, InstallManifestNames.PakManifest);
         List<string>? mergedPackModNames = null;
         List<string>? mergedPackOptionDescriptions = null;
@@ -101,7 +111,11 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             MergedPackProfileName = mergedPackProfileName,
             MergedPackOptionDescriptions = mergedPackOptionDescriptions,
         };
-        _metaStore.Save(folderName, meta);
+        WriteNewModFolder(targetFolder, () =>
+        {
+            CopyFiles(targetFolder, [(pakFilePath, targetPakPath)]);
+            _metaStore.Save(folderName, meta);
+        });
 
         // Surgical, same as Import(): only this one entry is new.
         var entry = ToOpaquePakEntry(folderName, [targetPakPath], meta);
@@ -124,14 +138,17 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         var folderName = MakeUniqueFolderName(baseName);
         var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
         var copies = pakFilePaths.Select(p => (Source: p, Target: Path.Combine(targetFolder, Path.GetFileName(p)))).ToList();
-        CopyIntoNewModFolder(targetFolder, copies);
         var targetPaths = copies.Select(c => c.Target).ToList();
 
         var meta = new LibraryMeta
         {
             ImportedAtUtc = DateTimeOffset.UtcNow, Source = source, NexusModId = nexusModId, CatalogEntryId = catalogEntryId,
         };
-        _metaStore.Save(folderName, meta);
+        WriteNewModFolder(targetFolder, () =>
+        {
+            CopyFiles(targetFolder, copies);
+            _metaStore.Save(folderName, meta);
+        });
 
         var entry = ToOpaquePakEntry(folderName, [.. targetPaths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase)], meta);
         _cachedEntries = [.. _cachedEntries, entry];
@@ -140,33 +157,33 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     }
 
     /// <summary>
-    /// Creates a brand-new mod folder and copies the given files into it. A copy that fails (a
-    /// missing source, disk full) removes the folder again before the error goes on: left behind,
-    /// an empty folder showed up as an unreadable mod, and a half-copied ImportPaks folder came back
-    /// on the next start as a mod holding only some of the download's paks, with no Library info.
+    /// Writes a brand-new mod folder (its files, then its Library_Meta sidecar). Anything that fails
+    /// (a missing source, disk full, a locked file, the sidecar save) removes the folder again before
+    /// the error goes on: left behind, an empty folder showed up as an unreadable mod, and a
+    /// half-written one came back on the next start as a mod with missing files and no Library info
+    /// (a retry then landed as "_2"). Only for a folder MakeUniqueFolderName just picked, so
+    /// removing it never loses anything; the cache and search index are updated after it.
     /// </summary>
-    private static void CopyIntoNewModFolder(string targetFolder, IReadOnlyList<(string Source, string Target)> copies)
+    private static void WriteNewModFolder(string targetFolder, Action write)
     {
-        Directory.CreateDirectory(targetFolder);
         try
         {
-            foreach (var (source, target) in copies)
-            {
-                File.Copy(source, target);
-            }
+            write();
         }
         catch
         {
-            try
-            {
-                Directory.Delete(targetFolder, recursive: true);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // Best effort: the copy error is the one worth reporting.
-            }
-
+            // Best effort: the write's own error is the one worth reporting.
+            Directories.TryDelete(targetFolder);
             throw;
+        }
+    }
+
+    private static void CopyFiles(string targetFolder, IReadOnlyList<(string Source, string Target)> copies)
+    {
+        Directory.CreateDirectory(targetFolder);
+        foreach (var (source, target) in copies)
+        {
+            File.Copy(source, target);
         }
     }
 
@@ -196,9 +213,12 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         var folderName = MakeUniqueFolderName(contents.Package.FileName);
         var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
 
-        ExmodFolder.Write(targetFolder, contents);
         var meta = new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow, Source = source, NexusModId = nexusModId, CatalogEntryId = catalogEntryId };
-        _metaStore.Save(folderName, meta);
+        WriteNewModFolder(targetFolder, () =>
+        {
+            ExmodFolder.Write(targetFolder, contents);
+            _metaStore.Save(folderName, meta);
+        });
 
         // Surgical: this is the only mod whose content is actually new — no need to re-read
         // every other mod's package just to add one entry.
@@ -224,10 +244,12 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
 
         var package = ModTemplateContent.Create(template, name, author);
-        ExmodFolder.Write(targetFolder, new ExmodPackageContents(package, []));
-
         var meta = new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow, MadeInStarlink = true };
-        _metaStore.Save(folderName, meta);
+        WriteNewModFolder(targetFolder, () =>
+        {
+            ExmodFolder.Write(targetFolder, new ExmodPackageContents(package, []));
+            _metaStore.Save(folderName, meta);
+        });
 
         var entry = ToEntry(folderName, package, meta);
         _cachedEntries = [.. _cachedEntries, entry];
@@ -236,16 +258,60 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         return entry;
     }
 
+    /// <summary>
+    /// All or nothing: the folder is first moved out of Extracted_Mods in one step, which Windows
+    /// refuses while any file in it is open, so a locked mod stays whole and listed and the error
+    /// goes on. A plain recursive delete used to remove every other file first and leave the mod
+    /// gutted, still listed. Once the move worked the mod is gone; deleting the moved folder and the
+    /// sidecar after that is tidying, and a failure there is only logged.
+    /// </summary>
     public void Delete(string folderName)
     {
-        Directory.Delete(ResolveFolder(folderName), recursive: true);
-        // Otherwise a later mod imported with the same folder name would silently inherit this
-        // deleted mod's pin/favorite/notes.
-        _metaStore.Delete(folderName);
+        var folder = ResolveFolder(folderName);
+        string? moved = Path.Combine(_trashDirectory, $"{folderName}_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(_trashDirectory);
+            Directory.Move(folder, moved);
+        }
+        catch (IOException ex) when ((ex.HResult & 0xFFFF) == ErrorNotSameDevice)
+        {
+            // Extracted_Mods is a link to another drive: a move can't get there, so delete in place.
+            moved = null;
+            Directory.Delete(folder, recursive: true);
+        }
 
         _cachedEntries = [.. _cachedEntries.Where(e => e.FolderName != folderName)];
         _searchIndex.Remove(folderName);
+
+        try
+        {
+            // Otherwise a later mod imported with the same folder name would silently inherit this
+            // deleted mod's pin/favorite/notes (every import saves a fresh sidecar, so a stale one
+            // left here is overwritten by the next import under this name).
+            _metaStore.Delete(folderName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Deleted '{Folder}' but couldn't delete its Library info", folderName);
+        }
+
+        if (moved is not null)
+        {
+            Directories.TryDelete(moved, ex => _logger.LogWarning(ex, "Deleted '{Folder}' but couldn't clear '{Moved}'; it goes on the next start", folderName, moved));
+            try
+            {
+                Directory.Delete(_trashDirectory);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Something else is still in it; the next start clears it.
+            }
+        }
     }
+
+    /// <summary>ERROR_NOT_SAME_DEVICE: a move to another drive.</summary>
+    private const int ErrorNotSameDevice = 17;
 
     public void UpdateMetadata(string folderName, bool isPinned, bool isFavorite, string notes)
     {

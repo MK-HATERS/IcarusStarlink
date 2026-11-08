@@ -176,6 +176,59 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(_extractedModsDir, entry.FolderName)));
     }
 
+    /// <summary>Regression: deleting a mod with one file held open (an image editor, antivirus) deleted everything else, so its row stayed and the next scan showed it gutted or unreadable.</summary>
+    [Fact]
+    public void Delete_AFileIsLocked_LeavesTheModWhole()
+    {
+        using var repo = CreateRepository();
+        var entry = repo.CreateBlankMod("Locked Mod", "me");
+        var folder = repo.GetFolderPath(entry.FolderName);
+        var notes = Path.Combine(folder, "notes.txt");
+        File.WriteAllText(notes, "mine");
+
+        using (new FileStream(notes, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Assert.ThrowsAny<Exception>(() => repo.Delete(entry.FolderName));
+        }
+
+        Assert.Single(Directory.GetFiles(folder, "*.EXMOD", SearchOption.AllDirectories));
+        Assert.True(File.Exists(notes));
+        Assert.Equal([entry.FolderName], repo.GetAll().Select(e => e.FolderName));
+        Assert.Single(repo.Search("Locked"));
+    }
+
+    /// <summary>Regression: a sidecar that couldn't be deleted made Delete fail after the mod's folder was already gone, leaving a row with no folder.</summary>
+    [Fact]
+    public void Delete_SidecarLocked_StillRemovesTheMod()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var entry = repo.Import(_sourceDir);
+
+        using (new FileStream(Path.Combine(_metaDir, entry.FolderName + ".json"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            repo.Delete(entry.FolderName);
+        }
+
+        Assert.False(Directory.Exists(Path.Combine(_extractedModsDir, entry.FolderName)));
+        Assert.Empty(repo.GetAll());
+        Assert.Empty(repo.Search("faster"));
+    }
+
+    /// <summary>A delete whose last step failed last time leaves its folder beside Extracted_Mods; the next start clears it.</summary>
+    [Fact]
+    public void Construction_ClearsWhatAnEarlierDeleteLeft()
+    {
+        var leftover = Path.Combine(_extractedModsDir + ".deleting", "Old_Mod_123");
+        Directory.CreateDirectory(leftover);
+        File.WriteAllText(Path.Combine(leftover, "Old_Mod.EXMOD"), "{}");
+
+        using var repo = CreateRepository();
+
+        Assert.False(Directory.Exists(leftover));
+        Assert.Empty(repo.GetAll());
+    }
+
     [Fact]
     public void GetAll_ListTakenBeforeAnImportOrDelete_IsLeftAsItWas()
     {
@@ -253,6 +306,31 @@ public class FolderLibraryRepositoryTests : IDisposable
         // FTS5 MATCH treats these as operator syntax if not escaped — must not crash.
         var exception = Record.Exception(() => repo.Search("\"unterminated AND () * - :"));
         Assert.Null(exception);
+    }
+
+    /// <summary>Every word has to match: a word that is only punctuation is left out rather than matching nothing.</summary>
+    [Fact]
+    public void Search_TwoWordsWithFts5SpecialCharacters_MatchesOnTheRealWords()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        repo.Import(_sourceDir);
+
+        Assert.Single(repo.Search("faster () processors -"));
+        Assert.Single(repo.Search("\"faster\" proc*"));
+    }
+
+    /// <summary>Regression: each word widened the list (a mod matching any word showed), so "faster processors" listed every "faster" mod.</summary>
+    [Fact]
+    public void Search_TwoWords_MatchesOnlyModsWithBoth()
+    {
+        using var repo = CreateRepository();
+        repo.ImportPackage(BuildFixture());
+        repo.ImportPackage(BuildFixture(fileName: "Faster_Smelters", name: "Faster Smelters"));
+
+        Assert.Equal(2, repo.Search("faster").Count);
+        Assert.Equal(["Faster Processors"], repo.Search("faster processors").Select(e => e.Name));
+        Assert.Equal(["Faster Smelters"], repo.Search("smelters FASTER").Select(e => e.Name));
     }
 
     [Fact]
@@ -586,6 +664,79 @@ public class FolderLibraryRepositoryTests : IDisposable
         finally
         {
             Directory.Delete(Path.GetDirectoryName(firstPak)!, recursive: true);
+        }
+    }
+
+    /// <summary>A directory where the sidecar goes makes its save fail.</summary>
+    private void BlockSidecar(string folderName) => Directory.CreateDirectory(Path.Combine(_metaDir, folderName + ".json"));
+
+    /// <summary>Regression: an import whose Library info couldn't be saved left its folder behind, and the next scan listed it as a mod with no source or link (a retry landed as "_2").</summary>
+    [Fact]
+    public void Import_SidecarSaveFails_LeavesNoFolderBehind()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        BlockSidecar("Faster_Processors");
+        using var repo = CreateRepository();
+
+        Assert.ThrowsAny<Exception>(() => repo.Import(_sourceDir));
+
+        Assert.Empty(Directory.GetDirectories(_extractedModsDir));
+        Assert.Empty(repo.GetAll());
+        repo.Refresh();
+        Assert.Empty(repo.GetAll());
+    }
+
+    [Fact]
+    public void CreateBlankMod_SidecarSaveFails_LeavesNoFolderBehind()
+    {
+        BlockSidecar("My_Mod");
+        using var repo = CreateRepository();
+
+        Assert.ThrowsAny<Exception>(() => repo.CreateBlankMod("My Mod", "me"));
+
+        Assert.Empty(Directory.GetDirectories(_extractedModsDir));
+        Assert.Empty(repo.GetAll());
+    }
+
+    [Fact]
+    public void ImportPaks_SidecarSaveFails_LeavesNoFolderBehind()
+    {
+        var firstPak = WriteFixturePakFile("ZZ_First_P");
+        var secondPak = WriteFixturePakFile("ZZ_Second_P");
+        BlockSidecar("TwoPaks");
+        try
+        {
+            using var repo = CreateRepository();
+
+            Assert.ThrowsAny<Exception>(() => repo.ImportPaks([firstPak, secondPak], "TwoPaks"));
+
+            Assert.Empty(Directory.GetDirectories(_extractedModsDir));
+            Assert.Empty(repo.GetAll());
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(firstPak)!, recursive: true);
+            Directory.Delete(Path.GetDirectoryName(secondPak)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ImportPak_SidecarSaveFails_LeavesNoFolderBehind()
+    {
+        var pak = WriteFixturePakFile("OnePak");
+        BlockSidecar("OnePak");
+        try
+        {
+            using var repo = CreateRepository();
+
+            Assert.ThrowsAny<Exception>(() => repo.ImportPak(pak));
+
+            Assert.Empty(Directory.GetDirectories(_extractedModsDir));
+            Assert.Empty(repo.GetAll());
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pak)!, recursive: true);
         }
     }
 
@@ -1228,6 +1379,11 @@ public class FolderLibraryRepositoryTests : IDisposable
         if (Directory.Exists(_extractedModsDir))
         {
             Directory.Delete(_extractedModsDir, recursive: true);
+        }
+
+        if (Directory.Exists(_extractedModsDir + ".deleting"))
+        {
+            Directory.Delete(_extractedModsDir + ".deleting", recursive: true);
         }
 
         if (Directory.Exists(_sourceDir))

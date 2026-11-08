@@ -115,9 +115,16 @@ internal sealed class LibrarySearchIndex : IDisposable
 
     public IReadOnlySet<string> Search(string query)
     {
+        var expression = BuildFtsMatchExpression(query);
+        if (expression.Length == 0)
+        {
+            // Nothing but punctuation: no word to look for.
+            return new HashSet<string>();
+        }
+
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = "SELECT folder_name FROM library_fts WHERE library_fts MATCH $query;";
-        cmd.Parameters.AddWithValue("$query", BuildFtsMatchExpression(query));
+        cmd.Parameters.AddWithValue("$query", expression);
 
         var results = new HashSet<string>();
         using var reader = cmd.ExecuteReader();
@@ -133,14 +140,17 @@ internal sealed class LibrarySearchIndex : IDisposable
     /// FTS5's MATCH syntax treats punctuation specially (AND/OR/NOT, quotes, parens, *, -, :); a
     /// raw user search string passed straight through could throw a syntax error or be
     /// misinterpreted as an operator. Quoting each term (escaping embedded quotes) and appending
-    /// '*' makes every term a literal prefix match, then OR-ing them together turns arbitrary
-    /// input into a safe, best-effort "any of these words" search.
+    /// '*' makes every term a literal prefix match; joined with spaces (FTS5's implicit AND), every
+    /// word must match, so more words narrow the list the way a filter box does. A term with no
+    /// letter or digit is left out: it holds no word, and as an empty phrase it would match nothing.
+    /// Empty when no term is left.
     /// </summary>
     private static string BuildFtsMatchExpression(string query)
     {
-        var terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var terms = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(t => t.Any(char.IsLetterOrDigit));
         var escaped = terms.Select(t => $"\"{t.Replace("\"", "\"\"")}\"*");
-        return string.Join(" OR ", escaped);
+        return string.Join(" ", escaped);
     }
 
     public void Dispose() => _connection.Dispose();

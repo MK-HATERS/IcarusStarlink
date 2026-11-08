@@ -7,7 +7,7 @@ public interface ILibraryRepository
     /// <summary>Folder names under Extracted_Mods the last scan couldn't read (corrupt EXMOD JSON, a locked file) — skipped-and-logged rather than crashing the scan, but surfaced here so the UI can say WHY a folder that's visibly on disk isn't in the Library, instead of that answer living only in a log file.</summary>
     IReadOnlyList<string> UnreadableFolders { get; }
 
-    /// <summary>Empty/whitespace query returns everything, matching GetAll().</summary>
+    /// <summary>Every word of the query must match (as the start of a word in the name, author, notes or content), so more words narrow the list. Empty/whitespace query returns everything, matching GetAll().</summary>
     IReadOnlyList<LibraryEntry> Search(string query);
 
     /// <summary>sourcePath is either a loose mod folder or an .EXMODZ file. source (e.g. "Nexus"/"Database") is purely informational, stored as LibraryEntry.Source — null for a manual/local import. nexusModId is stored as LibraryEntry.NexusModId, for later update-checking — only meaningful when source is "Nexus".</summary>
@@ -46,6 +46,7 @@ public interface ILibraryRepository
     /// <summary>Re-scans Extracted_Mods from disk — for mods added/edited outside the app while it was running.</summary>
     void Refresh();
 
+    /// <summary>All or nothing: a mod with a file held open is left whole and listed, and the error goes on.</summary>
     void Delete(string folderName);
 
     void UpdateMetadata(string folderName, bool isPinned, bool isFavorite, string notes);
