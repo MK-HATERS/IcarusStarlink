@@ -20,6 +20,10 @@ public sealed class WeeklyChangeReportStore : IWeeklyChangeReportStore
     private readonly ILogger<WeeklyChangeReportStore> _logger;
     private readonly List<WeeklyChangeReport> _history = [];
 
+    /// <summary>The file each report came from. History loads any .json in the folder, so a file's
+    /// name may not match its date, and Remove must delete the file the report was read from.</summary>
+    private readonly Dictionary<WeeklyChangeReport, string> _sourcePaths = new(ReferenceEqualityComparer.Instance);
+
     public WeeklyChangeReport? Current => _history.Count > 0 ? _history[0] : null;
 
     public IReadOnlyList<WeeklyChangeReport> History => _history;
@@ -46,20 +50,29 @@ public sealed class WeeklyChangeReportStore : IWeeklyChangeReportStore
         // folder" produces that nothing else can regenerate.
         AtomicFile.WriteAllText(path, JsonSerializer.Serialize(report, JsonOptions));
 
-        // A report saved under the same file name (a second refresh in the same second) replaced
-        // that file just now, so it leaves the history too, or it was listed twice.
-        _history.RemoveAll(r => FileNameFor(r.CurrentUpdateAt) == fileName);
+        // A report read from the same file (a second refresh in the same second) was replaced just
+        // now, so it leaves the history too, or it was listed twice.
+        foreach (var replaced in _history.Where(r => string.Equals(PathOf(r), path, StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            _history.Remove(replaced);
+            _sourcePaths.Remove(replaced);
+        }
+
         _history.Insert(0, report);
+        _sourcePaths[report] = path;
         _history.Sort((a, b) => b.CurrentUpdateAt.CompareTo(a.CurrentUpdateAt));
 
         Prune();
     }
 
-    /// <summary>Matched by file name, the same key Save uses: one file holds one report.</summary>
+    /// <summary>The report itself, or failing that one with the same date (the key Save names files
+    /// by). Deletes the file that report was loaded from or saved to.</summary>
     public bool Remove(WeeklyChangeReport report)
     {
         var fileName = FileNameFor(report.CurrentUpdateAt);
-        if (!_history.Any(r => FileNameFor(r.CurrentUpdateAt) == fileName))
+        var found = _history.FirstOrDefault(r => ReferenceEquals(r, report))
+            ?? _history.FirstOrDefault(r => FileNameFor(r.CurrentUpdateAt) == fileName);
+        if (found is null)
         {
             return false;
         }
@@ -67,7 +80,7 @@ public sealed class WeeklyChangeReportStore : IWeeklyChangeReportStore
         try
         {
             // File.Delete is a no-op for a file already gone, which still counts as removed.
-            File.Delete(Path.Combine(_historyDirectory, fileName));
+            File.Delete(PathOf(found));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -75,9 +88,13 @@ public sealed class WeeklyChangeReportStore : IWeeklyChangeReportStore
             return false;
         }
 
-        _history.RemoveAll(r => FileNameFor(r.CurrentUpdateAt) == fileName);
+        _history.Remove(found);
+        _sourcePaths.Remove(found);
         return true;
     }
+
+    private string PathOf(WeeklyChangeReport report) =>
+        _sourcePaths.TryGetValue(report, out var path) ? path : Path.Combine(_historyDirectory, FileNameFor(report.CurrentUpdateAt));
 
     /// <summary>Invariant, so the name Prune builds matches the one Save wrote whatever calendar the PC uses.</summary>
     private static string FileNameFor(DateTimeOffset currentUpdateAt) =>
@@ -116,6 +133,7 @@ public sealed class WeeklyChangeReportStore : IWeeklyChangeReportStore
     private void LoadHistory()
     {
         _history.Clear();
+        _sourcePaths.Clear();
 
         foreach (var path in Directory.EnumerateFiles(_historyDirectory, "*.json"))
         {
@@ -125,6 +143,7 @@ public sealed class WeeklyChangeReportStore : IWeeklyChangeReportStore
                 if (JsonSerializer.Deserialize<WeeklyChangeReport>(json, JsonOptions) is { } report)
                 {
                     _history.Add(report);
+                    _sourcePaths[report] = path;
                 }
             }
             catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
@@ -144,10 +163,12 @@ public sealed class WeeklyChangeReportStore : IWeeklyChangeReportStore
         var cutoff = DateTimeOffset.UtcNow.AddDays(-RetentionDays);
         foreach (var stale in _history.Skip(1).Where(r => r.CurrentUpdateAt < cutoff).ToList())
         {
+            var path = PathOf(stale);
             _history.Remove(stale);
+            _sourcePaths.Remove(stale);
             try
             {
-                File.Delete(Path.Combine(_historyDirectory, FileNameFor(stale.CurrentUpdateAt)));
+                File.Delete(path);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

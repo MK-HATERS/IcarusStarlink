@@ -167,7 +167,7 @@ public sealed partial class HelpViewModel : ObservableObject
 
             Pick a file on the left to see its changes on the right. **History** picks an earlier refresh (about a month is kept). **Refresh game data** reads the game again and compares. If you see "No changes tracked yet," you only have one extraction on record; run **Refresh game data** again after the next game update to get a real comparison.
 
-            A refresh that finds nothing changed doesn't add a report. **Remove** (beside History) deletes the report shown, for one you don't need; it asks first, and the game's files and your mods aren't touched.
+            A refresh that finds nothing changed doesn't add a report. **Remove** (beside History) deletes the report shown, for one you don't need; it asks first, and the game's files and your mods aren't touched. Starlink also uses a report's old values to spot mods that are old copies, so once a report with changes is removed, that check won't know that update's values.
             """),
 
         new("Map", """

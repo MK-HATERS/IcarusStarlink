@@ -201,6 +201,41 @@ public class WeeklyChangeReportStoreTests : IDisposable
         Assert.Single(CreateStore().History);
     }
 
+    /// <summary>A report file another program holds open can't be deleted: Remove says so and keeps it.</summary>
+    [Fact]
+    public void Remove_FileLocked_ReturnsFalse_KeepsTheReportAndItsFile()
+    {
+        var store = CreateStore();
+        var report = MakeReport(Now);
+        store.Save(report);
+        var path = Assert.Single(Directory.GetFiles(Path.Combine(_dir, "WeeklyChanges"), "*.json"));
+
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.False(store.Remove(report));
+        }
+
+        Assert.Same(report, Assert.Single(store.History));
+        Assert.True(File.Exists(path));
+    }
+
+    /// <summary>History loads any .json in the folder, so a file whose name doesn't match its date is still the one deleted.</summary>
+    [Fact]
+    public void Remove_AFileNamedOtherThanItsDate_DeletesThatFile()
+    {
+        CreateStore().Save(MakeReport(Now));
+        var folder = Path.Combine(_dir, "WeeklyChanges");
+        var saved = Assert.Single(Directory.GetFiles(folder, "*.json"));
+        var renamed = Path.Combine(folder, "copied report.json");
+        File.Move(saved, renamed);
+        var store = CreateStore();
+
+        Assert.True(store.Remove(Assert.Single(store.History)));
+
+        Assert.False(File.Exists(renamed));
+        Assert.Empty(CreateStore().History);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

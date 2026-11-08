@@ -28,7 +28,7 @@
                 </ComboBox.ItemTemplate>
             </ComboBox>
             <Button DockPanel.Dock="Left" Command="{Binding RemoveReportCommand}" Margin="8,0,0,0" VerticalAlignment="Center"
-                    ToolTip="Deletes the report shown from History, for one you don't need (say, from an extra refresh). Asks first. The game's files aren't touched."
+                    ToolTip="Deletes the report shown from History, for one you don't need (say, from an extra refresh). Asks first. The game's files aren't touched, but Starlink stops using its old values to spot out-of-date mods."
                     AutomationProperties.Name="Remove this report">
                 <StackPanel Orientation="Horizontal">
                     <Path Data="{StaticResource IconTrash}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.6"

@@ -72,7 +72,8 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
     /// <summary>
     /// Weekly Changes › Remove: deletes the report shown (an empty one from an extra refresh, say)
     /// after the user says yes. Only Starlink's own record goes; the game's data and the Data
-    /// folder are not touched, and the next refresh still compares with the last extraction.
+    /// folder are not touched, and the next refresh still compares with the last extraction. The
+    /// old-copy check loses that report's old values, which is why a report with changes warns.
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanRemoveReport))]
     private void RemoveReport()
@@ -83,9 +84,13 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
         }
 
         var report = shown.Report;
+        // A report's old values also feed the old-copy check (GameHistory in AppServices), so
+        // removing one with changes says what that check loses.
+        var hasChanges = report.ChangedFiles.Count > 0;
         var message = $"Remove the report from {report.CurrentUpdateAt.LocalDateTime:d MMM yyyy, HH:mm} ({FilesChangedText(report.ChangedFiles.Count)})?\n\n"
-            + "It goes from the History list for good. The game's files and your mods aren't touched.";
-        if (!_dialogs.Confirm(message, "Remove report", ThemedConfirmSeverity.Question))
+            + "It goes from the History list for good. The game's files and your mods aren't touched."
+            + (hasChanges ? "\n\nStarlink also uses it to spot mods that still have this update's old values; that check won't know them any more." : "");
+        if (!_dialogs.Confirm(message, "Remove report", hasChanges ? ThemedConfirmSeverity.Warning : ThemedConfirmSeverity.Question))
         {
             return;
         }

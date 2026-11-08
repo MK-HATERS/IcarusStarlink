@@ -85,6 +85,33 @@ public class WeeklyChangesViewModelTests
         Assert.Contains("no changes", Assert.Single(harness.Dialogs.Messages));
     }
 
+    /// <summary>A report's old values also tell Starlink which mods are old copies, so removing one with changes warns.</summary>
+    [Fact]
+    public void RemoveReport_WithChanges_WarnsTheOldCopyCheckLosesIt()
+    {
+        var harness = new Harness();
+        harness.Store.Reports.Add(Report(daysAgo: 0, changedFiles: 2));
+        var vm = harness.Build();
+
+        vm.RemoveReportCommand.Execute(null);
+
+        Assert.Contains("old values", Assert.Single(harness.Dialogs.Messages));
+        Assert.Equal(ThemedConfirmSeverity.Warning, Assert.Single(harness.Dialogs.Severities));
+    }
+
+    [Fact]
+    public void RemoveReport_Empty_AsksPlainly()
+    {
+        var harness = new Harness();
+        harness.Store.Reports.Add(Report(daysAgo: 0, changedFiles: 0));
+        var vm = harness.Build();
+
+        vm.RemoveReportCommand.Execute(null);
+
+        Assert.DoesNotContain("old values", Assert.Single(harness.Dialogs.Messages));
+        Assert.Equal(ThemedConfirmSeverity.Question, Assert.Single(harness.Dialogs.Severities));
+    }
+
     [Fact]
     public void RemoveReport_No_KeepsIt()
     {
@@ -153,10 +180,12 @@ public class WeeklyChangesViewModelTests
     {
         public bool Answer { get; set; } = true;
         public List<string> Messages { get; } = [];
+        public List<ThemedConfirmSeverity> Severities { get; } = [];
 
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {
             Messages.Add(message);
+            Severities.Add(severity);
             return Answer;
         }
 
