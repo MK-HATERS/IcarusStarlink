@@ -1233,6 +1233,29 @@ public sealed class SettingsViewModelTests
         Assert.Equal(vm.InstalledAppVersion, harness.Settings.LastSeenAppVersion);
     }
 
+    /// <summary>
+    /// Regression: with settings.json unreadable at start, recording the version as seen saved
+    /// settings at once, replacing the newest settings.json before the player could follow the
+    /// "close Starlink and start it again" advice.
+    /// </summary>
+    [Fact]
+    public async Task WhatsNew_SettingsUnreadableAtStart_DoesNotSaveSettings()
+    {
+        using var harness = new Harness();
+        harness.Settings.AutoCheckAppUpdates = false;
+        harness.Settings.LastSeenAppVersion = "1.0.0";
+        harness.SettingsService.LoadProblem = "settings problem";
+        var vm = harness.BuildViewModel();
+        harness.AppUpdateClient.VersionReleaseToReturn = new AppUpdateRelease(vm.InstalledAppVersion, "notes", "https://example.invalid/IcarusStarlink.zip");
+        vm.ShowWhatsNewAsync = _ => Task.CompletedTask;
+        var savesBefore = harness.SettingsService.SaveCallCount;
+
+        await vm.StartFirstLaunchSetup();
+        await vm.LaunchUpdateCheckTask;
+
+        Assert.Equal(savesBefore, harness.SettingsService.SaveCallCount);
+    }
+
     /// <summary>Regression: every Settings test read and deleted the real %TEMP%\IcarusStarlink-update-outcome.txt, eating a note the real updater had left.</summary>
     [Fact]
     public void UpdateOutcomeNote_IsReadFromTheTempFolderGiven()
@@ -1338,6 +1361,24 @@ public sealed class SettingsViewModelTests
 
         Assert.Single(harness.ActivityLog.Entries,
             e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("Icarus crashed since your last install"));
+    }
+
+    /// <summary>
+    /// Regression: with settings.json unreadable at start, noting a crash as reported saved
+    /// settings at once, replacing the newest settings.json before the player could follow the
+    /// "close Starlink and start it again" advice.
+    /// </summary>
+    [Fact]
+    public void CrashSinceLastInstall_SettingsUnreadableAtStart_IsReportedWithoutSavingSettings()
+    {
+        using var harness = new Harness();
+        AddCrashSinceLastInstall(harness);
+        harness.SettingsService.LoadProblem = "settings problem";
+
+        harness.BuildViewModel();
+
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Message.Contains("Icarus crashed since your last install"));
+        Assert.Equal(0, harness.SettingsService.SaveCallCount);
     }
 
     /// <summary>Regression: the crash warning showed the UE4SS.log of a later game session as the log "at the time of that crash".</summary>

@@ -383,7 +383,12 @@ public sealed partial class SettingsViewModel
                 $"Icarus crashed since your last install ({mostRecent.OccurredAtUtc.ToLocalTime():g}): {mostRecent.ErrorMessage}",
                 ActivityEntryKind.Warning);
             _settingsService.Current.LastReportedCrashAtUtc = mostRecent.OccurredAtUtc;
-            _settingsService.Save();
+            // Not while settings.json couldn't be read: this save would replace the newest file
+            // before the player restarts as LoadProblem asks. The value still holds this session.
+            if (_settingsService.LoadProblem is null)
+            {
+                _settingsService.Save();
+            }
 
             // The other half of this same health check (see GameSessionHealthCheck's own doc
             // comment): a real crash is a strong enough signal to also show what UE4SS itself was

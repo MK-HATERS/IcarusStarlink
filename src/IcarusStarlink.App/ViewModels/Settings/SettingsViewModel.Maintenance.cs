@@ -638,7 +638,12 @@ public sealed partial class SettingsViewModel
         }
 
         settings.LastSeenAppVersion = InstalledAppVersion;
-        _settingsService.Save();
+        // Not while settings.json couldn't be read: this save would replace the newest file
+        // before the player restarts as LoadProblem asks. The value still holds this session.
+        if (_settingsService.LoadProblem is null)
+        {
+            _settingsService.Save();
+        }
     }
 
     /// <summary>Shows What's new for a release, after any other startup window. Tests swap in a recorder: a real window can't open in a test host.</summary>
