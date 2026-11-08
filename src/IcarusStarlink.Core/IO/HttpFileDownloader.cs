@@ -54,7 +54,7 @@ public static class HttpFileDownloader
         HttpClient client, IReadOnlyList<string> requestUris, Func<HttpResponseMessage, string> chooseDestination, TimeSpan idleTimeout,
         CancellationToken cancellationToken = default, IProgress<DownloadProgress>? progress = null, long maxBytes = DefaultMaxBytes)
     {
-        using var response = await GetFromFirstAnsweringAsync(client, requestUris, cancellationToken);
+        using var response = await GetFromFirstAnsweringAsync(client, requestUris, cancellationToken).ConfigureAwait(false);
         if (response.Content.Headers.ContentLength is long announced && announced > maxBytes)
         {
             throw new IOException($"The download is too big: the server says it is {FormatSize(announced)}, and the most Starlink will save is {FormatSize(maxBytes)}.");
@@ -70,9 +70,10 @@ public static class HttpFileDownloader
         var partPath = $"{destinationPath}.{Guid.NewGuid():N}.part";
         try
         {
-            await using (var file = File.Create(partPath))
+            var file = File.Create(partPath);
+            await using (file.ConfigureAwait(false))
             {
-                await CopyWithIdleTimeoutAsync(response.Content, file, idleTimeout, maxBytes, progress, cancellationToken);
+                await CopyWithIdleTimeoutAsync(response.Content, file, idleTimeout, maxBytes, progress, cancellationToken).ConfigureAwait(false);
             }
 
             File.Move(partPath, destinationPath, overwrite: true);
@@ -166,7 +167,7 @@ public static class HttpFileDownloader
     /// </summary>
     public static async Task<HttpResponseMessage> GetWithStreamingResponseAsync(
         HttpClient client, string requestUri, CancellationToken cancellationToken = default) =>
-        await client.GetAsync(requestUri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        await client.GetAsync(requestUri, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Tries each download server in turn and returns the first one that answers with success (the
@@ -182,7 +183,7 @@ public static class HttpFileDownloader
         {
             try
             {
-                var response = await GetWithStreamingResponseAsync(client, uri, cancellationToken);
+                var response = await GetWithStreamingResponseAsync(client, uri, cancellationToken).ConfigureAwait(false);
                 if (response.IsSuccessStatusCode)
                 {
                     return response;
