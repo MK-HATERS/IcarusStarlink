@@ -89,6 +89,29 @@ public sealed partial class MergeInstallViewModelTests
         Assert.StartsWith("Imported 'S'", vm.PatchStatusMessage);
     }
 
+    /// <summary>
+    /// The Server page's "Apply a patch to this server" hands the unpacked patch straight to the
+    /// Library side: the bundled paks were copied on the thread that called it, so the window hung.
+    /// </summary>
+    [Fact]
+    public async Task ImportPatchContents_CopiesTheBundledPaksOffTheCallersThread()
+    {
+        var library = new FakeLibraryRepository();
+        using var callerReturned = new ManualResetEventSlim();
+        var heldTheCaller = false;
+        // On the caller's thread this waits for a return that can't happen until it gives up.
+        library.BeforeImportPaks = () => heldTheCaller = !callerReturned.Wait(TimeSpan.FromSeconds(15));
+        var vm = CreateViewModel(libraryRepository: library, profileStore: new FakeProfileStore());
+        using var patch = BundledPakPatch("Mine");
+
+        var import = vm.ImportPatchContentsAsync(patch);
+        callerReturned.Set();
+        await import;
+
+        Assert.False(heldTheCaller, "The bundled pak was copied on the thread that applied the patch.");
+        Assert.Single(library.ImportedPakSets);
+    }
+
     /// <summary>A second import while the first still adds mods would work on the same Library at the same time: it's refused.</summary>
     [Fact]
     public async Task ImportPatch_WhileAnotherImportRuns_IsRefused()
@@ -219,6 +242,53 @@ public sealed partial class MergeInstallViewModelTests
         Assert.Equal((true, true, "keep this", 123), (copy.IsPinned, copy.IsFavorite, copy.Notes, copy.NexusModId));
         Assert.DoesNotContain("brings yours back", vm.PatchStatusMessage);
         Assert.Contains("brings your files back", vm.PatchStatusMessage);
+    }
+
+    /// <summary>
+    /// Your Nexus copy of the same mod, renamed in the Library, wasn't seen as the same mod (the
+    /// rename was compared with the patch's name), so the patch's copy went in as a second copy.
+    /// </summary>
+    [Fact]
+    public async Task ImportPatch_YourRenamedCopyOfTheSameMod_IsReplaced_NotDuplicated()
+    {
+        var mine = MakeEntry("Mine", isOpaquePak: true);
+        (mine.Source, mine.NexusModId, mine.DisplayNameOverride, mine.Name) = ("Nexus", 123, "My stacks", "My stacks");
+        var library = new FakeLibraryRepository { AllEntries = [mine] };
+        var vm = CreateViewModel(libraryRepository: library, profileStore: new FakeProfileStore(), patchService: new FakePatchService { ImportResult = BundledPakPatch("Mine") });
+        _dialogs.OnPickFile = () => "patch.zip";
+
+        await vm.ImportPatchCommand.ExecuteAsync(null);
+
+        var copy = Assert.Single(library.AllEntries);
+        Assert.NotSame(mine, copy);
+        Assert.Equal(("My stacks", 123), (copy.DisplayNameOverride, copy.NexusModId));
+        Assert.DoesNotContain("beside", vm.PatchStatusMessage);
+    }
+
+    /// <summary>
+    /// A Nexus pak mod you edited whose pak files aren't on disk was left out of the patch as having
+    /// "no source", though it has one. It goes in as a link to its source, as it did before.
+    /// </summary>
+    [Fact]
+    public async Task ExportPatch_AnEditedSourcedPakModWithNoPakFiles_GoesInAsALinkToItsSource()
+    {
+        var edited = MakeEntry("Edited", isOpaquePak: true);
+        (edited.NexusModId, edited.IsLocallyEdited) = (361, true);
+        var library = new FakeLibraryRepository { AllEntries = [edited] };
+        library.FolderPaths["Edited"] = Directory.CreateDirectory(Path.Combine(_tempRoot, "Mods", "Edited")).FullName;
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["Edited"] });
+        var patches = new FakePatchService();
+        var vm = CreateViewModel(libraryRepository: library, profileStore: store, patchService: patches);
+        vm.SelectedProfileName = "Coop";
+        _dialogs.OnPickSaveFile = () => Path.Combine(_tempRoot, "p.zip");
+
+        await vm.ExportPatchCommand.ExecuteAsync(null);
+
+        Assert.True(patches.ExportedManifest is not null, vm.PatchStatusMessage);
+        var mod = Assert.Single(patches.ExportedManifest.Mods);
+        Assert.Equal((false, 361), (mod.Bundled, mod.NexusModId));
+        Assert.DoesNotContain("changed in Starlink", vm.PatchStatusMessage);
     }
 
     /// <summary>A copy an earlier import of the patch made, renamed by the player: the update keeps the name it was given.</summary>

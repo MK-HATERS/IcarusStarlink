@@ -67,15 +67,21 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
             {
                 var paks = PakFilesOf(entry);
                 mod.PakFileNames = [.. paks.Select(Path.GetFileName).OfType<string>()];
-                if (!hasSource)
+                if (!hasSource && paks.Count == 0)
                 {
-                    if (paks.Count == 0)
+                    if (!sourced)
                     {
                         // Marked bundled with nothing to bundle, the import would refuse the whole patch.
                         skipped.Add(entry.Name);
                         continue;
                     }
 
+                    // A changed copy whose paks aren't on disk goes in as a link to its source.
+                    mod.Bundled = false;
+                }
+
+                if (mod.Bundled)
+                {
                     bundledPaks[entry.FolderName] = paks;
                 }
             }
@@ -84,7 +90,7 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
                 bundledExmods[entry.FolderName] = ExmodFolder.Read(library.GetFolderPath(entry.FolderName));
             }
 
-            if (sourced && changedHere)
+            if (sourced && changedHere && mod.Bundled)
             {
                 changedCopies.Add(entry.Name);
             }

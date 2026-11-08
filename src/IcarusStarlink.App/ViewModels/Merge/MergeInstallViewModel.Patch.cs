@@ -296,7 +296,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
     /// <summary>
     /// Set while an import adds the patch's mods to the Library (off the UI thread, across awaits):
-    /// a second import is refused meanwhile, and so is a build.
+    /// a second import is refused meanwhile.
     /// </summary>
     private bool _isImportingPatch;
 
@@ -715,8 +715,15 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             .FirstOrDefault(e => e.Source == PatchSource || IsSameNameAndAuthor(e, mod));
     }
 
+    /// <summary>
+    /// Whether a Library copy under the patch mod's folder name is the same mod. A copy the player
+    /// renamed shows the rename as its Name, not the name the mod declares, so for it the author
+    /// alone decides (the folder name already matched).
+    /// </summary>
     private static bool IsSameNameAndAuthor(LibraryEntry entry, PatchModEntry mod) =>
-        CatalogKey.Normalize(entry.Name, entry.Author) == CatalogKey.Normalize(mod.Name, mod.Author);
+        entry.DisplayNameOverride is null
+            ? CatalogKey.Normalize(entry.Name, entry.Author) == CatalogKey.Normalize(mod.Name, mod.Author)
+            : CatalogKey.Normalize("", entry.Author) == CatalogKey.Normalize("", mod.Author);
 
     /// <summary>The patch mod's name (for the summary) when another Library mod already has the folder name its copy would take, else null.</summary>
     private string? BesideAnother(PatchModEntry mod, string folderName) =>
