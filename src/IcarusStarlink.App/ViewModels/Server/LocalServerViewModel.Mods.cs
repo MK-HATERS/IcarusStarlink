@@ -475,7 +475,6 @@ public sealed partial class LocalServerViewModel
                     if (await OffUiThread(() => ServerUe4ssSync.CopyToServer(gameMods, name, p.InstallFolder, backups)) is { } note)
                     {
                         notes.Add(note);
-                        _activityLog.Log(note, ActivityEntryKind.Warning);
                     }
                 }
                 catch (Exception ex)

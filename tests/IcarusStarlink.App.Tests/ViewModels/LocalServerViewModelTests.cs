@@ -41,6 +41,8 @@ public sealed partial class LocalServerViewModelTests : IDisposable
 
     private FakeFirewall Firewall { get; } = new();
 
+    private ActivityLog ActivityEntries { get; } = new();
+
     private string BackupsRoot => Path.Combine(_root, "Backups");
 
     private string MergedPakPath => Path.Combine(_root, "Staged_Build", IcarusStarlink.PakIO.InstallManifestNames.MergedPakFileName);
@@ -52,7 +54,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         var store = existingStore ?? new FakeStore();
         var processes = new FakeProcesses();
         var dialogs = new FakeDialogs(confirm);
-        var vm = new LocalServerViewModel(store, processes, dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, () => pickExe, startTimer: false, firewall: Firewall,
+        var vm = new LocalServerViewModel(store, processes, dialogs, ActivityEntries, SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => pick, () => pickExe, startTimer: false, firewall: Firewall,
             library: library, patchService: patches, patchImporter: importer, network: Network)
         {
             StartPollDelay = TimeSpan.Zero,
@@ -855,6 +857,8 @@ public sealed partial class LocalServerViewModelTests : IDisposable
 
         Assert.Contains("Updated 1 of 1", vm.StatusMessage);
         Assert.Contains("was updated, but its old copy", vm.StatusMessage);
+        // The Activity log shows the note once, in the summary line.
+        Assert.Single(ActivityEntries.Entries, e => e.Message.Contains("was updated, but its old copy"));
     }
 
     /// <summary>
