@@ -21,6 +21,12 @@ internal static class UrlOpener
             {
                 Process.Start(new ProcessStartInfo("explorer.exe", $"\"{target}\""));
             }
+            else if (Path.IsPathRooted(target) && !File.Exists(target))
+            {
+                // A folder or file that isn't there (UE4SS not installed yet, a moved game): say so
+                // plainly instead of handing it to ShellExecute, which fails with a vague error.
+                return new DirectoryNotFoundException($"This folder or file doesn't exist: {target}");
+            }
             else
             {
                 Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
