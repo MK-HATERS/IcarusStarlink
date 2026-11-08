@@ -63,6 +63,23 @@
                     <Button Content="Restore" Command="{Binding RestoreBackupCommand}" Margin="8,0,0,0"
                             ToolTip="Puts the selected backup's player data back. Your worlds aren't touched. Backs up what's there now first, so you can undo it."/>
                     <Button Content="Open backups folder" Command="{Binding OpenBackupsFolderCommand}" Margin="8,0,0,0"/>
+                    <!-- The game's own rolling copies beside the player files (Profile.json.backup, .backup_1 … _10). -->
+                    <TextBlock Text="Kept by the game:" VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    <TextBlock Text="no copies yet" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Visibility="{Binding HasNoGameBackups, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <ComboBox ItemsSource="{Binding GameBackups}" SelectedItem="{Binding SelectedGameBackup}" MinWidth="260" Margin="8,0,0,0"
+                              AutomationProperties.Name="Copies kept by the game"
+                              Visibility="{Binding HasGameBackups, Converter={StaticResource BoolToVisibilityConverter}}"
+                              ToolTip="The game's own copies of your player files, kept beside them in the save folder, newest first. The game replaces them each time it saves.">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Display}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button Content="Put back" Command="{Binding RestoreGameBackupCommand}" Margin="8,0,0,0"
+                            Visibility="{Binding HasGameBackups, Converter={StaticResource BoolToVisibilityConverter}}" ToolTipService.ShowOnDisabled="True"
+                            ToolTip="Puts the chosen copy back under the file's real name. Backs up what's there now first, so you can undo it. Icarus must be closed. Greyed out: pick a copy first."/>
                 </WrapPanel>
             </Expander>
         </DockPanel>

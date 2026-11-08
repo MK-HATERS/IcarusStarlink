@@ -17,6 +17,9 @@ public enum WorldBackupKind
 
     /// <summary>Find the broken mod zipped the slot's whole Prospects folder (every world) before its first round.</summary>
     BeforeFindBrokenMod,
+
+    /// <summary>One of the game's own rolling copies beside the world ("MyWorld.json.backup_3"), not in Starlink's backup folder.</summary>
+    KeptByGame,
 }
 
 /// <summary>One backup holding a world: a single copied world file, or a zip of a slot's worlds.</summary>
@@ -31,6 +34,7 @@ public sealed record WorldBackup(string Path, string WorldFileName, WorldBackupK
     {
         WorldBackupKind.BeforeSettingsSave => "before world settings save",
         WorldBackupKind.BeforeRestore => "before a restore",
+        WorldBackupKind.KeptByGame => Sequence == 0 ? "kept by the game (its newest copy)" : $"kept by the game (copy {Sequence})",
         _ => "before Find the broken mod",
     };
 }
@@ -135,11 +139,68 @@ public static partial class WorldBackups
     }
 
     /// <summary>
+    /// The game's own rolling copies of this world, beside it ("MyWorld.json.backup", ".backup_1"…),
+    /// newest first. Read fresh each call: the game shifts them along at every save. TakenAt is the
+    /// copy's write time, which Restore checks again so a copy the game replaced since isn't put back.
+    /// A folder that can't be read lists none.
+    /// </summary>
+    public static IReadOnlyList<WorldBackup> ListGameCopies(string worldPath)
+    {
+        var folder = System.IO.Path.GetDirectoryName(worldPath);
+        var worldFileName = System.IO.Path.GetFileName(worldPath);
+        if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+        {
+            return [];
+        }
+
+        var result = new List<WorldBackup>();
+        try
+        {
+            foreach (var info in new DirectoryInfo(folder).EnumerateFiles(worldFileName + ".backup*"))
+            {
+                if (IsGameCopyOf(info.Name, worldFileName, out var number))
+                {
+                    result.Add(new WorldBackup(info.FullName, worldFileName, WorldBackupKind.KeptByGame, info.LastWriteTime, number));
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+
+        return [.. result.OrderByDescending(b => b.TakenAt).ThenBy(b => b.Sequence)];
+    }
+
+    private static bool IsGameCopyOf(string copyName, string worldFileName, out int number) =>
+        Core.Saves.GameBackupCopy.TryParseName(copyName, out var original, out number)
+        && string.Equals(original, worldFileName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A game copy is put back only from beside the world, under the game's name, and only when it is still the one that was listed.</summary>
+    private static void CheckGameCopy(WorldBackup backup, string worldPath)
+    {
+        var sameFolder = string.Equals(
+            System.IO.Path.GetFullPath(System.IO.Path.GetDirectoryName(backup.Path) ?? ""),
+            System.IO.Path.GetFullPath(System.IO.Path.GetDirectoryName(worldPath) ?? ""),
+            StringComparison.OrdinalIgnoreCase);
+        if (!sameFolder || !IsGameCopyOf(System.IO.Path.GetFileName(backup.Path), System.IO.Path.GetFileName(worldPath), out _))
+        {
+            throw new InvalidDataException("That isn't one of the game's own copies of this world. Nothing was changed.");
+        }
+
+        if (File.GetLastWriteTime(backup.Path) != backup.TakenAt)
+        {
+            throw new InvalidDataException("The game changed its copies since the list was read. Pick one again. Nothing was changed.");
+        }
+    }
+
+    /// <summary>
     /// Puts the backup's copy of the world back over <paramref name="worldPath"/>. The backup is
     /// read into a temp file beside the world first and checked to be a world save; only then is
     /// the world as it is now backed up (kind BeforeRestore) and the temp file moved over it, so a
     /// damaged backup changes nothing. From a zip of worlds only the world's own file is taken (by
-    /// its name at the zip's top, never a path out of the zip). The restored file's time is set to
+    /// its name at the zip's top, never a path out of the zip). One of the game's own copies is only
+    /// copied from, never renamed, and refused when the game replaced it since it was listed. The restored file's time is set to
     /// now, so Steam Cloud takes it as the newest copy. Prunes this world's copies to
     /// <paramref name="keep"/> afterwards. Doesn't check whether the game or server runs: the caller does.
     /// Returns the path of the backup of the world as it was before.
@@ -156,6 +217,11 @@ public static partial class WorldBackups
         if (!string.Equals(backup.WorldFileName, fileName, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException($"That backup is of '{backup.WorldFileName}', not '{fileName}'. Nothing was changed.");
+        }
+
+        if (backup.Kind == WorldBackupKind.KeptByGame)
+        {
+            CheckGameCopy(backup, worldPath);
         }
 
         var temp = $"{worldPath}.{Guid.NewGuid():N}.isl-restore";

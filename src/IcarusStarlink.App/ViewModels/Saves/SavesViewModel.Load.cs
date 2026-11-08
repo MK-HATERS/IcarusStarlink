@@ -95,6 +95,7 @@ public sealed partial class SavesViewModel
         if (SelectedSlot is null)
         {
             LastBackupDisplay = null;
+            RefreshGameBackupsList();
             RefreshFlagFilter();
             await worldsLoad;
             return;

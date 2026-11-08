@@ -123,6 +123,70 @@ public sealed class WorldBackupsTests : IDisposable
         Assert.Equal(["MyWorld.json"], Directory.GetFiles(_prospects).Select(Path.GetFileName));
     }
 
+    // --- The game's own rolling copies beside the world (MyWorld.json.backup, .backup_N) ---
+
+    private string WriteGameCopy(string name, int arachnophobia, DateTime written)
+    {
+        var path = Path.Combine(_prospects, name);
+        File.WriteAllText(path, World("MyWorld", arachnophobia));
+        File.SetLastWriteTime(path, written);
+        return path;
+    }
+
+    [Fact]
+    public void ListGameCopies_ListsThisWorldsCopies_NewestFirst()
+    {
+        var world = WriteWorld("MyWorld", 0);
+        var now = DateTime.Now;
+        WriteGameCopy("MyWorld.json.backup_3", 3, now.AddHours(-3));
+        WriteGameCopy("MyWorld.json.backup", 1, now.AddHours(-1));
+        // Another world's copy, and names that aren't the game's: left out.
+        WriteGameCopy("Other.json.backup", 9, now);
+        WriteGameCopy("MyWorld.json.Bak", 9, now);
+
+        var listed = WorldBackups.ListGameCopies(world);
+
+        Assert.Equal(["MyWorld.json.backup", "MyWorld.json.backup_3"], listed.Select(b => Path.GetFileName(b.Path)));
+        Assert.All(listed, b => Assert.Equal(WorldBackupKind.KeptByGame, b.Kind));
+        Assert.All(listed, b => Assert.Equal("MyWorld.json", b.WorldFileName));
+        Assert.Equal("kept by the game (copy 3)", listed[1].KindText);
+        Assert.False(listed[0].IsZip);
+    }
+
+    [Fact]
+    public void Restore_GameCopy_CopiesItsBytes_BacksTheWorldUpFirst_AndLeavesTheCopy()
+    {
+        var world = WriteWorld("MyWorld", 0);
+        var copyPath = WriteGameCopy("MyWorld.json.backup_3", 3, DateTime.Now.AddDays(-1));
+        var copy = Assert.Single(WorldBackups.ListGameCopies(world));
+        var started = DateTime.Now.AddSeconds(-2);
+
+        var before = WorldBackups.Restore(copy, world, _backups, SlotA, keep: 10);
+
+        Assert.Equal(World("MyWorld", 3), File.ReadAllText(world));
+        Assert.True(File.GetLastWriteTime(world) >= started);
+        // The game's copy is only read, never renamed.
+        Assert.Equal(World("MyWorld", 3), File.ReadAllText(copyPath));
+        Assert.NotNull(before);
+        Assert.Equal(World("MyWorld", 0), File.ReadAllText(before));
+        Assert.StartsWith(_backups, before);
+    }
+
+    [Fact]
+    public void Restore_GameCopyChangedSinceListed_RefusedAndChangesNothing()
+    {
+        var world = WriteWorld("MyWorld", 0);
+        WriteGameCopy("MyWorld.json.backup_3", 3, DateTime.Now.AddDays(-2));
+        var copy = Assert.Single(WorldBackups.ListGameCopies(world));
+        // The game saved again and shifted its copies along.
+        WriteGameCopy("MyWorld.json.backup_3", 4, DateTime.Now.AddDays(-1));
+
+        Assert.Throws<InvalidDataException>(() => WorldBackups.Restore(copy, world, _backups, SlotA, keep: 10));
+
+        Assert.Equal(World("MyWorld", 0), File.ReadAllText(world));
+        Assert.False(Directory.Exists(_backups));
+    }
+
     [Fact]
     public void Restore_FromAZipOfWorlds_PutsBackOnlyTheChosenWorld()
     {

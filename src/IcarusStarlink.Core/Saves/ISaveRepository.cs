@@ -101,6 +101,21 @@ public interface ISaveRepository
     string RestoreSlot(string steamId, string backupFilePath);
 
     /// <summary>
+    /// The game's own rolling copies of the slot's player files ("Profile.json.backup",
+    /// "Characters.json.backup_3"…), newest first, read fresh each call (the game shifts them at
+    /// every save). Empty when there are none.
+    /// </summary>
+    IReadOnlyList<GameBackupCopy> ListGameBackups(string steamId) => [];
+
+    /// <summary>
+    /// Puts one of the game's own copies back under its file's real name: the copy is read and
+    /// checked first, then a pre_restore zip of the slot is written, then the file is written
+    /// atomically and its time set to now. The copy itself is only read, never renamed or moved.
+    /// Throws, changing nothing, when the copy changed since it was listed. Returns the pre_restore zip path.
+    /// </summary>
+    string RestoreGameBackup(string steamId, GameBackupCopy copy) => throw new NotSupportedException("This save store can't restore the game's own copies.");
+
+    /// <summary>
     /// For a Save that failed partway: puts the named top-level files (the ones it had already
     /// written) back as they are in the backup it took just before. A file the backup has is
     /// written back atomically; one it doesn't have (the failed Save made it) is deleted. No

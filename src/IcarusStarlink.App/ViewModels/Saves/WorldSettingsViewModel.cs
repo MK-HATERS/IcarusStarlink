@@ -45,7 +45,9 @@ public sealed class WorldBackupItemViewModel(WorldBackup backup)
     public string What => Backup.KindText;
 
     /// <summary>Faint note for a zip of every world: only this one is put back.</summary>
-    public string? Note => Backup.IsZip ? "Zip of every world in the slot: only this world is put back." : null;
+    public string? Note => Backup.IsZip ? "Zip of every world in the slot: only this world is put back."
+        : Backup.Kind == WorldBackupKind.KeptByGame ? "The game's own copy beside the world. It is copied back, and stays where it is."
+        : null;
 
     public string FileName => Path.GetFileName(Backup.Path);
 }
@@ -435,7 +437,12 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
         {
             try
             {
-                foreach (var backup in WorldBackups.List(_backupFolder, owner, Path.GetFileName(world.Save.Path)))
+                // Starlink's own backups and the game's rolling copies beside the world, in one
+                // list by time. The game's copies are read fresh each time: it shifts them at every save.
+                var all = WorldBackups.List(_backupFolder, owner, Path.GetFileName(world.Save.Path))
+                    .Concat(WorldBackups.ListGameCopies(world.Save.Path))
+                    .OrderByDescending(b => b.TakenAt);
+                foreach (var backup in all)
                 {
                     Backups.Add(new WorldBackupItemViewModel(backup));
                 }

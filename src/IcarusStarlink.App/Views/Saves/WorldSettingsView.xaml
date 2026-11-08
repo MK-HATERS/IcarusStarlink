@@ -15,7 +15,7 @@
                         Visibility="{Binding ShowsBackups, Converter={StaticResource BoolToVisibilityConverter}}">
                 <StackPanel Visibility="{Binding SelectedWorld, Converter={StaticResource NullToVisibilityConverter}}">
                     <TextBlock Text="BACKUPS OF THIS WORLD" Style="{StaticResource FieldLabelStyle}" Margin="0,0,0,4"/>
-                    <TextBlock Text="None yet. Saving world settings or restoring backs the world up first; Find the broken mod backs up every world."
+                    <TextBlock Text="None yet. Saving world settings or restoring backs the world up first; Find the broken mod backs up every world. The game's own copies (World.json.backup) show here too when it has made some."
                                TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                Visibility="{Binding HasNoBackups, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     <ListBox ItemsSource="{Binding Backups}" SelectedItem="{Binding SelectedBackup}" MaxHeight="220" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}"

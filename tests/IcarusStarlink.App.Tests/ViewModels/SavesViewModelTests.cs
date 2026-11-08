@@ -2565,6 +2565,34 @@ public sealed partial class SavesViewModelTests : IDisposable
             return "fake_pre_restore.zip";
         }
 
+        /// <summary>What ListGameBackups returns (the game's own .backup copies); a test changes it to stand in for the game saving again.</summary>
+        public List<GameBackupCopy> GameBackups { get; set; } = [];
+
+        public int ListGameBackupsCallCount { get; private set; }
+
+        public IReadOnlyList<GameBackupCopy> ListGameBackups(string steamId)
+        {
+            ListGameBackupsCallCount++;
+            return [.. GameBackups];
+        }
+
+        /// <summary>Each game copy RestoreGameBackup was asked to put back.</summary>
+        public List<GameBackupCopy> RestoredGameBackups { get; } = [];
+
+        /// <summary>When set, RestoreGameBackup throws it (the game shifted its copies since the list was read).</summary>
+        public Exception? RestoreGameBackupError { get; set; }
+
+        public string RestoreGameBackup(string steamId, GameBackupCopy copy)
+        {
+            if (RestoreGameBackupError is { } error)
+            {
+                throw error;
+            }
+
+            RestoredGameBackups.Add(copy);
+            return "fake_pre_restore.zip";
+        }
+
         /// <summary>Each PutBackFiles call: the backup it read from and the files it put back.</summary>
         public List<(string Backup, List<string> Files)> PutBacks { get; } = [];
 

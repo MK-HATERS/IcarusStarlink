@@ -441,6 +441,90 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         return preRestorePath;
     }
 
+    /// <summary>The player files whose game copies are offered (flags_&lt;id&gt;.dat is rebuilt by the game from Steam, so it isn't one).</summary>
+    private static readonly HashSet<string> GameBackedUpFiles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ProfileFileName, CharactersFileName, AccoladesFileName, BestiaryFileName, MetaInventoryFileName, MountsFileName,
+    };
+
+    public IReadOnlyList<GameBackupCopy> ListGameBackups(string steamId)
+    {
+        var slotFolder = ResolveSlot(steamId);
+        var copies = new List<GameBackupCopy>();
+        foreach (var info in new DirectoryInfo(slotFolder).EnumerateFiles("*.backup*"))
+        {
+            if (GameBackupCopy.TryParseName(info.Name, out var original, out var number) && GameBackedUpFiles.Contains(original))
+            {
+                copies.Add(new GameBackupCopy(info.FullName, original, number, info.LastWriteTimeUtc, info.Length));
+            }
+        }
+
+        return [.. copies
+            .OrderByDescending(c => c.WrittenUtc)
+            .ThenBy(c => c.Number)
+            .ThenBy(c => c.OriginalFileName, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    public string RestoreGameBackup(string steamId, GameBackupCopy copy)
+    {
+        var slotFolder = ResolveSlot(steamId);
+
+        // Only a game copy that sits in this slot, of one of its player files, under the name the
+        // game gives it: the path came from a listing, but it is checked again before any write.
+        var name = Path.GetFileName(copy.FilePath);
+        if (!string.Equals(Path.GetFullPath(Path.GetDirectoryName(copy.FilePath) ?? ""), Path.GetFullPath(slotFolder), StringComparison.OrdinalIgnoreCase)
+            || !GameBackupCopy.TryParseName(name, out var original, out _)
+            || !string.Equals(original, copy.OriginalFileName, StringComparison.OrdinalIgnoreCase)
+            || !GameBackedUpFiles.Contains(original))
+        {
+            throw new InvalidDataException("That isn't one of the game's own copies in this save. Nothing was changed.");
+        }
+
+        var info = new FileInfo(copy.FilePath);
+        if (!info.Exists)
+        {
+            throw new InvalidDataException("That copy isn't there any more (the game saved again). Nothing was changed.");
+        }
+
+        // The game shifts its copies along at every save: ".backup_3" may now hold a different moment.
+        if (info.LastWriteTimeUtc != copy.WrittenUtc || info.Length != copy.Length)
+        {
+            throw new InvalidDataException("The game changed its copies since the list was read. Pick one again. Nothing was changed.");
+        }
+
+        if (info.Length > MaxPutBackFileBytes)
+        {
+            throw new InvalidDataException("That copy is too big to be player data. Nothing was changed.");
+        }
+
+        // Read and checked before anything is written: a half-written copy (the very crash this is
+        // for may have left one) changes nothing.
+        var bytes = File.ReadAllBytes(copy.FilePath);
+        try
+        {
+            using var document = JsonDocument.Parse(bytes);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidDataException("That copy isn't readable save data. Nothing was changed.");
+            }
+        }
+        catch (JsonException)
+        {
+            throw new InvalidDataException("That copy isn't readable save data (it may be cut short). Nothing was changed.");
+        }
+
+        Directory.CreateDirectory(backupsDirectory);
+        var preRestorePath = FolderBackup.MakeUniqueTimestampedPath(backupsDirectory, $"{steamId}_pre_restore", DateTimeOffset.Now, ".zip");
+        ZipTopLevelFilesTo(slotFolder, preRestorePath);
+
+        // Copied, never renamed: the game's copy stays where it is.
+        var target = Path.Combine(slotFolder, original);
+        JsonFileStore.WriteBytesAtomically(target, bytes);
+        TouchRestoredFiles([target]);
+        PruneBackups(steamId);
+        return preRestorePath;
+    }
+
     /// <summary>Far above any real player file (a few MB): a restore refuses a backup entry this big.</summary>
     private const long MaxRestoreEntryBytes = 256L * 1024 * 1024;
 

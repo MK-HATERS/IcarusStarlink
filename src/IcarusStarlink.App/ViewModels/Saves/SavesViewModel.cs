@@ -416,6 +416,7 @@ public sealed partial class SavesViewModel : ObservableObject
     public void OnPageShown()
     {
         RefreshSlots();
+        RefreshGameBackupsList();
         if (SelectedSlot is null || !_pendingSlotLoad.IsCompleted || _loadFailed || !SaveFilesChangedOnDisk())
         {
             return;

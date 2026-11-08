@@ -160,6 +160,71 @@ public sealed class WorldSettingsViewModelTests : IDisposable
         Assert.Single(vm.Backups);
     }
 
+    // --- The game's own rolling copies (World.json.backup, .backup_N) ---
+
+    private string WriteGameCopy(string name, int arachnophobia, DateTime written)
+    {
+        var path = Path.Combine(_root, "Prospects", name);
+        File.WriteAllText(path, File.ReadAllText(WorldPath).Replace("\"SettingValue\": 0", $"\"SettingValue\": {arachnophobia}"));
+        File.SetLastWriteTime(path, written);
+        return path;
+    }
+
+    [Fact]
+    public async Task GameCopies_AreListed_AndRestorePutsOneBack_AfterBackingTheWorldUp()
+    {
+        var copyPath = WriteGameCopy("World.json.backup_2", 1, DateTime.Now.AddHours(-2));
+        var vm = Create(owner: Slot);
+
+        var item = Assert.Single(vm.Backups);
+        Assert.Equal("kept by the game (copy 2)", item.What);
+        Assert.NotNull(item.Note);
+
+        vm.SelectedBackup = item;
+        await vm.RestoreBackupCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, WorldSave.Load(WorldPath)!.Settings["Arachnophobia"]);
+        Assert.True(File.Exists(copyPath));
+        // Starlink's own backup of the world as it was, then the game's copy, both listed.
+        Assert.Contains(vm.Backups, b => b.What == "before a restore");
+        Assert.Contains(vm.Backups, b => b.What == "kept by the game (copy 2)");
+        Assert.StartsWith("Restored 'World'", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task GameCopies_RestoreWhileTheGameRuns_IsRefused()
+    {
+        WriteGameCopy("World.json.backup", 1, DateTime.Now.AddHours(-1));
+        var vm = Create(owner: Slot);
+        vm.SelectedBackup = vm.Backups.Single();
+        var worldBefore = File.ReadAllText(WorldPath);
+        _blocked = "Close Icarus first.";
+
+        await vm.RestoreBackupCommand.ExecuteAsync(null);
+
+        Assert.Equal("Close Icarus first.", vm.StatusMessage);
+        Assert.Equal(worldBefore, File.ReadAllText(WorldPath));
+        Assert.False(Directory.Exists(Path.Combine(_root, "Backups")));
+    }
+
+    [Fact]
+    public async Task GameCopies_ShiftedSinceListed_RestoreRefused_AndTheListIsReadAgain()
+    {
+        WriteGameCopy("World.json.backup", 1, DateTime.Now.AddHours(-2));
+        var vm = Create(owner: Slot);
+        vm.SelectedBackup = vm.Backups.Single();
+        var worldBefore = File.ReadAllText(WorldPath);
+        // The game saved: its newest copy is now a different moment.
+        var newer = DateTime.Now.AddMinutes(-1);
+        WriteGameCopy("World.json.backup", 0, newer);
+
+        await vm.RestoreBackupCommand.ExecuteAsync(null);
+
+        Assert.Equal(worldBefore, File.ReadAllText(WorldPath));
+        Assert.StartsWith("Couldn't restore the world", vm.StatusMessage);
+        Assert.Equal(newer, Assert.Single(vm.Backups).Backup.TakenAt);
+    }
+
     [Fact]
     public void Save_PrunesTheWorldsBackups_ToTheSetting()
     {

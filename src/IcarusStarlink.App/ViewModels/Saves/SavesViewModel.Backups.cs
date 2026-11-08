@@ -36,6 +36,7 @@ public sealed partial class SavesViewModel
     /// </summary>
     private void RefreshBackupsList()
     {
+        RefreshGameBackupsList();
         var sameSlot = SelectedSlot is not null && string.Equals(SelectedSlot.SteamId, _backupsListedFor, StringComparison.Ordinal);
         HashSet<string> listedBefore = sameSlot ? _backupsListed : [];
         var picked = sameSlot ? _pickedBackup : null;
