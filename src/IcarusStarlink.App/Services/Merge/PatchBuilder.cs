@@ -159,7 +159,7 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
         return [.. Directory.GetDirectories(modsFolder)
             .Select(Path.GetFileName)
             .OfType<string>()
-            .Where(n => !framework.Contains(n) &&Ue4ssModStart.IsMod(modsFolder, n) && Ue4ssModStart.Starts(modsFolder, n, list))
+            .Where(n => !framework.Contains(n) && Ue4ssModStart.IsMod(modsFolder, n) && Ue4ssModStart.Starts(modsFolder, n, list))
             .Order(StringComparer.OrdinalIgnoreCase)
             .Select(n => new Ue4ssModSource(n, Path.Combine(modsFolder, n)))];
     }

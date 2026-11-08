@@ -43,7 +43,7 @@ public sealed partial class SettingsViewModel
     /// <summary>The Merge &amp; Install profile Migrate from IMM puts the classic list in (made on the first run, used again after).</summary>
     private const string ClassicImmProfileName = "Classic IMM";
 
-    private const string ImmFolderPickerTitle ="Select your classic IMM folder (the one containing Extracted_Mods)";
+    private const string ImmFolderPickerTitle = "Select your classic IMM folder (the one containing Extracted_Mods)";
 
     public ObservableCollection<string> MigrationResults { get; } = [];
 
@@ -158,7 +158,7 @@ public sealed partial class SettingsViewModel
                 + (problems.Count > 0 ? $" — {string.Join(", ", problems)}; see the list below." : ".")
                 // Merge & Install's own line for the list: queued, refused while a build runs, no
                 // names in it, or couldn't be read. It used to say "queued" whatever happened.
-                + (mergeInstall.StatusMessage is { Length: > 0 } mergeListStatus ? $" Merge list (profile '{ClassicImmProfileName}'): {mergeListStatus}" : "")
+                + (mergeInstall.StatusMessage is { Length: > 0 } mergeListStatus ? $" Merge list: {mergeListStatus}" : "")
                 + (result.FailedCatalogSources.Count > 0
                     ? $" ({string.Join(" and ", result.FailedCatalogSources)} unavailable — some mods may have missed a database link; try migrating again.)"
                     : "");

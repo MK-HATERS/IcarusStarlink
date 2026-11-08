@@ -190,7 +190,18 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         var existing = ProfileNames.FirstOrDefault(n => string.Equals(n, profileName, StringComparison.OrdinalIgnoreCase));
         if (existing is null)
         {
-            _profileStore.Save(new Profile { Name = profileName });
+            try
+            {
+                _profileStore.Save(new Profile { Name = profileName });
+            }
+            catch (Exception ex)
+            {
+                // Settings has already brought the mods over: this must not read as the migration failing.
+                StatusMessage = $"Couldn't make profile '{profileName}' ({ex.Message}), so the list wasn't loaded.";
+                _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
+                return;
+            }
+
             ReloadProfileNames();
             existing = ProfileNames.FirstOrDefault(n => string.Equals(n, profileName, StringComparison.OrdinalIgnoreCase)) ?? profileName;
         }

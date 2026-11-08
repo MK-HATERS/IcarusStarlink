@@ -223,4 +223,21 @@ public sealed partial class MergeInstallViewModelTests
         Assert.Equal(1, received);
         GC.KeepAlive(recipient);
     }
+
+    /// <summary>
+    /// Making the list's own profile failing (a full drive) threw out to Settings, which then said
+    /// the whole migration failed though the mods were already brought over.
+    /// </summary>
+    [Fact]
+    public void LoadModListIntoOwnProfile_WhenTheProfileCantBeMade_SaysSoAndLoadsNothing()
+    {
+        var (vm, store) = VmWithFailingProfileWrites();
+
+        vm.LoadModListIntoOwnProfile(WriteModList("ModC"), "Classic IMM");
+
+        Assert.StartsWith("Couldn't make profile 'Classic IMM'", vm.StatusMessage);
+        Assert.Contains("wasn't loaded", vm.StatusMessage);
+        Assert.Equal("Default", vm.SelectedProfileName);
+        Assert.DoesNotContain("Classic IMM", store.ProfileNames);
+    }
 }
