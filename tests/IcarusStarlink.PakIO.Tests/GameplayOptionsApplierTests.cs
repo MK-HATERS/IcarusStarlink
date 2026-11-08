@@ -898,12 +898,103 @@ public class GameplayOptionsApplierTests
         Assert.Equal("All_Weather", (string)tables["Weather-D_ProspectForecast.json"]["MidPeak"]!["WeatherPool"]!["RowName"]!);
     }
 
+    /// <summary>Regression: an option whose game table was missing did nothing and said nothing.</summary>
     [Fact]
     public void Apply_NoTablesPresentForAnEnabledOption_DoesNotThrow()
     {
+        var report = new MergeReport();
         var exception = Record.Exception(() =>
-            GameplayOptionsApplier.Apply(new GameplayOptions { StacksMultiplier = 2, UnlimitedAmmo = true }, new Dictionary<string, JsonObject>(), new MergeReport()));
+            GameplayOptionsApplier.Apply(new GameplayOptions { StacksMultiplier = 2, UnlimitedAmmo = true }, new Dictionary<string, JsonObject>(), report));
 
         Assert.Null(exception);
+        Assert.Contains(report.Warnings, w => w.Contains("Stacks multiplier") && w.Contains("Traits/D_Itemable.json") && w.Contains("Refresh game data"));
+        Assert.Contains(report.Warnings, w => w.Contains("Unlimited Ammo") && w.Contains("Tools/D_FirearmData.json"));
+    }
+
+    /// <summary>Two options needing one missing table get one warning naming both; Craft Cost then doesn't also say "no recipes matched".</summary>
+    [Fact]
+    public void Apply_MissingTables_OneWarningPerTable_NamingEveryOptionThatNeedsIt()
+    {
+        var report = new MergeReport();
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { CraftCost = CraftCostReduction.FiftyPercent, SpeedCraftingReductionPercent = 50 },
+            new Dictionary<string, JsonObject>(), report);
+
+        Assert.Equal(2, report.Warnings.Count);
+        Assert.Contains(report.Warnings, w => w.StartsWith("Craft Cost and Speed Crafting:", StringComparison.Ordinal) && w.Contains("Crafting/D_ProcessorRecipes.json"));
+        Assert.Contains(report.Warnings, w => w.StartsWith("Craft Cost and Speed Crafting:", StringComparison.Ordinal) && w.Contains("Crafting/D_ExtractorRecipes.json"));
+    }
+
+    /// <summary>
+    /// Regression: every scale option clamped to at least 1, so a mod's free ingredient (Count 0)
+    /// started costing one item under Craft Cost 25%/50% (Jimk_Steel_Buildables' Steel_Sliding_Door).
+    /// </summary>
+    [Theory]
+    [InlineData(CraftCostReduction.TwentyFivePercent)]
+    [InlineData(CraftCostReduction.FiftyPercent)]
+    public void Apply_CraftCostReduction_KeepsAModsFreeIngredientFree(CraftCostReduction level)
+    {
+        var tables = Table("Crafting-D_ProcessorRecipes.json", new JsonObject
+        {
+            ["Steel_Door"] = Row("""
+                {"RecipeSets":[{"RowName":"Anvil_Bench_T4"}],
+                 "Inputs":[{"Element":{"RowName":"Titanium_Ingot"},"Count":0},{"Element":{"RowName":"Steel_Ingot"},"Count":4}],
+                 "QueryInputs":[{"Query":{"RowName":"Any_Raw_Meat"},"Count":0}],
+                 "ResourceInputs":[{"Type":{"Value":"Water"},"RequiredUnits":0}]}
+                """),
+        });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { CraftCost = level }, tables, new MergeReport());
+
+        var row = tables["Crafting-D_ProcessorRecipes.json"]["Steel_Door"]!;
+        Assert.Equal(0, (int)row["Inputs"]![0]!["Count"]!);
+        Assert.Equal(0, (int)row["QueryInputs"]![0]!["Count"]!);
+        Assert.Equal(0, (int)row["ResourceInputs"]![0]!["RequiredUnits"]!);
+        Assert.True((int)row["Inputs"]![1]!["Count"]! < 4);
+    }
+
+    [Fact]
+    public void Apply_SpeedCrafting_KeepsAnInstantRecipeInstant()
+    {
+        var tables = Table("Crafting-D_ProcessorRecipes.json", new JsonObject { ["Instant"] = Row("""{"RequiredMillijoules": 0}""") });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SpeedCraftingReductionPercent = 50 }, tables, new MergeReport());
+
+        Assert.Equal(0, (int)tables["Crafting-D_ProcessorRecipes.json"]["Instant"]!["RequiredMillijoules"]!);
+    }
+
+    [Fact]
+    public void Apply_FasterTaming_KeepsAnInstantTameInstant()
+    {
+        var tables = Table("AI-D_Tames.json", new JsonObject { ["Moa"] = Row("""{"TameDurationInSeconds": 0}"""), ["Wolf"] = Row("""{"TameDurationInSeconds": 900}""") });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { TamingSpeedReductionPercent = 50 }, tables, new MergeReport());
+
+        Assert.Equal(0, (int)tables["AI-D_Tames.json"]["Moa"]!["TameDurationInSeconds"]!);
+    }
+
+    [Fact]
+    public void Apply_SlotsMultiplier_LeavesZeroSlotsAndAZeroBonusAtZero()
+    {
+        var tables = new Dictionary<string, JsonObject>
+        {
+            ["Inventory-D_InventoryInfo.json"] = new() { ["Empty"] = Row("""{"StartingSlots": 0}"""), ["Bag"] = Row("""{"StartingSlots": 10}""") },
+            ["Alterations-D_Alterations.json"] = new() { ["Storage_1"] = Row("""{"Stats": {"(Value=\"BaseGenericSlots_+\")": 0}}""") },
+        };
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { SlotsMultiplier = 2 }, tables, new MergeReport());
+
+        Assert.Equal(0, (int)tables["Inventory-D_InventoryInfo.json"]["Empty"]!["StartingSlots"]!);
+        Assert.Equal(0, (int)tables["Alterations-D_Alterations.json"]["Storage_1"]!["Stats"]!["(Value=\"BaseGenericSlots_+\")"]!);
+    }
+
+    [Fact]
+    public void Apply_StacksMultiplier_LeavesAMaxStackOfZeroAtZero()
+    {
+        var tables = Table("Traits-D_Itemable.json", new JsonObject { ["Item_X"] = Row("""{"MaxStack": 0}"""), ["Item_Y"] = Row("""{"MaxStack": 10}""") });
+
+        GameplayOptionsApplier.Apply(new GameplayOptions { StacksMultiplier = 3 }, tables, new MergeReport());
+
+        Assert.Equal(0, (int)tables["Traits-D_Itemable.json"]["Item_X"]!["MaxStack"]!);
     }
 }

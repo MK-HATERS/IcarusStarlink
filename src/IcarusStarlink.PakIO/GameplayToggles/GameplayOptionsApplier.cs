@@ -20,7 +20,9 @@ namespace IcarusStarlink.PakIO.GameplayToggles;
 /// concretely, gives a real defensive signal a raw-mutation loop never had: if a future game
 /// update renames a field this relies on (e.g. Traits-D_Itemable.json stops having a MaxStack
 /// field at all), zero rows match and a warning fires instead of the option just silently doing
-/// nothing.
+/// nothing. A table an option needs that the game data doesn't have at all is warned about too
+/// (WarnAboutMissingTables). Scaling never rounds a real amount below 1, and leaves a 0 (a mod's
+/// free ingredient) as it is (ScaleAmount).
 /// </summary>
 public static partial class GameplayOptionsApplier
 {
@@ -95,46 +97,75 @@ public static partial class GameplayOptionsApplier
     /// they're real FieldChanges now (GameplayOptionsFieldChangeGenerator), so their own file need
     /// is already covered by resolvedChanges' own file list in RebuildService.
     /// </summary>
-    public static IReadOnlySet<string> RequiredCurrentFiles(GameplayOptions options)
-    {
-        var files = new HashSet<string>();
+    public static IReadOnlySet<string> RequiredCurrentFiles(GameplayOptions options) => TablesByOption(options).Select(t => t.File).ToHashSet();
 
-        if (options.StacksMultiplier is > 0 || options.RemoveWeight || options.WeightReductionPercent is > 0)
+    /// <summary>The next step when a field or row an option needs isn't in the game data.</summary>
+    private const string RenamedNextStep = "Refresh game data in Settings, then build again. If this still shows, a game update renamed it and Starlink needs an update.";
+
+    /// <summary>Each enabled Category-2 option (by the name players see) with every table it changes.</summary>
+    private static IEnumerable<(string Option, string File)> TablesByOption(GameplayOptions options)
+    {
+        if (options.StacksMultiplier is > 0)
         {
-            files.Add(ItemableFile);
+            yield return ("Stacks multiplier", ItemableFile);
+        }
+        if (options.RemoveWeight || options.WeightReductionPercent >= 100)
+        {
+            yield return ("Remove Weight", ItemableFile);
+        }
+        else if (options.WeightReductionPercent is > 0)
+        {
+            yield return ("Lighter Items", ItemableFile);
         }
         if (options.SlotsMultiplier is > 0)
         {
             // Alterations/Talents alongside the base Inventory table — see ScaleAlterationSlotBonuses/
             // ScaleTalentDeployableStorageBonuses' own doc comments for why a player's REAL total
             // slot count is base + these flat bonuses, not base alone.
-            files.Add(InventoryFile);
-            files.Add(AlterationsFile);
-            files.Add(TalentsFile);
+            yield return ("Slots multiplier", InventoryFile);
+            yield return ("Slots multiplier", AlterationsFile);
+            yield return ("Slots multiplier", TalentsFile);
         }
-        if (options.CraftCost != CraftCostReduction.Off || options.SpeedCraftingReductionPercent is > 0)
+        if (options.CraftCost != CraftCostReduction.Off)
         {
-            files.Add(ProcessorRecipesFile);
-            files.Add(ExtractorRecipesFile);
+            yield return ("Craft Cost", ProcessorRecipesFile);
+            yield return ("Craft Cost", ExtractorRecipesFile);
+        }
+        if (options.SpeedCraftingReductionPercent is > 0)
+        {
+            yield return ("Speed Crafting", ProcessorRecipesFile);
+            yield return ("Speed Crafting", ExtractorRecipesFile);
         }
         if (options.UnlimitedAmmo)
         {
-            files.Add(FirearmDataFile);
+            yield return ("Unlimited Ammo", FirearmDataFile);
         }
         if (options.TamingSpeedReductionPercent is > 0)
         {
-            files.Add(TamesFile);
+            yield return ("Faster Taming", TamesFile);
         }
         if (options.FreeItemRepair)
         {
-            files.Add(DurableFile);
+            yield return ("Free Item Repair", DurableFile);
         }
         if (options.NoWeather)
         {
-            files.Add(ProspectForecastFile);
+            yield return ("No Weather", ProspectForecastFile);
         }
+    }
 
-        return files;
+    /// <summary>
+    /// One warning per table an enabled option needs that the game data doesn't have (the build
+    /// only loads a table the game has), naming every option that needed it: without it those
+    /// options do nothing there.
+    /// </summary>
+    private static void WarnAboutMissingTables(GameplayOptions options, IDictionary<string, JsonObject> keyedTablesByFile, MergeReport report)
+    {
+        foreach (var missing in TablesByOption(options).Where(t => !keyedTablesByFile.ContainsKey(t.File)).GroupBy(t => t.File))
+        {
+            report.AddWarning($"{string.Join(" and ", missing.Select(t => t.Option).Distinct())}: the game data has no {missing.Key.Replace('-', '/')}, so nothing changed there. "
+                + "Refresh game data in Settings, then build again. If this still shows, a game update moved that table and Starlink needs an update.");
+        }
     }
 
     private static readonly IReadOnlyDictionary<string, JsonObject> EmptyOriginalFiles = new Dictionary<string, JsonObject>();
@@ -152,6 +183,7 @@ public static partial class GameplayOptionsApplier
         IReadOnlyDictionary<string, JsonObject>? originalFilesByFile = null)
     {
         var originals = originalFilesByFile ?? EmptyOriginalFiles;
+        WarnAboutMissingTables(options, keyedTablesByFile, report);
 
         if (options.StacksMultiplier is > 0 and var stacksMultiplier)
         {
@@ -163,16 +195,14 @@ public static partial class GameplayOptionsApplier
         }
         else if (options.WeightReductionPercent is > 0 and var lighterPercent)
         {
-            // Same rows Remove Weight touches (an explicit Weight). Already-weightless items stay
-            // weightless — the helper's minimum of 1 would otherwise give them weight.
-            ScaleExistingNumericField(keyedTablesByFile, ItemableFile, "Weight", 1 - lighterPercent / 100.0, minimum: 1, report, "Lighter Items",
-                skipRow: row => row["Weight"] is JsonValue weight && weight.TryGetValue<double>(out var w) && w <= 0);
+            // Same rows Remove Weight touches (an explicit Weight); weightless items stay weightless.
+            ScaleExistingNumericField(keyedTablesByFile, ItemableFile, "Weight", 1 - lighterPercent / 100.0, report, "Lighter Items");
         }
         if (options.SlotsMultiplier is > 0 and var slotsMultiplier)
         {
             // skipRow: HasSlotOverrides (see that method's own doc comment) OR IsSingleFixedEquipSlot
             // (see that one's own doc comment) — a row can be unsafe to scale for either reason.
-            ScaleExistingNumericField(keyedTablesByFile, InventoryFile, "StartingSlots", slotsMultiplier, minimum: 1, report, "Slots multiplier", skipRow: row => HasSlotOverrides(row) || IsSingleFixedEquipSlot(row));
+            ScaleExistingNumericField(keyedTablesByFile, InventoryFile, "StartingSlots", slotsMultiplier, report, "Slots multiplier", skipRow: row => HasSlotOverrides(row) || IsSingleFixedEquipSlot(row));
             ScaleAlterationSlotBonuses(keyedTablesByFile, slotsMultiplier, report);
             ScaleTalentDeployableStorageBonuses(keyedTablesByFile, slotsMultiplier, report);
         }
@@ -189,7 +219,7 @@ public static partial class GameplayOptionsApplier
             // TameDurationInSeconds — real field confirmed on every one of AI-D_Tames.json's own 29
             // creature rows (e.g. Moa: 900). No documented reduction from classic IMM, so the exact
             // percentage is user-supplied, same as Speed Crafting's own precedent.
-            ScaleExistingNumericField(keyedTablesByFile, TamesFile, "TameDurationInSeconds", 1 - tamingPercent / 100.0, minimum: 1, report, "Faster Taming");
+            ScaleExistingNumericField(keyedTablesByFile, TamesFile, "TameDurationInSeconds", 1 - tamingPercent / 100.0, report, "Faster Taming");
         }
         if (options.FreeItemRepair)
         {
@@ -206,9 +236,15 @@ public static partial class GameplayOptionsApplier
         // change instead of a silent post-merge overwrite. See that class's own doc comment.
     }
 
+    /// <summary>
+    /// A scaled amount: a real amount never rounds below 1 (half of a cost of 1 stays 1, not free);
+    /// 0 or less (a mod's free ingredient, an instant recipe, a penalty) is left as it is (null).
+    /// </summary>
+    private static int? ScaleAmount(double current, double factor) => current <= 0 ? null : Math.Max(1, (int)Math.Round(current * factor));
+
     /// <summary>Field name/base values confirmed from real Data\Traits\D_Itemable.json (MaxStack, Weight sit on every item row alongside each other) — the exact multiplier is user-supplied since classic IMM never documented one for its own "Stacks Level 1/2".</summary>
     private static void ScaleExistingNumericField(
-        IDictionary<string, JsonObject> tables, string file, string fieldName, double multiplier, int minimum, MergeReport report, string optionName,
+        IDictionary<string, JsonObject> tables, string file, string fieldName, double multiplier, MergeReport report, string optionName,
         Func<JsonObject, bool>? skipRow = null)
     {
         if (!tables.TryGetValue(file, out var table))
@@ -216,6 +252,7 @@ public static partial class GameplayOptionsApplier
             return;
         }
 
+        var foundField = false;
         var changes = new List<FieldChange>();
         foreach (var (itemName, rowValue) in table)
         {
@@ -224,22 +261,25 @@ public static partial class GameplayOptionsApplier
                 continue;
             }
 
-            if (skipRow?.Invoke(row) == true)
+            foundField = true;
+            if (skipRow?.Invoke(row) == true || ScaleAmount(current, multiplier) is not { } newValue)
             {
                 continue;
             }
 
-            var newValue = Math.Max(minimum, (int)Math.Round(current * multiplier));
             changes.Add(new FieldChange(file, itemName, fieldName, currentValue, JsonValue.Create(newValue), ValueSemantic.Scalar));
         }
 
-        if (changes.Count == 0)
+        if (!foundField)
         {
-            report.AddWarning($"Couldn't apply {optionName} — no rows in {file} have a '{fieldName}' field. The game data may have changed since this option's field name was last confirmed.");
+            report.AddWarning($"Couldn't apply {optionName} — no rows in {file} have a '{fieldName}' field. {RenamedNextStep}");
             return;
         }
 
-        tables[file] = TableApplier.Apply(table, changes, report);
+        if (changes.Count > 0)
+        {
+            tables[file] = TableApplier.Apply(table, changes, report);
+        }
     }
 
     /// <summary>
@@ -281,7 +321,7 @@ public static partial class GameplayOptionsApplier
 
         if (changes.Count == 0)
         {
-            report.AddWarning($"Couldn't apply {optionName} — no rows in {file} have an explicit '{fieldName}' override to zero out. The game data may have changed since this option's field name was last confirmed.");
+            report.AddWarning($"Couldn't apply {optionName} — no rows in {file} have an explicit '{fieldName}' override to zero out. {RenamedNextStep}");
             return;
         }
 
@@ -307,7 +347,7 @@ public static partial class GameplayOptionsApplier
 
         if (changes.Count == 0)
         {
-            report.AddWarning($"Couldn't apply {optionName} — {file} has no rows to set '{fieldName}' on. The game data may have changed since this option's field name was last confirmed.");
+            report.AddWarning($"Couldn't apply {optionName} — {file} has no rows to set '{fieldName}' on. {RenamedNextStep}");
             return;
         }
 
@@ -342,7 +382,7 @@ public static partial class GameplayOptionsApplier
 
         if (changes.Count == 0)
         {
-            report.AddWarning($"Couldn't apply Free Item Repair — no rows in {DurableFile} have an 'ItemsForRepair' list. The game data may have changed since this option's field name was last confirmed.");
+            report.AddWarning($"Couldn't apply Free Item Repair — no rows in {DurableFile} have an 'ItemsForRepair' list. {RenamedNextStep}");
             return;
         }
 
@@ -369,7 +409,7 @@ public static partial class GameplayOptionsApplier
 
         if (table[ClearForecastRowName] is not JsonObject clear || clear["WeatherPool"] is not JsonNode clearPool || clear["Pattern"] is not JsonArray clearPattern)
         {
-            report.AddWarning($"Couldn't apply No Weather — {ProspectForecastFile} has no '{ClearForecastRowName}' row with a WeatherPool and Pattern to copy. The game data may have changed since this option was last confirmed.");
+            report.AddWarning($"Couldn't apply No Weather — {ProspectForecastFile} has no '{ClearForecastRowName}' row with a WeatherPool and Pattern to copy. {RenamedNextStep}");
             return;
         }
 

@@ -13,8 +13,8 @@ public static partial class GameplayOptionsApplier
     /// per classic IMM's changelog — scales down (or, for Creative, zeroes) the ITEM inputs a recipe
     /// costs, never its outputs (that would be a free-item exploit, not a cost reduction). Creative
     /// needs its own literal-zero path rather than a 100% factor through ScaleCountsInArray, since
-    /// that helper deliberately floors every result at 1 (never lets 25%/50% round all the way down
-    /// to free) — Creative mode's whole point is actually reaching 0, so it can't reuse that clamp.
+    /// that helper never rounds a real amount below 1 (25%/50% never make a cost free; a 0 a mod set
+    /// is left as it is) — Creative mode's whole point is actually reaching 0.
     /// Also scales QueryInputs (a separate, tag-based ingredient-cost structure — "consume 3 of any
     /// raw meat", not a specific item) alongside Inputs/ResourceInputs: 24 real rows (Cooked_Fish,
     /// the Butcher_*/Farmer_Plant_*/Fisher_*/Animal_*_Gruel families, etc.) rely on QueryInputs
@@ -42,13 +42,15 @@ public static partial class GameplayOptionsApplier
         };
 
         var matchedAnyRow = false;
+        var anyTable = false;
         foreach (var file in new[] { ProcessorRecipesFile, ExtractorRecipesFile })
         {
             if (!tables.TryGetValue(file, out var table))
             {
-                continue;
+                continue; // warned about at the start of Apply
             }
 
+            anyTable = true;
             var changes = new List<FieldChange>();
             foreach (var (itemName, rowValue) in table)
             {
@@ -89,9 +91,9 @@ public static partial class GameplayOptionsApplier
             }
         }
 
-        if (!matchedAnyRow)
+        if (anyTable && !matchedAnyRow)
         {
-            report.AddWarning("Couldn't apply Craft Cost — no crafting recipes with an 'Inputs', 'ResourceInputs', or 'QueryInputs' array were found. The game data may have changed since this option's field names were last confirmed.");
+            report.AddWarning($"Couldn't apply Craft Cost — no crafting recipes with an 'Inputs', 'ResourceInputs', or 'QueryInputs' array were found. {RenamedNextStep}");
         }
     }
 
@@ -131,7 +133,7 @@ public static partial class GameplayOptionsApplier
         return false;
     }
 
-    /// <summary>Creative mode's own zero-out — deliberately not routed through ScaleCountsInArray, which floors every result at a minimum of 1 and so can never actually reach free. Returns a modified clone (null input in, null out) rather than mutating in place, matching TableApplier's own "the FieldChange carries the whole new value" model.</summary>
+    /// <summary>Creative mode's own zero-out — deliberately not routed through ScaleCountsInArray, which never rounds a real amount below 1 (a 0 is left as it is) and so can never make a cost free. Returns a modified clone (null input in, null out) rather than mutating in place, matching TableApplier's own "the FieldChange carries the whole new value" model.</summary>
     private static JsonArray? ZeroCountsInArray(JsonArray? array, string countField)
     {
         if (array is null)
@@ -179,13 +181,15 @@ public static partial class GameplayOptionsApplier
 
         var factor = 1 - percent / 100.0;
         var matchedAnyRow = false;
+        var anyTable = false;
         foreach (var file in new[] { ProcessorRecipesFile, ExtractorRecipesFile })
         {
             if (!tables.TryGetValue(file, out var table))
             {
-                continue;
+                continue; // warned about at the start of Apply
             }
 
+            anyTable = true;
             var defaultMillijoules = GetDefaultNumericValue(originalFilesByFile, file, "RequiredMillijoules");
 
             var changes = new List<FieldChange>();
@@ -211,24 +215,27 @@ public static partial class GameplayOptionsApplier
                     continue;
                 }
 
-                var newValue = Math.Max(1, (int)Math.Round(current * factor));
-                changes.Add(new FieldChange(file, itemName, "RequiredMillijoules", originalValue, JsonValue.Create(newValue), ValueSemantic.Scalar));
+                // An instant recipe (0) stays instant.
+                matchedAnyRow = true;
+                if (ScaleAmount(current, factor) is { } newValue)
+                {
+                    changes.Add(new FieldChange(file, itemName, "RequiredMillijoules", originalValue, JsonValue.Create(newValue), ValueSemantic.Scalar));
+                }
             }
 
             if (changes.Count > 0)
             {
-                matchedAnyRow = true;
                 tables[file] = TableApplier.Apply(table, changes, report);
             }
         }
 
-        if (!matchedAnyRow)
+        if (anyTable && !matchedAnyRow)
         {
-            report.AddWarning("Couldn't apply Speed Crafting — no eligible recipes with (or defaulting to) a 'RequiredMillijoules' value were found. The game data may have changed since this option's field name was last confirmed.");
+            report.AddWarning($"Couldn't apply Speed Crafting — no eligible recipes with (or defaulting to) a 'RequiredMillijoules' value were found. {RenamedNextStep}");
         }
     }
 
-    /// <summary>Returns a modified clone (null input in, null out) rather than mutating in place — same reasoning as ZeroCountsInArray.</summary>
+    /// <summary>Returns a modified clone (null input in, null out) rather than mutating in place — same reasoning as ZeroCountsInArray. Counts scale through ScaleAmount: a mod's free (0) ingredient stays free.</summary>
     private static JsonArray? ScaleCountsInArray(JsonArray? array, string countField, double factor)
     {
         if (array is null)
@@ -239,12 +246,13 @@ public static partial class GameplayOptionsApplier
         var result = array.DeepClone()!.AsArray();
         foreach (var element in result)
         {
-            if (element is not JsonObject obj || obj[countField] is not JsonValue value || !value.TryGetValue<double>(out var current))
+            if (element is not JsonObject obj || obj[countField] is not JsonValue value || !value.TryGetValue<double>(out var current)
+                || ScaleAmount(current, factor) is not { } scaled)
             {
                 continue;
             }
 
-            obj[countField] = JsonValue.Create(Math.Max(1, (int)Math.Round(current * factor)));
+            obj[countField] = JsonValue.Create(scaled);
         }
 
         return result;

@@ -9,7 +9,7 @@ public static partial class GameplayOptionsApplier
     /// <summary>
     /// Real Data\Traits\D_Itemable.json rows without an explicit MaxStack field inherit MaxStack=1
     /// from the file's own struct-level Defaults block — invisible to a plain field-presence scan,
-    /// and until now silently unaffected by this option even though the UI's own tooltip promises
+    /// so a scan of explicit values alone would leave them unscaled even though the UI's own tooltip promises
     /// "e.g. 3x = triple every item's stack size" (an unqualified "every item"). Two real, independent
     /// community mods (Jimk72's "Increase Stacks": 431 rows, relentlessmoose's "rm_Stack_Sizes": 775
     /// rows) DO extend a new explicit MaxStack onto hundreds of these Defaults-only rows (deployable
@@ -27,6 +27,7 @@ public static partial class GameplayOptionsApplier
 
         var defaultMaxStack = GetDefaultNumericValue(originalFilesByFile, ItemableFile, "MaxStack");
 
+        var foundMaxStack = false;
         var changes = new List<FieldChange>();
         foreach (var (itemName, rowValue) in table)
         {
@@ -37,17 +38,25 @@ public static partial class GameplayOptionsApplier
 
             if (row["MaxStack"] is JsonValue currentValue && currentValue.TryGetValue<double>(out var current))
             {
-                changes.Add(new FieldChange(ItemableFile, itemName, "MaxStack", currentValue, JsonValue.Create(Math.Max(1, (int)Math.Round(current * multiplier))), ValueSemantic.Scalar));
+                foundMaxStack = true;
+                if (ScaleAmount(current, multiplier) is { } scaled)
+                {
+                    changes.Add(new FieldChange(ItemableFile, itemName, "MaxStack", currentValue, JsonValue.Create(scaled), ValueSemantic.Scalar));
+                }
             }
             else if (row["MaxStack"] is null && defaultMaxStack is double defaultValue && !IsWeaponOrTool(row))
             {
-                changes.Add(new FieldChange(ItemableFile, itemName, "MaxStack", null, JsonValue.Create(Math.Max(1, (int)Math.Round(defaultValue * multiplier))), ValueSemantic.Scalar));
+                foundMaxStack = true;
+                if (ScaleAmount(defaultValue, multiplier) is { } scaled)
+                {
+                    changes.Add(new FieldChange(ItemableFile, itemName, "MaxStack", null, JsonValue.Create(scaled), ValueSemantic.Scalar));
+                }
             }
         }
 
-        if (changes.Count == 0)
+        if (!foundMaxStack)
         {
-            report.AddWarning($"Couldn't apply Stacks multiplier — no rows in {ItemableFile} have (or default to) a 'MaxStack' value. The game data may have changed since this option's field name was last confirmed.");
+            report.AddWarning($"Couldn't apply Stacks multiplier — no rows in {ItemableFile} have (or default to) a 'MaxStack' value. {RenamedNextStep}");
             return;
         }
 
@@ -136,6 +145,7 @@ public static partial class GameplayOptionsApplier
             return;
         }
 
+        var foundBonus = false;
         var changes = new List<FieldChange>();
         foreach (var (itemName, rowValue) in table)
         {
@@ -150,8 +160,12 @@ public static partial class GameplayOptionsApplier
             {
                 if (stats[statName] is JsonValue currentValue && currentValue.TryGetValue<double>(out var current))
                 {
-                    newStats[statName] = JsonValue.Create(Math.Max(1, (int)Math.Round(current * multiplier)));
-                    changedAny = true;
+                    foundBonus = true;
+                    if (ScaleAmount(current, multiplier) is { } scaled)
+                    {
+                        newStats[statName] = JsonValue.Create(scaled);
+                        changedAny = true;
+                    }
                 }
             }
 
@@ -161,9 +175,9 @@ public static partial class GameplayOptionsApplier
             }
         }
 
-        if (changes.Count == 0)
+        if (!foundBonus)
         {
-            report.AddWarning($"Couldn't apply Slots multiplier to Alteration upgrades — no rows in {AlterationsFile} have a slot-bonus stat. The game data may have changed since this option's field names were last confirmed.");
+            report.AddWarning($"Couldn't apply Slots multiplier to Alteration upgrades — no rows in {AlterationsFile} have a slot-bonus stat. {RenamedNextStep}");
             return;
         }
 
@@ -183,6 +197,7 @@ public static partial class GameplayOptionsApplier
             return;
         }
 
+        var foundBonus = false;
         var changes = new List<FieldChange>();
         foreach (var (itemName, rowValue) in table)
         {
@@ -204,8 +219,13 @@ public static partial class GameplayOptionsApplier
                     continue;
                 }
 
-                (newReward["GrantedStats"] as JsonObject)![DeployableStorageTalentStatName] =
-                    JsonValue.Create(Math.Max(1, (int)Math.Round(current * multiplier)));
+                foundBonus = true;
+                if (ScaleAmount(current, multiplier) is not { } scaled)
+                {
+                    continue;
+                }
+
+                (newReward["GrantedStats"] as JsonObject)![DeployableStorageTalentStatName] = JsonValue.Create(scaled);
                 changedAny = true;
             }
 
@@ -215,9 +235,9 @@ public static partial class GameplayOptionsApplier
             }
         }
 
-        if (changes.Count == 0)
+        if (!foundBonus)
         {
-            report.AddWarning($"Couldn't apply Slots multiplier to Workshop talents — no rows in {TalentsFile} have a '{DeployableStorageTalentStatName}' reward. The game data may have changed since this option's field name was last confirmed.");
+            report.AddWarning($"Couldn't apply Slots multiplier to Workshop talents — no rows in {TalentsFile} have a '{DeployableStorageTalentStatName}' reward. {RenamedNextStep}");
             return;
         }
 
