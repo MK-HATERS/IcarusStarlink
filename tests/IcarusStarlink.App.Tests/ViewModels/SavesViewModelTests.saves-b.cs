@@ -208,4 +208,57 @@ public sealed partial class SavesViewModelTests
             WeakReferenceMessenger.Default.UnregisterAll(vm);
         }
     }
+
+    /// <summary>
+    /// The mounts' growth is read off the UI thread after the slot load: until it arrives a mount
+    /// has none, and WaitForMountGrowthAsync ends only once every mount has it.
+    /// </summary>
+    [Fact]
+    public async Task MountGrowth_ArrivesAfterTheLoad_AndWaitForMountGrowthEndsWithIt()
+    {
+        static IcarusStarlink.PakIO.Assets.GrowthCurveKey Key(float t, float v) => new(t, v, false, false, 0, 0);
+        var growth = new IcarusStarlink.PakIO.Assets.PlayerGrowth(
+            50, 50, false,
+            new([Key(0, 0), Key(50, 100_000)], false, true),
+            new([Key(0, 0), Key(50, 50)], false, false),
+            null, null, []);
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            Mounts = MakeMountsRoot(MakeMount("Rex", 3, "Wolf")),
+        };
+        // The read waits for the gate, so the load is sure to end before the growth arrives.
+        using var gate = new ManualResetEventSlim();
+        var reads = 0;
+        var vm = new SavesViewModel(repository, new FakeActivityLog(), new SaveGameNames(CreateGameDataFolder()),
+            new FakeDialogService(confirmResult: true), new FakeGameProcessChecker(false), new FakeBaseGameIconDecoder(),
+            readMountGrowth: () =>
+            {
+                Interlocked.Increment(ref reads);
+                gate.Wait(TimeSpan.FromSeconds(30));
+                return new Dictionary<string, IcarusStarlink.PakIO.Assets.MountGrowth>
+                {
+                    ["Wolf"] = new("AI_Mounts", "Creature_Wolf", 3, growth),
+                };
+            });
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var rex = Assert.Single(vm.Mounts);
+            Assert.Null(rex.Growth);
+            Assert.False(vm.WaitForMountGrowthAsync().IsCompleted);
+
+            gate.Set();
+            await vm.WaitForMountGrowthAsync();
+            Assert.Equal(1, reads);
+            Assert.Equal("AI_Mounts", rex.Growth?.GrowthRow);
+            Assert.Equal("Growth: AI_Mounts (levels up to 50).", rex.GrowthNote);
+        }
+        finally
+        {
+            gate.Set();
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
 }
