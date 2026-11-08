@@ -35,6 +35,9 @@ public sealed class ExmodPackage
     /// </summary>
     public List<ScaleRule> ScaleRules { get; set; } = [];
 
+    /// <summary>Top-level keys this version doesn't read (classic IMM's merged-mod "Mods" list, another tool's own data), written back unchanged; null when there are none.</summary>
+    public System.Text.Json.Nodes.JsonObject? ExtraFields { get; set; }
+
     /// <summary>The mod's entry for a table (CurrentFile compared ignoring case); a new, empty one is added before the EndOfMod marker (at the end when there is none), the way every real EXMOD has it.</summary>
     public ExmodFileRow GetOrAddRow(string currentFile)
     {

@@ -17,10 +17,15 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// </summary>
 internal static class DuplicateTolerantJson
 {
+    /// <summary>A hand-edited file may carry a trailing comma or a // comment; neither changes what it means.</summary>
+    private static readonly JsonDocumentOptions Options = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+
     public static JsonNode? Parse(string json)
     {
-        using var document = JsonDocument.Parse(json);
-        return Convert(document.RootElement);
+        // One copy of the whole document, made before the pooled original is returned: every scalar
+        // below wraps an element of this copy.
+        using var document = JsonDocument.Parse(json, Options);
+        return Convert(document.RootElement.Clone());
     }
 
     private static JsonNode? Convert(JsonElement element)
@@ -51,7 +56,8 @@ internal static class DuplicateTolerantJson
                 return null;
 
             default:
-                // Clone: the JsonDocument backing this element is disposed when Parse returns.
+                // The whole document was cloned once in Parse, so this Clone returns the element
+                // itself (no copy) and it outlives the pooled original.
                 return JsonValue.Create(element.Clone());
         }
     }

@@ -380,6 +380,26 @@ public sealed class ScaleRulesTests : IDisposable
         Assert.Empty(Assert.Single(old.ScaleRules).ExceptRows);
     }
 
+    /// <summary>Regression: an unknown operation (a newer version's "Add") was read as Multiply and a rule with no value as 1, so the next data refresh rewrote the mod with numbers nobody chose.</summary>
+    [Fact]
+    public void ARuleWithAnUnknownOperationOrNoValue_IsSkipped()
+    {
+        var mod = ExmodJson.Parse("""
+            {"name":"New","author":"Me","version":"1","description":"","fileName":"New","Rows":[{"CurrentFile":"EndOfMod","File_Items":[]}],
+             "starlinkScaleRules":[
+               {"currentFile":"Traits-D_Itemable.json","field":"MaxStack","operation":"Add","value":10},
+               {"currentFile":"Traits-D_Itemable.json","field":"MaxStack","operation":"1","value":10},
+               {"currentFile":"Traits-D_Itemable.json","field":"Weight","operation":"Set"},
+               {"currentFile":"Traits-D_Itemable.json","field":"Weight","operation":"Set","value":"five"},
+               {"currentFile":"Traits-D_Itemable.json","field":"Weight","value":0.5}]}
+            """);
+
+        var rule = Assert.Single(mod.ScaleRules);
+        Assert.Equal("Weight", rule.Field);
+        Assert.Equal(ScaleOperation.Multiply, rule.Operation);
+        Assert.Equal(0.5, rule.Value);
+    }
+
     /// <summary>The editor's tag reads this: a rule owns only the rows its filter and inherited setting let it change.</summary>
     [Fact]
     public void Ownership_IsExactlyTheRowsApplyWrites()

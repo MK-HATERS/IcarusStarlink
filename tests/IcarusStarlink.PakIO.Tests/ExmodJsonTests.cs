@@ -287,6 +287,87 @@ public class ExmodJsonTests
         Assert.Equal(1, package.VariantSort);
     }
 
+    /// <summary>Regression: a variantSort that isn't a whole number refused the whole mod, though header fields are best-effort.</summary>
+    [Theory]
+    [InlineData("1.5")]
+    [InlineData("\"first\"")]
+    [InlineData("[1]")]
+    public void Parse_VariantSortThatIsntAWholeNumber_IsLeftOut(string value)
+    {
+        var package = ExmodJson.Parse($$"""{"name": "N", "author": "A", "version": "1", "description": "D", "fileName": "F", "variantSort": {{value}}}""");
+
+        Assert.Null(package.VariantSort);
+    }
+
+    /// <summary>Regression: keys this version doesn't read (classic IMM's merged-mod "Mods" list) were dropped the next time the mod was saved.</summary>
+    [Fact]
+    public void RoundTrip_KeepsTopLevelKeysItDoesntRead()
+    {
+        const string json = """{"name":"M","author":"A","version":"1","description":"","fileName":"M","Mods":[{"name":"X","rank":1}],"Rows":[]}""";
+
+        var output = JsonNode.Parse(ExmodJson.Serialize(ExmodJson.Parse(json)))!.AsObject();
+
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse("""[{"name":"X","rank":1}]"""), output["Mods"]));
+    }
+
+    [Fact]
+    public void RoundTrip_AKnownKeyInAnotherCase_IsNotWrittenTwice()
+    {
+        const string json = """{"name":"M","Name":"Other","author":"A","version":"1","description":"","fileName":"M","Rows":[]}""";
+
+        var output = JsonNode.Parse(ExmodJson.Serialize(ExmodJson.Parse(json)))!.AsObject();
+
+        Assert.False(output.ContainsKey("Name"));
+        Assert.Equal("M", output["name"]!.GetValue<string>());
+    }
+
+    /// <summary>Regression: saved files had NSLOCTEXT quotes, '+' and accents written as \uXXXX escapes.</summary>
+    [Fact]
+    public void Serialize_WritesQuotesAccentsAndSymbolsReadably()
+    {
+        var package = new ExmodPackage
+        {
+            Name = "M", Author = "A", Version = "1", Description = "", FileName = "M",
+            Rows = [new ExmodFileRow { CurrentFile = "Traits-D_Itemable.json", FileItems = [new ExmodFileItem { Name = "X", Fields = { ["DisplayName"] = "NSLOCTEXT(\"D_Itemable\", \"X-DisplayName\", \"Café +5\")" } }] }],
+        };
+
+        var json = ExmodJson.Serialize(package);
+
+        Assert.Contains("NSLOCTEXT(\\\"D_Itemable\\\"", json);
+        Assert.Contains("Café +5", json);
+        Assert.DoesNotContain("\\u0022", json);
+        Assert.DoesNotContain("\\u002B", json);
+        Assert.DoesNotContain("\\u00E9", json);
+        Assert.Equal("NSLOCTEXT(\"D_Itemable\", \"X-DisplayName\", \"Café +5\")", ExmodJson.Parse(json).Rows[0].FileItems[0].Fields["DisplayName"]!.GetValue<string>());
+    }
+
+    /// <summary>Regression: a hand-edited file with a trailing comma or a // comment couldn't be read.</summary>
+    [Fact]
+    public void Parse_TrailingCommasAndComments_AreAccepted()
+    {
+        const string json = """
+            {
+                // made by hand
+                "name": "M", "author": "A", "version": "1", "description": "", "fileName": "M",
+                "Rows": [
+                    {"CurrentFile": "Traits-D_Itemable.json", "File_Items": [{"Name": "X", "Weight": 5,},]},
+                ]
+            }
+            """;
+
+        var package = ExmodJson.Parse(json);
+
+        Assert.Equal(5, Assert.Single(Assert.Single(package.Rows).FileItems).Fields["Weight"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Parse_KeepsANumbersTextAsWritten()
+    {
+        var package = ExmodJson.Parse("""{"name":"M","author":"A","version":"1","description":"","fileName":"M","Rows":[{"CurrentFile":"T-D_X.json","File_Items":[{"Name":"X","Weight":1.50}]}]}""");
+
+        Assert.Equal("1.50", package.Rows[0].FileItems[0].Fields["Weight"]!.ToJsonString());
+    }
+
     [Fact]
     public void Serialize_NullImageAndReadmeUrl_WritesEmptyStringNotAbsent()
     {

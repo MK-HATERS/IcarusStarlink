@@ -118,8 +118,27 @@ public static class ExmodJson
             }
         }
 
+        // Ignoring case, so a stray "Name" isn't written back next to "name".
+        foreach (var (key, value) in root)
+        {
+            if (!WrittenKeys.Contains(key))
+            {
+                package.ExtraFields ??= [];
+                package.ExtraFields[key] = value?.DeepClone();
+            }
+        }
+
         return package;
     }
+
+    /// <summary>The top-level keys ToJsonObject writes from the package's own fields; every other key is kept in ExtraFields.</summary>
+    private static readonly HashSet<string> WrittenKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "name", "author", "version", "description", "fileName", "imageURL", "readmeURL",
+        "Level2", "week", "variantGroup", "variant", "variantSort", "Rows", ScaleRulesKey,
+        // Read as the name when there is no "name", then written as "name" and "fileName".
+        "ModName",
+    };
 
     /// <summary>
     /// One Rows entry: {"CurrentFile": ..., "File_Items": [...]}, parsed with the same validation
@@ -165,14 +184,23 @@ public static class ExmodJson
         {
             try
             {
+                // An operation this version doesn't know (a newer version's, a typo) or a rule with
+                // no number would rewrite the mod with values nobody chose: skip it. A rule with no
+                // operation at all is from before Set existed, so it multiplies.
+                if (ReadOperation(entry["operation"]) is not { } operation
+                    || entry["value"] is not JsonValue valueNode || !ScaleRules.TryReadNumber(valueNode, out var value))
+                {
+                    continue;
+                }
+
                 var rule = new ScaleRule
                 {
                     Enabled = entry["enabled"]?.GetValue<bool>() ?? true,
                     Label = entry["label"]?.GetValue<string>() ?? "",
                     CurrentFile = entry["currentFile"]?.GetValue<string>() ?? "",
                     Field = entry["field"]?.GetValue<string>() ?? "",
-                    Operation = Enum.TryParse<ScaleOperation>(entry["operation"]?.GetValue<string>(), ignoreCase: true, out var op) && Enum.IsDefined(op) ? op : ScaleOperation.Multiply,
-                    Value = entry["value"]?.GetValue<double>() ?? 1,
+                    Operation = operation,
+                    Value = value,
                     RowFilter = entry["rowFilter"]?.GetValue<string>(),
                     IncludeInherited = entry["includeInherited"]?.GetValue<bool>() ?? true,
                     // Added later: older files have no list (the rule excepts no row). Anything but a name is skipped.
@@ -193,6 +221,23 @@ public static class ExmodJson
         }
 
         return rules;
+    }
+
+    /// <summary>Multiply when the rule has none; an operation's name in any case; null for anything else (a number too, which Enum.TryParse would take as an operation).</summary>
+    private static ScaleOperation? ReadOperation(JsonNode? node)
+    {
+        if (node is null)
+        {
+            return ScaleOperation.Multiply;
+        }
+
+        if (node is not JsonValue value || !value.TryGetValue<string>(out var text))
+        {
+            return null;
+        }
+
+        return Enum.GetValues<ScaleOperation>().Select(op => (ScaleOperation?)op)
+            .FirstOrDefault(op => string.Equals(op.ToString(), text.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 
     public static JsonObject ToJsonObject(ExmodPackage package)
@@ -270,6 +315,14 @@ public static class ExmodJson
             })]);
         }
 
+        foreach (var (key, value) in package.ExtraFields ?? [])
+        {
+            if (!WrittenKeys.Contains(key))
+            {
+                root[key] = value?.DeepClone();
+            }
+        }
+
         return root;
     }
 
@@ -310,7 +363,22 @@ public static class ExmodJson
     }
 
     public static string Serialize(ExmodPackage package, bool indented = true) =>
-        ToJsonObject(package).ToJsonString(new JsonSerializerOptions { WriteIndented = indented });
+        ToJsonObject(package).ToJsonString(indented ? FileOptions : CompactFileOptions);
+
+    /// <summary>
+    /// How EXMOD files are written: NSLOCTEXT quotes as \" and accents and symbols as themselves, not
+    /// as \uXXXX escapes, so the file reads like the game's own. Still valid JSON; the file isn't HTML.
+    /// </summary>
+    private static readonly JsonSerializerOptions FileOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    private static readonly JsonSerializerOptions CompactFileOptions = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
     private static string GetRequiredString(JsonObject obj, string key) =>
         GetString(obj, key) ?? throw new FormatException($"EXMOD JSON is missing required field '{key}'.");
@@ -369,13 +437,8 @@ public static class ExmodJson
             return parsed;
         }
 
-        try
-        {
-            return node.GetValue<int>();
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
-        {
-            throw new FormatException($"EXMOD JSON field '{key}' is not an integer.", ex);
-        }
+        // Header fields are best-effort: anything else that isn't a whole number (1.5, "first", a
+        // list) is left out rather than refusing the mod.
+        return node is JsonValue number && number.TryGetValue<int>(out var whole) ? whole : null;
     }
 }
