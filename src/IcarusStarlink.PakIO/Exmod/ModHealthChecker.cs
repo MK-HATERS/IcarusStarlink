@@ -89,7 +89,7 @@ public static partial class ModHealthChecker
 
         foreach (var row in package.Rows)
         {
-            if (ExmodSentinelFiles.IsEndOfModMarker(row.CurrentFile) || Table(row.CurrentFile, dataFolder, baseTableCache) is not { } table)
+            if (ExmodSentinelFiles.IsEndOfModMarker(row.CurrentFile) || Table(row.CurrentFile, gameIndex, baseTableCache) is not { } table)
             {
                 continue;
             }
@@ -327,14 +327,12 @@ public static partial class ModHealthChecker
         // makes or links to elsewhere is its own new content (a new bag's priority row), never
         // "missing"; and without a likely new name or the history's proof that the game removed it,
         // there is nothing to offer, so it isn't listed.
-        var ownNames = OwnRowNames(package, dataFolder, baseTableCache);
+        var ownNames = OwnRowNames(package, gameIndex, baseTableCache);
         var missingRows = new HashSet<string>(StringComparer.Ordinal);
         foreach (var stale in ExmodStalenessChecker.FindLikelyStaleItems(package, dataFolder, classifier ?? new DefaultSemanticClassifier(), baseTableCache, ownAssetPaths))
         {
-            // Row names ignore case in the game, so "Pickaxe_Mk2" already is the game's "Pickaxe_MK2".
-            if (ownNames.Contains(stale.ItemName)
-                || oldRows.Contains(AddedRowKey(stale.CurrentFile, stale.ItemName))
-                || (Table(stale.CurrentFile, dataFolder, baseTableCache) is { } staleTable && RowsByName(staleTable).ContainsKey(stale.ItemName)))
+            // A stale item is a row the game doesn't have (compared ignoring case, as the game does).
+            if (ownNames.Contains(stale.ItemName) || oldRows.Contains(AddedRowKey(stale.CurrentFile, stale.ItemName)))
             {
                 continue;
             }
@@ -481,13 +479,13 @@ public static partial class ModHealthChecker
     /// Itemable, Template… rows) and every row it links to. A name new in one table only and linked
     /// from nowhere is what an edit to a since-renamed game row looks like, so it isn't included.
     /// </summary>
-    private static HashSet<string> OwnRowNames(ExmodPackage package, string dataFolder, IDictionary<string, JsonObject?> cache)
+    private static HashSet<string> OwnRowNames(ExmodPackage package, GameTableIndex gameIndex, IDictionary<string, JsonObject?> cache)
     {
         var newRowTables = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var linked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in package.Rows.Where(r => !ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile)))
         {
-            var gameRows = Table(row.CurrentFile, dataFolder, cache) is { } table ? RowsByName(table) : null;
+            var gameRows = Table(row.CurrentFile, gameIndex, cache) is { } table ? RowsByName(table) : null;
             foreach (var item in row.FileItems)
             {
                 if (gameRows is not null && !gameRows.ContainsKey(item.Name))
@@ -533,11 +531,16 @@ public static partial class ModHealthChecker
         }
     }
 
-    private static JsonObject? Table(string currentFile, string dataFolder, IDictionary<string, JsonObject?> cache)
+    /// <summary>
+    /// The game's table keyed by row name, parsed once: the index's own copy, also put in the
+    /// shared cache so the staleness check and the base diff find it there instead of parsing the
+    /// file again. Nothing here changes a table it gets (only reads or DeepClones).
+    /// </summary>
+    private static JsonObject? Table(string currentFile, GameTableIndex gameIndex, IDictionary<string, JsonObject?> cache)
     {
         if (!cache.TryGetValue(currentFile, out var table))
         {
-            table = BaseDataFileReader.ReadKeyedTable(dataFolder, currentFile, report: null);
+            table = gameIndex.Rows(currentFile);
             cache[currentFile] = table;
         }
 

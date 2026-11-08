@@ -31,9 +31,12 @@ public static class StaleItemFixSuggester
     public static StaleItemFixSuggestion? Suggest(string itemName, IEnumerable<string> itemFieldNames, JsonObject baseTable)
     {
         var normalizedTarget = Normalize(itemName);
+        // The distance is at least the difference in length, so a name much longer or shorter can't
+        // be close: skipped before the (costly) distance, which leaves the result the same.
         var ranked = baseTable
-            .Select(kv => kv.Key)
-            .Select(candidate => (Name: candidate, Distance: LevenshteinDistance.Compute(normalizedTarget, Normalize(candidate))))
+            .Select(kv => (Name: kv.Key, Normalized: Normalize(kv.Key)))
+            .Where(c => Math.Abs(c.Normalized.Length - normalizedTarget.Length) <= MaxCandidateDistance)
+            .Select(c => (c.Name, Distance: LevenshteinDistance.Compute(normalizedTarget, c.Normalized)))
             .Where(c => c.Distance <= MaxCandidateDistance)
             .OrderBy(c => c.Distance)
             .ToList();
