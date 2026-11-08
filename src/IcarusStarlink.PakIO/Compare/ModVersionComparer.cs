@@ -10,7 +10,8 @@ namespace IcarusStarlink.PakIO.Compare;
 /// "What did the author change in this update?" — diffs two copies of the same mod. An EXMOD mod
 /// is compared straight from its own package (its Rows already ARE the author's changes, so
 /// diffing two versions of them is a direct answer, no game data or UnrealPak needed); an opaque
-/// .pak mod has no readable package, so it falls through to the full pak-vs-pak comparison.
+/// .pak mod has no readable package, so it falls through to the full pak-vs-pak comparison, one
+/// pair per pak when the mod is a bundle of several.
 /// </summary>
 public sealed class ModVersionComparer(IPakCompareService pakCompareService) : IModVersionComparer
 {
@@ -27,11 +28,11 @@ public sealed class ModVersionComparer(IPakCompareService pakCompareService) : I
             throw new DirectoryNotFoundException($"'{newFolderPath}' doesn't exist.");
         }
 
-        var oldPak = FindSinglePak(oldFolderPath);
-        var newPak = FindSinglePak(newFolderPath);
+        var oldPaks = FindPaks(oldFolderPath);
+        var newPaks = FindPaks(newFolderPath);
 
         // Both sides opaque paks: no package to read, so unpack and compare their real contents.
-        if (oldPak is not null && newPak is not null && !HasExmod(oldFolderPath) && !HasExmod(newFolderPath))
+        if (oldPaks.Count > 0 && newPaks.Count > 0 && !HasExmod(oldFolderPath) && !HasExmod(newFolderPath))
         {
             if (string.IsNullOrWhiteSpace(unrealPakExePath))
             {
@@ -39,12 +40,60 @@ public sealed class ModVersionComparer(IPakCompareService pakCompareService) : I
                     "This mod is a prebuilt .pak, so comparing versions needs UnrealPak.exe — set its path in Settings first.");
             }
 
-            var pakResult = await pakCompareService.CompareAsync(unrealPakExePath, oldPak, newPak, cancellationToken);
-            return new ModVersionCompareResult(
-                Path.GetFileName(oldPak), Path.GetFileName(newPak), pakResult.DataDifferences, pakResult.AssetDifferences);
+            if (oldPaks.Count == 1 && newPaks.Count == 1)
+            {
+                // One pak each: compared directly, even when the author renamed it.
+                var oldPak = Path.Combine(oldFolderPath, oldPaks[0]);
+                var newPak = Path.Combine(newFolderPath, newPaks[0]);
+                var pakResult = await pakCompareService.CompareAsync(unrealPakExePath, oldPak, newPak, cancellationToken);
+                return new ModVersionCompareResult(
+                    Path.GetFileName(oldPak), Path.GetFileName(newPak), pakResult.DataDifferences, pakResult.AssetDifferences);
+            }
+
+            return await CompareBundlesAsync(unrealPakExePath, oldFolderPath, oldPaks, newFolderPath, newPaks, cancellationToken);
         }
 
         return await Task.Run(() => CompareExmodFolders(oldFolderPath, newFolderPath), cancellationToken);
+    }
+
+    /// <summary>
+    /// A bundle of paks on either side: each pak is compared with the pak of the same place and
+    /// name in the other version, and every difference is prefixed with its pak ("Mod_Model_P.pak:
+    /// …"). A pak only one version has is reported as added or removed, so a renamed pak shows as
+    /// one of each.
+    /// </summary>
+    private async Task<ModVersionCompareResult> CompareBundlesAsync(
+        string unrealPakExePath, string oldFolderPath, IReadOnlyList<string> oldPaks, string newFolderPath, IReadOnlyList<string> newPaks,
+        CancellationToken cancellationToken)
+    {
+        var data = new List<ChangedDataFile>();
+        var assets = new List<PakAssetDifference>();
+        // Keyed without case, each keeping its own spelling for the path on disk.
+        var oldByName = oldPaks.ToDictionary(p => p, StringComparer.OrdinalIgnoreCase);
+        var newByName = newPaks.ToDictionary(p => p, StringComparer.OrdinalIgnoreCase);
+        foreach (var pak in oldPaks.Union(newPaks, StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!newByName.TryGetValue(pak, out var newPak))
+            {
+                assets.Add(new PakAssetDifference(pak, PakAssetDifferenceKind.OnlyInFirst));
+                continue;
+            }
+
+            if (!oldByName.TryGetValue(pak, out var oldPak))
+            {
+                assets.Add(new PakAssetDifference(pak, PakAssetDifferenceKind.OnlyInSecond));
+                continue;
+            }
+
+            var result = await pakCompareService.CompareAsync(
+                unrealPakExePath, Path.Combine(oldFolderPath, oldPak), Path.Combine(newFolderPath, newPak), cancellationToken);
+            data.AddRange(result.DataDifferences.Select(d => d with { RelativePath = $"{pak}: {d.RelativePath}" }));
+            assets.AddRange(result.AssetDifferences.Select(d => d with { RelativePath = $"{pak}: {d.RelativePath}" }));
+        }
+
+        return new ModVersionCompareResult($"previous version ({Count(oldPaks)})", $"this version ({Count(newPaks)})", data, assets);
+
+        static string Count(IReadOnlyList<string> paks) => paks.Count == 1 ? "1 pak" : $"{paks.Count} paks";
     }
 
     private static ModVersionCompareResult CompareExmodFolders(string oldFolderPath, string newFolderPath)
@@ -145,7 +194,10 @@ public sealed class ModVersionComparer(IPakCompareService pakCompareService) : I
         Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories)
             .Any(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase));
 
-    private static string? FindSinglePak(string folderPath) =>
-        Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories)
-            .FirstOrDefault(f => f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase));
+    /// <summary>Every .pak under the folder, as a '/'-separated path relative to it, in name order.</summary>
+    private static IReadOnlyList<string> FindPaks(string folderPath) =>
+        [.. Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories)
+            .Where(f => f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
+            .Select(f => Path.GetRelativePath(folderPath, f).Replace('\\', '/'))
+            .Order(StringComparer.OrdinalIgnoreCase)];
 }

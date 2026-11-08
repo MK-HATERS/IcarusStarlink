@@ -166,6 +166,103 @@ public sealed class ModVersionComparerTests : IDisposable
         Assert.Contains("UnrealPak", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static void WritePaks(string folder, params string[] names)
+    {
+        Directory.CreateDirectory(folder);
+        foreach (var name in names)
+        {
+            var path = Path.Combine(folder, name);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, name);
+        }
+    }
+
+    /// <summary>
+    /// Regression: only the first pak of a bundle was compared, so an update that changed only
+    /// Mod_Model_P.pak read as "identical to its previous version".
+    /// </summary>
+    [Fact]
+    public async Task Bundle_ChangeInSecondPakOnly_IsReported()
+    {
+        WritePaks(_oldFolder, "A_P.pak", "B_P.pak");
+        WritePaks(_newFolder, "A_P.pak", "B_P.pak");
+        var paks = new RecordingPakCompareService();
+
+        var result = await new ModVersionComparer(paks).CompareAsync(_oldFolder, _newFolder, "UnrealPak.exe");
+
+        Assert.False(result.IsIdentical);
+        Assert.Contains(paks.Pairs, p => p.First.EndsWith("B_P.pak", StringComparison.Ordinal) && p.Second.EndsWith("B_P.pak", StringComparison.Ordinal));
+        Assert.Contains(paks.Pairs, p => p.First.EndsWith("A_P.pak", StringComparison.Ordinal) && p.Second.EndsWith("A_P.pak", StringComparison.Ordinal));
+        var difference = Assert.Single(result.AssetDifferences);
+        Assert.Equal("B_P.pak: x.uasset", difference.RelativePath);
+        Assert.Equal("previous version (2 paks)", result.OldLabel);
+        Assert.Equal("this version (2 paks)", result.NewLabel);
+    }
+
+    [Fact]
+    public async Task Bundle_PakAddedInNewVersion_IsReported()
+    {
+        WritePaks(_oldFolder, "A_P.pak");
+        WritePaks(_newFolder, "A_P.pak", "B_P.pak");
+        var paks = new RecordingPakCompareService();
+
+        var result = await new ModVersionComparer(paks).CompareAsync(_oldFolder, _newFolder, "UnrealPak.exe");
+
+        Assert.Contains(new PakAssetDifference("B_P.pak", PakAssetDifferenceKind.OnlyInSecond), result.AssetDifferences);
+        Assert.Equal("previous version (1 pak)", result.OldLabel);
+        var pair = Assert.Single(paks.Pairs);
+        Assert.EndsWith("A_P.pak", pair.First, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Bundle_PaksInSubfolders_ArePairedByTheirPlace()
+    {
+        WritePaks(_oldFolder, Path.Combine("Paks", "A_P.pak"), Path.Combine("Paks", "B_P.pak"), "C_P.pak");
+        WritePaks(_newFolder, Path.Combine("Paks", "B_P.pak"), "C_P.pak");
+        var paks = new RecordingPakCompareService();
+
+        var result = await new ModVersionComparer(paks).CompareAsync(_oldFolder, _newFolder, "UnrealPak.exe");
+
+        Assert.Contains(new PakAssetDifference("Paks/A_P.pak", PakAssetDifferenceKind.OnlyInFirst), result.AssetDifferences);
+        Assert.Contains(new PakAssetDifference("Paks/B_P.pak: x.uasset", PakAssetDifferenceKind.DifferentContent), result.AssetDifferences);
+        Assert.Equal(2, paks.Pairs.Count);
+    }
+
+    [Fact]
+    public async Task SinglePakRenamed_StillComparesTheTwo()
+    {
+        WritePaks(_oldFolder, "v1_P.pak");
+        WritePaks(_newFolder, "v2_P.pak");
+        var paks = new RecordingPakCompareService();
+
+        var result = await new ModVersionComparer(paks).CompareAsync(_oldFolder, _newFolder, "UnrealPak.exe");
+
+        var pair = Assert.Single(paks.Pairs);
+        Assert.EndsWith("v1_P.pak", pair.First, StringComparison.Ordinal);
+        Assert.EndsWith("v2_P.pak", pair.Second, StringComparison.Ordinal);
+        Assert.Equal("v1_P.pak", result.OldLabel);
+        Assert.Equal("v2_P.pak", result.NewLabel);
+    }
+
+    /// <summary>Records each pair it's asked about; only a pair whose first pak is B_P.pak differs (one asset).</summary>
+    private sealed class RecordingPakCompareService : IPakCompareService
+    {
+        public List<(string First, string Second)> Pairs { get; } = [];
+
+        public Task<PakCompareResult> CompareAsync(string unrealPakExePath, string firstPakPath, string secondPakPath, CancellationToken cancellationToken = default)
+        {
+            lock (Pairs)
+            {
+                Pairs.Add((firstPakPath, secondPakPath));
+            }
+
+            IReadOnlyList<PakAssetDifference> differences = firstPakPath.EndsWith("B_P.pak", StringComparison.Ordinal)
+                ? [new PakAssetDifference("x.uasset", PakAssetDifferenceKind.DifferentContent)]
+                : [];
+            return Task.FromResult(new PakCompareResult([], differences, 1, 1));
+        }
+    }
+
     private sealed class ThrowingPakCompareService : IPakCompareService
     {
         public Task<PakCompareResult> CompareAsync(string unrealPakExePath, string firstPakPath, string secondPakPath, CancellationToken cancellationToken = default)
