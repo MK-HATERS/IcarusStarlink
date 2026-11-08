@@ -28,7 +28,7 @@ public sealed partial class LibraryViewModel
         DetailWindowStopsShowing(item);
         if (!IsShownInDetailWindow(item))
         {
-            item.SelectedAssetPath = null;
+            item.ReleasePreview();
         }
     }
 
