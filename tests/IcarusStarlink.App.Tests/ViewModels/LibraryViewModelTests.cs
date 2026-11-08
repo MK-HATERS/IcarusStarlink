@@ -1041,6 +1041,9 @@ public sealed partial class LibraryViewModelTests
     [InlineData("Couldn't open the folder: gone", true)]
     [InlineData("Imported 'MkHaters Bags'.", false)]
     [InlineData("Applied 1 change(s).", false)]
+    [InlineData("Deleted 0 of 2 — Wireless Power: The process cannot access the file 'x' because it is being used by another process.", true)]
+    [InlineData("Close the game, then delete. Nothing was deleted.", true)]
+    [InlineData("Import cancelled — nothing was changed.", false)]
     public void Notice_FailuresShowAsWarnings(string message, bool isWarning) =>
         Assert.Equal(isWarning, LibraryViewModel.LooksLikeAProblem(message));
 

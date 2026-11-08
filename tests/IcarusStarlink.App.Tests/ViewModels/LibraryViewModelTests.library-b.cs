@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Ue4ss;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
 
@@ -268,5 +269,183 @@ public sealed partial class LibraryViewModelTests
         vm.Ue4ssStatusMessage = "Sign in first";
 
         Assert.Equal("Sign in first", vm.Notice);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Delete's result line and the warning colour.
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Regression: deleting WirelessPower (both halves) while its pak was locked said "Deleted 0 of
+    /// 2", though the UE4SS half was gone, and showed it in the normal colour.
+    /// </summary>
+    [Fact]
+    public void DeleteItemCommand_PackageWhoseDataHalfFails_CountsTheDeletedUe4ssHalf()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("WirelessPower", name: "Wireless Power", source: "Nexus", nexusModId: 361, isOpaquePak: true);
+        harness.Ue4ssModRepository.Staged.Add("WirelessPower");
+        harness.Ue4ssModMetaStore.Metas["WirelessPower"] = new Ue4ssModMeta { NexusModId = 361, NexusName = "Wireless Power" };
+        harness.Repository.DeleteException = ("WirelessPower", new IOException("locked"));
+        var vm = harness.Build();
+
+        vm.DeleteItemCommand.Execute(vm.DataRootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower"));
+
+        Assert.Equal(["WirelessPower"], harness.Ue4ssModRepository.DeleteCalls);
+        Assert.Contains("Deleted 1 of 2", vm.StatusMessage);
+        Assert.True(vm.IsNoticeWarning);
+    }
+
+    /// <summary>Regression: "Mods are being checked or fixed… Try again when that's done." showed in the normal colour.</summary>
+    [Fact]
+    public void DeleteItemCommand_WhileModsAreBeingChecked_RefusalShowsAsAWarning()
+    {
+        var harness = new TestHarness();
+        harness.AddMod("ModA");
+        var vm = harness.Build();
+        vm.IsCheckingStaleness = true;
+
+        vm.DeleteItemCommand.Execute(vm.DataRootItems.OfType<LibraryItemViewModel>().Single());
+
+        Assert.Empty(harness.Repository.DeleteCalls);
+        Assert.Contains("being checked", vm.Notice);
+        Assert.True(vm.IsNoticeWarning);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Importing: closing the "which one?" chooser.
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Regression: closing the "which one?" chooser (Minimap.EXMODZ and Minimap_PTBR.EXMODZ in one
+    /// zip) read "Imported 0 of 1 — …: Import cancelled …" and logged an amber "Import failed".
+    /// </summary>
+    [Fact]
+    public async Task ImportPaths_ChooserClosed_SaysCancelledNotFailed()
+    {
+        var harness = new TestHarness();
+        var zipPath = Path.Combine(Path.GetTempPath(), $"IcarusStarlink.Tests.{Guid.NewGuid():N}.zip");
+        using (var archive = new System.IO.Compression.ZipArchive(File.Create(zipPath), System.IO.Compression.ZipArchiveMode.Create))
+        {
+            foreach (var name in new[] { "Minimap.EXMODZ", "Minimap_PTBR.EXMODZ" })
+            {
+                using var stream = archive.CreateEntry(name).Open();
+                stream.Write(EmptyZipBytes());
+            }
+        }
+
+        try
+        {
+            var vm = harness.Build();
+            vm.Downloads.ChooseArchive = (_, _) => null;
+
+            await vm.ImportPaths([zipPath]);
+
+            Assert.Equal("Import cancelled — nothing was changed.", vm.StatusMessage);
+            Assert.DoesNotContain(harness.ActivityLog.Entries, e => e.Kind == IcarusStarlink.Core.Activity.ActivityEntryKind.Warning);
+            Assert.Empty(harness.Repository.ImportCalls);
+        }
+        finally
+        {
+            File.Delete(zipPath);
+        }
+    }
+
+    private static byte[] EmptyZipBytes()
+    {
+        using var memory = new MemoryStream();
+        using (new System.IO.Compression.ZipArchive(memory, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+        }
+
+        return memory.ToArray();
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Which library checks block which.
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Regression: the silent update check at launch greyed out every Check item (one shared
+    /// CanRunLibraryCheck), with nothing saying which check was running.
+    /// </summary>
+    [Fact]
+    public void LibraryChecks_TheUpdateCheckDoesNotBlockModPasses()
+    {
+        var vm = new TestHarness().Build();
+
+        vm.IsCheckingForUpdates = true;
+
+        Assert.True(vm.CanRunModPass);
+        Assert.True(vm.CanCheckEndorsements);
+        Assert.False(vm.CanCheckForUpdates);
+        Assert.False(vm.CanUpdateAll);
+        Assert.Equal("Checking for updates…", vm.LibraryChecksRunningText);
+    }
+
+    /// <summary>Two checks at once are both named; none running shows no line.</summary>
+    [Fact]
+    public void LibraryChecksRunningText_NamesEachRunningCheck_AndIsNullWhenNoneRuns()
+    {
+        var vm = new TestHarness().Build();
+        vm.IsCheckingForUpdates = false;
+        Assert.Null(vm.LibraryChecksRunningText);
+
+        vm.IsCheckingStaleness = true;
+        vm.IsCheckingEndorsements = true;
+
+        Assert.Equal("Working on mods against the game data… · Checking endorsements…", vm.LibraryChecksRunningText);
+        Assert.False(vm.CanRunModPass);
+        Assert.False(vm.CanUpdateAll);
+        Assert.True(vm.CanCheckForUpdates);
+        Assert.False(vm.CanCheckEndorsements);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The UE4SS panel: Del with several rows, and the endorse thumb.
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>Regression: Del with two UE4SS rows selected did nothing and said nothing.</summary>
+    [Fact]
+    public void DeleteSelectedUe4ssMods_TwoSelected_SaysOneAtATime()
+    {
+        var (vm, harness) = BuildPanels();
+        var rows = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Where(r => r.Name is "ArcFissionLibrary" or "MiniMapa").ToList();
+        vm.SetBulkSelectionAnchor(rows[0]);
+        vm.ToggleBulkSelection(rows[1]);
+
+        vm.DeleteSelectedUe4ssMods();
+
+        Assert.Empty(harness.Ue4ssModRepository.DeleteCalls);
+        Assert.Empty(harness.DialogService.ConfirmMessages);
+        Assert.Contains("one UE4SS mod at a time", vm.Ue4ssStatusMessage);
+    }
+
+    /// <summary>One UE4SS row selected: Del deletes it, after the usual question.</summary>
+    [Fact]
+    public void DeleteSelectedUe4ssMods_OneSelected_DeletesIt()
+    {
+        var (vm, harness) = BuildPanels();
+        var arc = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "ArcFissionLibrary");
+        harness.Ue4ssModRepository.Staged.Add("ArcFissionLibrary");
+        vm.SetBulkSelectionAnchor(arc);
+
+        vm.DeleteSelectedUe4ssMods();
+
+        Assert.Single(harness.DialogService.ConfirmMessages);
+        Assert.Equal(["ArcFissionLibrary"], harness.Ue4ssModRepository.DeleteCalls);
+    }
+
+    /// <summary>Regression: an endorsed UE4SS mod's thumb stayed clickable and did nothing.</summary>
+    [Fact]
+    public void EndorseUe4ssMod_AlreadyEndorsed_CantRun()
+    {
+        var (vm, _) = BuildPanels();
+        var miniMapa = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "MiniMapa");
+        Assert.True(vm.EndorseUe4ssModCommand.CanExecute(miniMapa));
+
+        miniMapa.EndorsementStatus = IcarusStarlink.Catalog.Nexus.NexusEndorsementStatus.Endorsed;
+
+        Assert.False(vm.EndorseUe4ssModCommand.CanExecute(miniMapa));
     }
 }
