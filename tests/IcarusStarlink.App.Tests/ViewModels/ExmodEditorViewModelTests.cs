@@ -14,7 +14,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>The mod editor's row commands, unsaved-work answer and game-data handling.</summary>
 [Collection(MessengerCollection.Name)]
-public sealed class ExmodEditorViewModelTests : IDisposable
+public sealed partial class ExmodEditorViewModelTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "ExmodEditor_" + Guid.NewGuid().ToString("N"));
     private readonly FolderLibraryRepository _library;

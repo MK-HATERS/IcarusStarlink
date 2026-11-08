@@ -199,26 +199,44 @@ public sealed class ModFixService(
     }
 
     /// <summary>
-    /// Remembers every choice (what was kept isn't asked again; every fix made is made again after
-    /// a re-conversion, exactly as chosen), then backs the mod up, applies the fixes and writes it.
-    /// Returns how many fixes were applied.
+    /// Backs the mod up, applies the fixes and writes it, then remembers every choice (what was
+    /// kept isn't asked again; every fix made is made again after a re-conversion, exactly as
+    /// chosen). A fix that fails is not remembered. Returns how many fixes were applied.
     /// </summary>
     public int Apply(string folderName, IReadOnlyCollection<(ModIssue Issue, ModIssueFix Fix)> fixes)
     {
         lock (_gate)
         {
-            var decisions = LoadDecisions(folderName);
-            foreach (var (issue, fix) in fixes)
-            {
-                decisions.Remember(issue, fix);
-            }
-
+            var applied = Write(folderName, fixes, backUp: true);
             if (fixes.Count > 0)
             {
-                SaveDecisions(folderName, decisions);
+                Remember(folderName, fixes);
             }
 
-            return Write(folderName, fixes, backUp: true);
+            return applied;
+        }
+    }
+
+    /// <summary>
+    /// Adds these choices to the mod's remembered ones, after the fix is written: remembered first,
+    /// a fix that then failed came back by itself on the next Fix sure problems. The fix stands
+    /// when the choices can't be saved.
+    /// </summary>
+    private void Remember(string folderName, IEnumerable<(ModIssue Issue, ModIssueFix Fix)> fixes)
+    {
+        var decisions = LoadDecisions(folderName);
+        foreach (var (issue, fix) in fixes)
+        {
+            decisions.Remember(issue, fix);
+        }
+
+        try
+        {
+            SaveDecisions(folderName, decisions);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "Fixed '{Mod}' but couldn't remember the choices", folderName);
         }
     }
 
@@ -252,18 +270,12 @@ public sealed class ModFixService(
                     break;
                 }
 
+                var thisRound = Write(folderName, fixes, backUp: applied == 0);
                 if (fixes.Any(f => !f.i.Remembered))
                 {
-                    var decisions = LoadDecisions(folderName);
-                    foreach (var (issue, fix) in fixes.Where(f => !f.i.Remembered))
-                    {
-                        decisions.Remember(issue, fix);
-                    }
-
-                    SaveDecisions(folderName, decisions);
+                    Remember(folderName, fixes.Where(f => !f.i.Remembered));
                 }
 
-                var thisRound = Write(folderName, fixes, backUp: applied == 0);
                 if (thisRound == 0)
                 {
                     break;
@@ -308,12 +320,40 @@ public sealed class ModFixService(
 
     public bool HasBackup(string folderName) => repository.HasModBackup(folderName);
 
-    /// <summary>Puts the mod back as it was before its last change (each fix, rename or refresh backs it up first).</summary>
+    /// <summary>The mod's newest backup folder, or null when it has none.</summary>
+    public string? LatestBackupPath(string folderName) => repository.TryGetLatestModBackupPath(folderName);
+
+    /// <summary>When a backup was taken, from its folder name ("Mod_20261101-142233" or "…_2"); null when the name has no time.</summary>
+    internal static DateTime? BackupTimeUtc(string backupPath)
+    {
+        // The name, not the folder's creation time: NTFS can hand a re-made folder an old one (see FolderBackup.NewestFirst).
+        var match = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(backupPath.TrimEnd('\\', '/')), @"_(?<stamp>\d{8}-\d{6})(?:_\d+)?$");
+        return match.Success && DateTime.TryParseExact(match.Groups["stamp"].Value, "yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var when)
+            ? when
+            : null;
+    }
+
+    /// <summary>
+    /// Puts the mod back as it was before its last change (each fix, rename or refresh backs it up
+    /// first), and the choices remembered with that change are put back as they were.
+    /// </summary>
     public bool RestoreBackup(string folderName)
     {
         lock (_gate)
         {
-            return repository.RestoreLatestModBackup(folderName);
+            var latest = repository.TryGetLatestModBackupPath(folderName);
+            if (!repository.RestoreLatestModBackup(folderName))
+            {
+                return false;
+            }
+
+            if (latest is not null)
+            {
+                PutChoicesBack(folderName, Path.GetFileName(latest.TrimEnd('\\', '/')));
+            }
+
+            return true;
         }
     }
 
@@ -326,6 +366,82 @@ public sealed class ModFixService(
             {
                 File.Delete(path);
             }
+
+            // A restore mustn't bring back what was forgotten on purpose.
+            if (ChoicesBeforeBackupPath(folderName) is { } before && File.Exists(before))
+            {
+                File.Delete(before);
+            }
+        }
+    }
+
+    /// <summary>The mod's remembered choices as they were when its newest fix backup was taken (Backup: that backup's folder name; ChoicesJson: null when there were none).</summary>
+    private sealed record ChoicesBeforeBackup(string Backup, string? ChoicesJson);
+
+    /// <summary>Kept beside each mod's choices, in a subfolder so it never meets a mod's own choices file.</summary>
+    private string? ChoicesBeforeBackupPath(string folderName) =>
+        decisionsDirectory is null ? null : Path.Combine(decisionsDirectory, "Before_Backup", SafeName(folderName) + ".json");
+
+    /// <summary>
+    /// Keeps the choices as they are now, before the fix about to be written, tied to the backup just
+    /// taken: restoring that backup puts them back. Best effort: without it a restore leaves the
+    /// choices as they are.
+    /// </summary>
+    private void RememberChoicesBefore(string folderName, string backup)
+    {
+        if (ChoicesBeforeBackupPath(folderName) is not { } path)
+        {
+            return;
+        }
+
+        try
+        {
+            var choices = DecisionsPath(folderName) is { } current && File.Exists(current) ? File.ReadAllText(current) : null;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            IcarusStarlink.Core.IO.AtomicFile.WriteAllText(path, JsonSerializer.Serialize(new ChoicesBeforeBackup(backup, choices)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "Couldn't keep '{Mod}''s choices with its backup", folderName);
+        }
+    }
+
+    /// <summary>
+    /// After <paramref name="restored"/> was restored: the choices as they were when it was taken, if
+    /// it is the backup they were kept with. A backup something else took (a refresh, an update)
+    /// leaves the choices as they are.
+    /// </summary>
+    private void PutChoicesBack(string folderName, string restored)
+    {
+        if (ChoicesBeforeBackupPath(folderName) is not { } path || DecisionsPath(folderName) is not { } choices || !File.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            if (JsonSerializer.Deserialize<ChoicesBeforeBackup>(File.ReadAllText(path)) is not { } kept
+                || !string.Equals(kept.Backup, restored, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (kept.ChoicesJson is null)
+            {
+                if (File.Exists(choices))
+                {
+                    File.Delete(choices);
+                }
+            }
+            else
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(choices)!);
+                IcarusStarlink.Core.IO.AtomicFile.WriteAllText(choices, kept.ChoicesJson);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            Serilog.Log.Warning(ex, "Restored '{Mod}' but couldn't put its earlier choices back", folderName);
         }
     }
 
@@ -367,22 +483,16 @@ public sealed class ModFixService(
             return 0;
         }
 
+        // The backup first: Restore latest backup clears the "fixed" mark only for a backup that
+        // isn't newer than it. The choices as they are now go with it (a restore puts them back).
         if (backUp)
         {
-            repository.BackupMod(folderName);
+            var backup = repository.BackupMod(folderName);
+            RememberChoicesBefore(folderName, Path.GetFileName(backup.TrimEnd('\\', '/')));
         }
 
-        if (applied > 0)
-        {
-            ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
-        }
-
-        foreach (var (rewritten, _) in repointed)
-        {
-            AssetReferenceRewriter.Commit(rewritten);
-        }
-
-        applied += repointed.Sum(r => r.Fixes);
+        // The marks before the mod is touched: a mark that can't be written (a locked Library file)
+        // stops the fix with nothing changed, instead of reporting a fix that was made as failed.
         repository.MarkFixedByIsl(folderName);
 
         // A converted pak that hasn't been hand-edited stays "live": it keeps re-converting against
@@ -392,7 +502,17 @@ public sealed class ModFixService(
             repository.MarkLocallyEdited(folderName);
         }
 
-        return applied;
+        if (applied > 0)
+        {
+            ModPackageFile.Write(folderPath, package);
+        }
+
+        foreach (var (rewritten, _) in repointed)
+        {
+            AssetReferenceRewriter.Commit(rewritten);
+        }
+
+        return applied + repointed.Sum(r => r.Fixes);
     }
 
     /// <summary>
@@ -527,7 +647,9 @@ public sealed class ModFixService(
     }
 
     private string? DecisionsPath(string folderName) =>
-        decisionsDirectory is null ? null : Path.Combine(decisionsDirectory, string.Join("_", folderName.Split(Path.GetInvalidFileNameChars())) + ".json");
+        decisionsDirectory is null ? null : Path.Combine(decisionsDirectory, SafeName(folderName) + ".json");
+
+    private static string SafeName(string folderName) => string.Join("_", folderName.Split(Path.GetInvalidFileNameChars()));
 }
 
 /// <summary>The rows every Library mod adds (AddedRowKey keys), which of them more than one mod adds (old game rows two prebuilt paks both carry) and by whom, and the game files Library mods have.</summary>

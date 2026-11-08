@@ -12,7 +12,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>The Editor page: change a game item, save into a new mod or one of your own — never a downloaded one.</summary>
 [Collection(MessengerCollection.Name)]
-public sealed class GameEditorViewModelTests : IDisposable
+public sealed partial class GameEditorViewModelTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "GameEditor_" + Guid.NewGuid().ToString("N"));
     private readonly FolderLibraryRepository _library;
