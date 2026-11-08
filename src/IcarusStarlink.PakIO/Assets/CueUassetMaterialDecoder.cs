@@ -36,9 +36,9 @@ namespace IcarusStarlink.PakIO.Assets;
 ///     data was never confirmed live, so if a resolved Parent is ITSELF another UMaterialInstance
 ///     rather than a plain UMaterial, it's genuinely uncertain whether the fallback recovers
 ///     anything. Confirmed empty against 6 real mod-local materials either way, which
-///     is consistent with both explanations for that mod-local (UMaterialInstance) case; only a
-///     real live test against a resolved base-game Parent (once IBaseGameContentProvider can reach
-///     one) can confirm the UMaterial path's more promising behavior in practice.
+///     is consistent with both explanations for that mod-local (UMaterialInstance) case. Base-game
+///     Parents do resolve through IBaseGameContentProvider, but whether the UMaterial path really
+///     recovers textures and colours from one has not been checked against a real mod.
 ///
 /// The fallback itself: CueAssetProviderLocator (what the mod-local load below goes through) only
 /// ever indexes the MOD's own folder, never the base game's own pak content, so a modded material

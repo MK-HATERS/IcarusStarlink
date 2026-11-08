@@ -42,11 +42,10 @@ public static class PatchConfigSafety
     /// The import doesn't write a Lua file whole when the mod already has it: it reads the patch's
     /// settings line by line (LuaConfigDocument) and writes each value into the mod's own file
     /// (Ue4ssModConfigCarryOver.ApplyValues), where a value going into a table setting is written
-    /// as Lua, not as a string. Two ways that wrote code into a trusted mod although the file as a
-    /// whole is data: a string holding Lua (Keys = "{ os.execute('x') }",
-    /// written raw into the mod's Keys = { ... }), and lines inside a long comment
-    /// (--[==[ ... ]==], or one opened after a value) that the line reader takes as settings. So
-    /// every value that would be written as a table must itself be data.
+    /// as Lua, not as a string. A string holding Lua (Keys = "{ os.execute('x') }") would be written
+    /// raw into the mod's Keys = { ... }, putting code into a trusted mod although the file as a
+    /// whole is data, so every value that would be written as a table must itself be data. (Lines
+    /// inside a long comment are no way in: the line reader skips them.)
     /// </summary>
     private static bool ValuesAreData(string text)
     {

@@ -721,11 +721,10 @@ public class RebuildServiceTests : IDisposable
     [Fact]
     public async Task RebuildAsync_ModAssetsIncludeAReadmeAndThumbnail_OnlyRealGameAssetsAreStaged()
     {
-        // Real gap found live: StageAssets used to pack EVERY entry in a mod's own Assets list
-        // unconditionally, including a Readme.txt and the "ImageOnly.png" thumbnail this app's own
-        // Library reads for display — pure wasted space in the real merged pak, and (confirmed
-        // against a real 49-mod library) prone to silently colliding between
-        // unrelated mods that happen to share a generic filename like "Readme.txt".
+        // StageAssets packs only a mod's real game assets, not every entry in its Assets list: a
+        // Readme.txt or the "ImageOnly.png" thumbnail the Library shows is left out of the merged
+        // pak, where it would only take space and could collide with another mod's file of the
+        // same generic name ("Readme.txt").
         WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
         var mod = MakeMod("Mod", "Crafting-D_ProcessorRecipes.json", "Stone_Pickaxe",
             new() { ["CraftTime"] = System.Text.Json.Nodes.JsonValue.Create(1) },

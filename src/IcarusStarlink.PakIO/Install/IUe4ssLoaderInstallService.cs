@@ -8,14 +8,15 @@ public interface IUe4ssLoaderInstallService
     Ue4ssLoaderStatus GetStatus(string icarusContentPath);
 
     /// <summary>
-    /// Backs up the whole existing ue4ss\ folder plus dwmapi.dll (keep-last-5), then extracts
-    /// downloadedZipPath's real UE4SS release contents into place: dwmapi.dll goes to
-    /// Binaries\Win64\, everything else (UE4SS.dll, UE4SS-settings.ini, docs) goes to
-    /// Binaries\Win64\ue4ss\. The zip's own bundled Mods\ folder (the framework's built-in mods) is
-    /// applied additively — a file/folder that already exists at the destination is left alone, so
-    /// this never overwrites a user's own customized UE4SS-settings.ini or any already-installed
-    /// mod, framework or otherwise. Caller is responsible for the real, hard-to-reverse-write gate —
-    /// this method performs the write unconditionally once called.
+    /// Installs downloadedZipPath's UE4SS release. The archive is checked (layout and every entry)
+    /// before anything is written; then the whole existing ue4ss\ folder plus dwmapi.dll are backed
+    /// up (keep-last-5) and the files written: dwmapi.dll to Binaries\Win64\, last, and everything
+    /// else (UE4SS.dll, docs, Mods\) to Binaries\Win64\ue4ss\. If a file can't be written, the
+    /// files already written are put back from that backup. Mods\shared\ (UE4SS's Lua library) is
+    /// replaced; the rest of Mods\ and the player's UE4SS-settings.ini are only added to, never
+    /// overwritten. The release's own settings file is written beside the player's as
+    /// UE4SS-settings.default.ini (UE4SS never reads it). Caller is responsible for the real,
+    /// hard-to-reverse-write gate: this method performs the write unconditionally once called.
     /// </summary>
     Task InstallOrUpdateAsync(string icarusContentPath, string downloadedZipPath, string backupDirectory, CancellationToken cancellationToken = default);
 
@@ -30,15 +31,15 @@ public interface IUe4ssLoaderInstallService
         CancellationToken cancellationToken = default) =>
         InstallOrUpdateAsync(icarusContentPath, downloadedZipPath, backupDirectory, cancellationToken);
 
-    /// <summary>The names of the user's OWN mods currently in the game's Mods folder — everything that isn't framework-owned (listed in UE4SS's own mods.json, or the shared\ infrastructure folder). What UninstallAsync will preserve; surfaced separately so the confirmation dialog can name them before anything happens.</summary>
+    /// <summary>The names of the user's OWN mods currently in the game's Mods folder — everything that isn't one of UE4SS's own mods: the known built-ins plus the installed mods.json (Ue4ssFrameworkMods.In), shared\ included. What UninstallAsync will preserve; surfaced separately so the confirmation dialog can name them before anything happens.</summary>
     IReadOnlyList<string> ListUserAddedMods(string icarusContentPath);
 
     /// <summary>Mods in the game's Mods folder that carry their own program file (dlls\main.dll): C++ mods, which only work with the UE4SS build they were made for, so changing UE4SS can stop them loading.</summary>
     IReadOnlyList<string> ListNativeMods(string icarusContentPath) => [];
 
     /// <summary>
-    /// Whether modName is one of the framework's own built-in mods (or its shared\ infrastructure
-    /// folder) — the same classification ListUserAddedMods/UninstallAsync use, exposed per-name so
+    /// Whether modName is one of UE4SS's own mods: the known built-ins plus the installed mods.json
+    /// (Ue4ssFrameworkMods.In), shared\ included. The same classification ListUserAddedMods/UninstallAsync use, exposed per-name so
     /// a caller with the full known-mods union (enabled in-game AND disabled/staged in this app's
     /// own folder — see IUe4ssModStateService.GetAll) can classify every one of them correctly.
     /// ListUserAddedMods alone can't do that: it only enumerates what's currently IN the game's

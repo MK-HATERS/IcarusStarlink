@@ -171,7 +171,7 @@ public class DataFolderChangeTrackerTests : IDisposable
     /// otherwise unparseable) file used to throw straight out of Compute, aborting the ENTIRE
     /// weekly-change computation for every other file too. UnrealPakService.ExtractDataPakAsync's own
     /// caller throws away the freshly-extracted new data and never commits it if Compute throws — so
-    /// one bad file would permanently block "Update data folder" from ever succeeding again, since
+    /// one bad file would permanently block "Refresh game data" from ever succeeding again, since
     /// retrying does nothing to fix a file that's already corrupted on disk in the OLD extraction
     /// being diffed against.
     /// </summary>

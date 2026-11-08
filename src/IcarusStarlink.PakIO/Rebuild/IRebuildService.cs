@@ -30,7 +30,7 @@ public interface IRebuildService
     /// null (the default) means every conflict resolves via the registry's own automatic rule
     /// (last-write-wins for a plain scalar). Only valid against the exact same queuedMods this was
     /// computed against (see MergeEngine.FindConflicts) — a stale pick against a since-changed queue
-    /// throws ArgumentOutOfRangeException rather than silently applying the wrong mod's value.
+    /// throws StaleConflictPickException (IcarusStarlink.Diffing) rather than silently applying the wrong mod's value.
     /// </param>
     /// <param name="lowPriorityPackages">
     /// Rows merged FIRST (lowest priority, before every queued mod): the rows the ArcFission mods in
