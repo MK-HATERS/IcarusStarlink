@@ -136,6 +136,28 @@ public sealed class Ue4ssUninstallTests : IDisposable
         Assert.True(_service.IsFrameworkOwned(_contentPath, "shared"));
     }
 
+    /// <summary>
+    /// Regression: UE4SS 3.0.1 (the official release) has no mods.json, only mods.txt, so its
+    /// built-ins (Keybinds, ActorDumperMod, ...) were listed as the player's own mods and
+    /// Uninstall moved them all to staging.
+    /// </summary>
+    [Fact]
+    public void ListUserAddedMods_A301InstallWithNoModsJson_KnowsUe4ssOwnMods()
+    {
+        Directory.CreateDirectory(ModsFolder);
+        File.WriteAllText(Path.Combine(Win64, "dwmapi.dll"), "hook");
+        File.WriteAllText(Path.Combine(Win64, "ue4ss", "UE4SS.dll"), "loader");
+        File.WriteAllText(Path.Combine(ModsFolder, "mods.txt"), "Keybinds : 1\r\nActorDumperMod : 0\r\nMyMod : 1\r\n");
+        foreach (var mod in new[] { "Keybinds", "ActorDumperMod", "shared", "MyMod" })
+        {
+            Directory.CreateDirectory(Path.Combine(ModsFolder, mod));
+        }
+
+        Assert.Equal(["MyMod"], _service.ListUserAddedMods(_contentPath));
+        Assert.True(_service.IsFrameworkOwned(_contentPath, "Keybinds"));
+        Assert.False(_service.IsFrameworkOwned(_contentPath, "MyMod"));
+    }
+
     [Fact]
     public async Task Uninstall_RemovesLoaderAndDwmapiCompletely()
     {

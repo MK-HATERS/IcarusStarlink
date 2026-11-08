@@ -59,6 +59,37 @@ public sealed class Ue4ssServerFilesTests : IDisposable
         Assert.Equal(["OnByFile", "OnByList"], Ue4ssServerFiles.ModsOnInGame(Path.Combine(_root, "Mods")));
     }
 
+    /// <summary>
+    /// Regression: only a fixed list of names counted as UE4SS's own mods, so a built-in a newer
+    /// UE4SS build lists in its mods.json was offered for the server as one of the player's mods.
+    /// </summary>
+    [Fact]
+    public void ModsOnInGame_ABuiltInTheInstalledBuildListsInModsJson_IsNotOffered()
+    {
+        Write(@"Mods\mods.txt", "NewBuiltIn : 1\r\nMine : 1\r\n");
+        Write(@"Mods\NewBuiltIn\Scripts\main.lua");
+        Write(@"Mods\Mine\Scripts\main.lua");
+        Write(@"Mods\mods.json", """[{"mod_name":"NewBuiltIn","mod_enabled":true}]""");
+
+        Assert.Equal(["Mine"], Ue4ssServerFiles.ModsOnInGame(Path.Combine(_root, "Mods")));
+    }
+
+    /// <summary>A missing or broken mods.json still knows every build's own mods by name, and never reads a mods.json from the current folder.</summary>
+    [Fact]
+    public void FrameworkModsIn_NoOrBrokenModsJson_IsTheKnownNames()
+    {
+        Assert.Equal(Ue4ssFrameworkMods.Known, Ue4ssFrameworkMods.In(null));
+        Assert.Equal(Ue4ssFrameworkMods.Known, Ue4ssFrameworkMods.In(""));
+        Assert.Equal(Ue4ssFrameworkMods.Known, Ue4ssFrameworkMods.In(Path.Combine(_root, "NoSuchFolder")));
+        Write(@"Mods\mods.json", "{corrupt");
+        Assert.Equal(Ue4ssFrameworkMods.Known, Ue4ssFrameworkMods.In(Path.Combine(_root, "Mods")));
+        Write(@"Mods\mods.json", """{"mod_name":"NotAnArray"}""");
+        Assert.Equal(Ue4ssFrameworkMods.Known, Ue4ssFrameworkMods.In(Path.Combine(_root, "Mods")));
+        Assert.Contains("ActorDumperMod", Ue4ssFrameworkMods.Known);
+        Assert.Contains("jsbLuaProfilerMod", Ue4ssFrameworkMods.Known);
+        Assert.Contains("shared", Ue4ssFrameworkMods.Known);
+    }
+
     [Fact]
     public void DirectoriesCopy_CopiesNestedAndEmptyFoldersAndKeepsWhatIsThere()
     {

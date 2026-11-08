@@ -153,6 +153,31 @@ public class Ue4ssLoaderInstallServiceTests : IDisposable
         Assert.Equal("GraphicsAPI=dx11 ; user's own customization", await File.ReadAllTextAsync(settingsPath));
     }
 
+    /// <summary>
+    /// Regression: the player's UE4SS-settings.ini is kept on an update, so the settings a newer
+    /// build added never reached Starlink: the release's own copy goes beside it as
+    /// UE4SS-settings.default.ini (replaced on every install) for the UE4SS config tab to read.
+    /// </summary>
+    [Fact]
+    public async Task InstallOrUpdateAsync_ExistingSettingsIni_TheReleasesCopyGoesBesideIt()
+    {
+        var settingsPath = Path.Combine(LoaderFolder, "UE4SS-settings.ini");
+        var defaultPath = Path.Combine(LoaderFolder, "UE4SS-settings.default.ini");
+        Seed(settingsPath, "[General]\nEnableHotReloadSystem = 0\n");
+        Seed(defaultPath, "an older build's defaults");
+
+        await _service.InstallOrUpdateAsync(_fakeContentPath, CreateFakeDevBuildZip(), _backupDirectory);
+
+        Assert.Equal("[General]\nEnableHotReloadSystem = 0\n", await File.ReadAllTextAsync(settingsPath));
+        Assert.Equal("dev default settings", await File.ReadAllTextAsync(defaultPath));
+
+        // A first install gets both: the player's file and the release's copy.
+        Directory.Delete(LoaderFolder, recursive: true);
+        await _service.InstallOrUpdateAsync(_fakeContentPath, CreateFakeReleaseZip(), _backupDirectory);
+        Assert.Equal("new default settings", await File.ReadAllTextAsync(settingsPath));
+        Assert.Equal("new default settings", await File.ReadAllTextAsync(defaultPath));
+    }
+
     [Fact]
     public async Task InstallOrUpdateAsync_ExistingLoaderDll_AlwaysOverwritesIt()
     {

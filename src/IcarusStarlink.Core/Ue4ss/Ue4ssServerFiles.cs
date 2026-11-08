@@ -9,12 +9,19 @@ public static class Ue4ssServerFiles
 {
     public const string SettingsFileName = "UE4SS-settings.ini";
 
-    /// <summary>The framework's own mods: they come with the loader, so they are never offered (or uploaded) one by one.</summary>
-    public static IReadOnlySet<string> FrameworkMods { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "shared", "Keybinds", "BPML_GenericFunctions", "BPModLoaderMod", "CheatManagerEnablerMod",
-        "ConsoleCommandsMod", "ConsoleEnablerMod", "LineTraceMod", "SplitScreenMod",
-    };
+    /// <summary>
+    /// The release's own UE4SS-settings.ini, which the installer writes beside the player's (replaced
+    /// on every install; UE4SS itself never reads it): the UE4SS config tab reads it for the settings
+    /// the player's file doesn't have yet.
+    /// </summary>
+    public const string DefaultSettingsFileName = "UE4SS-settings.default.ini";
+
+    /// <summary>
+    /// The framework's own mods: they come with the loader, so they are never offered (or uploaded)
+    /// one by one. These are the names every known build ships; Ue4ssFrameworkMods.In adds the
+    /// installed build's own.
+    /// </summary>
+    public static IReadOnlySet<string> FrameworkMods => Ue4ssFrameworkMods.Known;
 
     /// <summary>Written by UE4SS or Windows while the game runs: the server writes its own.</summary>
     private static readonly string[] RuntimeExtensions = [".log", ".dmp"];
@@ -42,10 +49,11 @@ public static class Ue4ssServerFiles
         }
 
         var list = Ue4ssModStart.ReadList(gameModsFolder);
+        var frameworkMods = Ue4ssFrameworkMods.In(gameModsFolder);
         return [.. Directory.GetDirectories(gameModsFolder)
             .Select(Path.GetFileName)
             .OfType<string>()
-            .Where(n => !FrameworkMods.Contains(n) && Ue4ssModStart.IsMod(gameModsFolder, n) && Ue4ssModStart.Starts(gameModsFolder, n, list))
+            .Where(n => !frameworkMods.Contains(n) &&Ue4ssModStart.IsMod(gameModsFolder, n) && Ue4ssModStart.Starts(gameModsFolder, n, list))
             .Order(StringComparer.OrdinalIgnoreCase)];
     }
 }

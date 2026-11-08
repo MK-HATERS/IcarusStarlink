@@ -14,7 +14,8 @@ namespace IcarusStarlink.PakIO.Install;
 /// written are put back from that backup. Mods\ (the player's mods, the built-in ones, and mods.txt /
 /// mods.json, which say what is on) and UE4SS-settings.ini are only ever added to, never overwritten, except
 /// Mods\shared\, UE4SS's own Lua library, which the release replaces. Everything else (UE4SS.dll, dwmapi.dll,
-/// README/Changelog/LICENSE) always gets the new copy: that is the update.
+/// README/Changelog/LICENSE, and UE4SS-settings.default.ini, the release's own settings file kept beside the
+/// player's) always gets the new copy: that is the update.
 /// </summary>
 public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
 {
@@ -185,6 +186,16 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
                 ? AssetPathGuard.ResolveWithinDirectory(win64Folder, "dwmapi.dll")
                 : AssetPathGuard.ResolveWithinDirectory(loaderFolder, relativePath);
 
+            // The release's own settings file always goes beside the player's as
+            // UE4SS-settings.default.ini (UE4SS never reads it): the player's file below is kept, so
+            // this is where the UE4SS config tab finds the settings a newer build added.
+            if (isSettingsIni)
+            {
+                var defaultPath = AssetPathGuard.ResolveWithinDirectory(loaderFolder, Ue4ssServerFiles.DefaultSettingsFileName);
+                sizeBudget.Charge($"UE4SS release entry '{entry.FullName}'", entry.Length);
+                plan.Add(new PlannedWrite(entry, defaultPath, File.Exists(defaultPath), IsDwmapi: false));
+            }
+
             // Mods\ (the player's mods, the built-in ones, and mods.txt / mods.json, which say what
             // is on) and UE4SS-settings.ini (the player's own settings) are only ever added to,
             // never overwritten. Mods\shared\ is UE4SS's own Lua library (UEHelpers and its type
@@ -305,15 +316,20 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
             return [];
         }
 
-        var frameworkOwned = ReadFrameworkModNames(modsFolder);
+        var frameworkOwned = Ue4ssFrameworkMods.In(modsFolder);
         return [.. Directory.GetDirectories(modsFolder)
-            .Select(d => Path.GetFileName(d)!)
+            .Select(Path.GetFileName)
+            .OfType<string>()
             .Where(name => !frameworkOwned.Contains(name))
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
     }
 
+    /// <summary>
+    /// UE4SS's own mods are the known built-ins plus the installed mods.json (Ue4ssFrameworkMods.In).
+    /// A mod it can't place counts as the player's: Uninstall keeps it in staging, never the reverse.
+    /// </summary>
     public bool IsFrameworkOwned(string icarusContentPath, string modName) =>
-        ReadFrameworkModNames(Ue4ssGamePaths.ResolveModsFolder(icarusContentPath)).Contains(modName);
+        Ue4ssFrameworkMods.In(Ue4ssGamePaths.ResolveModsFolder(icarusContentPath)).Contains(modName);
 
     public Task<Ue4ssUninstallResult> UninstallAsync(
         string icarusContentPath, string stagedModsDirectory, string backupDirectory, CancellationToken cancellationToken = default) =>
@@ -356,41 +372,6 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
 
             return new Ue4ssUninstallResult(preservedMods, ue4ssBackupDirectory);
         }, cancellationToken);
-
-    /// <summary>
-    /// Framework-owned = listed in UE4SS's OWN mods.json (its bundled mod manifest — confirmed
-    /// against a real install: exactly the 8 framework mods appear there, user-added ones don't),
-    /// plus the shared\ infrastructure folder, which is framework code rather than a mod. The
-    /// deliberate failure direction: a mod we can't classify counts as USER-ADDED and gets
-    /// preserved — worst case some framework mods survive in staging, never the reverse.
-    /// </summary>
-    private static HashSet<string> ReadFrameworkModNames(string modsFolder)
-    {
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "shared" };
-
-        try
-        {
-            var modsJsonPath = Path.Combine(modsFolder, "mods.json");
-            if (File.Exists(modsJsonPath))
-            {
-                using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(modsJsonPath));
-                foreach (var entry in document.RootElement.EnumerateArray())
-                {
-                    if (entry.TryGetProperty("mod_name", out var name) && name.GetString() is { } modName)
-                    {
-                        names.Add(modName);
-                    }
-                }
-            }
-        }
-        catch (Exception)
-        {
-            // A malformed mods.json just means nothing beyond shared\ classifies as framework —
-            // which errs toward preserving, per the contract above.
-        }
-
-        return names;
-    }
 
     private static string UniqueDirectoryName(string rootDirectory, string desiredName)
     {
