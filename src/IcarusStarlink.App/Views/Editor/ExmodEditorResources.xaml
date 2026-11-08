@@ -140,6 +140,9 @@
 
                     <TextBlock Text="{Binding Hint}" FontSize="11.5" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                Visibility="{Binding HasHint, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <!-- A note from the game's code, not a warning: plain secondary text. -->
+                    <TextBlock Text="{Binding GameCodeNote}" FontSize="11.5" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Visibility="{Binding GameCodeNote, Converter={StaticResource NullToVisibilityConverter}}"/>
                     <TextBlock Text="{Binding OriginalValueText, StringFormat='was (before this edit): {0}'}" FontSize="11" TextWrapping="Wrap"
                                Foreground="{DynamicResource AccentBrush}" Margin="0,2,0,0"
                                Visibility="{Binding IsChangedFromOriginal, Converter={StaticResource BoolToVisibilityConverter}}"/>

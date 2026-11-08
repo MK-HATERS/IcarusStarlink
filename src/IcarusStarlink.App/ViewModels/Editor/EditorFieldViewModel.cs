@@ -91,6 +91,9 @@ public sealed partial class EditorFieldViewModel : ObservableObject
 
     public bool HasHint => Hint.Length > 0;
 
+    /// <summary>What the game's code says about this field, not tested in game (KnownGameBehaviour.FieldNoteFromGameCode): a plain note, never a warning. Set by the editor.</summary>
+    public string? GameCodeNote { get; internal set; }
+
     /// <summary>The Fields view's section for this field, by what kind of value it is ("Numbers", "Names and text"…).</summary>
     public string Group => Kind switch
     {

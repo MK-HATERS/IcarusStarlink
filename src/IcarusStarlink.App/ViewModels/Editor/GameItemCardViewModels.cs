@@ -54,6 +54,9 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
 
     public string Description => Field.Description;
 
+    /// <summary>What the game's code says about this field, not tested in game (KnownGameBehaviour.FieldNoteFromGameCode): a plain note, never a warning. Set by the card.</summary>
+    public string? GameCodeNote { get; internal set; }
+
     public bool IsText => Field.Kind == EditableKind.Text;
 
     public bool IsNumber => Field.Kind == EditableKind.Number;
@@ -681,6 +684,7 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
     /// <param name="at">Where on the card (an added bench goes right under the others); null: at the end.</param>
     private void Add(GameItemFieldViewModel field, int? at = null)
     {
+        field.GameCodeNote = KnownGameBehaviour.FieldNoteFromGameCode(Section.Table, field.Field.Path.Top);
         field.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is nameof(GameItemFieldViewModel.ValueText) or nameof(GameItemFieldViewModel.IsDropped))

@@ -126,6 +126,19 @@ public sealed class ModFixService(
         }
     }
 
+    /// <summary>
+    /// Notes from the game's code (not tested in game) on this mod's changes. Kept apart from Check:
+    /// a note is never a problem, so it stays out of every count and is never fixed.
+    /// </summary>
+    public IReadOnlyList<ModIssue> GameCodeNotes(string folderName)
+    {
+        lock (_gate)
+        {
+            var package = ExmodFolder.ReadPackageOnly(repository.GetFolderPath(folderName));
+            return ModHealthChecker.GameCodeNotes(package, GameIndex);
+        }
+    }
+
     private IReadOnlyList<KnownGameBehaviour.LoggedMismatch> _logged = [];
     private string _loggedStamp = "";
 

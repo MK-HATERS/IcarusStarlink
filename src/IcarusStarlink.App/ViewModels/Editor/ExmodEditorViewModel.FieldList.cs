@@ -142,6 +142,7 @@ public sealed partial class ExmodEditorViewModel
             }
         };
         ApplyRuleInfo(field, owner);
+        field.GameCodeNote = KnownGameBehaviour.FieldNoteFromGameCode(GameTableIndex.TableNameOf(owner.CurrentFile), field.FieldName);
         _allFields.Add(field);
         return field;
     }

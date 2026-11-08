@@ -693,6 +693,39 @@ public sealed class ModFixViewModelTests : IDisposable
         Assert.Contains("Tested in game", ModFixViewModel.KindExplanation(ModIssueKind.RowsInBuiltInTable));
     }
 
+    /// <summary>Notes from the game's code show in their own group, are never counted as problems, and Apply leaves them.</summary>
+    [Fact]
+    public async Task AGameCodeNote_ShowsInItsOwnGroup_AndIsNoProblem()
+    {
+        var seeds = Path.Combine(DataFolder, "Farming", "D_FarmingSeeds.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(seeds)!);
+        File.WriteAllText(seeds, """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Wheat","GrowthTime":10}]}""");
+        var folderPath = _library.GetFolderPath(_folder);
+        var package = ExmodFolder.Read(folderPath).Package;
+        package.Rows.RemoveAll(r => r.CurrentFile != "EndOfMod");
+        package.Rows.Insert(0, new ExmodFileRow { CurrentFile = "Farming-D_FarmingSeeds.json", FileItems = [new ExmodFileItem { Name = "Grape", Fields = new() { ["GrowthTime"] = 5 } }] });
+        ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
+        var service = Service;
+        var report = service.Check(_folder);
+        Assert.DoesNotContain(report.Issues, i => i.IsNote);
+
+        var vm = new ModFixViewModel(_folder, "Old Mod", report, service);
+
+        var group = Assert.Single(vm.Groups);
+        Assert.Equal("Notes from the game's code", group.Title);
+        Assert.Equal("Read from the game's code, not tested in game: things to know about these changes. Nothing to fix.", group.Explanation);
+        var note = Assert.Single(group.Issues);
+        Assert.Equal("Leave it as it is", note.SelectedChoice.Label);
+        Assert.False(note.ShowValues);
+        Assert.Equal(0, vm.ChangeCount);
+        Assert.Contains("Nothing to fix", vm.Summary);
+
+        vm.Close = () => { };
+        await vm.ApplyCommand.ExecuteAsync(null);
+        Assert.Equal(0, service.RememberedCount(_folder));
+        Assert.Single(service.GameCodeNotes(_folder));
+    }
+
     [Fact]
     public void TableRow_HasNoGameFileHint()
     {

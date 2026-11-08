@@ -95,6 +95,7 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
         : Issue.Kind == ModIssueKind.MisspeltRow ? $"adds '{Issue.ItemName}'"
         : Issue.Kind == ModIssueKind.RowsInBuiltInTable ? $"adds '{Issue.ItemName}'"
         : Issue.Kind == ModIssueKind.NothingGivesItem ? $"adds the item '{Issue.ItemName}'"
+        : Issue.Kind == ModIssueKind.GameCodeNote ? (Issue.FieldName is null ? $"adds '{Issue.ItemName}'" : $"changes {Issue.FieldName}")
         : ModFixViewModel.OnlyIn(Issue.ModValue, Issue.GameValue) ?? ModFixViewModel.Describe(Issue.ModValue);
 
     /// <summary>"'Rope' under key Item_Fiber-DisplayName".</summary>
@@ -114,12 +115,13 @@ public sealed partial class ModFixIssueViewModel : ObservableObject
         : Issue.Kind == ModIssueKind.RowsInBuiltInTable ? "can't use new rows in this table"
         : Issue.Kind == ModIssueKind.NoEffect ? "ignores it here"
         : Issue.Kind == ModIssueKind.NothingGivesItem ? "nothing hands it out"
+        : Issue.Kind == ModIssueKind.GameCodeNote ? "a note: nothing to fix"
         : ModFixViewModel.OnlyIn(Issue.GameValue, Issue.ModValue) ?? ModFixViewModel.Describe(Issue.GameValue);
 
-    /// <summary>A renamed row has no values to compare, only the names; nor has a link with no game value to go back to, nor a table, field or text key the game reads under another name.</summary>
+    /// <summary>A renamed row has no values to compare, only the names; nor has a link with no game value to go back to, nor a table, field or text key the game reads under another name, nor a note.</summary>
     public bool ShowValues => Issue.Kind is not (ModIssueKind.MissingRow or ModIssueKind.OldGameRow or ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart
             or ModIssueKind.UnknownTable or ModIssueKind.UnknownField or ModIssueKind.SharedTextKey
-            or ModIssueKind.MisspeltRow or ModIssueKind.RowsInBuiltInTable or ModIssueKind.NothingGivesItem)
+            or ModIssueKind.MisspeltRow or ModIssueKind.RowsInBuiltInTable or ModIssueKind.NothingGivesItem or ModIssueKind.GameCodeNote)
         && !(Issue.Kind == ModIssueKind.BrokenLink && Issue.GameValue is null);
 
     /// <summary>"ASS/DEP/SM_X.uasset" or "/Game/ASS/DEP/M_X" → "SM_X" / "M_X".</summary>
@@ -212,7 +214,7 @@ public sealed partial class ModFixGroupViewModel(ModIssueKind kind, IReadOnlyLis
 
     public bool IsSure => Issues.All(i => i.Issue.IsSure);
 
-    public string Badge => IsSure ? "sure" : "your call";
+    public string Badge => Issues.All(i => i.Issue.IsNote) ? "note" : IsSure ? "sure" : "your call";
 
     /// <summary>The fixes every issue in this group offers, for "set all".</summary>
     public IReadOnlyList<ModFixChoice> Choices { get; } =
@@ -283,14 +285,16 @@ public sealed partial class ModFixViewModel : ObservableObject
     /// Shows a (new) check result: after Forget, everything is suggested afresh. The counts are
     /// asked of the service unless given (read off the UI thread with the check).
     /// </summary>
-    private void Load(ModHealthReport report, int? remembered = null, bool? hasBackup = null)
+    /// <param name="notes">The notes from the game's code (ModFixService.GameCodeNotes): listed in their own group, never counted or fixed.</param>
+    private void Load(ModHealthReport report, int? remembered = null, bool? hasBackup = null, IReadOnlyList<ModIssue>? notes = null)
     {
         AuthorChangeCount = report.AuthorChangeCount;
         _builtFor = report.BuiltFor?.OlderText;
         RememberedCount = remembered ?? _service.RememberedCount(_folderName);
         HasBackup = hasBackup ?? _service.HasBackup(_folderName);
+        notes ??= _service.GameCodeNotes(_folderName);
         _all.Clear();
-        foreach (var issue in report.Issues.Select(i => new ModFixIssueViewModel(i)))
+        foreach (var issue in report.Issues.Where(i => !i.IsNote).Concat(notes).Select(i => new ModFixIssueViewModel(i)))
         {
             issue.PropertyChanged += (_, e) =>
             {
@@ -348,14 +352,25 @@ public sealed partial class ModFixViewModel : ObservableObject
 
     public string Summary => _builtFor is null ? Body : $"{_builtFor}. {Body}";
 
-    private string Body
+    /// <summary>What the check found, without the notes from the game's code (never a problem).</summary>
+    private List<ModFixIssueViewModel> Found => [.. _all.Where(i => !i.Issue.IsNote)];
+
+    private string Body => FoundText + NotesText;
+
+    /// <summary>" 2 note(s) from the game's code are listed too: …", or nothing.</summary>
+    private string NotesText => _all.Count(i => i.Issue.IsNote) is var notes and > 0
+        ? $" {notes} note(s) from the game's code are listed too: things to know, nothing to fix."
+        : "";
+
+    private string FoundText
     {
         get
         {
-            var tidy = _all.Count(i => i.Issue.IsTidyOnly);
-            var problems = _all.Count - tidy;
+            var found = Found;
+            var tidy = found.Count(i => i.Issue.IsTidyOnly);
+            var problems = found.Count - tidy;
             var authors = $"The author's own {AuthorChangeCount} change(s) are kept and not listed.";
-            if (_all.Count == 0)
+            if (found.Count == 0)
             {
                 return $"Nothing to fix: this mod fits the current game. Its {AuthorChangeCount} change(s) are the author's own"
                     + (RememberedCount > 0 ? ", or ones you chose to keep." : ".");
@@ -367,9 +382,9 @@ public sealed partial class ModFixViewModel : ObservableObject
                 return "Nothing here is wrong: this mod fits the current game. " + tidyText + authors;
             }
 
-            var sure = _all.Count(i => i.Issue.IsSure && !i.Issue.IsTidyOnly);
+            var sure = found.Count(i => i.Issue.IsSure && !i.Issue.IsTidyOnly);
             // Only listed: nothing Starlink can change (a game file that's gone, a link to nothing), only kept or not asked again.
-            var listed = _all.Count(i => !i.Issue.IsSure && !i.Issue.IsTidyOnly && i.Issue.Choices.All(c => c == ModIssueFix.KeepMod));
+            var listed = found.Count(i => !i.Issue.IsSure && !i.Issue.IsTidyOnly && i.Issue.Choices.All(c => c == ModIssueFix.KeepMod));
             var guesses = problems - sure - listed;
             var parts = new List<string> { $"{sure} sure fix(es)" };
             if (guesses > 0)
@@ -468,7 +483,8 @@ public sealed partial class ModFixViewModel : ObservableObject
             return;
         }
 
-        var fixes = _all.Select(i => (i.Issue, i.SelectedChoice.Fix)).ToList();
+        // A note is never fixed, nor remembered as a choice.
+        var fixes = Found.Select(i => (i.Issue, i.SelectedChoice.Fix)).ToList();
         IsBusy = true;
         try
         {
@@ -572,6 +588,7 @@ public sealed partial class ModFixViewModel : ObservableObject
             ModHealthReport? report = null;
             var remembered = 0;
             var hasBackup = true;
+            IReadOnlyList<ModIssue> notes = [];
             Exception? checkFailed = null;
             await RunInBackground(() =>
             {
@@ -586,6 +603,7 @@ public sealed partial class ModFixViewModel : ObservableObject
                     report = _service.Check(_folderName);
                     remembered = _service.RememberedCount(_folderName);
                     hasBackup = _service.HasBackup(_folderName);
+                    notes = _service.GameCodeNotes(_folderName);
                 }
                 catch (Exception ex)
                 {
@@ -602,7 +620,7 @@ public sealed partial class ModFixViewModel : ObservableObject
             ChangedWithoutApply = true;
             if (report is not null)
             {
-                Load(report, remembered, hasBackup);
+                Load(report, remembered, hasBackup, notes);
             }
 
             StatusMessage = checkFailed is null
@@ -630,6 +648,7 @@ public sealed partial class ModFixViewModel : ObservableObject
             ModHealthReport? report = null;
             var remembered = 0;
             var hasBackup = false;
+            IReadOnlyList<ModIssue> notes = [];
             var forgot = false;
             try
             {
@@ -640,6 +659,7 @@ public sealed partial class ModFixViewModel : ObservableObject
                     report = _service.Check(_folderName);
                     remembered = _service.RememberedCount(_folderName);
                     hasBackup = _service.HasBackup(_folderName);
+                    notes = _service.GameCodeNotes(_folderName);
                 });
             }
             finally
@@ -652,7 +672,7 @@ public sealed partial class ModFixViewModel : ObservableObject
                 }
             }
 
-            Load(report!, remembered, hasBackup);
+            Load(report!, remembered, hasBackup, notes);
             StatusMessage = "Earlier choices forgotten: everything below is suggested afresh.";
             // What's flagged changed (kept values are listed again): Merge & Install checks again.
             _messenger.Send(new LibraryChangedMessage());
@@ -687,6 +707,8 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.MisspeltRow => -1,
         ModIssueKind.NoEffect => 1,
         ModIssueKind.NothingGivesItem => 2,
+        // Things to know, never problems: last.
+        ModIssueKind.GameCodeNote => 6,
         _ => 4,
     };
 
@@ -709,6 +731,7 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.RowsInBuiltInTable => "New rows the game can't use",
         ModIssueKind.NoEffect => "Changes the game ignores",
         ModIssueKind.NothingGivesItem => "New items nobody can get",
+        ModIssueKind.GameCodeNote => "Notes from the game's code",
         _ => kind.ToString(),
     };
 
@@ -731,6 +754,7 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.RowsInBuiltInTable => "The game has some tables built into its code and can't use rows a mod adds to them. Tested in game: tames pointed at a new growth row showed level 0 and \"-1\" XP. Changing the game's own rows there works; adding rows needs a UE4SS part instead.",
         ModIssueKind.NoEffect => "Tested in game: the game doesn't use these values where the mod puts them, so they change nothing. Only the mod's author can do it another way (most need a UE4SS part).",
         ModIssueKind.NothingGivesItem => "New items only reach players through an item template that a recipe, the workshop, a reward or loot hands out. Nothing in these mods does, so unless another mod does, nobody can get them.",
+        ModIssueKind.GameCodeNote => "Read from the game's code, not tested in game: things to know about these changes. Nothing to fix.",
         _ => "",
     };
 
@@ -738,7 +762,7 @@ public sealed partial class ModFixViewModel : ObservableObject
     {
         ModIssueFix.UseGame => issue.Kind is ModIssueKind.SameAsGame or ModIssueKind.UnknownField ? "Take it out" : "Use the game's",
         ModIssueFix.KeepMod => issue.Kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart or ModIssueKind.UnknownTable or ModIssueKind.WrongType
-            or ModIssueKind.NoEffect or ModIssueKind.NothingGivesItem or ModIssueKind.RowsInBuiltInTable ? "Leave it as it is" : "Keep the mod's",
+            or ModIssueKind.NoEffect or ModIssueKind.NothingGivesItem or ModIssueKind.RowsInBuiltInTable or ModIssueKind.GameCodeNote ? "Leave it as it is" : "Keep the mod's",
         ModIssueFix.Merge => "Merge both",
         ModIssueFix.RenameRow => $"Rename to {issue.SuggestedRow}",
         ModIssueFix.RemoveRow => "Remove the row",
@@ -761,7 +785,7 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueFix.UseGame when kind == ModIssueKind.SameAsGame => "Take them all out",
         ModIssueFix.KeepMod when kind == ModIssueKind.SameAsGame => "Leave them all",
         ModIssueFix.KeepMod when kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart or ModIssueKind.UnknownTable or ModIssueKind.WrongType
-            or ModIssueKind.NoEffect or ModIssueKind.NothingGivesItem or ModIssueKind.RowsInBuiltInTable => "Leave them all as they are",
+            or ModIssueKind.NoEffect or ModIssueKind.NothingGivesItem or ModIssueKind.RowsInBuiltInTable or ModIssueKind.GameCodeNote => "Leave them all as they are",
         ModIssueFix.UseGame when kind == ModIssueKind.UnknownField => "Take them all out",
         ModIssueFix.UseGame => "Use the game's for all",
         ModIssueFix.KeepMod => "Keep the mod's for all",

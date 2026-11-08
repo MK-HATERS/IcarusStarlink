@@ -559,6 +559,9 @@
                                                                 </StackPanel>
                                                                 <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3">
                                                                     <TextBlock Text="{Binding Description}" FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                                    <!-- A note from the game's code, not a warning: plain secondary text. -->
+                                                                    <TextBlock Text="{Binding GameCodeNote}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                                                               Visibility="{Binding GameCodeNote, Converter={StaticResource NullToVisibilityConverter}}"/>
                                                                     <TextBlock Text="{Binding Error}" FontSize="11.5" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"
                                                                                Visibility="{Binding Error, Converter={StaticResource NullToVisibilityConverter}}"/>
                                                                 </StackPanel>
