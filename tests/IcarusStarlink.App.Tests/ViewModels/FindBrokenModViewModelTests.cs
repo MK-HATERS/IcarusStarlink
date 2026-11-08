@@ -490,4 +490,77 @@ public sealed class FindBrokenModViewModelTests : IDisposable
         Assert.False(await vm.CanCloseAsync());
         Assert.NotNull(store.Load());
     }
+
+    /// <summary>
+    /// Regression: double-clicking the matching rows list's scrollbar or the blank space under the
+    /// rows picked whichever row was selected; a double-click picks only the row it lands on.
+    /// </summary>
+    [Fact]
+    public void MatchListDoubleClick_OffTheRows_PicksNothing_OnARow_PicksThatRow()
+    {
+        Exception? failure = null;
+        var thread = new System.Threading.Thread(() =>
+        {
+            try
+            {
+                var first = new GameDataItemRef("Traits-D_Itemable.json", "Traits/D_Itemable.json", "Item_Canteen");
+                var second = new GameDataItemRef("Traits-D_Itemable.json", "Traits/D_Itemable.json", "Item_Fiber");
+                var list = new System.Windows.Controls.ListBox { Height = 60, DisplayMemberPath = nameof(GameDataItemRef.ItemName), ItemsSource = new[] { first, second } };
+                var host = new System.Windows.Controls.StackPanel { Children = { list } };
+                host.Measure(new System.Windows.Size(300, 200));
+                host.Arrange(new System.Windows.Rect(0, 0, 300, 200));
+                host.UpdateLayout();
+                list.SelectedItem = first;
+                var secondRow = Assert.IsType<System.Windows.Controls.ListBoxItem>(list.ItemContainerGenerator.ContainerFromIndex(1));
+                var secondText = FindChild<System.Windows.Controls.TextBlock>(secondRow);
+                Assert.NotNull(secondText);
+                var scroller = FindChild<System.Windows.Controls.ScrollViewer>(list);
+                Assert.NotNull(scroller);
+
+                Assert.Null(FindBrokenModWindow.RowToPick(list, DoubleClick(list, System.Windows.Input.MouseButton.Left)));
+                Assert.Null(FindBrokenModWindow.RowToPick(list, DoubleClick(scroller!, System.Windows.Input.MouseButton.Left)));
+                Assert.Same(second, FindBrokenModWindow.RowToPick(list, DoubleClick(secondText!, System.Windows.Input.MouseButton.Left)));
+                Assert.Null(FindBrokenModWindow.RowToPick(list, DoubleClick(secondText!, System.Windows.Input.MouseButton.Right)));
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+        });
+        thread.SetApartmentState(System.Threading.ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+
+        if (failure is not null)
+        {
+            throw failure;
+        }
+    }
+
+    private static System.Windows.Input.MouseButtonEventArgs DoubleClick(object source, System.Windows.Input.MouseButton button) =>
+        new(System.Windows.Input.Mouse.PrimaryDevice, 0, button)
+        {
+            RoutedEvent = System.Windows.Controls.Control.MouseDoubleClickEvent,
+            Source = source,
+        };
+
+    private static T? FindChild<T>(System.Windows.DependencyObject parent)
+        where T : System.Windows.DependencyObject
+    {
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is T found)
+            {
+                return found;
+            }
+
+            if (FindChild<T>(child) is { } deeper)
+            {
+                return deeper;
+            }
+        }
+
+        return null;
+    }
 }

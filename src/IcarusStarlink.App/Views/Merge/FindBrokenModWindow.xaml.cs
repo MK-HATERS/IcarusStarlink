@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using IcarusStarlink.App.ViewModels;
 
@@ -57,9 +58,23 @@ public partial class FindBrokenModWindow : Window
 
     private void MatchList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (DataContext is FindBrokenModViewModel viewModel && MatchList.SelectedItem is GameDataItemRef row)
+        if (DataContext is FindBrokenModViewModel viewModel && RowToPick(MatchList, e) is { } row)
         {
             viewModel.PickRowCommand.Execute(row);
         }
     }
+
+    /// <summary>
+    /// The game row a double-click on <paramref name="list"/> picks, or null. MouseDoubleClick fires
+    /// for a double-click anywhere on the list (its scrollbar, the space under the last row, the
+    /// right button), so only a left double-click on a row counts, and it picks that row.
+    /// ContainerFromElement walks visual and logical parents (a Run inside a row's text counts) and
+    /// throws on null, hence the type check.
+    /// </summary>
+    internal static GameDataItemRef? RowToPick(ItemsControl list, MouseButtonEventArgs e) =>
+        e.ChangedButton == MouseButton.Left
+        && e.OriginalSource is DependencyObject source
+        && ItemsControl.ContainerFromElement(list, source) is { } row
+            ? list.ItemContainerGenerator.ItemFromContainer(row) as GameDataItemRef
+            : null;
 }
