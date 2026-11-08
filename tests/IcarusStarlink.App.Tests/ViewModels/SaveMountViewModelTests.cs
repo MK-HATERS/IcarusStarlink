@@ -46,7 +46,7 @@ public class SaveMountViewModelTests
         Assert.False(vm.IsDirty);
     }
 
-    /// <summary>Plan step 4: a mount's data is only ever edited when it reads and writes back exactly.</summary>
+    /// <summary>A mount's data is only ever edited when it reads and writes back exactly.</summary>
     [Fact]
     public void Blob_ThatCantBeRead_IsRefused()
     {

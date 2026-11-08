@@ -17,13 +17,11 @@ public sealed partial class SaveGameNames
             var category = TryGet(row, defaults, "Category", out var categoryRef) && categoryRef.ValueKind == JsonValueKind.Object && categoryRef.TryGetProperty("Value", out var categoryValue)
                 ? categoryValue.GetString() ?? ""
                 : "";
-            var goalCount = TryGet(row, defaults, "GoalCount", out var goal) && goal.ValueKind == JsonValueKind.Number ? goal.GetInt32() : 0;
 
             accolades.TryAdd(rowName, new AccoladeInfo(
                 ParseLocText(row, "DisplayName", defaults) ?? rowName,
                 ParseLocText(row, "Description", defaults) ?? "",
-                category,
-                goalCount));
+                category));
         }
 
         return accolades;
@@ -82,8 +80,8 @@ public sealed partial class SaveGameNames
 
     private IReadOnlyDictionary<string, string> LoadMountTypeIcons() => Safe<IReadOnlyDictionary<string, string>>(() =>
     {
-        // Missing/corrupt table just means mounts show with no thumbnail — the type picker
-        // itself (MountTypeRowNames) degrades the exact same way already.
+        // Missing/corrupt table just means mounts show with no thumbnail — MountTypeRowNames
+        // degrades the exact same way already.
         var icons = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (rowName, row) in RowsOf(MountsTable))
         {

@@ -1,12 +1,9 @@
 namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
-/// The shared shape every Save Editor row ViewModel already independently implemented by hand
-/// (SaveAccoladeViewModel, SaveBestiaryEntryViewModel, SaveCosmeticFieldViewModel, SaveCurrencyViewModel,
-/// SaveFlagViewModel, SaveTalentViewModel — each its own private "_original&lt;X&gt;" field, an
-/// IsDirty comparison, and a MarkClean() that re-snapshots it) — collapsing them onto one interface
-/// lets SavesViewModel.HasUnsavedChanges/SaveChanges iterate a single list of collections instead of
-/// one hand-written clause and one hand-written foreach per section.
+/// A Saves page row that keeps what it loaded, says whether it changed (IsDirty) and takes its
+/// current value as the new saved one (MarkClean), so SavesViewModel.HasUnsavedChanges/SaveChanges
+/// can walk every section's rows the same way.
 /// </summary>
 public interface IDirtyTrackable
 {

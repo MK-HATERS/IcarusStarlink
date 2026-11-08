@@ -14,10 +14,6 @@ public sealed partial class SavesViewModel
 
     public ObservableCollection<SaveFlagViewModel> BinaryFlags { get; } = [];
 
-    public ObservableCollection<SaveFlagViewModel> FilteredCharacterFlags { get; } = [];
-
-    public ObservableCollection<SaveFlagViewModel> FilteredAccountFlags { get; } = [];
-
     public ObservableCollection<SaveFlagViewModel> FilteredBinaryFlags { get; } = [];
 
     /// <summary>The DLC section shows only when the game itself has created the file.</summary>
@@ -31,7 +27,7 @@ public sealed partial class SavesViewModel
 
     partial void OnFlagSearchTextChanged(string value) => RefreshFlagFilter();
 
-    // The Unlocks tab (was Flags), grouped by what each flag is for (SaveGameNames.FlagInfo): only mission rewards and bonus talent points are worth editing;
+    // The Unlocks tab, grouped by what each flag is for (SaveGameNames.FlagInfo): only mission rewards and bonus talent points are worth editing;
     // markers and prompts sit under Advanced; flags nothing uses hide unless asked for.
 
     /// <summary>Mission rewards that unlock blueprints / workshop items (account).</summary>
@@ -124,8 +120,6 @@ public sealed partial class SavesViewModel
     private void RefreshFlagFilter()
     {
         // 45 + 100 rows — a straight rebuild per keystroke is cheaper than filter plumbing.
-        RefreshFilter(SelectedCharacter?.Flags ?? [], FilteredCharacterFlags, FlagSearchText, null, f => f.Name);
-        RefreshFilter(AccountFlags, FilteredAccountFlags, FlagSearchText, null, f => f.Name);
         RefreshFilter(BinaryFlags, FilteredBinaryFlags, FlagSearchText, null, f => f.Name);
 
         var characterFlags = SelectedCharacter?.Flags ?? [];

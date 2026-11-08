@@ -21,12 +21,6 @@
         <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
     </Style>
 
-    <Style x:Key="SaveRawIdTextStyle" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="10.5"/>
-        <Setter Property="Foreground" Value="{DynamicResource FaintForegroundBrush}"/>
-        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-    </Style>
-
     <!-- A row in a plain ItemsControl (no ListBoxItem to light it up): the same hover as list rows. -->
     <Style x:Key="SaveRowHoverStyle" TargetType="Border">
         <Setter Property="Background" Value="Transparent"/>
@@ -213,7 +207,6 @@
         </Setter>
     </Style>
 
-    <!-- −, the rank, + : a character's talents, the account's research, a mount's talents. -->
     <!-- A talent on the tree view (TalentTreeView): its icon (or its name when it has none), its
          rank under it, lit when learned, green when at its highest rank, a dot when changed.
          Sizes are in the game's tree units: the tree is scaled as a whole. Blueprint and research
@@ -314,6 +307,7 @@
         </Setter>
     </Style>
 
+    <!-- −, the rank, + : a character's talents, the account's research, a mount's talents. -->
     <DataTemplate x:Key="RankStepperTemplate">
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
             <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>

@@ -32,7 +32,7 @@ public sealed partial class SavesViewModel
         }
     }
 
-    /// <summary>Name/Level editable, Type shown only — RecorderBlob (the mount's real stats/stomach/saddle state, a raw Unreal binary blob, not JSON) is preserved untouched on each mount's own live Node. See SaveMountViewModel's own doc comment for why a mount has no natural key to rebuild an array by, unlike Bestiary/Accolades.</summary>
+    /// <summary>Name/Level editable, Type shown only — RecorderBlob (the mount's real stats/stomach/saddle state, a raw Unreal binary blob, not JSON) stays on each mount's own live Node and is edited through MountBlob, only when it reads and writes back exactly. See SaveMountViewModel's own doc comment for why a mount has no natural key to rebuild an array by, unlike Bestiary/Accolades.</summary>
     private void BuildMounts()
     {
         Mounts.Clear();

@@ -18,7 +18,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// character/currency editing — layout modeled on Icarus Workshop's own save editor screens:
 /// character cards on an Overview beside an account snapshot, click a card to edit).
 ///
-/// Safety posture, stricter than any other page: nothing writes without a full slot backup first
+/// Safety posture, stricter than any other page: nothing writes without a backup of the slot's player files first
 /// (the repository enforces it), Restore writes a pre_restore zip (ditto), saving is refused
 /// outright while Icarus is running (the game holds these files and overwrites them on exit —
 /// an edit made mid-session would be silently lost or, worse, half-read — checked once before the
@@ -357,7 +357,7 @@ public sealed partial class SavesViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Every other destructive action on this page (Restore, Save) confirms first via MessageBox —
+    /// Every other destructive action on this page (Restore, Save) confirms first through IDialogService —
     /// switching slots used to be the one exception, silently discarding whatever's unsaved across
     /// all 8 tabs. Since ObservableProperty setters can't be cancelled, a "No" answer here reverts
     /// SelectedSlot back (via _suppressSlotChangeGuard, so that revert itself doesn't re-prompt or

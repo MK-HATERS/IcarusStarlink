@@ -68,7 +68,10 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
     /// <summary>Without these the save's talents and items can't be told apart: nothing is called a leftover then. The others only leave their own rows untold.</summary>
     private static readonly string[] RequiredFiles = [TalentsFile, ItemsFile];
 
-    /// <summary>Reads everything once (seconds at most: every Library mod and the installed paks); call off the UI thread.</summary>
+    /// <summary>
+    /// Reads everything once (seconds at most: every Library mod and the installed paks). Blocks
+    /// (the game-data check hashes data.pak): call it off the UI thread.
+    /// </summary>
     public Index Read()
     {
         var installed = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
@@ -426,7 +429,7 @@ public sealed class SaveModSources(ILibraryRepository library, ISettingsService 
         return ranks;
     }
 
-    /// <param name="CanTellInstalled">False when the game folder or its installed paks couldn't be read: then nothing is called a leftover.</param>
+    /// <param name="canTellInstalled">False when the game folder or its installed paks couldn't be read: then nothing is called a leftover.</param>
     public sealed class Index(
         IReadOnlyDictionary<string, HashSet<string>> gameRows,
         IReadOnlyDictionary<string, HashSet<string>> installed,

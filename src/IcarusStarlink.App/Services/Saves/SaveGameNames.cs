@@ -101,7 +101,7 @@ public sealed partial class SaveGameNames(string dataFolder)
     /// <summary>Every item, keyed by the RowName MetaInventory.json's Items[].ItemStaticData.RowName stores (a D_ItemsStatic row). D_ItemsStatic itself carries no display name — see LoadItems' own comment for the real two-hop chain this resolves.</summary>
     public IReadOnlyDictionary<string, ItemInfo> Items => Cached(ref _items, LoadItems);
 
-    /// <summary>Every real, valid Mounts.json MountType value — D_Mounts's own row names (37 on a current extraction), confirmed to be exactly what MountType stores. Used to offer only real choices in a picker rather than free text, the same way a save's own binary flags/talent ranks are already bounded by real game data.</summary>
+    /// <summary>Every real, valid Mounts.json MountType value — D_Mounts's own row names (37 on a current extraction), confirmed to be exactly what MountType stores. Only the save check reads it, to find a mount whose type the game doesn't have.</summary>
     public IReadOnlyList<string> MountTypeRowNames => Cached(ref _mountTypeRowNames, () => LoadRowNames(MountsTable));
 
     /// <summary>D_Mounts's own "Icon" field per row (a raw "/Game/…/T_Talent_Base_Xxx.T_Talent_Base_Xxx" texture reference, the same self-named-asset shape D_Itemable's own Icon/D_BestiaryData's own Image use), keyed by RowName — what a saved mount's own MountType resolves to for its thumbnail.</summary>

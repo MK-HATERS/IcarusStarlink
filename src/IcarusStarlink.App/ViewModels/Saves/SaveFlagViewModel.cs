@@ -48,11 +48,6 @@ public sealed partial class SaveFlagViewModel : DirtyRow
     /// <summary>Talent-granted flags follow their talent; editing one alone is pointless, so it's shown, not switched.</summary>
     public bool IsEditable => Kind != FlagKind.FromTalent;
 
-    public SaveFlagViewModel(int id, string name, bool isUnlocked, Action onDirtyChanged)
-        : this(id, new FlagInfo(name, name, "", FlagKind.Marker), isUnlocked, onDirtyChanged)
-    {
-    }
-
     public SaveFlagViewModel(int id, FlagInfo info, bool isUnlocked, Action onDirtyChanged)
         : base(onDirtyChanged)
     {

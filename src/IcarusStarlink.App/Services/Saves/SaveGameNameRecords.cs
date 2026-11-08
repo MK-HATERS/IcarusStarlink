@@ -29,7 +29,7 @@ public sealed record TreeInfo(string Display, string ArchetypeDisplay, string Mo
         : $"{ArchetypeDisplay} · {Display}";
 }
 
-public sealed record AccoladeInfo(string DisplayName, string Description, string Category, int GoalCount);
+public sealed record AccoladeInfo(string DisplayName, string Description, string Category);
 
 /// <param name="RequiredFlags">(table, row): D_AccountFlags, D_CharacterFlags or D_DLCPackageData.</param>
 /// <param name="GrantedFlagsByRank">The character flags each rank gives (Rewards[i].GrantedFlags).</param>
