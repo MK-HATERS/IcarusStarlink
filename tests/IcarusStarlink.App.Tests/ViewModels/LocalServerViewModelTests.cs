@@ -816,6 +816,31 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Equal("Mods", vm.ModsTabHeader);
     }
 
+    /// <summary>The update goes through, but the old copy can't go to the backups: the status says where it is, and the row still counts as updated.</summary>
+    [Fact]
+    public async Task Ue4ss_CopyToServer_OldCopyCantBeBackedUp_StatusSaysSo()
+    {
+        var gameWin64 = MakeGameWithUe4ss(("MkHatersTools", true));
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        var gameMod = Path.Combine(gameWin64, "ue4ss", "Mods", "MkHatersTools");
+        File.WriteAllText(Path.Combine(gameMod, "Scripts", "main.lua"), "local VERSION = \"1.0.5\"\nprint(VERSION)");
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+        vm.MatchServerToGameCommand.Execute(null);
+        File.WriteAllText(Path.Combine(gameMod, "Scripts", "main.lua"), "local VERSION = \"1.0.6\"\nprint(VERSION)");
+        vm.OnPageShown();
+
+        // A file where the backups' removed-ue4ss folder would go: the old copy can't be moved there.
+        Directory.CreateDirectory(vm.BackupsFolderPath);
+        File.WriteAllText(Path.Combine(vm.BackupsFolderPath, "removed-ue4ss"), "");
+
+        await vm.CopyUe4ssModToServerCommand.ExecuteAsync(vm.Ue4ssModRows.Single());
+
+        Assert.Contains("Updated 1 of 1", vm.StatusMessage);
+        Assert.Contains("was updated, but its old copy", vm.StatusMessage);
+    }
+
     /// <summary>
     /// Unticking a mod on the server, or removing it from the Library, left
     /// the row reading as before (even after a restart: unticking only switches it off). The row now

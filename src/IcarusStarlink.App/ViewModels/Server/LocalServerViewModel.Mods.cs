@@ -457,6 +457,8 @@ public sealed partial class LocalServerViewModel
 
         // The world backup and the copies run off the UI thread.
         var failures = new List<string>();
+        // Updated, but the old copy couldn't go to the backups: still counted as updated.
+        var notes = new List<string>();
         var backups = ServerBackupsFolder(p);
         BeginBackupWork(p);
         StatusMessage = $"Backing up '{p.Name}' and copying {rows.Count} mod(s)…";
@@ -468,7 +470,11 @@ public sealed partial class LocalServerViewModel
                 try
                 {
                     var name = row.Name;
-                    await OffUiThread(() => ServerUe4ssSync.CopyToServer(gameMods, name, p.InstallFolder, backups));
+                    if (await OffUiThread(() => ServerUe4ssSync.CopyToServer(gameMods, name, p.InstallFolder, backups)) is { } note)
+                    {
+                        notes.Add(note);
+                        _activityLog.Log(note, ActivityEntryKind.Warning);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -482,10 +488,10 @@ public sealed partial class LocalServerViewModel
         }
 
         var names = string.Join(", ", rows.Select(r => r.Name));
-        StatusMessage = failures.Count == 0
+        StatusMessage = failures.Count == 0 && notes.Count == 0
             ? $"Put your game's copy of {names} on '{p.Name}' (the server's settings were kept). Mods that run on players' games too must be installed by every player."
-            : $"Updated {rows.Count - failures.Count} of {rows.Count} — {string.Join("; ", failures)}";
-        _activityLog.Log(StatusMessage, failures.Count == 0 ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
+            : $"Updated {rows.Count - failures.Count} of {rows.Count} — {string.Join("; ", failures.Concat(notes))}";
+        _activityLog.Log(StatusMessage, failures.Count == 0 && notes.Count == 0 ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
         RefreshMods();
         RefreshBackups();
     }

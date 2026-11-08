@@ -280,7 +280,11 @@ public sealed partial class LocalServerViewModel
                 {
                     if (InGame(name))
                     {
-                        await OffUiThread(() => ServerUe4ssSync.CopyToServer(gameMods!, name, p.InstallFolder, backups));
+                        if (await OffUiThread(() => ServerUe4ssSync.CopyToServer(gameMods!, name, p.InstallFolder, backups)) is { } note)
+                        {
+                            lines.Add(note.TrimEnd('.'));
+                        }
+
                         // CopyToServer keeps a server copy that was off as off: said so, not "put on".
                         (Ue4ssModStart.Starts(serverMods, name, Ue4ssModStart.ReadList(serverMods)) ? put : keptOff).Add(name);
                     }
