@@ -392,6 +392,21 @@ public sealed class PatchService : IPatchService
                 PatchConfigSafety.Filter(mod);
             }
 
+            // A hand-edited pick with no key or no winner is left out rather than refusing the patch.
+            if (manifest.ConflictWinners is { } winners)
+            {
+                var kept = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (key, winner) in winners)
+                {
+                    if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(winner))
+                    {
+                        kept[key] = winner;
+                    }
+                }
+
+                manifest.ConflictWinners = kept;
+            }
+
             return manifest;
         }
         catch (JsonException ex)

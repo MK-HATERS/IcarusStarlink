@@ -10,7 +10,7 @@ using IcarusStarlink.PakIO.Patches;
 namespace IcarusStarlink.App.Services;
 
 /// <summary>
-/// Builds a patch (format 2) from a list of Library mods and a set of UE4SS mod folders: Merge &amp;
+/// Builds a patch (format 3) from a list of Library mods and a set of UE4SS mod folders: Merge &amp;
 /// Install's Export patch (the queue, the game's UE4SS mods) and the Server page's Export for
 /// players (the server's installed list, the server's UE4SS mods) share it. A mod that came from
 /// Nexus or the community catalog is referenced by its ids (a friend downloads it themselves);
@@ -34,10 +34,12 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
     }
 
     /// <param name="catalogIdsByKey">The catalog entry id for a (name, author) key, so a mod found in the catalog only by name is referenced with an id a friend's import can download.</param>
+    /// <param name="conflictWinners">The profile's conflict picks; the ones for mods that went in travel with the patch. Null (the server's export) carries none.</param>
     public Result Build(
         string profileName, IReadOnlyList<LibraryEntry> mods, GameplayOptions options, IReadOnlyList<Ue4ssModSource> ue4ssMods,
         bool includeConfigs, IReadOnlySet<(string Name, string Author)> catalogKeys,
-        IReadOnlyDictionary<(string Name, string Author), string>? catalogIdsByKey = null)
+        IReadOnlyDictionary<(string Name, string Author), string>? catalogIdsByKey = null,
+        IReadOnlyDictionary<string, string>? conflictWinners = null)
     {
         var entries = new List<PatchModEntry>();
         var bundledExmods = new Dictionary<string, ExmodPackageContents>();
@@ -141,6 +143,7 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
             Options = options,
             Ue4ssMods = ue4ssEntries,
             IncludesConfigs = includeConfigs && ue4ssEntries.Any(m => m.Configs.Count > 0),
+            ConflictWinners = conflictWinners is null ? null : PatchWinners.ForExport(conflictWinners, [.. entries.Select(e => e.FolderName)]),
         };
         return new Result(manifest, new PatchBundle(bundledExmods, bundledPaks, bundledUe4ss), skipped) { ChangedCopies = changedCopies };
     }

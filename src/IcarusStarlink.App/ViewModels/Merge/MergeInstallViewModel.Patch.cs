@@ -100,12 +100,13 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             var options = BuildGameplayOptionsFromUi();
             var includeConfigs = ExportIncludesConfigs;
             var modsFolder = Ue4ssGameModsFolder;
+            var winners = new Dictionary<string, string>(_winners, StringComparer.OrdinalIgnoreCase);
             var builder = new PatchBuilder(_libraryRepository, _ue4ssMetaStore);
             var built = await Task.Run(() =>
             {
                 // The UE4SS mods on in the game (the framework's own left out).
                 var ue4ssMods = modsFolder is null ? [] : PatchBuilder.Ue4ssModsOnIn(modsFolder);
-                return builder.Build(profileName, queued, options, ue4ssMods, includeConfigs, catalogKeys, catalogIds);
+                return builder.Build(profileName, queued, options, ue4ssMods, includeConfigs, catalogKeys, catalogIds, winners);
             });
             var (manifest, bundle, skipped) = built;
             if (manifest.Mods.Count == 0 && manifest.Ue4ssMods.Count == 0)
@@ -461,7 +462,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             var outcome = new PatchLibraryOutcome();
             AskBeforeReplacingEditedCopies(contents, outcome);
             PatchStatusMessage = "Importing the patch's mods…";
-            var (resolvedFolderNames, missing) = await Task.Run(() => ResolvePatchMods(contents, versionNotes, imported, outcome));
+            var (resolvedFolderNames, missing, localFolders) = await Task.Run(() => ResolvePatchMods(contents, versionNotes, imported, outcome));
             var configured = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var ue4ss = await Task.Run(() => ImportUe4ssFromPatch(contents, configured, versionNotes));
             var downloaded = 0;
@@ -496,7 +497,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
                 // What landed is matched the same way again; the UE4SS mods that just arrived get their settings now.
                 var before = missing.Count + ue4ss.Missing.Count;
-                (resolvedFolderNames, missing) = await Task.Run(() => ResolvePatchMods(contents, versionNotes: null, imported, outcome));
+                (resolvedFolderNames, missing, localFolders) = await Task.Run(() => ResolvePatchMods(contents, versionNotes: null, imported, outcome));
                 var again = await Task.Run(() => ImportUe4ssFromPatch(contents, configured, versionNotes: null));
                 ue4ss = new Ue4ssImportOutcome(
                     [.. ue4ss.Lines.Concat(again.Lines).Distinct(StringComparer.Ordinal)],
@@ -508,7 +509,8 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             // A pending auto-save of the profile in use is written first: written after the import,
             // it put the old queue back over a patch imported under the same profile name.
             SaveWorkingState();
-            _profileStore.Save(new Profile { Name = manifest.ProfileName, MergeQueueFolderNames = resolvedFolderNames, Options = manifest.Options });
+            var (winners, keptPicks, patchPicks) = PicksForImportedProfile(manifest, resolvedFolderNames, localFolders);
+            _profileStore.Save(new Profile { Name = manifest.ProfileName, MergeQueueFolderNames = resolvedFolderNames, Options = manifest.Options, ConflictWinners = winners });
             _messenger.Send(new LibraryChangedMessage());
             var importedName = manifest.ProfileName;
             if (string.Equals(SelectedProfileName, importedName, StringComparison.OrdinalIgnoreCase))
@@ -580,6 +582,16 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
                 summary.Add($"kept your edited copy of {string.Join(", ", outcome.KeptYours)}, and the profile uses it instead of the patch's");
             }
 
+            if (keptPicks > 0)
+            {
+                summary.Add($"kept {keptPicks} conflict pick(s) you made");
+            }
+
+            if (patchPicks > 0)
+            {
+                summary.Add($"took {patchPicks} conflict pick(s) from the patch");
+            }
+
             summary.AddRange(outcome.Problems);
 
             summary.AddRange(ue4ss.Lines);
@@ -596,6 +608,41 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             _activityLog.Log(PatchStatusMessage, ActivityEntryKind.Warning);
             return PatchStatusMessage;
         }
+    }
+
+    /// <summary>
+    /// The conflict picks the imported profile saves: the ones a profile of the same name already
+    /// had (moved to ids, and only for mods the new queue still has), with the patch's own picks
+    /// (format 3) over them, each rewritten to the local folder its mod matched. Where both picked
+    /// a winner for the same value, the patch's pick wins, so the merge matches the exporter's.
+    /// </summary>
+    private (Dictionary<string, string> Winners, int Kept, int FromPatch) PicksForImportedProfile(
+        PatchManifest manifest, IReadOnlyList<string> queuedFolders, IReadOnlyDictionary<string, string> localFolders)
+    {
+        var local = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (_profileStore.ProfileNames.FirstOrDefault(n => string.Equals(n, manifest.ProfileName, StringComparison.OrdinalIgnoreCase)) is { } existing)
+        {
+            try
+            {
+                var (migrated, _) = MigrateWinners(_profileStore.Load(existing).ConflictWinners ?? []);
+                var byFolder = LibraryByFolder();
+                var queuedNames = queuedFolders.Select(f => byFolder.TryGetValue(f, out var e) ? e.Name : null).OfType<string>().ToList();
+                local = PatchWinners.StillQueued(migrated, queuedFolders, queuedNames);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or System.Text.Json.JsonException)
+            {
+                // A profile file that can't be read has no picks to keep; the import goes on.
+            }
+        }
+
+        var fromPatch = PatchWinners.Remap(manifest.ConflictWinners, localFolders);
+        var winners = new Dictionary<string, string>(local, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, winner) in fromPatch)
+        {
+            winners[key] = winner;
+        }
+
+        return (winners, local.Keys.Count(k => !fromPatch.ContainsKey(k)), fromPatch.Count);
     }
 
     /// <summary>What the patch's bundled mods did to the Library copies already there, for the summary; filled off the UI thread, read after it.</summary>
@@ -651,28 +698,30 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
     /// version differs from the patch's. A second call (after downloads) doesn't import the
     /// bundled mods again: it finds the copies the first call made.
     /// </summary>
-    private (List<string> Resolved, List<MissingPatchMod> Missing) ResolvePatchMods(
+    private (List<string> Resolved, List<MissingPatchMod> Missing, Dictionary<string, string> LocalFolders) ResolvePatchMods(
         PatchImportContents contents, List<string>? versionNotes, Dictionary<string, string> imported, PatchLibraryOutcome outcome)
     {
         var resolved = new List<string>();
         var missing = new List<MissingPatchMod>();
+        // The exporter's folder name → the local folder it resolved to, for the patch's conflict picks.
+        var localFolders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var mod in contents.Manifest.Mods)
         {
             if (mod.Bundled && mod.IsPak && contents.BundledPakFolders.TryGetValue(mod.FolderName, out var pakFolder))
             {
-                resolved.Add(imported.TryGetValue(mod.FolderName, out var pakCopy) ? pakCopy : imported[mod.FolderName] = ImportBundledPak(mod, pakFolder, contents, outcome));
+                resolved.Add(localFolders[mod.FolderName] = imported.TryGetValue(mod.FolderName, out var pakCopy) ? pakCopy : imported[mod.FolderName] = ImportBundledPak(mod, pakFolder, contents, outcome));
                 continue;
             }
 
             if (mod.Bundled && contents.BundledMods.TryGetValue(mod.FolderName, out var exmod))
             {
-                resolved.Add(imported.TryGetValue(mod.FolderName, out var exmodCopy) ? exmodCopy : imported[mod.FolderName] = ImportBundledMod(mod, exmod, contents, outcome));
+                resolved.Add(localFolders[mod.FolderName] = imported.TryGetValue(mod.FolderName, out var exmodCopy) ? exmodCopy : imported[mod.FolderName] = ImportBundledMod(mod, exmod, contents, outcome));
                 continue;
             }
 
             if (FindLibraryMatch(mod) is { } existing)
             {
-                resolved.Add(existing.FolderName);
+                resolved.Add(localFolders[mod.FolderName] = existing.FolderName);
                 if (versionNotes is not null && !UpdateVersionComparer.AreEquivalent(existing.Version, mod.Version))
                 {
                     versionNotes.Add($"'{existing.Name}' is {existing.Version} in your Library; the patch was made with {mod.Version}. Get update in the Library if you want to match it.");
@@ -686,7 +735,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             }
         }
 
-        return (resolved, missing);
+        return (resolved, missing, localFolders);
     }
 
     /// <summary>The Library copy a referenced mod stands for: the same Nexus mod, else the same catalog entry, else the same name and author (a format 1 patch has only that).</summary>

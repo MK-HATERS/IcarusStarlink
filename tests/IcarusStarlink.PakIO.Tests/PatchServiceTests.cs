@@ -226,7 +226,7 @@ public class PatchServiceTests : IDisposable
         string extractedRoot;
         using (var result = await _service.ImportAsync(path))
         {
-            Assert.Equal(2, result.Manifest.FormatVersion);
+            Assert.Equal(PatchManifest.CurrentFormatVersion, result.Manifest.FormatVersion);
             Assert.Equal(361, result.Manifest.Mods[0].NexusModId);
             Assert.Equal(1200, result.Manifest.Mods[0].NexusFileId);
             var paks = Assert.Single(result.BundledPakFolders).Value;
@@ -260,6 +260,47 @@ public class PatchServiceTests : IDisposable
         Assert.Null(result.Manifest.Mods[0].NexusModId);
         Assert.Empty(result.Manifest.Mods[0].PakFileNames);
         Assert.Null(result.ExtractedRoot);
+    }
+
+    /// <summary>Format 3 carries the conflict picks through export and import; a pick with no winner (a hand edit) is left out.</summary>
+    [Fact]
+    public async Task ExportThenImport_FormatThree_KeepsTheConflictPicks()
+    {
+        var manifest = new PatchManifest
+        {
+            FormatVersion = PatchManifest.CurrentFormatVersion,
+            ProfileName = "Coop",
+            Mods = [new PatchModEntry { FolderName = "A", Name = "A", Author = "B", Version = "1", Bundled = false, NexusModId = 1 }],
+            ConflictWinners = new()
+            {
+                ["D_Items.json|Axe|Weight"] = "A",
+                ["D_Items.json|Bow|Weight"] = "A/Model_P",
+                ["D_Items.json|Rope|Weight"] = "",
+            },
+        };
+        var path = Path.Combine(_dir, "picks.json");
+
+        await _service.ExportAsync(manifest, PatchBundle.Empty, path);
+        using var result = await _service.ImportAsync(path);
+
+        Assert.Equal(3, result.Manifest.FormatVersion);
+        Assert.Equal(
+            [new("D_Items.json|Axe|Weight", "A"), new KeyValuePair<string, string>("D_Items.json|Bow|Weight", "A/Model_P")],
+            result.Manifest.ConflictWinners!.OrderBy(p => p.Key, StringComparer.Ordinal));
+    }
+
+    /// <summary>A format 2 file (no conflict picks) still reads, with no picks.</summary>
+    [Fact]
+    public async Task ImportAsync_FormatTwoJson_ReadsWithNoConflictPicks()
+    {
+        var path = Path.Combine(_dir, "two.json");
+        await File.WriteAllTextAsync(path, "{\"FormatVersion\":2,\"ProfileName\":\"Two\",\"Mods\":[{\"FolderName\":\"A\",\"Name\":\"A\",\"Author\":\"B\",\"Version\":\"1\",\"Bundled\":false,\"NexusModId\":5}],\"Options\":{},\"Ue4ssMods\":[]}");
+
+        using var result = await _service.ImportAsync(path);
+
+        Assert.Equal(2, result.Manifest.FormatVersion);
+        Assert.Null(result.Manifest.ConflictWinners);
+        Assert.Equal(5, result.Manifest.Mods[0].NexusModId);
     }
 
     /// <summary>A bundled entry whose path climbs out of its folder (a crafted archive) is refused.</summary>

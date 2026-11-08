@@ -11,10 +11,13 @@ namespace IcarusStarlink.Core.Patches;
 /// on in the exporter's game with their config files, so a friend gets the whole setup, not only
 /// the EXMODs. A format 1 file (no FormatVersion) still imports: its mods are matched by name and
 /// author as before.
+///
+/// Format 3 adds the exporter's conflict picks (<see cref="ConflictWinners"/>), so a friend's
+/// merge picks the same winners. Format 1 and 2 files have none and still import.
 /// </summary>
 public sealed class PatchManifest
 {
-    public const int CurrentFormatVersion = 2;
+    public const int CurrentFormatVersion = 3;
 
     /// <summary>1 for patches written before format 2 (the field was added with it).</summary>
     public int FormatVersion { get; set; } = 1;
@@ -37,6 +40,15 @@ public sealed class PatchManifest
 
     /// <summary>The exporter chose to carry the UE4SS mods' config files (their own key bindings and values).</summary>
     public bool IncludesConfigs { get; set; }
+
+    /// <summary>
+    /// The exporter's conflict picks, as Profile.ConflictWinners keeps them ("file|row|field" →
+    /// the winning mod): a winner is the exporter's <see cref="PatchModEntry.FolderName"/>, that
+    /// folder plus "/pakname" for a pak mod, or the built-in options / ArcFission ids. The import
+    /// rewrites each folder to the local mod it matched. Null before format 3, and from a server's
+    /// export (a server doesn't record which picks built its pak).
+    /// </summary>
+    public Dictionary<string, string>? ConflictWinners { get; set; }
 }
 
 /// <summary>
