@@ -116,6 +116,9 @@ public sealed class AppSettings
     /// <summary>The Merge &amp; Install profile last in use, selected again on the next start.</summary>
     public string? LastMergeProfileName { get; set; }
 
+    /// <summary>The author typed for the last new mod made on the Editor page, offered for the next one (never the Windows account name).</summary>
+    public string? LastModAuthor { get; set; }
+
     /// <summary>
     /// Set right after a successful real Install (MergeInstallViewModel.InstallAsync) — read back
     /// on the NEXT app launch (SettingsViewModel) to check whether a real game crash happened since

@@ -436,7 +436,7 @@ internal static class AppServices
             sp.GetRequiredService<IActivityLog>()));
         services.AddSingleton(sp => new DatabaseViewModel(sp.GetRequiredService<NexusCatalogViewModel>(), sp.GetRequiredService<LibraryViewModel>()));
         services.AddSingleton(sp => new GameEditorViewModel(sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data"), sp.GetRequiredService<IActivityLog>(), sp.GetRequiredService<IBaseGameIconDecoder>(),
-            queueReader: sp.GetRequiredService<MergeInstallViewModel>()));
+            queueReader: sp.GetRequiredService<MergeInstallViewModel>(), settings: sp.GetRequiredService<ISettingsService>()));
         services.AddSingleton(sp => new ServerViewModel(
             sp.GetRequiredService<IFtpSiteStore>(),
             sp.GetRequiredService<ICredentialStore>(),

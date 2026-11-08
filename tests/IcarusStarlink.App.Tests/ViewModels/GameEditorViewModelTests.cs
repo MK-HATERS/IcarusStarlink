@@ -61,9 +61,50 @@ public sealed partial class GameEditorViewModelTests : IDisposable
 
     private GameEditorViewModel Open()
     {
-        var vm = new GameEditorViewModel(_library, DataFolder);
+        var vm = new GameEditorViewModel(_library, DataFolder) { NewModAuthor = "Tester" };
         vm.EnsureLoaded();
         return vm;
+    }
+
+    /// <summary>Regression: the new mod's Author started as the Windows account name (often a real name), which then shipped in every shared mod and patch.</summary>
+    [Fact]
+    public void NewModAuthor_StartsEmpty_NotTheWindowsAccountName()
+    {
+        var vm = new GameEditorViewModel(_library, DataFolder);
+
+        Assert.Equal("", vm.NewModAuthor);
+    }
+
+    /// <summary>The author typed for a new mod is remembered for the next one.</summary>
+    [Fact]
+    public void NewModAuthor_IsRememberedAfterANewModIsSaved()
+    {
+        var settings = new AuthorSettings();
+        var vm = new GameEditorViewModel(_library, DataFolder, settings: settings);
+        vm.EnsureLoaded();
+        vm.SelectedItem = vm.FilteredItems.Single(i => i.Name == "Envirosuit");
+        vm.Sections.Single(s => s.Section.Key == "Itemable").Fields.Single(f => f.Label == "Weight").ValueText = "50";
+        vm.NewModName = "Lighter Suit";
+        vm.NewModAuthor = "  Kestrel ";
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal("Kestrel", settings.Current.LastModAuthor);
+        Assert.Equal(1, settings.SaveCount);
+        Assert.Equal("Kestrel", new GameEditorViewModel(_library, DataFolder, settings: settings).NewModAuthor);
+    }
+
+    private sealed class AuthorSettings : IcarusStarlink.Core.Settings.ISettingsService
+    {
+        public IcarusStarlink.Core.Settings.AppSettings Current { get; } = new();
+
+        public int SaveCount { get; private set; }
+
+        public bool Save()
+        {
+            SaveCount++;
+            return true;
+        }
     }
 
     private string ImportNexusMod()
@@ -1652,7 +1693,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
     {
         var locked = DispatchProxy.Create<ILibraryRepository, LockedMetaRepository>();
         ((LockedMetaRepository)(object)locked).Inner = _library;
-        var vm = new GameEditorViewModel(locked, DataFolder);
+        var vm = new GameEditorViewModel(locked, DataFolder) { NewModAuthor = "Tester" };
         vm.EnsureLoaded();
         vm.SelectedItem = Item(vm, "Envirosuit");
         Weight(vm).ValueText = "50";

@@ -219,7 +219,11 @@
                                     <ControlTemplate TargetType="ListBoxItem">
                                         <Border x:Name="Bd" CornerRadius="9" Padding="8,2" BorderThickness="1"
                                                 BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource ContentBackgroundBrush}">
-                                            <ContentPresenter/>
+                                            <ContentPresenter>
+                                                <ContentPresenter.Resources>
+                                                    <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource ContainerForegroundTextStyle}"/>
+                                                </ContentPresenter.Resources>
+                                            </ContentPresenter>
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
@@ -659,7 +663,8 @@
                             <TextBlock Text="Name" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                             <TextBox Text="{Binding NewModName, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,6" AutomationProperties.Name="New mod name"/>
                             <TextBlock Text="Author" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
-                            <TextBox Text="{Binding NewModAuthor, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0" AutomationProperties.Name="New mod author"/>
+                            <TextBox Text="{Binding NewModAuthor, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,0" AutomationProperties.Name="New mod author"
+                                     ToolTip="Your name as players will see it in the mod. Starlink remembers it for your next new mod."/>
                         </StackPanel>
                         <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,8,0,12"
                                    Text="Only mods you made in Starlink are listed: changes can't go into a mod from Nexus or the IMM Database."/>

@@ -9,6 +9,7 @@ using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.Assets;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
@@ -52,6 +53,20 @@ public sealed partial class GameEditorViewModel : ObservableObject
     private DateTime? _shownStamp;
     private readonly IActivityLog? _activityLog;
     private readonly string _dataFolder;
+    private readonly ISettingsService? _settings;
+
+    /// <summary>Remembers the author for the next new mod. Best effort: a settings file that can't be written never stops the save.</summary>
+    private void RememberAuthor(string author)
+    {
+        if (_settings is null || string.Equals(_settings.Current.LastModAuthor, author, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _settings.Current.LastModAuthor = author;
+        _settings.Save();
+    }
+
     private GameTableIndex? _game;
     private IReadOnlyList<StatChoice>? _statChoices;
 
@@ -59,10 +74,12 @@ public sealed partial class GameEditorViewModel : ObservableObject
     /// <param name="iconDecoder">The game's item icons for the list (null in tests: no icons).</param>
     /// <param name="messenger">The app's messages (the shared messenger unless a test gives its own).</param>
     /// <param name="queueReader">Merge &amp; Install's queue, for what the other turned-on mods change (null: not shown).</param>
+    /// <param name="settings">Where the last new mod's author is remembered (null: the Author box starts empty every time).</param>
     public GameEditorViewModel(ILibraryRepository repository, string dataFolder, IActivityLog? activityLog = null, IBaseGameIconDecoder? iconDecoder = null, IMessenger? messenger = null,
-        IMergeQueueReader? queueReader = null)
+        IMergeQueueReader? queueReader = null, ISettingsService? settings = null)
     {
         _repository = repository;
+        _settings = settings;
         _queueReader = queueReader;
         _messenger = messenger ?? WeakReferenceMessenger.Default;
         _writer = new OwnModWriter(repository, _messenger);
@@ -70,7 +87,8 @@ public sealed partial class GameEditorViewModel : ObservableObject
         _dataFolder = dataFolder;
         _icons = iconDecoder is null ? null : new GameIconLoader(iconDecoder);
         _filterDebounce = new DebounceTimer(TimeSpan.FromMilliseconds(250), RefreshFilter);
-        NewModAuthor = Environment.UserName;
+        // Never the Windows account name: it is often a real name, and it ships in every shared mod and patch.
+        NewModAuthor = settings?.Current.LastModAuthor ?? "";
         // Game data changes under the page when Refresh game data runs.
         _messenger.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).ResetGameData());
         _messenger.Register<LibraryChangedMessage>(this, (recipient, _) => ((GameEditorViewModel)recipient).RefreshTargets());
@@ -541,6 +559,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
             {
                 folder = _repository.CreateBlankMod(NewModName.Trim(), NewModAuthor.Trim()).FolderName;
                 created = folder;
+                RememberAuthor(NewModAuthor.Trim());
             }
 
             // The mod editor may have saved into this mod since its values were shown here: the
