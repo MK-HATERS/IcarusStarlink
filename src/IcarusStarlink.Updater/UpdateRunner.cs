@@ -39,7 +39,9 @@ public static class UpdateRunner
         catch (UpdateRollbackIncompleteException ex)
         {
             log($"Update FAILED: {ex.Message}");
-            Record(Outcome.RollbackIncomplete, $"The update failed and couldn't be fully undone, so some files may be missing. A copy of the replaced files is in {ex.BackupDirectory}. {ex.Message}");
+            Record(Outcome.RollbackIncomplete,
+                $"The update failed and couldn't be fully undone, so some of Starlink's files may be missing. To fix it, download Icarus Starlink again (GitHub or Nexus) "
+                + $"and unzip it over {installDirectory}: your mods and settings stay. The files it replaced are kept in {ex.BackupDirectory}. {ex.Message}");
             return new Result(Outcome.RollbackIncomplete, relaunch(), ex.BackupDirectory);
         }
         catch (Exception ex)
@@ -49,7 +51,8 @@ public static class UpdateRunner
             // directory usually means it's sitting somewhere Windows reserves for admin-only writes
             // (Program Files, Program Files (x86), the Windows folder itself).
             var guidance = ex is UnauthorizedAccessException
-                ? " This usually means IcarusStarlink is installed somewhere Windows reserves for administrators only (e.g. Program Files) — move it to a folder you own (Desktop, Documents, a dedicated folder outside Program Files), or run it as Administrator."
+                ? " Icarus Starlink is in a folder Windows keeps for administrators (such as Program Files): move the IcarusStarlink folder somewhere you own "
+                    + "(Documents, or a games folder outside Program Files), or run Starlink as Administrator once to update."
                 : "";
             log($"Update FAILED (old install restored, relaunching it): {ex.Message}{guidance}");
             Record(Outcome.RolledBack, $"The update didn't install, so your previous version was put back: {ex.Message}{guidance}");

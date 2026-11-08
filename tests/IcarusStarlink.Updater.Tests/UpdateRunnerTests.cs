@@ -106,6 +106,31 @@ public sealed class UpdateRunnerTests : IDisposable
         UpdateApplierTests.DeleteKeptBackup(result.BackupDirectory);
     }
 
+    /// <summary>
+    /// The one outcome that can leave a broken install said where a backup was but not what to do
+    /// about it. It now says to download Starlink again and unzip it over the install folder.
+    /// </summary>
+    [Fact]
+    public void Run_RollbackIncomplete_TellsThePlayerToUnzipStarlinkAgainOverTheInstall()
+    {
+        WriteInstall("IcarusStarlink.App.exe", "old exe");
+        WriteInstall("LockedFile.dll", "old locked");
+        WriteNew("IcarusStarlink.App.exe", "new exe");
+        WriteNew("LockedFile.dll", "new locked");
+        string? message = null;
+
+        UpdateRunner.Result result;
+        using (new FileStream(Path.Combine(_installDirectory, "LockedFile.dll"), FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
+        {
+            result = UpdateRunner.Run(_installDirectory, _newFilesDirectory, _ => { }, () => true, (_, text) => message = text);
+        }
+
+        UpdateApplierTests.DeleteKeptBackup(result.BackupDirectory);
+        Assert.Equal(UpdateRunner.Outcome.RollbackIncomplete, result.Outcome);
+        Assert.Contains("download Icarus Starlink again", message);
+        Assert.Contains(_installDirectory, message);
+    }
+
     /// <summary>A rolled-back update used to relaunch the old version without a word: the outcome is now recorded, before the relaunch, for the app to show.</summary>
     [Fact]
     public void Run_RecordsTheOutcomeBeforeRelaunching()

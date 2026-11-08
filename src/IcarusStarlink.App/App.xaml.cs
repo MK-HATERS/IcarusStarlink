@@ -198,8 +198,9 @@ public partial class App : Application
                 Dispatcher.Invoke(() =>
                 {
                     MessageBox.Show(
-                        $"IcarusStarlink couldn't start up:\n\n{ex.Message}\n\nA crash report was written to the Logs folder.",
-                        "IcarusStarlink — startup failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                        $"Icarus Starlink couldn't start:\n\n{ex.Message}\n\nA crash report was saved in:\n{_logsDirectory}\n\n"
+                        + "You can attach it to a bug report on Starlink's Nexus page.",
+                        "Icarus Starlink — startup failed", MessageBoxButton.OK, MessageBoxImage.Error);
                     splash.Close();
                     Shutdown(-1);
                 });
@@ -368,8 +369,9 @@ public partial class App : Application
     {
         CrashReportWriter.Write(_logsDirectory, e.Exception, "UI thread (DispatcherUnhandledException)", TryGetActivityLog());
         MessageBox.Show(
-            $"IcarusStarlink hit an unexpected error and needs to close:\n\n{e.Exception.Message}\n\nA crash report was written to the Logs folder.",
-            "IcarusStarlink — unexpected error", MessageBoxButton.OK, MessageBoxImage.Error);
+            $"Icarus Starlink hit an unexpected error and needs to close:\n\n{e.Exception.Message}\n\nA crash report was saved in:\n{_logsDirectory}\n\n"
+            + "To report it: Settings › Maintenance › Export diagnostics zip… puts it in one zip for a bug report on Starlink's Nexus page.",
+            "Icarus Starlink — unexpected error", MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
     /// <summary>

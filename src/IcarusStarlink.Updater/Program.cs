@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using IcarusStarlink.Updater;
 
-// IcarusStarlink's in-place updater (big-plan item 4). Launched by the main app from a TEMP copy
+// Icarus Starlink's in-place updater. Started by the main app (AppUpdateInstaller) from a TEMP copy
 // of itself (so its own file in the install directory can be replaced too), with the main app
-// exiting immediately after. Waits for the app to fully exit, copies the new build's files over
-// the install directory (never deleting anything — see UpdateApplier), then relaunches the app.
+// exiting right after. Waits for the app to exit, copies the new build's files over the install
+// directory (never deleting anything — see UpdateApplier), then relaunches the app.
 //
 // usage: IcarusStarlink.Updater.exe <mainProcessId> <installDir> <newFilesDir> <relaunchExe> [--skip <rootFileName>]...
 
@@ -152,21 +152,19 @@ catch (Exception ex)
     return 1;
 }
 
-// This process runs with CreateNoWindow: true (see SettingsViewModel's own launch of it) — a real
-// Win32 message box (not a console window; there is none here) is the only way for this headless
-// process to make sure the user actually sees the one outcome that genuinely needs their attention:
-// RollbackIncomplete, where the install directory may still be broken even after a best-effort
-// relaunch attempt. Applied and RolledBack both stay silent by design (no alarming message box for
-// a fully successful update or a self-healing failure) — Run's own relaunch call already covers the
-// real bug this was fixed for (the app used to just close and never come back).
+// AppUpdateInstaller starts this exe with CreateNoWindow (no console). Its only window is
+// NativeProgressWindow, closed as the app restarts. RollbackIncomplete is the one outcome that also
+// gets a message box, because the install may be left broken; Applied and RolledBack are reported
+// by the relaunched app (UpdateOutcomeFile).
 if (result.Outcome == UpdateRunner.Outcome.RollbackIncomplete)
 {
     progressWindow.Dispose();
     NativeMessageBox.Show(
-        $"The IcarusStarlink update failed and could not be fully rolled back.\n\n"
-        + $"A backup of the files that were overwritten is kept at:\n{result.BackupDirectory}\n\n"
-        + $"Full details are in {logPath}",
-        "IcarusStarlink update failed");
+        "The Icarus Starlink update failed and couldn't be fully undone, so some of its files may be missing.\n\n"
+        + $"To fix it, download Icarus Starlink again from GitHub or Nexus and unzip it over:\n{installDirectory}\nYour mods and settings stay.\n\n"
+        + $"The files the update replaced are kept in:\n{result.BackupDirectory}\n\n"
+        + $"Details: {logPath}",
+        "Icarus Starlink update failed");
 }
 
 return result.Outcome switch
