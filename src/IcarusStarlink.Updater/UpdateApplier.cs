@@ -114,10 +114,8 @@ public static class UpdateApplier
             // Rollback itself didn't fully succeed (often the SAME stuck lock that broke the
             // forward copy also blocks the backward restore-copy) — installDirectory may now be a
             // genuine mixed old/new state, not the clean "old install fully restored" outcome a
-            // normal failed update produces. A distinct exception type so Program.cs (which runs
-            // this with no visible window at all) can escalate to a user-visible notification only
-            // for this specific, worse-than-usual outcome, rather than the user's only trace of it
-            // being an easy-to-miss updater.log line.
+            // normal failed update produces. A distinct exception so Program.cs can show a message
+            // box for this outcome only, rather than the user's only trace being an updater.log line.
             log($"Backup kept at '{backupDirectory}' for manual recovery — rollback couldn't restore every file.");
             throw new UpdateRollbackIncompleteException(
                 $"Update failed and rollback couldn't fully restore the install directory: {ex.Message}", backupDirectory, ex);

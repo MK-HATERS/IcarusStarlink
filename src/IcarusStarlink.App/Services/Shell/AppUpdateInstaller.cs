@@ -10,20 +10,18 @@ namespace IcarusStarlink.App.Services;
 public enum AppUpdateStep { GetLink, Download, Check, Unpack, Handover }
 
 /// <summary>
-/// The file work of the in-app update, out of SettingsViewModel (which keeps the confirmation, the
-/// busy checks and the status line): clears old work folders, downloads and unzips the release,
-/// finds the app in it, stages the updater outside the install folder and starts it. The caller
-/// then closes the app; the updater waits for that, copies the new build over the install
-/// WITHOUT deleting anything (user data is safe by construction — see UpdateApplier), and
-/// relaunches it.
+/// The file work of the in-app update once the zip is downloaded and checked (AppUpdateViewModel
+/// does those): unpacks it, finds the app in it, stages the updater outside the install folder and
+/// starts it. The caller then closes the app; the updater waits for that, copies the new build over
+/// the install WITHOUT deleting anything (user data is safe by construction — see UpdateApplier),
+/// and relaunches it.
 /// </summary>
 public static class AppUpdateInstaller
 {
     /// <summary>
     /// A fresh work folder for one update (the zip and the unpacked build go in it). Earlier
-    /// updates' work folders (zip + full extracted build, ~2x the release size each) were never
-    /// cleaned up — by anyone, since the updater runs from one and the app never looked (an audit
-    /// finding). Any previous AppUpdate_* folder is finished with by now.
+    /// updates' AppUpdate_* folders are deleted first (best effort): any earlier update has
+    /// finished by now.
     /// </summary>
     public static string NewWorkFolder()
     {
@@ -118,12 +116,10 @@ public static class AppUpdateInstaller
         unpacking(AppUpdateStep.Handover);
 
         // The updater must run from OUTSIDE the install folder or it couldn't replace its own
-        // files: stage it into the temp work folder and launch from there. In a published
-        // release the Updater is a single self-contained exe (see IcarusStarlink.App.csproj's
-        // PublishSingleFileUpdater target for the real bug that forced that: staging the old
-        // four-file self-contained layout without its runtime couldn't even start), so only
-        // the .exe is required. A plain dev build still has the framework-dependent four-file
-        // shape, so its three companions are staged too whenever they happen to be present.
+        // files: stage it into the work folder and start it from there. In a published release it
+        // is one Native AOT exe (IcarusStarlink.App.csproj's PublishNativeUpdater target), so only
+        // the .exe is needed; a plain dev build has the framework-dependent four-file shape, so its
+        // three companions are staged too when present.
         var installDirectory = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
         var updaterStaging = Path.Combine(workDirectory, "updater");
         Directory.CreateDirectory(updaterStaging);

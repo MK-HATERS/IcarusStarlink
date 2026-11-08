@@ -24,8 +24,9 @@ public static class UpdateRunner
     /// </summary>
     /// <param name="recordOutcome">
     /// Called with the outcome and a plain sentence for the user BEFORE the relaunch, so the app
-    /// that comes back can say what happened (the updater has no window of its own, and a
-    /// rolled-back update used to relaunch the old version without a word).
+    /// that comes back can say what happened (the updater's only window is its progress window,
+    /// which closes as the app restarts; a rolled-back update used to relaunch the old version
+    /// without a word).
     /// </param>
     public static Result Run(string installDirectory, string newFilesDirectory, Action<string> log, Func<bool> relaunch,
         Action<Outcome, string>? recordOutcome = null, IReadOnlyCollection<string>? skipRootFiles = null)

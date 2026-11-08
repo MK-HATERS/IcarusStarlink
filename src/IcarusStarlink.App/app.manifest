@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <!-- asInvoker (the SDK's own default when no manifest is present at all) — kept explicit here so
-       adding this manifest for longPathAware can't accidentally change that: this app must never
-       require elevation (see the Nexus-readiness audit's own security note — no admin rights
-       needed for anything it does). -->
+  <!-- asInvoker (the SDK's own default when no manifest is present at all), kept explicit so
+       adding this manifest for longPathAware can't change that: Starlink never needs admin
+       rights for anything it does. -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>

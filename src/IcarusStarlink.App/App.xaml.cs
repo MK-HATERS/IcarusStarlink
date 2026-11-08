@@ -42,13 +42,14 @@ public partial class App : Application
         // MessageBox still claimed "A crash report was written to the Logs folder" regardless.
         _logsDirectory = Path.Combine(AppContext.BaseDirectory, "Logs");
 
-        // Wired up before anything else below has a chance to throw — previously this app had NO
-        // global exception handling at all, meaning a real crash depended entirely on WHERE it
-        // happened: a sync UI-thread exception crashed with nothing logged, a background-thread
-        // startup exception froze the splash screen forever with no trace, and an exception inside
-        // almost any async command (Rebuild/Install/FTP/downloads/save-editing are all built this
-        // way) was silently discarded by CommunityToolkit.Mvvm's own default behavior. All three
-        // now funnel into CrashReportWriter — see its own doc comment.
+        // Wired up before anything else below has a chance to throw; all three write a crash
+        // report (CrashReportWriter). An async [RelayCommand] WITHOUT FlowExceptionsToTaskScheduler
+        // awaits its task and rethrows a failure on the UI thread, so it reaches
+        // DispatcherUnhandledException (Starlink reports it and closes). WITH
+        // FlowExceptionsToTaskScheduler = true the failure stays on the command's ExecutionTask,
+        // which nothing reads; it reaches TaskScheduler.UnobservedTaskException only when that Task
+        // is garbage-collected, which can be much later or never. AppDomain.UnhandledException
+        // covers a crash on another thread.
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
@@ -361,11 +362,9 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// A synchronous exception that escaped all the way out through WPF's own message loop — the
-    /// only crash path that could ever have produced a real OS-level artifact (a Windows crash
-    /// dump) before this handler existed, since every other path in this app either froze silently
-    /// or was swallowed by CommunityToolkit.Mvvm — see CrashReportWriter's own doc comment.
-    /// Deliberately leaves e.Handled false: an exception that reached here means something already
+    /// An exception that escaped out through WPF's message loop on the UI thread: a synchronous
+    /// one, or a failed async [RelayCommand] without FlowExceptionsToTaskScheduler (the toolkit
+    /// rethrows it here). Deliberately leaves e.Handled false: an exception that reached here means something already
     /// went wrong in a way this app can't identify as safe to just shrug off, so the right call is
     /// to report it and let WPF's own default (terminate) proceed, not to guess the app is still in
     /// a good state and keep running.
@@ -394,13 +393,10 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Where an exception from an async [RelayCommand] method actually surfaces, now that every
-    /// one of them has FlowExceptionsToTaskScheduler = true — without that, CommunityToolkit.Mvvm's
-    /// own default behavior stores the exception on the command's internal ExecutionTask and
-    /// discards it, so this handler would never fire for the app's own Rebuild/Install/FTP/
-    /// download/save-editing commands at all. SetObserved() prevents this from being treated as a
-    /// second, redundant unhandled exception once the faulted Task is garbage-collected — this
-    /// handler is the one place that exception is actually being handled (logged + reported).
+    /// A faulted Task nobody awaited, seen when it is garbage-collected (which can be much later, or
+    /// never): a fire-and-forget background task, or an async [RelayCommand] with
+    /// FlowExceptionsToTaskScheduler = true, whose failure stays on its ExecutionTask. SetObserved()
+    /// keeps it from being treated as unhandled: this is where it is logged and reported.
     /// </summary>
     private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
     {

@@ -3,13 +3,9 @@ using System.Runtime.InteropServices;
 namespace IcarusStarlink.Updater;
 
 /// <summary>
-/// A plain Win32 MessageBox via P/Invoke — this project is a lightweight console app (no WPF/
-/// WinForms reference at all, deliberately: it's staged and launched as a throwaway TEMP copy on
-/// every single update, so keeping it small matters more here than anywhere else in this solution),
-/// so this is the smallest way to show a real, user-visible dialog for the one failure mode
-/// (UpdateRollbackIncompleteException) that genuinely needs one. Every other outcome — success, or a
-/// normal failure the rollback fully recovered from — stays silent by design (CreateNoWindow: true),
-/// matching this updater's own existing "invisible unless something needs the user's attention" UX.
+/// A plain Win32 message box (this exe is a small Native AOT program with no WPF or WinForms).
+/// Used only for RollbackIncomplete, the one outcome that can leave a broken install; every other
+/// outcome is reported by the relaunched app.
 /// </summary>
 internal static class NativeMessageBox
 {

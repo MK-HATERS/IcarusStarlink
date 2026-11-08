@@ -90,9 +90,8 @@
   </Target>
 
   <ItemGroup>
-    <!-- Ships next to the exe in every build output, matching the spec's own "Run Uninstall.bat
-         in the Workshop folder" — there's no separate publish/packaging step yet for this to be
-         staged into instead. -->
+    <!-- Ships next to the exe in every build and publish output: the release zip carries it, and
+         players run it from the IcarusStarlink folder. -->
     <None Include="Uninstall.bat">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -140,7 +139,8 @@
          SkiaSharp and SQLite genuinely need beside the exe (deliberately NOT
          IncludeNativeLibrariesForSelfExtract: that extracts them to a temp folder on first run, a
          known antivirus false-positive trigger on top of what a single-file bundle already is).
-         Trimming is NOT enabled here — WPF doesn't support it; only the Updater is trimmed. -->
+         Trimming is NOT enabled here — WPF doesn't support it. (The Updater is a separate
+         Native AOT exe: see PublishNativeUpdater above.) -->
     <PublishSingleFile>true</PublishSingleFile>
   </PropertyGroup>
 
