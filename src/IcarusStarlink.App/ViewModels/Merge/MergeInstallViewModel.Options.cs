@@ -113,6 +113,31 @@ public sealed partial class MergeInstallViewModel
     /// <summary>True while LoadGameplayOptionsIntoUi sets the controls (a change then isn't the user's).</summary>
     private bool _applyingOptions;
 
+    /// <summary>
+    /// The highlighted pill clicked again while the profile's own value (x2.5) is kept: that value
+    /// goes, and the pill's own value (Off) is used. Clicking the pill already selected changes no
+    /// selection, so OnStacksMultiplierLevelChanged never runs for it (the view calls this).
+    /// </summary>
+    internal void UsePillInsteadOfKeptMultiplier(bool slots)
+    {
+        if ((slots ? _keptSlotsMultiplier : _keptStacksMultiplier) is null)
+        {
+            return;
+        }
+
+        if (slots)
+        {
+            _keptSlotsMultiplier = null;
+        }
+        else
+        {
+            _keptStacksMultiplier = null;
+        }
+
+        // The summary changing is also what saves the profile (MarkWorkingStateChanged).
+        OnPropertyChanged(nameof(ActiveOptionsSummary));
+    }
+
     /// <summary>The user changed this option: whatever it now shows is the value to save.</summary>
     private void KeepUnlessApplying(ref double? kept)
     {

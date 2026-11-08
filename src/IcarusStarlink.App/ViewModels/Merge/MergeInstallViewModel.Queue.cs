@@ -331,7 +331,22 @@ public sealed partial class MergeInstallViewModel
         return true;
     }
 
-    [RelayCommand]
+    /// <summary>Remove needs a selected row (the button looked enabled with none and did nothing).</summary>
+    private bool HasSelectedQueueEntry() => SelectedQueueEntry is not null;
+
+    private bool CanMoveQueueEntryUp() => SelectedQueueEntry is { } entry && Queue.IndexOf(entry) > 0;
+
+    private bool CanMoveQueueEntryDown() => SelectedQueueEntry is { } entry && Queue.IndexOf(entry) is >= 0 and var index && index < Queue.Count - 1;
+
+    /// <summary>The queue buttons follow the selection and its place in the list.</summary>
+    private void RefreshQueueButtons()
+    {
+        RemoveFromQueueCommand.NotifyCanExecuteChanged();
+        MoveQueueEntryUpCommand.NotifyCanExecuteChanged();
+        MoveQueueEntryDownCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand(CanExecute = nameof(HasSelectedQueueEntry))]
     private void RemoveFromQueue()
     {
         if (!RefuseWhileRebuilding() && SelectedQueueEntry is { } entry)
@@ -386,7 +401,7 @@ public sealed partial class MergeInstallViewModel
         Queue.Clear();
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanMoveQueueEntryUp))]
     private void MoveQueueEntryUp()
     {
         if (RefuseWhileRebuilding() || SelectedQueueEntry is not { } entry)
@@ -401,7 +416,7 @@ public sealed partial class MergeInstallViewModel
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanMoveQueueEntryDown))]
     private void MoveQueueEntryDown()
     {
         if (RefuseWhileRebuilding() || SelectedQueueEntry is not { } entry)

@@ -117,6 +117,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     private void GoToLibrary() => WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("library"));
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RemoveFromQueueCommand), nameof(MoveQueueEntryUpCommand), nameof(MoveQueueEntryDownCommand))]
     private LibraryEntry? _selectedQueueEntry;
 
     /// <summary>A queue/profile edit arriving while a build runs: refused with a status line (true), so what's built is what's shown.</summary>
@@ -227,6 +228,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             OnPropertyChanged(nameof(HasQueuedMods));
             OnPropertyChanged(nameof(IsQueueEmpty));
             OnPropertyChanged(nameof(QueueCount));
+            // Moving a row changes whether it can move further.
+            RefreshQueueButtons();
 
             // The check's findings only depend on which mods are queued (unlike conflicts, which
             // also depend on gameplay options), so they're recomputed on Queue changes only.

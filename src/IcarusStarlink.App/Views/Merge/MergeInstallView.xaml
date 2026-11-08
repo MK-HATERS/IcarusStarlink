@@ -530,7 +530,9 @@
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                     </StackPanel>
-                    <ListBox ItemsSource="{Binding MultiplierOptions}" SelectedItem="{Binding StacksMultiplierLevel}"
+                    <!-- Clicking the highlighted pill drops a profile's own value it can't show (x2.5 shows as Off): code-behind. -->
+                    <ListBox x:Name="StacksPills" ItemsSource="{Binding MultiplierOptions}" SelectedItem="{Binding StacksMultiplierLevel}"
+                             PreviewMouseLeftButtonDown="MultiplierPills_PreviewMouseLeftButtonDown"
                              Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -548,7 +550,8 @@
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                     </StackPanel>
-                    <ListBox ItemsSource="{Binding MultiplierOptions}" SelectedItem="{Binding SlotsMultiplierLevel}"
+                    <ListBox x:Name="SlotsPills" ItemsSource="{Binding MultiplierOptions}" SelectedItem="{Binding SlotsMultiplierLevel}"
+                             PreviewMouseLeftButtonDown="MultiplierPills_PreviewMouseLeftButtonDown"
                              Style="{StaticResource LevelPillListBoxStyle}" ItemContainerStyle="{StaticResource LevelPillItemStyle}">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -562,7 +565,7 @@
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Speed Crafting" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="E.g. 50% = every recipe takes half as long to craft. 0 = unchanged.">
+                                ToolTip="E.g. 50% = every recipe takes half as long to craft. 100% = almost instant. 0 = unchanged.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                         <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -573,12 +576,12 @@
                             Value="{Binding SpeedCraftingPercent}" Margin="0,4,0,0"
                             ToolTip="Lower = closer to normal crafting time (0 = unchanged). Higher = faster crafting."/>
                     <TextBlock FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
-                               Text="Lower = closer to normal crafting time (0% = unchanged). Higher = faster crafting (50% = half the time)."/>
+                               Text="Lower = closer to normal crafting time (0% = unchanged). Higher = faster crafting (50% = half the time, 100% = almost instant)."/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
                         <TextBlock Text="Faster Taming" FontSize="12"/>
                         <Border Style="{StaticResource InfoHintTouchTargetStyle}"
-                                ToolTip="e.g. 50% = halve every creature's taming time. 0 = unchanged.">
+                                ToolTip="e.g. 50% = halve every creature's taming time. 100% = about 1 second. 0 = unchanged.">
                             <Path Style="{StaticResource InfoHintIconStyle}"/>
                         </Border>
                         <TextBlock Margin="8,0,0,0" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}">
@@ -589,7 +592,7 @@
                             Value="{Binding TamingSpeedPercent}" Margin="0,4,0,0"
                             ToolTip="Lower = closer to normal taming time (0 = unchanged). Higher = faster taming."/>
                     <TextBlock FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource FaintForegroundBrush}"
-                               Text="Lower = closer to normal taming time (0% = unchanged). Higher = faster taming (50% = half the time)."/>
+                               Text="Lower = closer to normal taming time (0% = unchanged). Higher = faster taming (50% = half the time, 100% = about 1 second)."/>
 
                     <Border Style="{StaticResource SectionDividerStyle}" Margin="0,16,0,10"/>
                     <TextBlock Text="OTHER" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource FaintForegroundBrush}"/>

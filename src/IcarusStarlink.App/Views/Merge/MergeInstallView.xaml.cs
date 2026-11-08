@@ -32,6 +32,20 @@ public partial class MergeInstallView : UserControl
         _queueDragStartPoint = e.GetPosition(null);
 
     /// <summary>
+    /// A Stacks/Slots pill clicked: runs before the click changes the selection, so a selected pill
+    /// here is the one already shown. Clicking it drops a profile's own value it can't show (x2.5
+    /// shows as Off), which a click on the selected pill otherwise never reaches. Not Handled: the
+    /// click still selects as usual.
+    /// </summary>
+    private void MultiplierPills_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is { IsSelected: true } && DataContext is MergeInstallViewModel viewModel)
+        {
+            viewModel.UsePillInsteadOfKeptMultiplier(slots: ReferenceEquals(sender, SlotsPills));
+        }
+    }
+
+    /// <summary>
     /// WPF has no bindable/MVVM path for drag-reordering a ListBox — this is the standard
     /// code-behind shape for it: wait for the mouse to actually move past the OS's own configured
     /// drag threshold (so a plain click-to-select doesn't misfire as a drag), then hand the
@@ -81,7 +95,10 @@ public partial class MergeInstallView : UserControl
     {
         while (current is not null and not T)
         {
-            current = VisualTreeHelper.GetParent(current);
+            // A text element (a Run) isn't in the visual tree: its logical parent leads back to it.
+            current = current is Visual or System.Windows.Media.Media3D.Visual3D
+                ? VisualTreeHelper.GetParent(current)
+                : LogicalTreeHelper.GetParent(current);
         }
 
         return current as T;
