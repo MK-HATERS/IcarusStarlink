@@ -153,4 +153,21 @@ public sealed class Ue4ssModConfigCarryOverTests : IDisposable
         Assert.True(review.MergedIntoNewLayout);
         Assert.Equal(["Config.Range"], review.Added);
     }
+
+    /// <summary>
+    /// Regression: "Config.Wolf = { … }" over several lines was read as top-level settings, so the
+    /// update rebuilt the file and Wolf's Count = 10 went back to the shipped 3 without a word.
+    /// </summary>
+    [Fact]
+    public void KeepInstalledConfigs_AConfigDotKeyFileWithTablesOverSeveralLines_IsKeptAsItIs()
+    {
+        const string shipped = "local Config = {}\nConfig.Wolf = {\n    Enabled = true,\n    Count = 3,\n}\nConfig.Bear = {\n    Enabled = true,\n    Count = 2,\n}\nreturn Config\n";
+        var mine = shipped.Replace("Count = 3", "Count = 10");
+        var previous = Mod("previous", ("config.lua", mine));
+        var updated = Mod("new", ("config.lua", shipped));
+
+        Ue4ssModConfigCarryOver.KeepInstalledConfigs(previous, updated);
+
+        Assert.Equal(mine, File.ReadAllText(Path.Combine(updated, "config.lua")));
+    }
 }

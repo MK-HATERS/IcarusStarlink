@@ -251,6 +251,60 @@ public class LuaConfigDocumentTests
         Assert.Equal(["Config.Speed", "Config.Debug"], doc.Settings.Select(s => s.Key));
     }
 
+    /// <summary>
+    /// Regression: in a Config.Key file, the lines inside "Config.Wolf = { … }" over several lines
+    /// were read as top-level settings, so Wolf's and Bear's Count collapsed into one and an update
+    /// rebuilt the file with only the last one's value.
+    /// </summary>
+    [Fact]
+    public void AConfigDotKeyFileWithTablesOverSeveralLines_KeepsThemOutOfTheSettings()
+    {
+        var doc = LuaConfigDocument.Parse("local Config = {}\nConfig.Wolf = {\n    Enabled = true,\n    Count = 3,\n}\nConfig.Bear = {\n    Enabled = true,\n    Count = 2,\n}\nreturn Config\n");
+        Assert.True(doc.UnknownLineCount > 0);
+        Assert.DoesNotContain(doc.Settings, s => s.Key is "Count" or "Enabled");
+
+        var mixed = LuaConfigDocument.Parse("local Config = {}\nConfig.Speed = 5\nConfig.Wolf = {\n    Count = 3,\n}\nreturn Config\n");
+        Assert.Equal(["Config.Speed"], mixed.Settings.Select(s => s.Key));
+        Assert.True(mixed.UnknownLineCount > 0);
+
+        // Two top-level tables: the first is the settings, the second can't be told apart from code.
+        var two = LuaConfigDocument.Parse("Wolf = {\n    Count = 3,\n}\nBear = {\n    Count = 2,\n}\n");
+        Assert.Equal("3", two.GetValue("Count"));
+        Assert.True(two.UnknownLineCount > 0);
+    }
+
+    /// <summary>Regression: a --[==[ long comment ]==] wasn't seen as one, so a commented-out "Speed = 1" inside it won the key and Save edited it.</summary>
+    [Fact]
+    public void LinesInsideALevelLongComment_AreNotSettings()
+    {
+        var doc = LuaConfigDocument.Parse("return {\n    Speed = 5,\n    --[==[ old values:\n    Speed = 1,\n    ]==]\n    Debug = false,\n}\n");
+
+        Assert.Equal("5", doc.GetValue("Speed"));
+        Assert.Null(doc.SetValue("Speed", "7"));
+        var text = doc.ToText();
+        Assert.Contains("    Speed = 7,\n    --[==[", text);
+        Assert.Contains("    Speed = 1,", text);
+    }
+
+    /// <summary>Regression: "Speed = 5, --[[ old values:" opens a long comment, but the lines after it were read as settings.</summary>
+    [Fact]
+    public void ALongCommentOpenedAfterAValue_HidesTheLinesAfterIt()
+    {
+        var doc = LuaConfigDocument.Parse("return {\n    Speed = 5, --[[ old values:\n    Speed = 1,\n    ]]\n    Debug = false,\n}\n");
+
+        Assert.Equal(["Speed", "Debug"], doc.Settings.Select(s => s.Key));
+        Assert.Equal("5", doc.GetValue("Speed"));
+    }
+
+    /// <summary>A long comment on one line ("--[==[ note ]==]") is a comment block, not the description of the setting under it, the same as "--[[ note ]]".</summary>
+    [Fact]
+    public void AOneLineLevelLongComment_IsNotADescription()
+    {
+        var doc = LuaConfigDocument.Parse("return {\n    --[==[ note ]==]\n    A = 1,\n}\n");
+
+        Assert.Equal("", Assert.Single(doc.Settings).Description);
+    }
+
     /// <summary>Untrusted input: long odd lines (spaces, words, an unclosed string or table, a long key) stay quick to read and describe.</summary>
     [Theory]
     [InlineData("    ", " ")]
@@ -261,6 +315,8 @@ public class LuaConfigDocumentTests
     [InlineData("    -- valid ", " ")]
     [InlineData("    -- requires ", "a ")]
     [InlineData("    Key", "a.b")]
+    [InlineData("    --[", "=")]
+    [InlineData("    A = 1, --[", "=")]
     public void ALongOddLine_ParsesQuickly(string start, string repeated)
     {
         var text = "return {\n" + start + string.Concat(Enumerable.Repeat(repeated, 50_000)) + "\n    A = 1,\n}\n";

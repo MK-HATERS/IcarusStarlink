@@ -38,9 +38,11 @@ public sealed record LuaConfigSetting(string Key, string Value, LuaConfigValueKi
 /// A UE4SS Lua mod's config file ("return { Enabled = true, ... }" or "Config.Enabled = true"),
 /// read and written line by line, so saving only changes the value part of the edited lines:
 /// comments, layout and everything the editor doesn't understand stay exactly as they are.
-/// The settings are the one-line "Key = value" lines at the top level of the file or of its
-/// top-level table; anything deeper (a list of tables like Herds = { ... } over several lines)
-/// is left to the plain-text editor.
+/// The settings are the one-line "Key = value" lines at the top level of the file or inside its one
+/// settings table (return { … }, or local Config = { … }). Any other table over several lines
+/// (Herds = { … } inside it, Config.Wolf = { … } in a Config.Key file, a second top-level table) is
+/// left to the plain-text editor and counts as unknown. Lines inside a long comment (--[[ … ]],
+/// --[==[ … ]==], also one opened after a value) are skipped.
 /// </summary>
 public sealed partial class LuaConfigDocument
 {
@@ -310,38 +312,62 @@ public sealed partial class LuaConfigDocument
     [GeneratedRegex(@"^\[section\](?<name>.*)$", RegexOptions.IgnoreCase)]
     private static partial Regex SectionTag();
 
+    // The settings table's own opener: "return {", "local Config = {" or "Config = {", a plain name (no dots).
+    [GeneratedRegex(@"^(?:return\s*|(?:local\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*)\{\s*(?:--.*)?$")]
+    private static partial Regex SettingsTableOpener();
+
+    // A line that starts a Lua long comment: "--[[" or "--[==[" (any number of "=").
+    [GeneratedRegex(@"^--\[=*\[")]
+    private static partial Regex LongCommentStart();
+
     private static List<Entry> Scan(List<string> lines, out int unknownLines)
     {
         var entries = new List<Entry>();
         var comments = new List<string>();
         var depth = 0;
-        var inBlockComment = false;
+        // The "]]" or "]==]" that ends the long comment the scan is inside; null outside one.
+        string? blockCloser = null;
+        // A "local Config = {}" frame was seen: the settings are Config.Key lines, and no table over
+        // several lines is the settings table.
+        var frameSeen = false;
+        var settingsTableSeen = false;
+        // Inside a top-level table over several lines that isn't the settings table
+        // (Config.Wolf = { … }, a second table): its lines aren't settings.
+        var inOtherTable = false;
         var group = "";
         unknownLines = 0;
         for (var i = 0; i < lines.Count; i++)
         {
             var line = lines[i];
             var trimmed = line.Trim();
-            if (inBlockComment)
+            if (blockCloser is not null)
             {
-                inBlockComment = !trimmed.Contains("]]");
+                // Text after the closer on the closing line stays ignored.
+                if (trimmed.Contains(blockCloser, StringComparison.Ordinal))
+                {
+                    blockCloser = null;
+                }
+
                 continue;
             }
 
-            if (trimmed.StartsWith("--[["))
+            if (LongCommentStart().IsMatch(trimmed))
             {
-                inBlockComment = !trimmed[4..].Contains("]]");
+                // A comment block, whether it closes on this line or not: not a setting's description.
+                blockCloser = OpenLongComment(trimmed);
                 comments.Clear();
                 continue;
             }
 
+            // The settings sit at the top of the file or one level into the settings table.
+            var settingsDepth = depth == 0 || (depth == 1 && !inOtherTable);
             if (trimmed.StartsWith("--"))
             {
                 // A heading ("-- ==== SPAWN AMOUNTS ====") starts a group of settings; it isn't part of
                 // the next setting's description. A bare rule ("-- ======") is dropped too.
                 var comment = trimmed[2..].Trim();
                 // "-- [section] Spawns": MkHaters Mod Settings' heading (1.5.0+), the same as a ruled one.
-                if (depth <= 1 && SectionTag().Match(comment) is { Success: true } tagged)
+                if (settingsDepth && SectionTag().Match(comment) is { Success: true } tagged)
                 {
                     var name = tagged.Groups["name"].Value.Trim();
                     if (name.Length > 0)
@@ -354,7 +380,7 @@ public sealed partial class LuaConfigDocument
                 }
 
                 // Length-capped: a downloaded file's long run of dashes must not make the match slow.
-                if (depth <= 1 && comment.Length <= MaxHeadingLineLength && Heading().Match(comment) is { Success: true } heading)
+                if (settingsDepth && comment.Length <= MaxHeadingLineLength && Heading().Match(comment) is { Success: true } heading)
                 {
                     var name = heading.Groups["name"].Value.Trim();
                     if (name.Any(char.IsLetter))
@@ -376,20 +402,85 @@ public sealed partial class LuaConfigDocument
                 continue;
             }
 
-            if (depth <= 1 && TryReadSetting(line, depth, out var key, out var start, out var length, out var kind, out var quote, out var inline))
+            var isFrame = depth == 0 && TopLevelFrame().IsMatch(trimmed);
+            if (settingsDepth && TryReadSetting(line, depth, out var key, out var start, out var length, out var kind, out var quote, out var inline))
             {
                 entries.Add(new Entry(i, key, start, length, kind, quote, [.. comments], inline, group));
             }
-            else if (!(depth <= 1 && TableBrace().IsMatch(trimmed)) && !(depth == 0 && TopLevelFrame().IsMatch(trimmed)))
+            else if (!(settingsDepth && TableBrace().IsMatch(trimmed)) && !isFrame)
             {
                 unknownLines++;
             }
 
+            frameSeen |= isFrame && !trimmed.StartsWith("return", StringComparison.Ordinal);
             comments.Clear();
-            depth = Math.Max(0, depth + BraceChange(line));
+            var change = BraceChange(line);
+            if (depth == 0 && change > 0)
+            {
+                // A table over several lines opens at the top: it is the settings table only when
+                // it is the first, the file has no Config.Key frame, and its name has no dots. A
+                // setting line never opens a table that stays open (TryReadSetting refuses one).
+                var isSettings = !frameSeen && !settingsTableSeen && SettingsTableOpener().IsMatch(trimmed);
+                settingsTableSeen |= isSettings;
+                inOtherTable = !isSettings;
+            }
+
+            depth = Math.Max(0, depth + change);
+            if (depth == 0)
+            {
+                inOtherTable = false;
+            }
+
+            // "Speed = 5, --[[ old values:" or "return { --[[ notes": the lines after it are comment.
+            blockCloser = OpenLongComment(line);
         }
 
         return entries;
+    }
+
+    /// <summary>
+    /// The closer ("]]", "]==]") of a long comment the line opens and doesn't close; null when the
+    /// line opens none, or closes the one it opens. Strings are skipped the way BraceChange skips them.
+    /// </summary>
+    private static string? OpenLongComment(string line)
+    {
+        for (var i = 0; i < line.Length; i++)
+        {
+            var ch = line[i];
+            if (ch is '"' or '\'')
+            {
+                if (StringEnd(line, i) is not { } e)
+                {
+                    return null;
+                }
+
+                i = e - 1;
+            }
+            else if (ch == '-' && i + 1 < line.Length && line[i + 1] == '-')
+            {
+                var j = i + 2;
+                if (j >= line.Length || line[j] != '[')
+                {
+                    return null; // a line comment
+                }
+
+                var level = 0;
+                for (j++; j < line.Length && line[j] == '='; j++)
+                {
+                    level++;
+                }
+
+                if (j >= line.Length || line[j] != '[')
+                {
+                    return null;
+                }
+
+                var closer = "]" + new string('=', level) + "]";
+                return line.IndexOf(closer, j + 1, StringComparison.Ordinal) < 0 ? closer : null;
+            }
+        }
+
+        return null;
     }
 
     /// <param name="depth">How many tables the line sits inside: 0 at the top of the file.</param>
@@ -419,7 +510,15 @@ public sealed partial class LuaConfigDocument
             rest = rest[1..].TrimStart();
         }
 
-        if (rest.StartsWith("--"))
+        if (LongCommentStart().Match(rest) is { Success: true } longComment)
+        {
+            // "--[[ old values:" or "--[==[ note ]==]": the note is the text inside.
+            var note = rest[longComment.Length..];
+            var closer = "]" + new string('=', longComment.Length - 4) + "]";
+            var close = note.IndexOf(closer, StringComparison.Ordinal);
+            inlineComment = (close < 0 ? note : note[..close]).Trim();
+        }
+        else if (rest.StartsWith("--"))
         {
             inlineComment = rest[2..].Trim();
         }
