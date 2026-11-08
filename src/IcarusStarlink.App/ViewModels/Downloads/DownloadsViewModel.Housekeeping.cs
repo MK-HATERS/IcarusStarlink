@@ -88,10 +88,18 @@ public sealed partial class DownloadsViewModel
 
     // --- File versions ---
 
+    /// <summary>Downloads the back-fill looked up and found no version for: not looked up again on every reload.</summary>
+    private readonly HashSet<(int ModId, int FileId)> _fileVersionBackfillTried = [];
+
     /// <summary>Saves a download's Nexus file version and shows it on its row (and on the row now listed for the same file).</summary>
     private void RecordFileVersion(PendingDownloadItemViewModel item, string fileVersion)
     {
         TrySaveDownloadsList(() => _pendingDownloadStore.SetFileVersion(item.ModId, item.FileId, fileVersion));
+        ShowFileVersion(item, fileVersion);
+    }
+
+    private void ShowFileVersion(PendingDownloadItemViewModel item, string fileVersion)
+    {
         item.FileVersion = fileVersion;
         foreach (var row in PendingDownloads.Where(p => p.ModId == item.ModId && p.FileId == item.FileId))
         {
@@ -102,11 +110,13 @@ public sealed partial class DownloadsViewModel
     /// <summary>
     /// Downloads recorded before the version was kept: the version the installed copy of the SAME
     /// Nexus file recorded (Library entry or UE4SS meta, mod and file id both matching). Another
-    /// file of the mod is a different version, so it never lends its own.
+    /// file of the mod is a different version, so it never lends its own. All found are saved in
+    /// one write; a download with none is not looked up again this session.
     /// </summary>
     private void BackfillFileVersions(InstalledModsSnapshot installed)
     {
-        foreach (var item in PendingDownloads.Where(p => p.FileVersion is null && !p.IsCatalog && p.ModId > 0).ToList())
+        var found = new List<(PendingDownloadItemViewModel Item, string Version)>();
+        foreach (var item in PendingDownloads.Where(p => p.FileVersion is null && !p.IsCatalog && p.ModId > 0 && !_fileVersionBackfillTried.Contains((p.ModId, p.FileId))).ToList())
         {
             var version = installed.LibraryVersionForNexusFile(item.ModId, item.FileId);
             if (version is null)
@@ -122,10 +132,25 @@ public sealed partial class DownloadsViewModel
                 }
             }
 
-            if (version is not null)
+            if (version is null)
             {
-                RecordFileVersion(item, version);
+                _fileVersionBackfillTried.Add((item.ModId, item.FileId));
             }
+            else
+            {
+                found.Add((item, version));
+            }
+        }
+
+        if (found.Count == 0)
+        {
+            return;
+        }
+
+        TrySaveDownloadsList(() => _pendingDownloadStore.SetFileVersions([.. found.Select(f => (f.Item.ModId, f.Item.FileId, f.Version))]));
+        foreach (var (item, version) in found)
+        {
+            ShowFileVersion(item, version);
         }
     }
 
@@ -155,30 +180,56 @@ public sealed partial class DownloadsViewModel
 
     private static string FileCount(int count) => count == 1 ? "1 file" : $"{count} files";
 
-    /// <summary>Recounts what the two clean-up buttons would delete. Never throws: a folder that can't be read counts nothing.</summary>
-    private void RefreshCleanupCounts()
+    /// <summary>Where a list entry or row says its file is: copied on the UI thread so the disk checks can run off it.</summary>
+    private readonly record struct DownloadFile(int ModId, int FileId, string LocalFilePath, string FileName);
+
+    private static DownloadFile FileOf(PendingDownloadEntry entry) => new(entry.ModId, entry.FileId, entry.LocalFilePath, entry.FileName);
+
+    private static DownloadFile FileOf(PendingDownloadItemViewModel item) => new(item.ModId, item.FileId, item.LocalFilePath, item.FileName);
+
+    private List<DownloadFile> ListedFiles() => [.. _pendingDownloadStore.Entries.Select(FileOf)];
+
+    /// <summary>Bumped by each recount, so a slower earlier one never overwrites a newer one's numbers.</summary>
+    private int _cleanupCountsGeneration;
+
+    /// <summary>The latest recount of the two clean-up buttons (tests wait on it).</summary>
+    internal Task CleanupCountsRefresh { get; private set; } = Task.CompletedTask;
+
+    /// <summary>Recounts what the two clean-up buttons would delete, off the UI thread.</summary>
+    private void RefreshCleanupCounts() => CleanupCountsRefresh = RefreshCleanupCountsAsync();
+
+    private async Task RefreshCleanupCountsAsync()
     {
-        try
+        var generation = ++_cleanupCountsGeneration;
+        var listed = ListedFiles();
+        var superseded = PendingDownloads.Where(p => p.IsSuperseded).Select(FileOf).ToList();
+        var (olderCount, olderBytes, unusedCount) = await Task.Run(() =>
         {
-            var older = PendingDownloads.Where(p => p.IsSuperseded).Select(ExistingFile).OfType<FileInfo>().ToList();
-            OlderVersionBytes = older.Sum(f => f.Length);
-            OlderVersionFileCount = older.Count;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            var older = DistinctFiles(OlderFilesToDelete(superseded, listed));
+            return (older.Count, older.Sum(f => f.Length), FindUnusedFiles(listed).Count);
+        });
+        if (generation != _cleanupCountsGeneration)
         {
-            OlderVersionFileCount = 0;
+            return;
         }
 
-        UnusedFileCount = FindUnusedFiles().Count;
+        OlderVersionBytes = olderBytes;
+        OlderVersionFileCount = olderCount;
+        UnusedFileCount = unusedCount;
     }
 
-    /// <summary>The row's file on disk, or null when it is gone or can't be read.</summary>
-    private FileInfo? ExistingFile(PendingDownloadItemViewModel item)
+    /// <summary>
+    /// The entry's file on disk, or null when it is gone, can't be read, or isn't directly in
+    /// Pending_Downloads (a moved install or an edited list can point anywhere: never deleted).
+    /// </summary>
+    private FileInfo? ExistingFile(DownloadFile download)
     {
         try
         {
-            var file = new FileInfo(ResolveLocalFilePath(item));
-            return file.Exists ? file : null;
+            var file = new FileInfo(File.Exists(download.LocalFilePath) ? download.LocalFilePath : Path.Combine(_pendingDownloadsDirectory, download.FileName));
+            return file.Exists && string.Equals(file.DirectoryName, Path.TrimEndingDirectorySeparator(Path.GetFullPath(_pendingDownloadsDirectory)), StringComparison.OrdinalIgnoreCase)
+                ? file
+                : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
@@ -186,13 +237,60 @@ public sealed partial class DownloadsViewModel
         }
     }
 
+    /// <summary>Full paths the entries point at (their own path and Pending_Downloads\FileName).</summary>
+    private HashSet<string> UsedPaths(IEnumerable<DownloadFile> entries)
+    {
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in entries)
+        {
+            TryAdd(entry.LocalFilePath);
+            TryAdd(Path.Combine(_pendingDownloadsDirectory, entry.FileName));
+        }
+
+        return used;
+
+        void TryAdd(string path)
+        {
+            try
+            {
+                used.Add(Path.GetFullPath(path));
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+            }
+        }
+    }
+
+    /// <summary>
+    /// The files of these older downloads that can go: on disk in Pending_Downloads, not used by a
+    /// download that stays in the list, and not a running download's. A download with no such
+    /// file isn't in the result, so it is never dropped from the list either.
+    /// </summary>
+    private List<(DownloadFile Download, FileInfo File)> OlderFilesToDelete(IReadOnlyCollection<DownloadFile> older, IReadOnlyCollection<DownloadFile> listed)
+    {
+        var leaving = older.Select(d => (d.ModId, d.FileId)).ToHashSet();
+        var usedByStaying = UsedPaths(listed.Where(d => !leaving.Contains((d.ModId, d.FileId))));
+        return [.. older
+            .Select(d => (Download: d, File: ExistingFile(d)))
+            .Where(f => f.File is not null && !usedByStaying.Contains(f.File.FullName) && !IsActiveDownloadFile(f.File.FullName))
+            .Select(f => (f.Download, f.File!))];
+    }
+
+    private static List<FileInfo> DistinctFiles(IEnumerable<(DownloadFile Download, FileInfo File)> files) =>
+        [.. files.Select(f => f.File).DistinctBy(f => f.FullName, StringComparer.OrdinalIgnoreCase)];
+
     /// <summary>
     /// Files directly in Pending_Downloads that no download in the list points at. .part files are
     /// the sweep's (by age), and a running download's file isn't listed until it lands, so both
-    /// are left out.
+    /// are left out. Nothing at all while the list couldn't be read: every download would look unused.
     /// </summary>
-    private List<FileInfo> FindUnusedFiles()
+    private List<FileInfo> FindUnusedFiles(IReadOnlyCollection<DownloadFile> listed)
     {
+        if (_pendingDownloadStore.HasLoadProblem)
+        {
+            return [];
+        }
+
         try
         {
             if (!Directory.Exists(_pendingDownloadsDirectory))
@@ -200,13 +298,7 @@ public sealed partial class DownloadsViewModel
                 return [];
             }
 
-            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var entry in _pendingDownloadStore.Entries)
-            {
-                TryAdd(used, entry.LocalFilePath);
-                TryAdd(used, Path.Combine(_pendingDownloadsDirectory, entry.FileName));
-            }
-
+            var used = UsedPaths(listed);
             return [.. new DirectoryInfo(_pendingDownloadsDirectory).EnumerateFiles("*", SearchOption.TopDirectoryOnly)
                 .Where(f => !f.Name.EndsWith(".part", StringComparison.OrdinalIgnoreCase)
                     && !used.Contains(f.FullName)
@@ -215,17 +307,6 @@ public sealed partial class DownloadsViewModel
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return [];
-        }
-
-        static void TryAdd(HashSet<string> set, string path)
-        {
-            try
-            {
-                set.Add(Path.GetFullPath(path));
-            }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-            }
         }
     }
 
@@ -265,17 +346,17 @@ public sealed partial class DownloadsViewModel
                 .Select(c => c.Item));
         }
 
-        var files = older.Select(item => (Item: item, File: ExistingFile(item))).ToList();
-        var onDisk = files.Where(f => f.File is not null).ToList();
-        if (onDisk.Count == 0)
+        var olderFiles = older.Select(FileOf).ToList();
+        var listed = ListedFiles();
+        var asked = DistinctFiles(await Task.Run(() => OlderFilesToDelete(olderFiles, listed)));
+        if (asked.Count == 0)
         {
             PendingDownloadStatusMessage = "No older versions to discard.";
             RefreshCleanupCounts();
             return;
         }
 
-        var size = BackupCleanup.FormatSize(onDisk.Sum(f => f.File!.Length));
-        var question = $"Delete {FileCount(onDisk.Count)} ({size}) downloaded for older versions of mods you've since updated?\n\n"
+        var question = $"Delete {FileCount(asked.Count)} ({BackupCleanup.FormatSize(asked.Sum(f => f.Length))}) downloaded for older versions of mods you've since updated?\n\n"
             + "The newer versions stay installed. You can't put an older version back without downloading it again.";
         if (_dialogService?.Confirm(question, "Discard older versions", ThemedConfirmSeverity.Warning) != true)
         {
@@ -283,14 +364,35 @@ public sealed partial class DownloadsViewModel
             return;
         }
 
-        var notDeleted = await DeleteFilesAsync([.. onDisk.Select(f => f.File!)]);
-        var removed = files.Where(f => f.File is null || !notDeleted.ContainsKey(f.File.FullName)).Select(f => (f.Item.ModId, f.Item.FileId)).ToList();
+        // A Reinstall that finished while Nexus was asked or the question was open can have made
+        // one of them the installed version again, or the list changed: check again before deleting.
+        installed = InstalledModsSnapshot.Take(_libraryRepository, _ue4ssNames);
+        foreach (var item in PendingDownloads)
+        {
+            item.Refresh(installed);
+        }
+
+        var stillOlder = older.Where(item => PendingDownloads.Contains(item) && NewerInstalledFileIds(item, installed).Count > 0).Select(FileOf).ToList();
+        listed = ListedFiles();
+        var askedPaths = asked.Select(f => f.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var toDelete = (await Task.Run(() => OlderFilesToDelete(stillOlder, listed))).Where(f => askedPaths.Contains(f.File.FullName)).ToList();
+        if (toDelete.Count == 0)
+        {
+            PendingDownloadStatusMessage = "Nothing discarded: those versions are installed again.";
+            RefreshVisiblePendingDownloads();
+            return;
+        }
+
+        var files = DistinctFiles(toDelete);
+        var notDeleted = await DeleteFilesAsync(files);
+        var deletedFiles = files.Where(f => !notDeleted.ContainsKey(f.FullName)).ToList();
+        var size = BackupCleanup.FormatSize(deletedFiles.Sum(f => f.Length));
+        var removed = toDelete.Where(f => !notDeleted.ContainsKey(f.File.FullName)).Select(f => (f.Download.ModId, f.Download.FileId)).ToList();
         var saveError = TrySaveDownloadsList(() => _pendingDownloadStore.RemoveMany(removed));
         ReloadPendingDownloads();
-        var deleted = onDisk.Count - notDeleted.Count;
         PendingDownloadStatusMessage = (notDeleted.Count == 0
-                ? $"Discarded {FileCount(deleted)} of older versions ({size})."
-                : $"Discarded {FileCount(deleted)}. Couldn't delete {string.Join("; ", notDeleted.Values)}")
+                ? $"Discarded {FileCount(deletedFiles.Count)} of older versions ({size})."
+                : $"Discarded {FileCount(deletedFiles.Count)}. Couldn't delete {string.Join("; ", notDeleted.Values)}")
             + (saveError is null ? "" : $" Starlink couldn't save the downloads list ({saveError}).");
     }
 
@@ -298,7 +400,15 @@ public sealed partial class DownloadsViewModel
     [RelayCommand]
     private async Task RemoveUnusedFilesAsync()
     {
-        var unused = FindUnusedFiles();
+        if (_pendingDownloadStore.HasLoadProblem)
+        {
+            PendingDownloadStatusMessage = "Starlink couldn't read the downloads list when it started, so it won't remove any files now. Restart Starlink and try again.";
+            UnusedFileCount = 0;
+            return;
+        }
+
+        var listed = ListedFiles();
+        var unused = await Task.Run(() => FindUnusedFiles(listed));
         if (unused.Count == 0)
         {
             PendingDownloadStatusMessage = "No unused files in Pending_Downloads.";
@@ -317,6 +427,7 @@ public sealed partial class DownloadsViewModel
 
         var notDeleted = await DeleteFilesAsync(unused);
         RefreshCleanupCounts();
+        await CleanupCountsRefresh;
         PendingDownloadStatusMessage = notDeleted.Count == 0
             ? $"Removed {FileCount(unused.Count)} ({size})."
             : $"Removed {FileCount(unused.Count - notDeleted.Count)}. Couldn't delete {string.Join("; ", notDeleted.Values)}";

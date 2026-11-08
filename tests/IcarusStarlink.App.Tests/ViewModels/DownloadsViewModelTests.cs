@@ -98,6 +98,9 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         /// <summary>When set, the on-disk catalog snapshot the built view model loads from.</summary>
         public ICatalogSnapshotStore? CatalogSnapshots { get; set; }
 
+        /// <summary>The Nexus API key the built view model reads; null is "no key set".</summary>
+        public string? NexusApiKey { get; set; } = "a-nexus-key";
+
         public DownloadsViewModel Build()
         {
             var settings = Settings ?? new FakeSettingsService();
@@ -106,7 +109,7 @@ public sealed partial class DownloadsViewModelTests : IDisposable
                 : HttpResponseBytes is null ? new HttpClient() : new HttpClient(new FixedBytesHandler(HttpResponseBytes));
             return new DownloadsViewModel(
                 Catalog, Jimk72Catalog ?? Catalog, new FakeGitHubRepoDateClient(),
-                Library, Ue4ss, Ue4ssMeta, settings, NexusApi, new FakeCredentialStore(), PendingStore,
+                Library, Ue4ss, Ue4ssMeta, settings, NexusApi, new FakeCredentialStore(NexusApiKey), PendingStore,
                 httpClient, new PerformanceTracker(settings, Path.Combine(PendingDownloadsDirectory, "..", "Perf")),
                 ActivityLog, new ActiveDownloadsTracker(), PendingDownloadsDirectory, PakImporter, Path.Combine(PendingDownloadsDirectory, "..", "Data"),
                 dialogService: Dialogs,
@@ -1519,9 +1522,13 @@ public sealed partial class DownloadsViewModelTests : IDisposable
     {
         public List<string> ConfirmMessages { get; } = [];
 
+        /// <summary>Runs while a Yes/No question is open, as other work (a Reinstall finishing) can.</summary>
+        public Action? WhileConfirming { get; set; }
+
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {
             ConfirmMessages.Add(message);
+            WhileConfirming?.Invoke();
             return confirmResult;
         }
 
@@ -1554,10 +1561,10 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         }
     }
 
-    private sealed class FakeCredentialStore : ICredentialStore
+    private sealed class FakeCredentialStore(string? nexusApiKey = "a-nexus-key") : ICredentialStore
     {
         public void Save(string target, string secret) { }
-        public string? Read(string target) => "a-nexus-key";
+        public string? Read(string target) => nexusApiKey;
         public void Delete(string target) { }
     }
 

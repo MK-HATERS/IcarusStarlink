@@ -40,6 +40,21 @@ public class PendingDownloadStoreTests : IDisposable
         var kept = Assert.Single(Directory.GetFiles(_dir, "pending_downloads.json.unreadable-*.bak"));
         Assert.Equal("{ not a list", File.ReadAllText(kept));
         Assert.Single(CreateStore().Entries);
+        // The downloads the unreadable list held are still missing from this session's list.
+        Assert.True(store.HasLoadProblem);
+        Assert.False(CreateStore().HasLoadProblem);
+    }
+
+    [Fact]
+    public void SetFileVersions_RecordsEachAndPersists()
+    {
+        var store = CreateStore();
+        store.Add(MakeEntry(290, 1));
+        store.Add(MakeEntry(291, 2));
+
+        store.SetFileVersions([(290, 1, "1.2"), (291, 2, "3.0"), (999, 9, "ignored")]);
+
+        Assert.Equal(["1.2", "3.0"], CreateStore().Entries.OrderBy(e => e.ModId).Select(e => e.FileVersion));
     }
 
     [Fact]

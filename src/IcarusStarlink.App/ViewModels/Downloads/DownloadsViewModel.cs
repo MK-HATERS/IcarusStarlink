@@ -291,7 +291,7 @@ public sealed partial class DownloadsViewModel : ObservableObject
     private readonly HashSet<string> _reservedDownloadPaths = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A free file name under Pending_Downloads for a download, held until ReleaseDownloadPath.</summary>
-    private string ReserveDownloadFileName(string candidate, int modId, int fileId, Func<string, bool> belongsToThisDownload)
+    internal string ReserveDownloadFileName(string candidate, int modId, int fileId, Func<string, bool> belongsToThisDownload)
     {
         lock (_reservedDownloadPaths)
         {

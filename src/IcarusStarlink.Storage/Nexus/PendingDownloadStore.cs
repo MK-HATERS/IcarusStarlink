@@ -13,12 +13,15 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
 
     public IReadOnlyList<PendingDownloadEntry> Entries => _entries;
 
+    public bool HasLoadProblem { get; }
+
     public PendingDownloadStore(string appDataDirectory, ILogger<PendingDownloadStore> logger)
     {
         _logger = logger;
         Directory.CreateDirectory(appDataDirectory);
         _filePath = Path.Combine(appDataDirectory, "pending_downloads.json");
         _entries = JsonFileStore.LoadList<PendingDownloadEntry>(_filePath, _logger, out _loadProblem);
+        HasLoadProblem = _loadProblem != ListLoadProblem.None;
 
         // Older builds stored a README heading's underline as a blank requirement ("Needs: ; UE4SS…").
         foreach (var entry in _entries.Where(e => e.Requirements.Any(string.IsNullOrWhiteSpace)))
@@ -71,6 +74,24 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
 
         entry.FileVersion = fileVersion;
         Save();
+    }
+
+    public void SetFileVersions(IReadOnlyCollection<(int ModId, int FileId, string FileVersion)> versions)
+    {
+        var changed = false;
+        foreach (var (modId, fileId, fileVersion) in versions)
+        {
+            if (_entries.FirstOrDefault(e => e.ModId == modId && e.FileId == fileId) is { } entry && entry.FileVersion != fileVersion)
+            {
+                entry.FileVersion = fileVersion;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            Save();
+        }
     }
 
     private void Save()

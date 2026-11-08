@@ -136,6 +136,7 @@ public sealed partial class DownloadsViewModelTests
         File.WriteAllText(stray, "left over");
         var part = PartFile(harness, "Running.zip.0123abcd.part", DateTime.UtcNow);
         var vm = harness.Build();
+        await vm.CleanupCountsRefresh;
 
         Assert.Equal(1, vm.UnusedFileCount);
         await vm.RemoveUnusedFilesCommand.ExecuteAsync(null);
@@ -158,5 +159,121 @@ public sealed partial class DownloadsViewModelTests
         await vm.RemoveUnusedFilesCommand.ExecuteAsync(null);
 
         Assert.True(File.Exists(stray));
+    }
+
+    /// <summary>A running download's files (its reserved name and its .part) are never cleared out, even when old and not held open.</summary>
+    [Fact]
+    public async Task PartSweepAndUnusedFiles_SkipARunningDownloadsFiles()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        var name = vm.ReserveDownloadFileName("Running.zip", 361, 2739, _ => false);
+        var landed = Path.Combine(harness.PendingDownloadsDirectory, name);
+        File.WriteAllText(landed, "landed, not listed yet");
+        var part = PartFile(harness, name + ".0123abcd.part", DateTime.UtcNow.AddDays(-3));
+
+        Assert.Equal(0, await vm.SweepStrayPartFilesAsync());
+        vm.RefreshVisiblePendingDownloads();
+        await vm.CleanupCountsRefresh;
+
+        Assert.True(File.Exists(part));
+        Assert.Equal(0, vm.UnusedFileCount);
+    }
+
+    /// <summary>Regression: an unreadable pending_downloads.json loads as an empty list, which made every downloaded original look unused.</summary>
+    [Fact]
+    public async Task UnreadableDownloadsList_NoFileCountsAsUnused_AndRemoveUnusedDeletesNothing()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(Path.Combine(_root, "pending_downloads.json"), "{ not a list");
+        var harness = new Harness(_root) { Dialogs = new FakeDialogService(confirmResult: true) };
+        var original = Path.Combine(harness.PendingDownloadsDirectory, "Pet Commander 3.1.zip");
+        File.WriteAllText(original, "a download the lost list pointed at");
+        // A new download saves the list (the unreadable one is kept aside): the lost ones still aren't "unused".
+        harness.AddDownload("New.zip", WriteWirelessPowerLayout);
+        var vm = harness.Build();
+        await vm.CleanupCountsRefresh;
+
+        Assert.Equal(0, vm.UnusedFileCount);
+        await vm.RemoveUnusedFilesCommand.ExecuteAsync(null);
+
+        Assert.Empty(harness.Dialogs!.ConfirmMessages);
+        Assert.True(File.Exists(original));
+    }
+
+    /// <summary>A list entry pointing outside Pending_Downloads (a moved install, an edited list) is never deleted by Discard older versions.</summary>
+    [Fact]
+    public async Task DiscardOlderVersions_FileOutsidePendingDownloads_IsLeftAlone()
+    {
+        var harness = PetCommanderUpdatedTo31(new FakeDialogService(confirmResult: true));
+        var entry = harness.PendingStore.Entries.Single(e => e.FileId == 3048);
+        var elsewhere = Path.Combine(_root, "Elsewhere", entry.FileName);
+        Directory.CreateDirectory(Path.GetDirectoryName(elsewhere)!);
+        File.Move(entry.LocalFilePath, elsewhere);
+        entry.LocalFilePath = elsewhere;
+        var vm = harness.Build();
+        await vm.CleanupCountsRefresh;
+
+        Assert.Equal(0, vm.OlderVersionFileCount);
+        await vm.DiscardOlderVersionsCommand.ExecuteAsync(null);
+
+        Assert.Empty(harness.Dialogs!.ConfirmMessages);
+        Assert.True(File.Exists(elsewhere));
+        Assert.Contains(harness.PendingStore.Entries, e => e.FileId == 3048);
+    }
+
+    /// <summary>A Reinstall of the older version that lands while the question is open makes it the installed one: it stays.</summary>
+    [Fact]
+    public async Task DiscardOlderVersions_OlderVersionReinstalledWhileAsking_KeepsIt()
+    {
+        var dialogs = new FakeDialogService(confirmResult: true);
+        var harness = PetCommanderUpdatedTo31(dialogs);
+        dialogs.WhileConfirming = () => harness.Ue4ssMeta.Save("PetCommander", new Ue4ssModMeta { NexusModId = 375, NexusFileId = 3048 });
+        var olderPath = harness.PendingStore.Entries.Single(e => e.FileId == 3048).LocalFilePath;
+        var vm = harness.Build();
+
+        await vm.DiscardOlderVersionsCommand.ExecuteAsync(null);
+
+        Assert.Single(dialogs.ConfirmMessages);
+        Assert.True(File.Exists(olderPath));
+        Assert.Contains(harness.PendingStore.Entries, e => e.FileId == 3048);
+    }
+
+    /// <summary>An older row sharing its file with a row that stays: the file stays.</summary>
+    [Fact]
+    public async Task DiscardOlderVersions_FileAlsoUsedByADownloadThatStays_IsKept()
+    {
+        var harness = PetCommanderUpdatedTo31(new FakeDialogService(confirmResult: true));
+        var older = harness.PendingStore.Entries.Single(e => e.FileId == 3048);
+        var newer = harness.PendingStore.Entries.Single(e => e.FileId == 3188);
+        File.Delete(older.LocalFilePath);
+        older.LocalFilePath = newer.LocalFilePath;
+        older.FileName = newer.FileName;
+        var vm = harness.Build();
+
+        await vm.DiscardOlderVersionsCommand.ExecuteAsync(null);
+
+        Assert.True(File.Exists(newer.LocalFilePath));
+        Assert.Contains(harness.PendingStore.Entries, e => e.FileId == 3188);
+    }
+
+    /// <summary>No Nexus key: Nexus's update chain can't be read, so "Older version" alone decides and the variant's file goes too.</summary>
+    [Fact]
+    public async Task DiscardOlderVersions_NoNexusKey_DiscardsEveryOlderVersionRow()
+    {
+        var harness = PetCommanderWithThreeVersions(confirm: true);
+        harness.NexusApiKey = null;
+        var vm = harness.Build();
+        var path = (int fileId) => harness.PendingStore.Entries.Single(e => e.FileId == fileId).LocalFilePath;
+        var discarded = new[] { path(3000), path(3048), path(3100) };
+        var newerPath = path(3188);
+
+        await vm.DiscardOlderVersionsCommand.ExecuteAsync(null);
+
+        Assert.Contains("3 files", Assert.Single(harness.Dialogs!.ConfirmMessages));
+        Assert.Empty(harness.NexusApi.FileSetCalls);
+        Assert.All(discarded, p => Assert.False(File.Exists(p)));
+        Assert.True(File.Exists(newerPath));
+        Assert.Equal([3188], harness.PendingStore.Entries.Select(e => e.FileId));
     }
 }
