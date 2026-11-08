@@ -204,7 +204,9 @@ public sealed class PatchService : IPatchService
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
             // One budget for the manifest and every bundled mod, packed and read: each bundled
             // EXMODZ used to get a fresh 1 GB of its own, so many small zip bombs could add up to
-            // many GB held at once.
+            // many GB held at once. A bundled mod is charged twice, once for its packed bytes and
+            // once for the files inside it, so mods that barely compress (textures) fit in about
+            // half the limit together.
             var sizeBudget = new ExmodSizeBudget("Patch archive", _maxBundledBytes);
             var manifest = ReadManifest(archive, sizeBudget);
 
