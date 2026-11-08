@@ -108,6 +108,47 @@ public class DiagnosticsExporterTests : IDisposable
         Assert.Contains("Mine", text);
     }
 
+    /// <summary>
+    /// Regression: logs, crash reports and settings went into the zip as they are, so every path
+    /// in them showed the player's Windows user name (C:\Users\name\...) in a zip attached to
+    /// public bug reports. The user folder now shows as %USERPROFILE%.
+    /// </summary>
+    [Fact]
+    public void Export_ShowsTheWindowsUserFolderAsUserProfile()
+    {
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(profile))
+        {
+            return;
+        }
+
+        File.WriteAllText(Path.Combine(_logsDirectory, "icarusstarlink-20260101.log"),
+            $"Saved {profile}\\Downloads\\a.zip; forward {profile.Replace('\\', '/')}/x; other {profile}name\\y");
+        File.WriteAllText(Path.Combine(_logsDirectory, "crash-20260101-120000-000.txt"), $"at {profile}\\AppData\\Local\\Icarus");
+        File.WriteAllText(_settingsFilePath, new JsonObject { ["DownloadsFolder"] = profile + "\\Downloads" }.ToJsonString());
+
+        DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath);
+
+        using var archive = ZipFile.OpenRead(_outputZipPath);
+        var log = ReadEntry(archive, "Logs/icarusstarlink-20260101.log");
+        Assert.Contains(@"%USERPROFILE%\Downloads\a.zip", log);
+        Assert.Contains("%USERPROFILE%/x", log);
+        Assert.Contains($"{profile}name\\y", log); // a longer sibling folder is someone else's
+        var crash = ReadEntry(archive, "Logs/crash-20260101-120000-000.txt");
+        Assert.Contains(@"%USERPROFILE%\AppData\Local\Icarus", crash);
+        Assert.DoesNotContain(profile, crash, StringComparison.OrdinalIgnoreCase);
+        var settings = JsonNode.Parse(ReadEntry(archive, "settings.json"))!.AsObject();
+        Assert.Equal(@"%USERPROFILE%\Downloads", settings["DownloadsFolder"]!.GetValue<string>());
+        Assert.Contains("Windows user folder:", ReadEntry(archive, "system-info.txt"));
+    }
+
+    private static string ReadEntry(ZipArchive archive, string name)
+    {
+        var entry = Assert.Single(archive.Entries, e => e.FullName == name);
+        using var reader = new StreamReader(entry.Open());
+        return reader.ReadToEnd();
+    }
+
     /// <summary>Regression: the chosen file was deleted before writing, so a failed export left the user's existing zip gone.</summary>
     [Fact]
     public void Export_Fails_LeavesTheExistingZipAlone()

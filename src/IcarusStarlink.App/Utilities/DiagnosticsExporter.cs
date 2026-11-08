@@ -3,24 +3,31 @@ using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace IcarusStarlink.App.Utilities;
 
 /// <summary>
-/// "Export diagnostics zip (logs + sanitized settings, no API keys/tokens)" — bundles
-/// a system-info.txt (app version, OS, .NET runtime), every rolled Serilog log file (which, since
-/// LoggingActivityLog exists, includes the session's own activity history and any crash reports
-/// written by CrashReportWriter — both surface here as *.log/crash-*.txt entries, not as separate
-/// bundling logic), plus a redacted copy of settings.json into one zip a user can attach to a bug
-/// report. Nothing this app stores in settings.json today is actually a secret (the Nexus API key
-/// and FTP passwords both live in Windows Credential Manager via ICredentialStore, never in this
-/// file) — the redaction pass below is defensive, in case a future settings field ever holds
-/// something sensitive, not a fix for something currently exposed.
+/// "Export diagnostics zip": one zip a player can attach to a bug report. It holds
+/// system-info.txt (app version, OS, .NET runtime), every *.log in the logs folder (the app logs,
+/// with the session's activity, and the app.perf timing logs), every crash-*.txt from
+/// CrashReportWriter, and a copy of settings.json with values under sensitive names (key, token,
+/// password, secret) replaced by [REDACTED]. The Nexus API key and FTP passwords live in Windows
+/// Credential Manager, never in settings.json, so that redaction is defensive.
+///
+/// The zip is often posted in public, so the player's Windows user folder (C:\Users\name) shows
+/// as %USERPROFILE% in every text entry; the files on disk stay as they are.
 /// </summary>
 public static class DiagnosticsExporter
 {
+    private const string UserFolderStandIn = "%USERPROFILE%";
+
+    /// <summary>JSON-escaped \\, a plain \, or /.</summary>
+    private const string AnySeparator = @"(?:\\\\|\\|/)";
+
     private static readonly string[] SensitiveKeyMarkers = ["key", "token", "password", "secret"];
 
     public static void Export(string logsDirectory, string settingsFilePath, string outputZipPath)
@@ -60,6 +67,8 @@ public static class DiagnosticsExporter
 
     private static void WriteEntries(ZipArchive archive, string logsDirectory, string settingsFilePath)
     {
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var userFolder = UserFolderPattern(userProfile);
 
         // A plain, always-present entry rather than relying on whoever reads this zip to notice a
         // version/OS line buried inside one specific day's rolling log (or find none at all, if
@@ -75,6 +84,13 @@ public static class DiagnosticsExporter
             writer.WriteLine($"OS: {RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})");
             writer.WriteLine($".NET runtime: {RuntimeInformation.FrameworkDescription} ({RuntimeInformation.ProcessArchitecture})");
             writer.WriteLine($"Exported: {DateTimeOffset.Now:O}");
+            if (userFolder is not null)
+            {
+                // The name is hidden, but a space or a non-English letter in it can break paths.
+                var name = Path.GetFileName(userProfile.TrimEnd('\\', '/'));
+                writer.WriteLine($"Windows user folder: shown as {UserFolderStandIn} in this zip " +
+                                 $"(its name has spaces: {YesNo(name.Contains(' '))}; letters outside English: {YesNo(name.Any(c => c > 127))})");
+            }
         }
 
         if (Directory.Exists(logsDirectory))
@@ -96,10 +112,13 @@ public static class DiagnosticsExporter
                     // and that file is exactly the one most likely to matter for a bug just hit).
                     // FileShare.ReadWrite matches Serilog's own documented sharing so both can have
                     // the file open at once.
+                    // Read as text (each file is at most a few MB) so the user folder can be hidden.
                     using var source = new FileStream(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    using var reader = new StreamReader(source);
+                    var text = HideUserFolder(reader.ReadToEnd(), userFolder);
                     var entry = archive.CreateEntry($"Logs/{Path.GetFileName(logFile)}");
-                    using var entryStream = entry.Open();
-                    source.CopyTo(entryStream);
+                    using var entryWriter = new StreamWriter(entry.Open(), new UTF8Encoding(false));
+                    entryWriter.Write(text);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -115,7 +134,7 @@ public static class DiagnosticsExporter
             string settingsText;
             try
             {
-                settingsText = RedactSettings(File.ReadAllText(settingsFilePath));
+                settingsText = RedactSettings(File.ReadAllText(settingsFilePath), userFolder);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -129,7 +148,7 @@ public static class DiagnosticsExporter
         }
     }
 
-    private static string RedactSettings(string json)
+    private static string RedactSettings(string json, Regex? userFolder)
     {
         JsonNode? parsed;
         try
@@ -139,22 +158,26 @@ public static class DiagnosticsExporter
         catch (JsonException)
         {
             // A corrupt settings.json is exactly the thing worth shipping in a diagnostics zip — it
-            // used to abort the whole export instead. Nothing in it is secret
-            // (see the class doc), so the raw text goes in as-is.
-            return json;
+            // used to abort the whole export instead. Nothing in it is secret (see the class doc),
+            // so the raw text goes in with only the user folder hidden (the pattern also matches
+            // the JSON-escaped \\).
+            return HideUserFolder(json, userFolder);
         }
 
         if (parsed is not JsonObject settingsObject)
         {
-            return json;
+            return HideUserFolder(json, userFolder);
         }
 
-        Redact(settingsObject);
+        Redact(settingsObject, userFolder);
         return settingsObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
 
-    /// <summary>Every level, not just the top: a secret nested in a sub-object (or a list of them) is redacted too.</summary>
-    private static void Redact(JsonNode? node)
+    /// <summary>
+    /// Every level, not just the top: a secret nested in a sub-object (or a list of them) is
+    /// redacted too, and the user folder is hidden in every other string value.
+    /// </summary>
+    private static void Redact(JsonNode? node, Regex? userFolder)
     {
         switch (node)
         {
@@ -165,20 +188,51 @@ public static class DiagnosticsExporter
                     {
                         obj[propertyName] = "[REDACTED]";
                     }
+                    else if (obj[propertyName] is JsonValue value && value.TryGetValue<string>(out var text))
+                    {
+                        obj[propertyName] = HideUserFolder(text, userFolder);
+                    }
                     else
                     {
-                        Redact(obj[propertyName]);
+                        Redact(obj[propertyName], userFolder);
                     }
                 }
 
                 break;
             case JsonArray array:
-                foreach (var item in array)
+                // By index, not foreach: a string value is replaced in place.
+                for (var i = 0; i < array.Count; i++)
                 {
-                    Redact(item);
+                    if (array[i] is JsonValue value && value.TryGetValue<string>(out var text))
+                    {
+                        array[i] = HideUserFolder(text, userFolder);
+                    }
+                    else
+                    {
+                        Redact(array[i], userFolder);
+                    }
                 }
 
                 break;
         }
     }
+
+    /// <summary>The user's own folder in any of its spellings; null when there's nothing worth hiding.</summary>
+    private static Regex? UserFolderPattern(string userProfile)
+    {
+        var segments = userProfile.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 2)
+        {
+            return null;
+        }
+
+        // Not followed by a letter or digit: C:\Users\Jim must not match inside C:\Users\Jimmy.
+        var pattern = string.Join(AnySeparator, segments.Select(Regex.Escape)) + @"(?![\p{L}\p{N}_])";
+        return new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static string HideUserFolder(string text, Regex? userFolder) =>
+        userFolder is null ? text : userFolder.Replace(text, UserFolderStandIn);
+
+    private static string YesNo(bool value) => value ? "yes" : "no";
 }

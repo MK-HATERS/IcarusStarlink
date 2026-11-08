@@ -7,30 +7,24 @@ using Serilog;
 namespace IcarusStarlink.App.Utilities;
 
 /// <summary>
-/// The one thing every crash path in App.xaml.cs (DispatcherUnhandledException,
-/// AppDomain.UnhandledException, TaskScheduler.UnobservedTaskException, and the background
-/// startup Task.Run) funnels into — a real gap this app had none of before: an unhandled
-/// exception previously either hard-crashed with nothing logged, froze the splash screen forever
-/// with no trace at all, or (for the many async [RelayCommand] methods Rebuild/Install/FTP/
-/// downloads/save-editing are all built from) was silently discarded by CommunityToolkit.Mvvm's
-/// own default "store and ignore" behavior — see FlowExceptionsToTaskScheduler on those attributes,
-/// added alongside this so those exceptions actually reach the TaskScheduler.UnobservedTaskException
-/// handler below instead of vanishing.
+/// Writes a crash report for the crash handlers in App.xaml.cs (DispatcherUnhandledException,
+/// AppDomain.UnhandledException, TaskScheduler.UnobservedTaskException and the background startup
+/// task). The exception goes to the regular log through Log.Fatal and into its own
+/// crash-yyyyMMdd-HHmmss-fff.txt next to the logs, written straight to disk and flushed so it
+/// survives the process dying a moment later. DiagnosticsExporter puts every crash-*.txt in the
+/// diagnostics zip.
 ///
-/// Writes a plain, immediately-flushed text file (never buffered — a crash report that's still
-/// sitting in a buffer when the process dies a moment later is worthless) rather than relying
-/// solely on the rolling Serilog log, so a single, easy-to-find, self-contained artifact exists
-/// per crash — also still logged via Log.Fatal so it shows up in the regular log and gets swept
-/// into DiagnosticsExporter's own zip automatically (DiagnosticsExporter globs "*.log", not
-/// "crash-*.txt" specifically, so this file needs to be discoverable on its own; it's written
-/// right next to the rolling logs for exactly that reason — a user attaching "everything in
-/// Logs\" finds it without being told a special filename).
+/// Keeps the newest <see cref="MaxReports"/> reports and deletes older ones, so a background task
+/// that fails once per session doesn't add a file forever.
 ///
-/// Never throws itself — a crash handler that crashes while handling a crash would be the one
-/// truly unrecoverable failure mode here, so every step is best-effort.
+/// Never throws: a crash handler that crashes while handling a crash can't recover, so every step
+/// is best effort.
 /// </summary>
 public static class CrashReportWriter
 {
+    /// <summary>How many crash-*.txt files are kept, the one just written included.</summary>
+    public const int MaxReports = 20;
+
     /// <summary>
     /// Best-effort resolve of the app's own IActivityLog from the DI host, if one exists yet —
     /// null during a crash early enough in startup that the host was never built, or one late
@@ -49,13 +43,14 @@ public static class CrashReportWriter
             // below is the fallback, not contingent on this succeeding.
         }
 
+        string? reportPath = null;
         try
         {
             Directory.CreateDirectory(logsDirectory);
             // Milliseconds plus a counter: a second crash in the same second (a crash while handling
             // the first one is common) must not overwrite the first, which is usually the real one.
             var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", System.Globalization.CultureInfo.InvariantCulture);
-            var reportPath = Path.Combine(logsDirectory, $"crash-{stamp}.txt");
+            reportPath = Path.Combine(logsDirectory, $"crash-{stamp}.txt");
             for (var n = 2; File.Exists(reportPath); n++)
             {
                 reportPath = Path.Combine(logsDirectory, $"crash-{stamp}-{n}.txt");
@@ -99,6 +94,37 @@ public static class CrashReportWriter
         {
             // Truly best-effort — if even this fails (disk full, no permissions), Log.Fatal above
             // was already attempted and there is nothing further this method can safely try.
+        }
+
+        try
+        {
+            DeleteOldReports(logsDirectory, reportPath);
+        }
+        catch (Exception)
+        {
+            // A cleanup failure must never cost the report.
+        }
+    }
+
+    /// <summary>Deletes all but the newest reports, never <paramref name="justWritten"/>; each delete is best effort.</summary>
+    private static void DeleteOldReports(string logsDirectory, string? justWritten)
+    {
+        var old = new DirectoryInfo(logsDirectory).EnumerateFiles("crash-*.txt")
+            .Where(f => !string.Equals(f.FullName, justWritten, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .ThenByDescending(f => f.Name, StringComparer.Ordinal)
+            .Skip(MaxReports - 1)
+            .ToList();
+        foreach (var file in old)
+        {
+            try
+            {
+                file.Delete();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Tried again after the next report.
+            }
         }
     }
 }

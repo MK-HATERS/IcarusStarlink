@@ -50,6 +50,30 @@ public class PerformanceTrackerTests : IDisposable
         Assert.Contains("ms", content);
     }
 
+    /// <summary>Regression: one timing log per day was written and none was ever deleted.</summary>
+    [Fact]
+    public void Track_FirstLineOfADay_KeepsOnlyTheNewestTimingLogs()
+    {
+        Directory.CreateDirectory(_logsDirectory);
+        for (var day = 1; day <= 16; day++)
+        {
+            File.WriteAllText(Path.Combine(_logsDirectory, $"app.perf-200001{day:00}.log"), "old line");
+        }
+
+        var tracker = new PerformanceTracker(new FakeSettingsService(performanceTrackingEnabled: true), _logsDirectory);
+        using (tracker.Track("Op"))
+        {
+        }
+
+        var logs = Directory.GetFiles(_logsDirectory, "app.perf-*.log");
+        Assert.Equal(14, logs.Length);
+        Assert.Contains(logs, l => !Path.GetFileName(l).StartsWith("app.perf-2000", StringComparison.Ordinal)); // today's
+        for (var day = 1; day <= 3; day++)
+        {
+            Assert.False(File.Exists(Path.Combine(_logsDirectory, $"app.perf-200001{day:00}.log")), $"log {day} should be gone");
+        }
+    }
+
     [Fact]
     public void Track_EnabledSetting_MultipleOperationsAppendRatherThanOverwrite()
     {

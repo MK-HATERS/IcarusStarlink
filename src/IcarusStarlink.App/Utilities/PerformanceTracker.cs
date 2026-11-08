@@ -26,13 +26,38 @@ public sealed class PerformanceTracker(ISettingsService settingsService, string 
             var path = Path.Combine(logsDirectory, $"app.perf-{DateTime.Now:yyyyMMdd}.log");
             lock (WriteLock)
             {
+                var firstToday = !File.Exists(path);
                 File.AppendAllText(path, line);
+                if (firstToday)
+                {
+                    DeleteOldLogs();
+                }
             }
         }
         catch (Exception)
         {
             // Best-effort diagnostic logging — a locked/permission-denied perf log file must never
             // be allowed to break the actual operation being timed.
+        }
+    }
+
+    /// <summary>Keeps the newest <see cref="LogDetail.MaxFiles"/> daily timing logs (the yyyyMMdd stamp sorts by date); each delete is best effort.</summary>
+    private void DeleteOldLogs()
+    {
+        var old = new DirectoryInfo(logsDirectory).EnumerateFiles("app.perf-*.log")
+            .OrderByDescending(f => f.Name, StringComparer.Ordinal)
+            .Skip(LogDetail.MaxFiles)
+            .ToList();
+        foreach (var file in old)
+        {
+            try
+            {
+                file.Delete();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Tried again on the first line of the next day.
+            }
         }
     }
 

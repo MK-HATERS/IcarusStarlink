@@ -123,6 +123,32 @@ public class CrashReportWriterTests : IDisposable
         Assert.Contains("none recorded this session", content);
     }
 
+    /// <summary>Regression: crash reports were never deleted, so one failing background task per session added a file forever.</summary>
+    [Fact]
+    public void Write_KeepsOnlyTheNewestReports()
+    {
+        Directory.CreateDirectory(_tempDir);
+        var oldest = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        for (var day = 1; day <= 25; day++)
+        {
+            var path = Path.Combine(_tempDir, $"crash-200001{day:00}-000000-000.txt");
+            File.WriteAllText(path, $"old report {day}");
+            File.SetLastWriteTimeUtc(path, oldest.AddHours(day));
+        }
+
+        CrashReportWriter.Write(_tempDir, new Exception("the newest"), "Startup", activityLog: null);
+
+        var reports = Directory.GetFiles(_tempDir, "crash-*.txt");
+        Assert.Equal(20, reports.Length);
+        Assert.Contains(reports, r => File.ReadAllText(r).Contains("the newest"));
+        for (var day = 1; day <= 6; day++)
+        {
+            Assert.False(File.Exists(Path.Combine(_tempDir, $"crash-200001{day:00}-000000-000.txt")), $"report {day} should be gone");
+        }
+
+        Assert.True(File.Exists(Path.Combine(_tempDir, "crash-20000107-000000-000.txt")));
+    }
+
     [Fact]
     public void Write_LogsDirectoryDoesNotExistYet_CreatesItRatherThanThrowing()
     {
