@@ -2409,7 +2409,10 @@ public sealed partial class SavesViewModelTests : IDisposable
         public IReadOnlyList<JsonObject>? LastSavedCharacters { get; private set; }
         public JsonObject? LastSavedMounts { get; private set; }
 
-        public IReadOnlyList<SaveSlot> ListSlots() => ListSlotsError is { } error ? throw error : [Slot];
+        /// <summary>When set, ListSlots returns these instead of the one Slot (a slot the game makes later is added here).</summary>
+        public List<SaveSlot>? SlotList { get; set; }
+
+        public IReadOnlyList<SaveSlot> ListSlots() => ListSlotsError is { } error ? throw error : SlotList is { } list ? [.. list] : [Slot];
 
         /// <summary>When set, LoadProfile throws it (an unreadable Profile.json: the whole slot fails to load).</summary>
         public Exception? ProfileLoadError { get; set; }

@@ -18,8 +18,19 @@ public sealed partial class SavesViewModel
 
     partial void OnMountSearchTextChanged(string value) => RefreshMountFilter();
 
-    private void RefreshMountFilter() =>
+    /// <summary>
+    /// The list drops its selection when its source is cleared: the selected mount is put back when
+    /// the search still shows it (each keystroke used to close the mount pane). A hidden one stays unselected.
+    /// </summary>
+    private void RefreshMountFilter()
+    {
+        var keep = SelectedMount;
         RefreshFilter(Mounts, FilteredMounts, MountSearchText, null, m => m.Name, m => m.TypeDisplayName);
+        if (keep is not null && FilteredMounts.Contains(keep))
+        {
+            SelectedMount = keep;
+        }
+    }
 
     /// <summary>Name/Level editable, Type shown only — RecorderBlob (the mount's real stats/stomach/saddle state, a raw Unreal binary blob, not JSON) is preserved untouched on each mount's own live Node. See SaveMountViewModel's own doc comment for why a mount has no natural key to rebuild an array by, unlike Bestiary/Accolades.</summary>
     private void BuildMounts()
@@ -103,8 +114,15 @@ public sealed partial class SavesViewModel
             return;
         }
 
+        // Read before removing: the list drops the selection of an item taken out of it.
+        var wasSelected = ReferenceEquals(SelectedMount, mount);
         Mounts.Remove(mount);
         FilteredMounts.Remove(mount);
+        if (wasSelected)
+        {
+            SelectedMount = FilteredMounts.FirstOrDefault();
+        }
+
         _mountsListDirty = true;
         NotifyDirtyChanged();
     }

@@ -289,30 +289,71 @@ public sealed partial class SavesViewModel : ObservableObject
         }
     }
 
+    /// <summary>The last PlayerData listing failed; its message is replaced once a listing works.</summary>
+    private bool _slotListFailed;
+
+    /// <summary>
+    /// Lists PlayerData again (at start, each time the page is shown, and on Reload with no slot):
+    /// a slot made later (the game's first run, Steam Cloud, another account) or a folder that
+    /// couldn't be read once used to stay missing until restart. The selected slot is never
+    /// disturbed: the list is never cleared (a cleared dropdown drops its selection, which would
+    /// ask about unsaved edits), and with no slot selected the first one is picked and loaded.
+    /// </summary>
     private void RefreshSlots()
     {
-        var previous = SelectedSlot?.SteamId;
-        Slots.Clear();
-        string? readError = null;
+        IReadOnlyList<SaveSlot> listed;
         try
         {
-            foreach (var slot in _repository.ListSlots())
-            {
-                Slots.Add(slot);
-            }
+            listed = _repository.ListSlots();
         }
         catch (Exception ex)
         {
-            readError = $"Couldn't read the game's PlayerData folder: {ex.Message}";
+            // A read error used to be overwritten straight away by "No player saves found", which
+            // told someone with a locked or unreadable folder that they had never run the game.
+            _slotListFailed = true;
+            StatusMessage = $"Couldn't read the game's PlayerData folder: {ex.Message} Press Reload to try again.";
+            return;
         }
 
-        SelectedSlot = Slots.FirstOrDefault(s => s.SteamId == previous) ?? Slots.FirstOrDefault();
+        var wasFailed = _slotListFailed;
+        _slotListFailed = false;
+        var changed = false;
+        var ids = listed.Select(s => s.SteamId).ToHashSet(StringComparer.Ordinal);
+        for (var i = Slots.Count - 1; i >= 0; i--)
+        {
+            if (!ids.Contains(Slots[i].SteamId) && Slots[i].SteamId != SelectedSlot?.SteamId)
+            {
+                Slots.RemoveAt(i);
+                changed = true;
+            }
+        }
 
-        // A read error used to be overwritten straight away by "No player saves found", which
-        // told someone with a locked or unreadable folder that they had never run the game.
-        StatusMessage = readError ?? (Slots.Count == 0
-            ? "No player saves found — Icarus keeps them under %LocalAppData%\\Icarus\\Saved\\PlayerData once you've run the game."
-            : null);
+        // ListSlots sorts by Steam id: each new slot goes in at its place.
+        foreach (var slot in listed.Where(s => !Slots.Any(x => x.SteamId == s.SteamId)))
+        {
+            var at = 0;
+            while (at < Slots.Count && string.CompareOrdinal(Slots[at].SteamId, slot.SteamId) < 0)
+            {
+                at++;
+            }
+
+            Slots.Insert(at, slot);
+            changed = true;
+        }
+
+        if (Slots.Count == 0)
+        {
+            StatusMessage = "No player saves found — Icarus keeps them under %LocalAppData%\\Icarus\\Saved\\PlayerData once you've run the game.";
+            return;
+        }
+
+        if (wasFailed || (changed && SelectedSlot is null))
+        {
+            StatusMessage = null;
+        }
+
+        // Starts the slot's load (OnSelectedSlotChanged).
+        SelectedSlot ??= Slots[0];
     }
 
     /// <summary>
@@ -368,10 +409,12 @@ public sealed partial class SavesViewModel : ObservableObject
     /// <summary>
     /// Called each time the page is shown (MainViewModel). The game may have saved newer progress
     /// while another page was open: with nothing unsaved here the slot is simply read again; with
-    /// unsaved edits it only says so (Save refuses anyway, see SaveFilesChangedOnDisk).
+    /// unsaved edits it only says so (Save refuses anyway, see SaveFilesChangedOnDisk). PlayerData
+    /// is listed again first, so a slot made since shows up (and with none selected, loads).
     /// </summary>
     public void OnPageShown()
     {
+        RefreshSlots();
         if (SelectedSlot is null || !_pendingSlotLoad.IsCompleted || _loadFailed || !SaveFilesChangedOnDisk())
         {
             return;
@@ -395,12 +438,16 @@ public sealed partial class SavesViewModel : ObservableObject
         }
     }
 
-    /// <summary>Reads the slot from disk again. Unsaved edits are lost, so it asks first when there are some.</summary>
+    /// <summary>
+    /// Reads the slot from disk again. Unsaved edits are lost, so it asks first when there are some.
+    /// With no slot (PlayerData empty or unreadable) it lists PlayerData again instead.
+    /// </summary>
     [RelayCommand]
     private void Reload()
     {
         if (SelectedSlot is null)
         {
+            RefreshSlots();
             return;
         }
 

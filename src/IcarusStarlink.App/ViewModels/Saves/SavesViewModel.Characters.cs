@@ -204,9 +204,12 @@ public sealed partial class SavesViewModel
             return;
         }
 
+        // Read before removing: the list drops the selection of an item taken out of it, which
+        // used to leave no character selected.
+        var wasSelected = ReferenceEquals(SelectedCharacter, character);
         _characterNodes.Remove(character.Node);
         Characters.Remove(character);
-        if (ReferenceEquals(SelectedCharacter, character))
+        if (wasSelected)
         {
             SelectedCharacter = Characters.FirstOrDefault();
         }

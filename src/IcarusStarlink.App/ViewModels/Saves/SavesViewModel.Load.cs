@@ -232,7 +232,7 @@ public sealed partial class SavesViewModel
             _profile = null;
             _characterNodes = [];
             _loadedStamps = null;
-            StatusMessage = $"Couldn't read this save: {ex.Message} Its backups are still listed under Backup & restore.";
+            StatusMessage = $"Couldn't read this save: {ex.Message} Press Reload to try again. Its backups are still listed under Backup & restore.";
             try
             {
                 RefreshBackupsList();
