@@ -6,7 +6,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
     <PackageReference Include="SharpCompress" Version="1.0.0" />
     <!-- Real UE4.27 asset parsing for CueUassetTextureDecoder — confirmed via a real prototype
          against real mod files that a mod's loose bundled .uasset/.uexp/.ubulk textures
@@ -16,7 +16,7 @@
     <!-- CUE4Parse pulls Microsoft.Bcl.Memory 9.0.0 (through Fmod5Sharp 3.1.0 and IndexRange 1.1.0),
          which NuGet flags with a high-severity advisory (GHSA-73j8-2gch-69rq): pinned here to a
          fixed version. -->
-    <PackageReference Include="Microsoft.Bcl.Memory" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Bcl.Memory" Version="10.0.14" />
     <!-- Writes a mod's cooked file after pointing a reference elsewhere (AssetReferenceRewriter):
          it moves every header offset when the name map changes length. Checked to write all 326
          cooked files of a real Library back byte for byte before anything changes. -->

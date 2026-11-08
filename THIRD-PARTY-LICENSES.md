@@ -17,7 +17,7 @@ version of the same list.
 - **[CUE4Parse](https://github.com/FabianFG/CUE4Parse)** and **CUE4Parse-Conversion** (1.2.2.202608) — Copyright FabianFG and contributors. The Unreal Engine asset library Starlink reads cooked game and mod files with: asset previews, the Map, growth curves and blueprint compare (the game's data tables themselves are extracted with UnrealPak). CUE4Parse's own upstream NOTICE file lists the further third-party components *it* bundles — reproduced in full below, per Apache-2.0 §4(d).
 - **Serilog**, **Serilog.Extensions.Hosting**, **Serilog.Extensions.Logging**, **Serilog.Sinks.Console**, **Serilog.Sinks.File** — Copyright Serilog Contributors.
 - **[UeSaveGame](https://github.com/CrystalFerrai/UeSaveGame)** (commit c716f8f, vendored as source in `src/ThirdParty/UeSaveGame`, which notes the one change: its project file) — Copyright Crystal Ferrai. Reads and writes a saved mount's data (Mounts.json's RecorderBlob) for the Saves page's mount editor; the commit [IcarusSaveLib](https://github.com/CrystalFerrai/IcarusSaveLib) builds against.
-- **SQLitePCLRaw.bundle_e_sqlite3**, **SQLitePCLRaw.core**, **SQLitePCLRaw.lib.e_sqlite3**, **SQLitePCLRaw.provider.e_sqlite3** (2.1.12) — Copyright Kim Christensen, Eric Sink et al.
+- **SQLitePCLRaw.bundle_e_sqlite3**, **SQLitePCLRaw.core**, **SQLitePCLRaw.lib.e_sqlite3**, **SQLitePCLRaw.provider.e_sqlite3** (2.1.13) — Copyright Kim Christensen, Eric Sink et al.
 
 Full license text: <https://www.apache.org/licenses/LICENSE-2.0>
 
@@ -31,7 +31,7 @@ K4os.Hash.xxHash (1.3.8 / 1.0.8) · LZMA-SDK (22.1.1, MIT wrapper around the pub
 SDK) · MemoryPack / MemoryPack.Core / MemoryPack.Generator (1.21.4) ·
 Microsoft.Bcl.Memory, Microsoft.Data.Sqlite(.Core), Microsoft.Extensions.\* (Configuration,
 DependencyInjection, Diagnostics, FileProviders, FileSystemGlobbing, Hosting, Http, Logging,
-Options, Primitives — all 10.0.11) · Microsoft.NETCore.Platforms (1.1.0) ·
+Options, Primitives — all 10.0.14) · Microsoft.NETCore.Platforms (1.1.0) ·
 NAudio.Core (2.2.1) · NETStandard.Library (1.6.1) · Newtonsoft.Json (13.0.4) ·
 OffiUtils (3.2.0) · OggVorbisEncoder (1.2.2) · Oodle.NET / OodleSharp (2.2.0 / 0.0.1) ·
 SharpCompress (1.0.0) · SharpGLTF.Core / .Runtime / .Toolkit (1.0.6) ·
