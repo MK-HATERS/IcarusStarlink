@@ -5,11 +5,9 @@ using IcarusStarlink.Core.IO;
 namespace IcarusStarlink.PakIO.Install;
 
 /// <summary>
-/// Keep-last-5 backup helper shared by every service that overwrites something in the real game
-/// folder (InstallService's pak/UE4SS-mod-folder writes, Ue4ssLoaderInstallService's loader writes)
-/// — extracted so the backup+prune algorithm only needs implementing once. Public (not internal)
-/// so Storage's Ue4ssModRepository can reuse CopyDirectory too, rather than maintaining its own
-/// separate copy of the same recursive-copy logic.
+/// Timestamped backups with a keep-the-newest trim (5 unless a caller passes another count): used
+/// before something is overwritten or deleted — files in the game's mods folder (InstallService),
+/// Library mod folders, UE4SS mods and the loader, profiles. Public so Storage reuses it.
 /// </summary>
 public static class FolderBackup
 {

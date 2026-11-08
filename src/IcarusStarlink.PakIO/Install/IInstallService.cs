@@ -7,10 +7,11 @@ public interface IInstallService
     /// deterministic path next to the pak that RebuildService's own WriteManifest writes, derived
     /// here rather than taken from the caller, so a caller can't accidentally pass a stale/missing
     /// path from an earlier Rebuild) into icarusContentPath\Paks\mods — the real folder Icarus
-    /// itself scans for mod paks. Backs up whatever already sits there first (keep-last-5 rotation
-    /// in backupDirectory), so an install is always undoable. Also serves as the spec's own "Copy
-    /// built pack to game" retry action — re-running this against the same staged pak (e.g. after
-    /// a locked-file failure) just re-copies it, no rebuild needed. Throws if stagedPakPath
+    /// itself scans for mod paks. Backs up what's already there first, into backupDirectory (the
+    /// merged pak and its list keep the newest Settings › Maintenance › Backups to keep › Merged
+    /// pak installs, 3 by default; other files keep 5), so an install can be undone. Also what the
+    /// Merge page's Copy built pack to game runs: re-running this against the same staged pak
+    /// (e.g. after a locked-file failure) just re-copies it, no rebuild needed. Throws if stagedPakPath
     /// doesn't exist (nothing staged — Rebuild hasn't run yet) or a copy itself fails. Attached
     /// opaque/prebuilt paks (LibraryEntry.IsOpaquePak) are already folded into this one staged pak
     /// by RebuildService itself, not installed separately — see its own doc comment. UE4SS mods are
@@ -37,7 +38,9 @@ public interface IInstallService
     /// <summary>
     /// Puts the newest merged pak backup (and the ISL-Merged.txt backup made with it) back into
     /// Content\Paks\mods, after backing up what's installed now, so it can be undone the same way.
-    /// Returns what was restored, or null when there's no backup to restore.
+    /// Returns what was restored, or null when there's no backup to restore. stagedPakFileName
+    /// isn't used: the installed name is worked out from the game folder
+    /// (InstallManifestNames.InstalledMergedPakFileName).
     /// </summary>
     Task<PreviousInstall?> RestorePreviousInstallAsync(
         string stagedPakFileName, string icarusContentPath, string backupDirectory,
@@ -49,11 +52,11 @@ public interface IInstallService
     /// <summary>
     /// Deletes the real installed pak (and its sibling manifest, if present) from
     /// Content\Paks\mods — a standalone uninstall, independent of Install. Backs up whatever it
-    /// removes first, the same keep-last-5 rotation InstallAsync already uses, so it's always
-    /// undoable. stagedPakFileName only supplies the target's own filename (this app's own output
-    /// pak is always the same name across every Rebuild; the merged pak's earlier names,
-    /// InstallManifestNames.LegacyMergedPakFileNames, are removed too) — no staged file needs to exist on disk
-    /// for this to run, unlike InstallAsync. Returns false (not an error) if nothing this app
+    /// removes first, the same backups InstallAsync makes, so it can be undone. stagedPakFileName
+    /// isn't used: the installed name is worked out from the game folder
+    /// (InstallManifestNames.InstalledMergedPakFileName), and the merged pak under every name it
+    /// has had (AllMergedPakFileNames) is removed too. No staged file needs to exist on disk for
+    /// this to run, unlike InstallAsync. Returns false (not an error) if nothing this app
     /// recognizes was installed there to begin with. backUpWhatsThere false: as InstallAsync's
     /// (a later Find the broken mod round removes a round pak without backing it up).
     /// </summary>

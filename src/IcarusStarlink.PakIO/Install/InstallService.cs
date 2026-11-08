@@ -35,7 +35,7 @@ public sealed class InstallService(ISettingsService? settings = null) : IInstall
     {
         if (!File.Exists(stagedPakPath))
         {
-            throw new FileNotFoundException($"No staged pak at '{stagedPakPath}' — click Rebuild first.");
+            throw new FileNotFoundException($"No staged pak at '{stagedPakPath}' — click Install to build it again.");
         }
 
         var modsDirectory = Path.Combine(icarusContentPath, "Paks", "mods");

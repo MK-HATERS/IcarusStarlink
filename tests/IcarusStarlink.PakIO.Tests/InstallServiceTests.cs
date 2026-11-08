@@ -356,7 +356,7 @@ public class InstallServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RemoveInstalledPakAsync_OnlyDerivesTheFileNameFromStagedPakFileName_DoesNotRequireItToExistOnDisk()
+    public async Task RemoveInstalledPakAsync_NeedsNoStagedPakOnDisk()
     {
         await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
         File.Delete(_stagedPakPath);

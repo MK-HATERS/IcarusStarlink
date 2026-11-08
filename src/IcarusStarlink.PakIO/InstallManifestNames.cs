@@ -8,7 +8,7 @@ namespace IcarusStarlink.PakIO;
 /// <summary>
 /// Filename for the small manifest this app writes into the real game folder — shared between the
 /// services that write it (RebuildService, InstallService), the one that reads it back for the
-/// installed-vs-list comparison (6.6), and Storage's FolderLibraryRepository (recognizing a
+/// installed-vs-list comparison (GetInstalledStateAsync), and Storage's FolderLibraryRepository (recognizing a
 /// re-imported pak as one of this app's own merged packs) — so a rename can't silently drift out
 /// of sync between a writer and any of its readers. Public (not internal) for that last case
 /// specifically: Storage depends on PakIO already, but has no InternalsVisibleTo grant, and
@@ -27,9 +27,6 @@ public static class InstallManifestNames
     /// while ArcFission Library is on there, which it has to outrank).
     /// </summary>
     public const string MergedPakFileName = MergedPakNames.ArcFissionName;
-
-    /// <summary>Names only older versions used, cleared wherever the merged pak is installed.</summary>
-    public static IReadOnlyList<string> LegacyMergedPakFileNames => MergedPakNames.LegacyNames;
 
     /// <summary>
     /// Every name the merged pak goes by: everywhere that looks for "a merged pak this app
