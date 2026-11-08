@@ -8,14 +8,14 @@ namespace IcarusStarlink.PakIO.GameplayToggles;
 /// <summary>
 /// Turns the "single fixed row" gameplay options (Speed Boost, Player Boost, XP Boost, Disable
 /// Temperatures — all confirmed to write into the SAME row, Stats-D_CharacterStartingStats.json's
-/// "Base_Stats", into its StatsGranted field) into a real FieldChange, so they become a genuine
+/// "Base_Stats", into its StatsGranted field) into real FieldChanges, one per stat, so they become a genuine
 /// MergeEngine participant instead of an invisible post-merge overwrite. Previously,
 /// GameplayOptionsApplier.ApplyCharacterStats ran strictly after MultiFileMerger.Apply and blindly
 /// set StatsGranted keys with zero visibility — a queued mod also setting e.g. BaseMovementSpeed_+
 /// on Base_Stats was silently clobbered, with nothing in the conflict picker. Routing this through
 /// MergeEngine.Merge/FindConflicts instead means: the same "built-in wins" default is preserved
-/// (this FieldChange is appended last/highest-priority, same as before), but a real conflict is
-/// now visible and the user can override it via the manual picker.
+/// (these FieldChanges are appended last/highest-priority, same as before), but a real conflict is
+/// now visible, on each stat both set, and the user can override it via the manual picker.
 ///
 /// Deliberately NOT used for the "broadcast to every row" options (Stacks/Slots/Craft Cost/Speed
 /// Crafting/Unlimited Ammo) — those stay GameplayOptionsApplier's own final pass. They're
@@ -35,10 +35,10 @@ public static class GameplayOptionsFieldChangeGenerator
     /// Reads the real base game data fresh (not a merged-table dictionary) so both RebuildService
     /// and MergeInstallViewModel's own conflict-preview path can call this identically — the
     /// latter never has a merged result to work from, only dataFolder.
-    /// earlierChanges: every participant before the options, in merge order. The stats the options
-    /// write are laid over the stats those mods set on Base_Stats, so a mod's own stats (a "no fall
-    /// damage" mod) survive a Player Boost instead of being reset to the game's.
+    /// The stats the options set come as one change per stat (StatEntries), so a queued mod's
+    /// other stats stay as that mod sets them and the options only take part where they set a stat.
     /// </summary>
+    /// <param name="earlierChanges">No longer read (the per-stat changes don't depend on the other mods); kept until its callers stop passing it.</param>
     public static IReadOnlyList<FieldChange> GenerateFixedFieldChanges(
         GameplayOptions options, string dataFolder, MergeReport report, IEnumerable<IReadOnlyList<FieldChange>>? earlierChanges = null)
     {
@@ -46,9 +46,9 @@ public static class GameplayOptionsFieldChangeGenerator
 
         var needsStats = options.SpeedBoost != BoostLevel.Off || options.PlayerBoost != BoostLevel.Off
             || options.XpBoost != XpBoostLevel.Off || options.DisableTemperatures;
-        if (needsStats && GenerateCharacterStatsChange(options, dataFolder, report, earlierChanges) is { } statsChange)
+        if (needsStats)
         {
-            changes.Add(statsChange);
+            changes.AddRange(GenerateCharacterStatsChanges(options, dataFolder, report));
         }
 
         if (options.RemoveLevelCap)
@@ -59,38 +59,23 @@ public static class GameplayOptionsFieldChangeGenerator
         return changes;
     }
 
-    private static FieldChange? GenerateCharacterStatsChange(
-        GameplayOptions options, string dataFolder, MergeReport report, IEnumerable<IReadOnlyList<FieldChange>>? earlierChanges)
+    /// <summary>
+    /// One change per stat the options set on Base_Stats.StatsGranted ("StatsGranted ›
+    /// (Value=\"BaseMaximumHealth_+\")", StatEntries), each the last word on that stat by default.
+    /// A stat the options don't set isn't a change, so a queued mod's own stats (laanp's
+    /// WaypointTeleport: no fall damage, no sprains) stay as that mod sets them, and two mods
+    /// disagreeing on such a stat conflict between themselves only.
+    /// </summary>
+    private static IReadOnlyList<FieldChange> GenerateCharacterStatsChanges(GameplayOptions options, string dataFolder, MergeReport report)
     {
         var baseStatsRow = ReadKeyedRow(dataFolder, CharacterStatsFile, BaseStatsRowName, report);
         if (baseStatsRow is null)
         {
-            return null;
+            return [];
         }
 
-        // Starts from the game's StatsGranted with every earlier mod's stats laid over it, stat by
-        // stat, later mods over earlier ones: this change wins the field by default (it's last), so
-        // it must be a complete StatsGranted that keeps what those mods set. It used to start from
-        // the game's alone, so turning on Player Boost reset a queued mod's stats (laanp's
-        // WaypointTeleport: no fall damage, no sprains) to the game's.
         var originalStatsGranted = baseStatsRow[StatsGrantedField] as JsonObject;
-        var newStatsGranted = originalStatsGranted?.DeepClone() as JsonObject ?? [];
-        foreach (var modChanges in earlierChanges ?? [])
-        {
-            foreach (var change in modChanges)
-            {
-                if (!change.IsFieldRemoved && change.NewValue is JsonObject modStats
-                    && string.Equals(change.CurrentFile, CharacterStatsFile, StringComparison.OrdinalIgnoreCase)
-                    && RowNames.Comparer.Equals(change.ItemName, BaseStatsRowName)
-                    && string.Equals(change.FieldName, StatsGrantedField, StringComparison.Ordinal))
-                {
-                    foreach (var (stat, value) in modStats)
-                    {
-                        newStatsGranted[stat] = value?.DeepClone();
-                    }
-                }
-            }
-        }
+        var newStatsGranted = new JsonObject();
 
         if (options.SpeedBoost != BoostLevel.Off)
         {
@@ -119,10 +104,10 @@ public static class GameplayOptionsFieldChangeGenerator
             SetStat(newStatsGranted, "IsTemperatureEnabled_?", 0);
         }
 
-        return new FieldChange(
-            CharacterStatsFile, BaseStatsRowName, StatsGrantedField,
-            OriginalValue: originalStatsGranted, NewValue: newStatsGranted, ValueSemantic.GenericCompound,
-            IsNewItem: false, IsFieldRemoved: false);
+        return [.. newStatsGranted.Select(stat => new FieldChange(
+            CharacterStatsFile, BaseStatsRowName, StatEntries.Compose(StatsGrantedField, stat.Key),
+            OriginalValue: originalStatsGranted?[stat.Key]?.DeepClone(), NewValue: stat.Value?.DeepClone(), ValueSemantic.Scalar,
+            IsNewItem: false, IsFieldRemoved: false))];
     }
 
     /// <summary>

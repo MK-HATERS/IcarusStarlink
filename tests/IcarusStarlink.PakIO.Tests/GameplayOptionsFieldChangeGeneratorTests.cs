@@ -16,7 +16,21 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
         File.WriteAllText(path, $$"""{"RowStruct":"S","Defaults":{},"Rows":[{{rowsJson}}]}""");
     }
 
-    private static JsonObject StatsGrantedOf(FieldChange change) => Assert.IsType<JsonObject>(change.NewValue);
+    /// <summary>The options' per-stat changes folded back into one StatsGranted list (stat key → value).</summary>
+    private static JsonObject StatsOf(IReadOnlyList<FieldChange> changes)
+    {
+        var stats = new JsonObject();
+        foreach (var change in changes.Where(c => c.CurrentFile == "Stats-D_CharacterStartingStats.json"))
+        {
+            Assert.True(StatEntries.TryParse(change.FieldName, out var field, out var key), change.FieldName);
+            Assert.Equal("StatsGranted", field);
+            Assert.Equal("Base_Stats", change.ItemName);
+            Assert.False(change.IsFieldRemoved);
+            stats[key] = change.NewValue?.DeepClone();
+        }
+
+        return stats;
+    }
 
     [Fact]
     public void GenerateFixedFieldChanges_NoOptionsEnabled_ReturnsEmpty()
@@ -39,10 +53,13 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
         var change = Assert.Single(changes);
         Assert.Equal("Stats-D_CharacterStartingStats.json", change.CurrentFile);
         Assert.Equal("Base_Stats", change.ItemName);
-        Assert.Equal("StatsGranted", change.FieldName);
-        Assert.Equal(0, (int)StatsGrantedOf(change)["(Value=\"IsTemperatureEnabled_?\")"]!);
+        Assert.Equal(StatEntries.Compose("StatsGranted", "(Value=\"IsTemperatureEnabled_?\")"), change.FieldName);
+        Assert.Equal(ValueSemantic.Scalar, change.Semantic);
+        Assert.Equal(1, (int)change.OriginalValue!);
+        Assert.Equal(0, (int)change.NewValue!);
     }
 
+    /// <summary>Only the stats the options set are changes; the game's other stats are left to the row, where they stay.</summary>
     [Fact]
     public void GenerateFixedFieldChanges_XpBoost_AddsExperienceStatWithoutRemovingExistingGrants()
     {
@@ -51,11 +68,14 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
         var changes = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
             new GameplayOptions { XpBoost = XpBoostLevel.Level3 }, _dataFolder, new MergeReport());
 
-        var statsGranted = StatsGrantedOf(Assert.Single(changes));
+        var statsGranted = StatsOf(changes);
         Assert.Equal(1000, (int)statsGranted["(Value=\"BaseExperience_+%\")"]!);
-        // The base game's own existing grant survives — this FieldChange starts from real vanilla
-        // StatsGranted, not an empty object, since it becomes the WHOLE field's value if it wins.
-        Assert.Equal(300, (int)statsGranted["(Value=\"BaseMaximumHealth_+\")"]!);
+        Assert.False(statsGranted.ContainsKey("(Value=\"BaseMaximumHealth_+\")"));
+
+        var game = new JsonObject { ["Base_Stats"] = new JsonObject { ["StatsGranted"] = new JsonObject { ["(Value=\"BaseMaximumHealth_+\")"] = 300 } } };
+        var row = TableApplier.Apply(game, changes)["Base_Stats"]!["StatsGranted"]!;
+        Assert.Equal(300, (int)row["(Value=\"BaseMaximumHealth_+\")"]!);
+        Assert.Equal(1000, (int)row["(Value=\"BaseExperience_+%\")"]!);
     }
 
     [Theory]
@@ -69,7 +89,7 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
         var changes = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
             new GameplayOptions { XpBoost = level }, _dataFolder, new MergeReport());
 
-        var statsGranted = StatsGrantedOf(Assert.Single(changes));
+        var statsGranted = StatsOf(changes);
         Assert.Equal(expectedPercent, (int)statsGranted["(Value=\"BaseExperience_+%\")"]!);
     }
 
@@ -81,7 +101,7 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
         var changes = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
             new GameplayOptions { SpeedBoost = BoostLevel.Level1, PlayerBoost = BoostLevel.Level1 }, _dataFolder, new MergeReport());
 
-        var statsGranted = StatsGrantedOf(Assert.Single(changes));
+        var statsGranted = StatsOf(changes);
         Assert.Equal(455, (int)statsGranted["(Value=\"BaseMovementSpeed_+\")"]!);
         Assert.Equal(350, (int)statsGranted["(Value=\"BaseMaximumHealth_+\")"]!);
     }
@@ -100,7 +120,7 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
         var changes = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
             new GameplayOptions { SpeedBoost = level }, _dataFolder, new MergeReport());
 
-        var statsGranted = StatsGrantedOf(Assert.Single(changes));
+        var statsGranted = StatsOf(changes);
         Assert.Equal(expectedPercent, (int)statsGranted["(Value=\"BaseTamedCreatureMovementSpeed_+%\")"]!);
         Assert.Equal(expectedPercent, (int)statsGranted["(Value=\"BaseTamedCreatureMaximumStamina_+%\")"]!);
     }
@@ -136,8 +156,8 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
         var changes = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
             new GameplayOptions { SpeedBoost = BoostLevel.Level1, RemoveLevelCap = true }, _dataFolder, new MergeReport());
 
-        Assert.Equal(3, changes.Count);
-        Assert.Contains(changes, c => c.CurrentFile == "Stats-D_CharacterStartingStats.json" && c.FieldName == "StatsGranted");
+        Assert.Equal(7, StatsOf(changes).Count);
+        Assert.Equal(9, changes.Count);
         Assert.Contains(changes, c => c.CurrentFile == "Character-D_CharacterGrowth.json" && c.FieldName == "MaxDisplayLevel");
         Assert.Contains(changes, c => c.CurrentFile == "Character-D_CharacterGrowth.json" && c.FieldName == "MaxLevel");
     }
@@ -200,40 +220,37 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
 
         var conflicts = MergeEngine.FindConflicts(
             ["Some Queued Mod", "Built-in gameplay options"],
-            [[queuedModChange], builtIn]);
+            [StatEntries.Split([queuedModChange]), builtIn]);
 
         var conflict = Assert.Single(conflicts);
-        Assert.Equal("StatsGranted", conflict.FieldName);
+        Assert.Equal(StatEntries.Compose("StatsGranted", "(Value=\"BaseMovementSpeed_+\")"), conflict.FieldName);
         Assert.Equal(2, conflict.Candidates.Count);
         Assert.Contains(conflict.Candidates, c => c.ModName == "Some Queued Mod");
         Assert.Contains(conflict.Candidates, c => c.ModName == "Built-in gameplay options");
     }
 
     /// <summary>
-    /// laanp's WaypointTeleport sets 3 stats on Base_Stats (no fall damage, no sprains). Player
-    /// Boost wins StatsGranted by default, and it used to start from the game's stats alone, so
-    /// turning it on put fall damage back. The mod's stats are now laid under the option's, later
-    /// mods over earlier ones, and the option's own stats still win.
+    /// Regression: the options' change carried every stat the queued mods set, so two mods
+    /// disagreeing on a stat Player Boost never touches showed the options as a third candidate
+    /// (and as the default winner, really holding the last mod's value).
     /// </summary>
     [Fact]
-    public void GenerateFixedFieldChanges_KeepsTheStatsQueuedModsSet_UnderTheOptionsOwn()
+    public void GenerateFixedFieldChanges_TwoModsDisagreeOnAStatTheOptionsDontSet_OnlyThoseTwoConflict()
     {
-        WriteCharacterStats("""{"Name":"Base_Stats","StatsGranted":{"(Value=\"BaseMaximumHealth_+\")":300,"(Value=\"BaseMaximumFallDamage_%\")":100,"(Value=\"ChanceToResistSprain_%\")":0}}""");
-        static FieldChange ModStats(string row, string json) =>
-            new("Stats-D_CharacterStartingStats.json", row, "StatsGranted", null, JsonNode.Parse(json), ValueSemantic.GenericCompound);
-        IReadOnlyList<FieldChange>[] earlier =
-        [
-            [ModStats("Base_Stats", """{"(Value=\"BaseMaximumFallDamage_%\")":0,"(Value=\"ChanceToResistSprain_%\")":50}""")],
-            [ModStats("base_stats", """{"(Value=\"ChanceToResistSprain_%\")":100,"(Value=\"BaseMaximumHealth_+\")":999}""")],
-        ];
+        WriteCharacterStats("""{"Name":"Base_Stats","StatsGranted":{"(Value=\"BaseMaximumHealth_+\")":300,"(Value=\"BaseMaximumFallDamage_%\")":100}}""");
+        static IReadOnlyList<FieldChange> ModStats(string json) => StatEntries.Split(
+            [new("Stats-D_CharacterStartingStats.json", "Base_Stats", "StatsGranted", null, JsonNode.Parse(json), ValueSemantic.GenericCompound)]);
+        var noFall = ModStats("""{"(Value=\"BaseMaximumFallDamage_%\")":0}""");
+        var halfFall = ModStats("""{"(Value=\"BaseMaximumFallDamage_%\")":50}""");
+        IReadOnlyList<FieldChange>[] earlier = [noFall, halfFall];
 
-        var changes = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
+        var options = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
             new GameplayOptions { PlayerBoost = BoostLevel.Level1 }, _dataFolder, new MergeReport(), earlier);
+        var conflicts = MergeEngine.FindConflicts(["WaypointTeleport", "Half fall", "Built-in gameplay options"], [noFall, halfFall, StatEntries.Split(options)]);
 
-        var statsGranted = StatsGrantedOf(Assert.Single(changes));
-        Assert.Equal(0, (int)statsGranted["(Value=\"BaseMaximumFallDamage_%\")"]!);
-        Assert.Equal(100, (int)statsGranted["(Value=\"ChanceToResistSprain_%\")"]!); // the later mod
-        Assert.Equal(350, (int)statsGranted["(Value=\"BaseMaximumHealth_+\")"]!); // Player Boost's own
+        var conflict = Assert.Single(conflicts, c => c.FieldName == StatEntries.Compose("StatsGranted", "(Value=\"BaseMaximumFallDamage_%\")"));
+        Assert.Equal(["WaypointTeleport", "Half fall"], conflict.Candidates.Select(c => c.ModName));
+        Assert.Equal(350, (int)StatsOf(options)["(Value=\"BaseMaximumHealth_+\")"]!);
     }
 
     public void Dispose()
