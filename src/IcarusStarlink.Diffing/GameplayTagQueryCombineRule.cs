@@ -5,7 +5,8 @@ namespace IcarusStarlink.Diffing;
 /// <summary>
 /// Two mods that both add entries to the same tag-query list should keep both ("Take Home Tools +
 /// Resources keeps both"), not have one silently overwrite the other like a plain scalar field
-/// would. The entries are flattened and deduped by JSON text.
+/// would. The entries are flattened and deduped as the game reads them (JsonText.Canonical: key
+/// order and 2 vs 2.0 don't matter).
 ///
 /// Only list values are combined. The game's real tag queries aren't lists:
 /// D_AISetup.ValidBaitTagQuery and D_WorldBosses.SpawnerTagQuery are FGameplayTagQuery objects,
@@ -39,8 +40,7 @@ public sealed class GameplayTagQueryCombineRule : IFieldMergeRule
         {
             foreach (var entry in Flatten(change.NewValue))
             {
-                var text = entry?.ToJsonString() ?? "null";
-                if (seen.Add(text))
+                if (seen.Add(JsonText.Canonical(entry)))
                 {
                     combined.Add(entry?.DeepClone());
                 }

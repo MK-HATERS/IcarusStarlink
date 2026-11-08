@@ -243,4 +243,49 @@ public class ArrayUnionCombineRuleTests
         Assert.Equal(["Stone", "Fiber", "Wood"], change.NewValue!.AsArray().Select(n => n!.GetValue<string>()));
         Assert.True(change.IsNewItem);
     }
+
+    /// <summary>
+    /// Regression: MoreBenches adds recipe Bench_X with Wood 10, and a patch later in the queue sends
+    /// Wood 5. With no game row both counted as additions, so the recipe needed 15 wood.
+    /// </summary>
+    [Fact]
+    public void Merge_NewRecipe_TwoModsGiveTheSameIngredientOtherCounts_LaterModWinsAsAConflict()
+    {
+        const string wood = """{"RowName":"Wood","DataTableName":"D_ItemsStatic"}""";
+        var modA = new List<FieldChange> { CompoundChange("Bench_X", "Inputs", JsonNode.Parse($$"""[{"Element":{{wood}},"Count":10}]"""), isNewItem: true) };
+        var modB = new List<FieldChange> { CompoundChange("Bench_X", "Inputs", JsonNode.Parse($$"""[{"Element":{{wood}},"Count":5}]"""), isNewItem: true) };
+        var group = new FieldChangeGroup("Crafting-D_ProcessorRecipes.json", "Bench_X", "Inputs", [modA[0], modB[0]], HasBaseValue: false, BaseValue: null);
+
+        var resolved = MergeEngine.Merge([modA, modB], new MergeRuleRegistry());
+
+        var change = Assert.Single(resolved);
+        Assert.True(JsonNode.DeepEquals(modB[0].NewValue, change.NewValue), change.NewValue!.ToJsonString());
+        Assert.True(new MergeRuleRegistry().DefaultIsLastWriteWins(group));
+    }
+
+    /// <summary>Regression: the same entry written with its keys in another order (or 2 as 2.0) was kept twice.</summary>
+    [Fact]
+    public void Merge_TwoModsAddTheSameEntryWithKeysInAnotherOrder_KeepsOneCopy()
+    {
+        var modA = new List<FieldChange> { CompoundChange("Bench_X", "Inputs", JsonNode.Parse("""[{"Element":{"RowName":"Fiber","DataTableName":"D_ItemsStatic"},"Count":2}]"""), isNewItem: true) };
+        var modB = new List<FieldChange> { CompoundChange("Bench_X", "Inputs", JsonNode.Parse("""[{"Count":2.0,"Element":{"DataTableName":"D_ItemsStatic","RowName":"Fiber"}}]"""), isNewItem: true) };
+
+        var resolved = MergeEngine.Merge([modA, modB], new MergeRuleRegistry());
+
+        var change = Assert.Single(resolved);
+        Assert.Single(change.NewValue!.AsArray());
+    }
+
+    /// <summary>Regression: a tag query list deduped entries by their text, so the same entry with its keys in another order was kept twice.</summary>
+    [Fact]
+    public void Merge_TagQueryListsWithTheSameEntryInAnotherKeyOrder_KeepsOneCopy()
+    {
+        FieldChange Query(string json) => new("AI-D_AISetup.json", "Wolf", "BaitTagQuery", null, JsonNode.Parse(json), ValueSemantic.GameplayTagQuery);
+
+        var resolved = MergeEngine.Merge(
+            [[Query("""[{"TagName":"Bait.Meat","Weight":1}]""")], [Query("""[{"Weight":1,"TagName":"Bait.Meat"}]""")]],
+            new MergeRuleRegistry());
+
+        Assert.Single(Assert.Single(resolved).NewValue!.AsArray());
+    }
 }

@@ -24,10 +24,22 @@ public static class StatEntries
         ("Stats-D_CharacterStartingStats.json", "StatsGranted"),
     ];
 
-    /// <summary>Whether this field of this table merges entry by entry.</summary>
-    public static bool IsPerEntry(string currentFile, string fieldName) =>
-        PerEntryFields.Any(f => string.Equals(f.CurrentFile, currentFile, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(f.FieldName, fieldName, StringComparison.Ordinal));
+    /// <summary>Whether this field of this table merges entry by entry (the game reads field names ignoring case).</summary>
+    public static bool IsPerEntry(string currentFile, string fieldName) => PerEntryFieldName(currentFile, fieldName) is not null;
+
+    /// <summary>The game's spelling of a per-entry field ("statsGranted" → "StatsGranted"); null when the field isn't one.</summary>
+    private static string? PerEntryFieldName(string currentFile, string fieldName)
+    {
+        foreach (var (file, field) in PerEntryFields)
+        {
+            if (string.Equals(file, currentFile, StringComparison.OrdinalIgnoreCase) && string.Equals(field, fieldName, StringComparison.OrdinalIgnoreCase))
+            {
+                return field;
+            }
+        }
+
+        return null;
+    }
 
     public static string Compose(string fieldName, string entryKey) => fieldName + Separator + entryKey;
 
@@ -54,7 +66,8 @@ public static class StatEntries
     /// <summary>
     /// One mod's changes with every per-entry field split into one change per entry; the list
     /// itself when there's nothing to split. A change that takes the whole field out, or isn't an
-    /// object, is left whole.
+    /// object, is left whole. Every split change is named with the game's spelling of the field, so
+    /// a mod writing "statsGranted" meets the others' "StatsGranted" on each stat.
     /// </summary>
     public static IReadOnlyList<FieldChange> Split(IReadOnlyList<FieldChange> changes)
     {
@@ -66,7 +79,7 @@ public static class StatEntries
         var result = new List<FieldChange>(changes.Count);
         foreach (var change in changes)
         {
-            if (!IsPerEntry(change.CurrentFile, change.FieldName) || change.IsFieldRemoved || change.NewValue is not JsonObject entries)
+            if (PerEntryFieldName(change.CurrentFile, change.FieldName) is not { } field || change.IsFieldRemoved || change.NewValue is not JsonObject entries)
             {
                 result.Add(change);
                 continue;
@@ -77,7 +90,7 @@ public static class StatEntries
             {
                 result.Add(change with
                 {
-                    FieldName = Compose(change.FieldName, key),
+                    FieldName = Compose(field, key),
                     OriginalValue = original?[key]?.DeepClone(),
                     NewValue = value?.DeepClone(),
                     Semantic = ValueSemantic.Scalar,
@@ -89,10 +102,11 @@ public static class StatEntries
         return result;
     }
 
-    /// <summary>One entry's value in a row (the game's, for comparing): found only when the row's field holds that key.</summary>
+    /// <summary>One entry's value in a row (the game's, for comparing): found only when the row's field (in any case) holds that key.</summary>
     public static (bool Found, JsonNode? Value) Get(JsonObject row, string fieldName)
     {
-        if (!TryParse(fieldName, out var field, out var key) || row[field] is not JsonObject entries || !entries.ContainsKey(key))
+        if (!TryParse(fieldName, out var field, out var key) || RowField(row, field) is not { } rowField
+            || row[rowField] is not JsonObject entries || !entries.ContainsKey(key))
         {
             return (false, null);
         }
@@ -100,10 +114,11 @@ public static class StatEntries
         return (true, entries[key]);
     }
 
-    /// <summary>Writes one entry into the row's field (made when the row has none), or takes it out.</summary>
+    /// <summary>Writes one entry into the row's field, under the spelling the row has (made when the row has none), or takes it out.</summary>
     public static void Apply(JsonObject row, FieldChange change)
     {
         TryParse(change.FieldName, out var field, out var key);
+        field = RowField(row, field) ?? field;
         if (row[field] is not JsonObject entries)
         {
             entries = [];
@@ -118,5 +133,24 @@ public static class StatEntries
         {
             entries[key] = change.NewValue?.DeepClone();
         }
+    }
+
+    /// <summary>The row's own spelling of a field, found ignoring case (exact spelling first); null when the row has no such field.</summary>
+    private static string? RowField(JsonObject row, string field)
+    {
+        if (row.ContainsKey(field))
+        {
+            return field;
+        }
+
+        foreach (var (name, _) in row)
+        {
+            if (string.Equals(name, field, StringComparison.OrdinalIgnoreCase))
+            {
+                return name;
+            }
+        }
+
+        return null;
     }
 }

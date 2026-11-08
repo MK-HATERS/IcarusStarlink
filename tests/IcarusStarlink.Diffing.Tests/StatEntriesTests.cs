@@ -96,4 +96,42 @@ public class StatEntriesTests
         IReadOnlyList<FieldChange> other = [new("Traits-D_Itemable.json", "Item_X", "Stats", null, new JsonObject { ["a"] = 1 }, ValueSemantic.GenericCompound)];
         Assert.Same(other, StatEntries.Split(other));
     }
+
+    /// <summary>Regression: a mod writing "statsGranted" wasn't split per stat, so its 3 stats went in whole beside the game's 72.</summary>
+    [Fact]
+    public void ALowerCaseStatsGranted_IsSplitPerStat_UnderTheGamesSpelling()
+    {
+        var change = new FieldChange(File, "Base_Stats", "statsGranted", null, new JsonObject { [Stat("X")] = 5 }, ValueSemantic.GenericCompound);
+
+        var split = Assert.Single(StatEntries.Split([change]));
+
+        Assert.Equal(StatEntries.Compose("StatsGranted", Stat("X")), split.FieldName);
+    }
+
+    /// <summary>Regression: the row's own field was looked up by its exact spelling, so a second "statsgranted" list was made.</summary>
+    [Fact]
+    public void ALowerCaseStatsGranted_WritesIntoTheRowsOwnList()
+    {
+        var change = new FieldChange(File, "Base_Stats", "statsGranted", null, new JsonObject { [Stat("X")] = 5 }, ValueSemantic.GenericCompound);
+        var table = new JsonObject { ["Base_Stats"] = new JsonObject { ["StatsGranted"] = new JsonObject { [Stat("X")] = 1, [Stat("Y")] = 2 } } };
+
+        var row = TableApplier.Apply(table, StatEntries.Split([change]))["Base_Stats"]!.AsObject();
+
+        var list = Assert.Single(row, kv => string.Equals(kv.Key, "statsgranted", StringComparison.OrdinalIgnoreCase)).Value!.AsObject();
+        Assert.Equal(5, (int)list[Stat("X")]!);
+        Assert.Equal(2, (int)list[Stat("Y")]!);
+        Assert.Equal(2, list.Count);
+    }
+
+    /// <summary>The game's value of one stat is found whatever the row's field spelling.</summary>
+    [Fact]
+    public void Get_FindsTheStatInARowSpellingTheFieldInOtherCase()
+    {
+        var row = new JsonObject { ["statsgranted"] = new JsonObject { [Stat("X")] = 7 } };
+
+        var (found, value) = StatEntries.Get(row, StatEntries.Compose("StatsGranted", Stat("X")));
+
+        Assert.True(found);
+        Assert.Equal(7, (int)value!);
+    }
 }
