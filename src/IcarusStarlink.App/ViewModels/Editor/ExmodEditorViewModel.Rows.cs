@@ -294,15 +294,6 @@ public sealed partial class ExmodEditorViewModel
         StatusMessage = $"Added '{currentFile}' with no rows yet — add one with More ▾ › Copy a game row into this mod…, or Add an empty row.";
     }
 
-    /// <summary>
-    /// "Merge existing mod into this one" — copies another Library mod's own items into this one.
-    /// An item this mod already has (same CurrentFile + item name) is left alone, never overwritten
-    /// — this is a one-time fold-in action with no queue/conflict-picker semantics behind it, so
-    /// "don't touch what's already there" is the one safe default. Binary assets aren't part of
-    /// this (per the dialog's own description, "copies every item" — the picked mod's own real
-    /// .uasset/.uexp files aren't something this in-memory JSON editor touches at all; a mod that
-    /// genuinely needs the other one's assets too still needs those copied by hand into its folder).
-    /// </summary>
     /// <summary>Test seam: picks the mod to merge in; null = cancelled. The real one shows the mod picker.</summary>
     internal Func<IEnumerable<LibraryEntry>, LibraryEntry?> PickModToMerge { get; set; }
 
@@ -312,6 +303,15 @@ public sealed partial class ExmodEditorViewModel
         return dialog.ShowDialog() == true ? dialog.SelectedEntry : null;
     }
 
+    /// <summary>
+    /// "Merge existing mod into this one" — copies another Library mod's own items into this one.
+    /// An item this mod already has (same CurrentFile + item name) is left alone, never overwritten
+    /// — this is a one-time fold-in action with no queue/conflict-picker semantics behind it, so
+    /// "don't touch what's already there" is the one safe default. Binary assets aren't part of
+    /// this (per the dialog's own description, "copies every item" — the picked mod's own real
+    /// .uasset/.uexp files aren't something this in-memory JSON editor touches at all; a mod that
+    /// genuinely needs the other one's assets too still needs those copied by hand into its folder).
+    /// </summary>
     [RelayCommand]
     private void MergeExistingMod()
     {
