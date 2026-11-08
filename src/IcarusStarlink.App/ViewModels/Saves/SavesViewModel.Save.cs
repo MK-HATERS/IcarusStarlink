@@ -291,6 +291,12 @@ public sealed partial class SavesViewModel
         }
 
         var writing = false;
+        var finishedWriting = false;
+        string? backupPath = null;
+        var steamId = SelectedSlot.SteamId;
+
+        // The files this Save has written so far, put back from its backup if a later one fails.
+        var written = new List<string>();
         try
         {
             // Each file is written only when its own section changed: Characters.json for the
@@ -327,7 +333,7 @@ public sealed partial class SavesViewModel
             // snapshot already covers everything this pass is about to change. Taken BEFORE the
             // edits go into the loaded save: a backup that failed (a file the game held) used to
             // leave them applied, so an edit the user then set back was written by the next Save.
-            _repository.BackupSlot(SelectedSlot.SteamId);
+            backupPath = _repository.BackupSlot(steamId);
 
             // Only now are the edits put into the loaded save: applied before these checks, an
             // aborted save left them in it, and an edit the user then undid was written anyway by
@@ -345,6 +351,12 @@ public sealed partial class SavesViewModel
             ApplyProfileEdits();
 
             // Repeated entries go after the edits (an edit keeps every copy's place), before the writes.
+            var mergedProfile = _mergeDuplicatesIn.Contains(ProfileFile);
+            if (mergedProfile)
+            {
+                ApplyCurrencyEditsToRepeats();
+            }
+
             ApplyDuplicateMerges();
             writing = true;
 
@@ -352,25 +364,27 @@ public sealed partial class SavesViewModel
             // though backup ordering no longer matters now that there's just the one upfront zip.
             if (writeCharacters)
             {
-                _repository.SaveCharacters(SelectedSlot.SteamId, _characterNodes, takeBackup: false);
+                _repository.SaveCharacters(steamId, _characterNodes, takeBackup: false);
+                written.Add(CharactersFile);
             }
 
             if (writeProfile)
             {
-                _repository.SaveProfile(SelectedSlot.SteamId, _profile!, takeBackup: false);
-                _profileFieldsDirty = false;
-                _removedCurrencies.Clear();
+                _repository.SaveProfile(steamId, _profile!, takeBackup: false);
+                written.Add(ProfileFile);
             }
 
             // The DLC list is written only when a pack was toggled: packs that stay keep the file's
             // own order, newly-added ones append.
+            var binaryFlagIds = _binaryFlagIds;
             if (_binaryFlagIds is { } original && BinaryFlags.Any(f => f.IsDirty))
             {
                 var nowSet = BinaryFlags.Where(f => f.IsUnlocked).Select(f => f.Id).ToHashSet();
                 var newIds = original.Where(nowSet.Contains).ToList();
                 newIds.AddRange(nowSet.Except(original).OrderBy(i => i));
-                _repository.SaveBinaryFlags(SelectedSlot.SteamId, newIds, takeBackup: false);
-                _binaryFlagIds = newIds;
+                _repository.SaveBinaryFlags(steamId, newIds, takeBackup: false);
+                written.Add($"flags_{steamId}.dat");
+                binaryFlagIds = newIds;
             }
 
             // Accolades.json/BestiaryData.json are separate files from Profile.json — these only
@@ -380,20 +394,22 @@ public sealed partial class SavesViewModel
             if (Accolades.Any(a => a.IsDirty) || _mergeDuplicatesIn.Contains(AccoladesFile))
             {
                 ApplyAccoladeEdits();
-                _repository.SaveAccolades(SelectedSlot.SteamId, _accoladesRoot!, takeBackup: false);
+                _repository.SaveAccolades(steamId, _accoladesRoot!, takeBackup: false);
+                written.Add(AccoladesFile);
             }
 
             if (BestiaryEntries.Any(b => b.IsDirty) || _mergeDuplicatesIn.Contains(BestiaryFile))
             {
                 ApplyBestiaryEdits();
-                _repository.SaveBestiary(SelectedSlot.SteamId, _bestiaryRoot!, takeBackup: false);
+                _repository.SaveBestiary(steamId, _bestiaryRoot!, takeBackup: false);
+                written.Add(BestiaryFile);
             }
 
             if (_metaInventoryDirty)
             {
                 ApplyMetaInventoryEdits();
-                _repository.SaveMetaInventory(SelectedSlot.SteamId, _metaInventoryRoot!, takeBackup: false);
-                _metaInventoryDirty = false;
+                _repository.SaveMetaInventory(steamId, _metaInventoryRoot!, takeBackup: false);
+                written.Add(MetaInventoryFile);
             }
 
             // _mountsListDirty (a mount removed from the list) is checked alongside per-field
@@ -402,9 +418,22 @@ public sealed partial class SavesViewModel
             if (_mountsListDirty || Mounts.Any(m => m.IsDirty))
             {
                 ApplyMountEdits();
-                _repository.SaveMounts(SelectedSlot.SteamId, _mountsRoot!, takeBackup: false);
-                _mountsListDirty = false;
+                _repository.SaveMounts(steamId, _mountsRoot!, takeBackup: false);
+                written.Add(MountsFile);
             }
+
+            // Every file is written. Only now is anything marked saved: a Save that failed partway
+            // puts back what it wrote, so the retry has to write every section again.
+            finishedWriting = true;
+            if (writeProfile)
+            {
+                _profileFieldsDirty = false;
+                _removedCurrencies.Clear();
+            }
+
+            _binaryFlagIds = binaryFlagIds;
+            _metaInventoryDirty = false;
+            _mountsListDirty = false;
 
             foreach (var collection in DirtyTrackedCollections)
             {
@@ -417,10 +446,24 @@ public sealed partial class SavesViewModel
             _charactersListDirty = false;
             _mergeDuplicatesIn.Clear();
 
+            // The merge dropped repeated MetaResources entries: their rows were bound to entries
+            // that are gone, and the one kept may hold another copy's count. Talents, creatures and
+            // accolades are matched by row name at Save, so their rows stay right.
+            if (mergedProfile)
+            {
+                BuildCurrencies();
+                if (_modSources is { } index)
+                {
+                    ClassifyOtherRows(index);
+                }
+
+                NotifyLeftoversChanged();
+            }
+
             // These writes changed the files' stamps; the new ones are the baseline for the next Save.
             try
             {
-                _loadedStamps = _repository.GetFileStamps(SelectedSlot.SteamId);
+                _loadedStamps = _repository.GetFileStamps(steamId);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -438,21 +481,29 @@ public sealed partial class SavesViewModel
         }
         catch (Exception ex)
         {
-            if (writing)
+            // Each write is atomic: the file that failed was never changed, so a failure on the
+            // first write left nothing written.
+            if (writing && written.Count > 0)
             {
-                // Some files may already be written. Their new stamps are this page's own doing, so
-                // they become the baseline: otherwise the next Save took them for the game's and
+                // All or nothing: the files already written go back to the backup taken just
+                // before, so the slot isn't left half old, half new.
+                var putBack = !finishedWriting && backupPath is not null && TryPutBack(steamId, backupPath, written);
+
+                // The files' stamps are this page's own doing now (written or put back), so they
+                // become the baseline: otherwise the next Save took them for the game's and
                 // refused, leaving "reload and lose your edits" as the only way out.
                 try
                 {
-                    _loadedStamps = _repository.GetFileStamps(SelectedSlot.SteamId);
+                    _loadedStamps = _repository.GetFileStamps(steamId);
                 }
                 catch (Exception stampEx) when (stampEx is IOException or UnauthorizedAccessException)
                 {
                 }
 
                 RefreshBackupsList();
-                StatusMessage = $"Save failed partway: {ex.Message} Some files may already be written. Click Save to try again, or Restore the newest backup (taken just before this save) to undo it.";
+                StatusMessage = putBack
+                    ? $"Save failed: {ex.Message} What it had already written was put back from the backup taken just before, so the save is as it was. Your edits are still here: click Save to try again."
+                    : $"Save failed partway: {ex.Message} Some files may already be written. Click Save to try again, or Restore the newest backup (taken just before this save) to undo it.";
             }
             else
             {
@@ -460,6 +511,27 @@ public sealed partial class SavesViewModel
             }
 
             _activityLog.Log($"Player save not written: {ex.Message}", ActivityEntryKind.Warning);
+        }
+    }
+
+    private const string MetaInventoryFile = "MetaInventory.json";
+    private const string MountsFile = "Mounts.json";
+
+    /// <summary>
+    /// Puts the files a failed Save wrote back from its backup. False when that fails too (the
+    /// game or Steam usually holds the same files), and the page then says how to undo it by hand.
+    /// </summary>
+    private bool TryPutBack(string steamId, string backupPath, List<string> written)
+    {
+        try
+        {
+            _repository.PutBackFiles(steamId, backupPath, written);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _activityLog.Log($"Couldn't put back what the failed save wrote: {ex.Message}", ActivityEntryKind.Warning);
+            return false;
         }
     }
 

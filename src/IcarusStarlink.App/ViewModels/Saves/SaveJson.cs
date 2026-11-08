@@ -156,7 +156,7 @@ internal static class SaveJson
 /// </summary>
 internal static class TalentArray
 {
-    /// <summary>RowName -> Rank, in the save's order.</summary>
+    /// <summary>RowName -> Rank, in the save's order. A row listed twice shows its highest rank: what merging the repeats keeps.</summary>
     public static Dictionary<string, int> Read(JsonNode? talents)
     {
         var ranks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -166,7 +166,8 @@ internal static class TalentArray
             {
                 if (SaveJson.String(entry["RowName"]) is { } rowName)
                 {
-                    ranks[rowName] = SaveJson.Int(entry["Rank"]) ?? 0;
+                    var rank = SaveJson.Int(entry["Rank"]) ?? 0;
+                    ranks[rowName] = ranks.TryGetValue(rowName, out var seen) ? Math.Max(seen, rank) : rank;
                 }
             }
         }

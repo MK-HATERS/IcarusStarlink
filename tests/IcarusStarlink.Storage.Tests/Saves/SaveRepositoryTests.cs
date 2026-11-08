@@ -129,6 +129,43 @@ public sealed class SaveRepositoryTests : IDisposable
         Assert.Contains("\"CharacterName\"", element.GetValue<string>());
     }
 
+    /// <summary>Regression: saving the characters rebuilt Characters.json from scratch, dropping any other field the game keeps beside the list.</summary>
+    [Fact]
+    public void SaveCharacters_KeepsRootFieldsItDoesntKnow()
+    {
+        var path = Path.Combine(_playerData, SteamId, "Characters.json");
+        var raw = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        raw["SomethingNew"] = 1;
+        File.WriteAllText(path, raw.ToJsonString());
+
+        _repository.SaveCharacters(SteamId, _repository.LoadCharacters(SteamId));
+
+        var saved = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        Assert.Equal("1", saved["SomethingNew"]?.ToJsonString());
+        Assert.Equal("TESTER", Assert.Single(_repository.LoadCharacters(SteamId))["CharacterName"]!.GetValue<string>());
+    }
+
+    /// <summary>A Save that fails partway puts back the files it wrote from the backup it took just before; a file the backup doesn't have goes.</summary>
+    [Fact]
+    public void PutBackFiles_WritesBackWhatTheBackupHad_AndDeletesWhatItDidnt()
+    {
+        var slot = Path.Combine(_playerData, SteamId);
+        var profileBefore = File.ReadAllText(Path.Combine(slot, "Profile.json"));
+        var backup = _repository.BackupSlot(SteamId);
+        File.WriteAllText(Path.Combine(slot, "Profile.json"), """{ "UserID": "changed" }""");
+        File.WriteAllText(Path.Combine(slot, "Accolades.json"), """{ "CompletedAccolades": [] }""");
+        File.WriteAllText(Path.Combine(slot, "Mounts.json"), """{ "SavedMounts": [ "left alone" ] }""");
+        var backupsBefore = _repository.ListBackups(SteamId).Count;
+
+        _repository.PutBackFiles(SteamId, backup, ["Profile.json", "Accolades.json"]);
+
+        Assert.Equal(profileBefore, File.ReadAllText(Path.Combine(slot, "Profile.json")));
+        Assert.False(File.Exists(Path.Combine(slot, "Accolades.json")));
+        Assert.Contains("left alone", File.ReadAllText(Path.Combine(slot, "Mounts.json")));
+        Assert.Equal(backupsBefore, _repository.ListBackups(SteamId).Count);
+        Assert.Throws<ArgumentException>(() => _repository.PutBackFiles(SteamId, backup, [@"..\Profile.json"]));
+    }
+
     [Fact]
     public void SaveProfile_BacksUpTheWholeSlotBeforeWriting()
     {

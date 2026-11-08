@@ -106,8 +106,13 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
             array.Add(JsonValue.Create(character.ToJsonString(GameStyleJson)));
         }
 
-        var root = new JsonObject { [CharactersArrayKey] = array };
-        JsonFileStore.WriteAtomically(Path.Combine(ResolveSlot(steamId), CharactersFileName), root.ToJsonString(GameStyleJson));
+        // Only the list is replaced: any other field the game keeps in the file stays, in its place.
+        // The page refuses to save when the files changed since it read them, so this is the file
+        // it loaded; one that no longer parses throws here, before anything is written.
+        var path = Path.Combine(ResolveSlot(steamId), CharactersFileName);
+        var root = (File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path)) as JsonObject : null) ?? new JsonObject();
+        root[CharactersArrayKey] = array;
+        JsonFileStore.WriteAtomically(path, root.ToJsonString(GameStyleJson));
         return backupPath;
     }
 
@@ -397,6 +402,45 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         PruneBackups(steamId);
 
         return preRestorePath;
+    }
+
+    /// <summary>Far above any real player file (a few MB): an entry this big isn't one of this editor's backups.</summary>
+    private const long MaxPutBackFileBytes = 256L * 1024 * 1024;
+
+    public void PutBackFiles(string steamId, string backupFilePath, IReadOnlyCollection<string> fileNames)
+    {
+        var slotFolder = ResolveSlot(steamId);
+        using var backup = ZipFile.OpenRead(backupFilePath);
+        foreach (var fileName in fileNames)
+        {
+            if (fileName.Length == 0 || Path.GetFileName(fileName) != fileName)
+            {
+                throw new ArgumentException($"'{fileName}' isn't a file name in the slot folder.", nameof(fileNames));
+            }
+
+            var path = Path.Combine(slotFolder, fileName);
+            var entry = backup.Entries.FirstOrDefault(e => string.Equals(e.FullName, fileName, StringComparison.OrdinalIgnoreCase));
+            if (entry is null)
+            {
+                // Not in the slot before that Save: the Save made it.
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+
+                continue;
+            }
+
+            if (entry.Length > MaxPutBackFileBytes)
+            {
+                throw new InvalidDataException($"The backup's {fileName} is too big to be player data.");
+            }
+
+            using var source = entry.Open();
+            using var bytes = new MemoryStream((int)entry.Length);
+            source.CopyTo(bytes);
+            JsonFileStore.WriteBytesAtomically(path, bytes.ToArray());
+        }
     }
 
     private const string RestoringSuffix = ".isl_restoring";

@@ -29,7 +29,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// those two call sites.
 /// </summary>
 [Collection(MessengerCollection.Name)]
-public sealed class SavesViewModelTests : IDisposable
+public sealed partial class SavesViewModelTests : IDisposable
 {
     private const string SteamId = "76561198000000001";
 
@@ -920,6 +920,8 @@ public sealed class SavesViewModelTests : IDisposable
             Profile = MakeProfile(nextChrSlot: 1),
             BumpStampOnWrite = true,
             SaveProfileError = new IOException("disk full"),
+            // The written Characters.json can't be put back either: the page says so and how to undo it.
+            PutBackError = new IOException("held by Steam"),
         };
         var dialogs = new FakeDialogService(confirmResult: true);
         var vm = CreateViewModel(repository, dialogs);
@@ -2474,9 +2476,18 @@ public sealed class SavesViewModelTests : IDisposable
 
         public JsonObject LoadMounts(string steamId) => MountsLoadError is { } error ? throw error : Mounts;
 
+        /// <summary>When set, SaveMounts throws it once (the last file of a save fails after the others were written).</summary>
+        public Exception? SaveMountsError { get; set; }
+
         public string? SaveMounts(string steamId, JsonObject mounts, bool takeBackup = true)
         {
             SaveMountsCallCount++;
+            if (SaveMountsError is { } error)
+            {
+                SaveMountsError = null;
+                throw error;
+            }
+
             LastSavedMounts = mounts;
             Mounts = mounts;
             return null;
@@ -2522,6 +2533,22 @@ public sealed class SavesViewModelTests : IDisposable
         {
             RestoreSlotCallCount++;
             return "fake_pre_restore.zip";
+        }
+
+        /// <summary>Each PutBackFiles call: the backup it read from and the files it put back.</summary>
+        public List<(string Backup, List<string> Files)> PutBacks { get; } = [];
+
+        /// <summary>When set, PutBackFiles throws it (Steam holds a file the failed save wrote).</summary>
+        public Exception? PutBackError { get; set; }
+
+        public void PutBackFiles(string steamId, string backupFilePath, IReadOnlyCollection<string> fileNames)
+        {
+            if (PutBackError is { } error)
+            {
+                throw error;
+            }
+
+            PutBacks.Add((backupFilePath, [.. fileNames]));
         }
     }
 

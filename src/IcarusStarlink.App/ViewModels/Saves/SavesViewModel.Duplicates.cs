@@ -95,6 +95,34 @@ public sealed partial class SavesViewModel
         }
     }
 
+    /// <summary>
+    /// Before repeated currencies are merged: an edited currency's count goes into every copy of
+    /// it, so the edit is what the merge keeps (it keeps the highest count, which used to undo an
+    /// edit that lowered one copy). Talents already work this way (TalentArray.Write). When several
+    /// copies were edited differently, the one lowest in the list wins.
+    /// </summary>
+    private void ApplyCurrencyEditsToRepeats()
+    {
+        if (_profile?["MetaResources"] is not JsonArray resources)
+        {
+            return;
+        }
+
+        foreach (var currency in Currencies.Where(c => c.IsDirty))
+        {
+            if (!SaveNumberRules.TryParseCount(currency.CountText, out var count))
+            {
+                continue;
+            }
+
+            foreach (var node in resources.OfType<JsonObject>()
+                .Where(n => string.Equals(SaveJson.String(n["MetaRow"]), currency.MetaRow, StringComparison.OrdinalIgnoreCase)))
+            {
+                node["Count"] = (long)count;
+            }
+        }
+    }
+
     /// <summary>At save time, after the backup and the edits: each set file's repeats become one entry.</summary>
     private void ApplyDuplicateMerges()
     {

@@ -61,7 +61,9 @@ public sealed partial class SavesViewModel
             {
                 if (SaveJson.String((entry["BestiaryGroup"] as JsonObject)?["RowName"]) is { } rowName)
                 {
-                    points[rowName] = SaveJson.Int(entry["NumPoints"]) ?? 0;
+                    // A creature listed twice shows its highest points: what merging the repeats keeps.
+                    var value = SaveJson.Int(entry["NumPoints"]) ?? 0;
+                    points[rowName] = points.TryGetValue(rowName, out var earlier) ? Math.Max(earlier, value) : value;
                 }
             }
         }

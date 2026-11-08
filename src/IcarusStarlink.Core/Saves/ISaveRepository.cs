@@ -93,6 +93,15 @@ public interface ISaveRepository
     string RestoreSlot(string steamId, string backupFilePath);
 
     /// <summary>
+    /// For a Save that failed partway: puts the named top-level files (the ones it had already
+    /// written) back as they are in the backup it took just before. A file the backup has is
+    /// written back atomically; one it doesn't have (the failed Save made it) is deleted. No
+    /// pre_restore zip is taken, so the newest backup is still the one from just before that Save.
+    /// Throws when a file can't be put back (the game or Steam holds it).
+    /// </summary>
+    void PutBackFiles(string steamId, string backupFilePath, IReadOnlyCollection<string> fileNames);
+
+    /// <summary>
     /// Last-write time and size of every file the editor reads (Profile, Characters, Accolades,
     /// Bestiary, MetaInventory, Mounts, flags_&lt;id&gt;.dat), keyed by file name; null for a file
     /// that doesn't exist. The Saves page records these at load and compares before writing, so a
