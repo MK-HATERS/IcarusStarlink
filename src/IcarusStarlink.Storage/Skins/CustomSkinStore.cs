@@ -19,7 +19,8 @@ public sealed class CustomSkinStore(string filePath, ILogger<CustomSkinStore> lo
 
         var skin = JsonFileStore.Load(filePath, () => new CustomSkin(), logger, out ListLoadProblem kind);
         problem = Describe(kind);
-        return skin;
+        // A hand-edited "Colors": null deserializes to a null map; callers expect a map.
+        return skin.Colors is null ? new CustomSkin() : skin;
     }
 
     public void Save(CustomSkin skin)

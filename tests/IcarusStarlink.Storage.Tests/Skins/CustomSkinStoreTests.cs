@@ -28,6 +28,21 @@ public sealed class CustomSkinStoreTests : IDisposable
         Assert.Null(_store.Load());
     }
 
+    /// <summary>Regression: a hand-edited "Colors": null came back as a null map, and applying it at launch stopped Starlink from starting.</summary>
+    [Fact]
+    public void Load_ColorsNull_GivesAnEmptyMapAndNoProblem()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(_store.FilePath, """{ "Colors": null }""");
+
+        var loaded = _store.Load(out var problem);
+
+        Assert.NotNull(loaded);
+        Assert.NotNull(loaded.Colors);
+        Assert.Empty(loaded.Colors);
+        Assert.Null(problem);
+    }
+
     [Fact]
     public void SaveAndLoad_RoundTripsEveryColor()
     {
