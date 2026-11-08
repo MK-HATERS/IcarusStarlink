@@ -30,6 +30,25 @@ public sealed partial class MergeInstallViewModel
     private string? _unsavedProfileName;
 
     /// <summary>
+    /// The selected profile whose file couldn't be read (invalid JSON, a locked or cloud-only
+    /// file). The page still shows the previous profile's list, so nothing is auto-saved into it
+    /// until it loads, Save profile is used on it (which backs up the broken file first), or it is
+    /// deleted.
+    /// </summary>
+    private string? _unloadableProfileName;
+
+    private bool IsUnloadable(string name) => string.Equals(name, _unloadableProfileName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Save profile or New profile wrote a good file under this name: it loads again.</summary>
+    private void ForgetUnloadable(string name)
+    {
+        if (IsUnloadable(name))
+        {
+            _unloadableProfileName = null;
+        }
+    }
+
+    /// <summary>
     /// The queue and options save themselves into the profile in use (or "Default" when none is
     /// picked yet) a moment after each change, so ticking mods, reordering and options survive a
     /// restart or an update without Save profile. Save profile still makes a backup to go back to.
@@ -41,7 +60,13 @@ public sealed partial class MergeInstallViewModel
             return;
         }
 
-        _unsavedProfileName = SelectedProfileName ?? "Default";
+        var target = SelectedProfileName ?? "Default";
+        if (IsUnloadable(target))
+        {
+            return;
+        }
+
+        _unsavedProfileName = target;
         _workingStateSaveTimer?.Restart();
     }
 
@@ -55,6 +80,13 @@ public sealed partial class MergeInstallViewModel
         }
 
         _unsavedProfileName = null;
+        // Window close, the game-update snapshot and Import patch all flush through here: never
+        // into a profile whose own list isn't the one shown.
+        if (IsUnloadable(name))
+        {
+            return;
+        }
+
         try
         {
             _profileStore.SaveWithoutBackup(CurrentWorkingProfile(name));
@@ -158,16 +190,6 @@ public sealed partial class MergeInstallViewModel
             return;
         }
 
-        try
-        {
-            _settingsService.Current.LastMergeProfileName = value;
-            _settingsService.Save();
-        }
-        catch (Exception)
-        {
-            // Only a convenience for the next start.
-        }
-
         _loadingProfile = true;
         try
         {
@@ -176,6 +198,22 @@ public sealed partial class MergeInstallViewModel
         finally
         {
             _loadingProfile = false;
+        }
+
+        // A profile that didn't load isn't remembered, so the next start doesn't open on it again.
+        if (IsUnloadable(value))
+        {
+            return;
+        }
+
+        try
+        {
+            _settingsService.Current.LastMergeProfileName = value;
+            _settingsService.Save();
+        }
+        catch (Exception)
+        {
+            // Only a convenience for the next start.
         }
     }
 
@@ -236,12 +274,18 @@ public sealed partial class MergeInstallViewModel
             ProfileStatusMessage = notes.Count > 0 ? $"{verb} '{name}' — {string.Join("; ", notes)}." : $"{verb} '{name}'.";
             // Loads follow a Save (Roll back, Import patch) or use a backup up (Restore backup).
             RefreshCanRestoreProfileBackup();
+            if (IsUnloadable(name))
+            {
+                _unloadableProfileName = null;
+            }
         }
         catch (Exception ex)
         {
             // Same UI boundary as everywhere else: a corrupt/unreadable profile file shows a
             // status message rather than crashing the app out of a ComboBox selection change.
-            ProfileStatusMessage = $"Couldn't load profile: {ex.Message}";
+            // The list shown is still the previous profile's, so nothing is saved into this one.
+            _unloadableProfileName = name;
+            ProfileStatusMessage = $"Couldn't load '{name}': {ex.Message} Nothing is saved into it until it loads: fix or delete its file, or use Profile ▾ › Restore profile backup, then pick it again.";
         }
     }
 
@@ -320,20 +364,37 @@ public sealed partial class MergeInstallViewModel
         return (migrated, pruned);
     }
 
-    /// <summary>Replaces each greyed missing row whose mod is in the Library again with the real entry, in place.</summary>
-    private void ResolveMissingQueueEntries()
+    /// <summary>
+    /// Keeps the queue's rows in step with the Library: a mod gone from it becomes a greyed row (left
+    /// out of builds, its folder name kept in the profile), and a greyed row whose mod is back takes
+    /// the real entry again, in place. Rows still in the Library keep their entry object, so the
+    /// row selection survives a Library change.
+    /// </summary>
+    private void SyncQueueWithLibrary()
     {
-        if (!Queue.Any(e => e.IsMissingFromLibrary))
+        if (Queue.Count == 0)
         {
             return;
         }
 
         var byFolder = LibraryByFolder();
+        // An empty Library is one not loaded yet (MigrateWinners' rule): nothing is greyed then.
+        if (byFolder.Count == 0)
+        {
+            return;
+        }
+
         for (var i = 0; i < Queue.Count; i++)
         {
-            if (Queue[i].IsMissingFromLibrary && byFolder.TryGetValue(Queue[i].FolderName, out var entry) && !IsIslBuiltPack(entry))
+            var row = Queue[i];
+            var inLibrary = byFolder.TryGetValue(row.FolderName, out var entry);
+            if (!row.IsMissingFromLibrary && !inLibrary)
             {
-                Queue[i] = entry;
+                Queue[i] = MissingEntry(row.FolderName);
+            }
+            else if (row.IsMissingFromLibrary && inLibrary && !IsIslBuiltPack(entry!))
+            {
+                Queue[i] = entry!;
             }
         }
     }
@@ -380,6 +441,7 @@ public sealed partial class MergeInstallViewModel
         try
         {
             _profileStore.Save(CurrentWorkingProfile(name));
+            ForgetUnloadable(name);
             ReloadProfileNames();
             SelectedProfileName = name;
             ProfileStatusMessage = $"Created '{name}'.";
@@ -407,7 +469,9 @@ public sealed partial class MergeInstallViewModel
 
         try
         {
+            // A profile that didn't load is saved on purpose here: its broken file is backed up first.
             _profileStore.Save(CurrentWorkingProfile(name));
+            ForgetUnloadable(name);
             ProfileStatusMessage = $"Saved '{name}'.";
             _activityLog.Log($"Saved profile '{name}'.", ActivityEntryKind.Success);
             RefreshCanRestoreProfileBackup();
@@ -443,7 +507,8 @@ public sealed partial class MergeInstallViewModel
             return;
         }
 
-        if (ProfileNames.Contains(newName, StringComparer.OrdinalIgnoreCase))
+        // Another profile with that name; a change of letter case only ("coop" → "Coop") is allowed.
+        if (ProfileNames.Any(n => !string.Equals(n, oldName, StringComparison.OrdinalIgnoreCase) && string.Equals(n, newName, StringComparison.OrdinalIgnoreCase)))
         {
             ProfileStatusMessage = $"A profile named '{newName}' already exists.";
             return;
@@ -514,6 +579,7 @@ public sealed partial class MergeInstallViewModel
             _unsavedProfileName = null;
 
             _profileStore.Delete(name);
+            ForgetUnloadable(name);
             ReloadProfileNames();
 
             if (!string.Equals(name, "Default", StringComparison.OrdinalIgnoreCase)

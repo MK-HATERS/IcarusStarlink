@@ -27,14 +27,31 @@ public sealed partial class MergeInstallViewModel
 
         var library = _libraryRepository.GetAll();
         var restored = new List<LibraryEntry>();
-        var opaqueByPak = library.Where(e => e.IsOpaquePak && e.PakFileNames.Count > 0 && e.MergedPackModNames is null).ToList();
-        foreach (var name in LastInstalledModNames)
+        if (InstalledModFolderNames.Count > 0)
         {
-            var entry = library.FirstOrDefault(e => !e.IsOpaquePak && (string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase) || string.Equals(e.FolderName, name, StringComparison.OrdinalIgnoreCase)))
-                ?? opaqueByPak.FirstOrDefault(e => e.PakFileNames.Any(p => string.Equals(Path.GetFileNameWithoutExtension(p), name, StringComparison.OrdinalIgnoreCase)));
-            if (entry is not null && !restored.Contains(entry))
+            // Starlink recorded which Library folders this pak was built from, in queue order: a
+            // mod renamed since (or whose name isn't its file name) is still found.
+            var byFolder = LibraryByFolder();
+            foreach (var folderName in InstalledModFolderNames)
             {
-                restored.Add(entry);
+                if (byFolder.TryGetValue(folderName, out var entry) && !IsIslBuiltPack(entry) && !restored.Contains(entry))
+                {
+                    restored.Add(entry);
+                }
+            }
+        }
+        else
+        {
+            // A pak built elsewhere: matched by the names its ISL-Merged.txt lists.
+            var opaqueByPak = library.Where(e => e.IsOpaquePak && e.PakFileNames.Count > 0 && e.MergedPackModNames is null).ToList();
+            foreach (var name in LastInstalledModNames)
+            {
+                var entry = library.FirstOrDefault(e => !e.IsOpaquePak && (string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase) || string.Equals(e.FolderName, name, StringComparison.OrdinalIgnoreCase)))
+                    ?? opaqueByPak.FirstOrDefault(e => e.PakFileNames.Any(p => string.Equals(Path.GetFileNameWithoutExtension(p), name, StringComparison.OrdinalIgnoreCase)));
+                if (entry is not null && !restored.Contains(entry))
+                {
+                    restored.Add(entry);
+                }
             }
         }
 
@@ -96,7 +113,18 @@ public sealed partial class MergeInstallViewModel
             return;
         }
 
-        var (newOrder, changed) = await ComputeSuggestedQueueOrderAsync();
+        List<LibraryEntry> newOrder;
+        bool changed;
+        try
+        {
+            (newOrder, changed) = await ComputeSuggestedQueueOrderAsync();
+        }
+        catch (Exception ex)
+        {
+            // Same UI boundary as a build: a queued mod that can't be read is a status line, not a crash.
+            StatusMessage = $"Couldn't suggest an order: {ex.Message}";
+            return;
+        }
 
         if (!changed)
         {
@@ -326,6 +354,13 @@ public sealed partial class MergeInstallViewModel
         }
 
         var profile = SelectedProfileName ?? "Default";
+        if (IsUnloadable(profile))
+        {
+            // Its backup step would save the list shown (another profile's) into it first.
+            StatusMessage = $"'{profile}' couldn't be loaded, so the list shown isn't its own and nothing was cleared. Fix or delete its file first, or pick another profile.";
+            return;
+        }
+
         if (!_dialogs.Confirm(
                 $"Untick all {Queue.Count} mods and empty the list of profile '{profile}'?\n\nYour mods stay in the Library. Profile ▾ › Restore profile backup brings this list back.",
                 "Clear the merge list", ThemedConfirmSeverity.Warning))

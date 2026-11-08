@@ -262,8 +262,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             // A fix, an edit or a choice in a mod's fix window changes what the check flags.
             viewModel.InvalidateCheckCache();
             _ = viewModel.RecomputeChecksAsync();
-            // A profile's missing mod imported again under its folder name takes its row back.
-            viewModel.ResolveMissingQueueEntries();
+            // A mod deleted from the Library greys its row; a missing one imported again takes it back.
+            viewModel.SyncQueueWithLibrary();
             // A mod updated or re-imported since the installed merge was built needs another one.
             _ = viewModel.RefreshChangedSinceInstallAsync();
         });
@@ -326,13 +326,16 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// A queue's mods read from disk. Entries/Packages are the EXMOD mods, 1:1; each prebuilt pak
     /// file (an opaque entry can hold several) comes with its queue position (how many EXMOD mods
     /// are ahead of it) and its entry. MergeParticipants turns the positions into the true order.
+    /// SkippedMissing: queued rows whose Library folder is gone (deleted or renamed outside
+    /// Starlink before the Library caught up), left out of the read.
     /// </summary>
     internal sealed record LoadedQueue(
         List<LibraryEntry> Entries,
         List<ExmodPackageContents> Packages,
         List<string> PrebuiltPakFilePaths,
         List<int> PrebuiltPakQueuePositions,
-        List<LibraryEntry> PrebuiltPakEntries);
+        List<LibraryEntry> PrebuiltPakEntries,
+        List<LibraryEntry> SkippedMissing);
 
     /// <summary>
     /// The live queue's buildable rows (see BuildSnapshot), read from disk. Queue order = merge
@@ -347,29 +350,37 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     {
         return await Task.Run(() =>
         {
-            var loaded = new LoadedQueue([], [], [], [], []);
+            var loaded = new LoadedQueue([], [], [], [], [], []);
             foreach (var entry in queueSnapshot)
             {
-                if (!entry.IsOpaquePak)
+                // A folder gone since it was queued (deleted or renamed outside Starlink, the Library
+                // not refreshed yet) is left out and named in the build's warnings, rather than
+                // failing the whole build. Only a gone folder: a corrupt .EXMOD still fails it.
+                try
                 {
-                    loaded.Entries.Add(entry);
-                    loaded.Packages.Add(GetOrReadPackage(entry));
-                    continue;
-                }
+                    if (!entry.IsOpaquePak)
+                    {
+                        // Read first, so Entries and Packages stay 1:1.
+                        var package = GetOrReadPackage(entry);
+                        loaded.Entries.Add(entry);
+                        loaded.Packages.Add(package);
+                        continue;
+                    }
 
-                // An opaque pak folder holds one .pak (ImportPak) or several (ImportPaks — one
-                // download that shipped a bundle); every one of them is folded in. A folder whose
-                // paks vanished since being queued (Library entry deleted/moved) is silently skipped
-                // rather than failing the whole rebuild.
-                var folder = _libraryRepository.GetFolderPath(entry.FolderName);
-                var paks = Directory.Exists(folder)
-                    ? Directory.GetFiles(folder, "*.pak").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList()
-                    : [];
-                foreach (var pak in paks)
+                    // An opaque pak folder holds one .pak (ImportPak) or several (ImportPaks — one
+                    // download that shipped a bundle); every one of them is folded in.
+                    var folder = _libraryRepository.GetFolderPath(entry.FolderName);
+                    var paks = Directory.GetFiles(folder, "*.pak").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+                    foreach (var pak in paks)
+                    {
+                        loaded.PrebuiltPakFilePaths.Add(pak);
+                        loaded.PrebuiltPakQueuePositions.Add(loaded.Packages.Count);
+                        loaded.PrebuiltPakEntries.Add(entry);
+                    }
+                }
+                catch (DirectoryNotFoundException)
                 {
-                    loaded.PrebuiltPakFilePaths.Add(pak);
-                    loaded.PrebuiltPakQueuePositions.Add(loaded.Packages.Count);
-                    loaded.PrebuiltPakEntries.Add(entry);
+                    loaded.SkippedMissing.Add(entry);
                 }
             }
 

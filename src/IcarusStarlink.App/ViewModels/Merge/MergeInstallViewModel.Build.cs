@@ -60,6 +60,19 @@ public sealed partial class MergeInstallViewModel
         // OLD pak from a previous test, with no error shown, silently not reflecting what was
         // actually configured. That guard is fixed too (see GameplayOptions.IsAnyActive), but this
         // is the deeper fix: Install must never run off a rebuild that didn't actually happen.
+        //
+        // Nothing ticked while Starlink's merge is in the game: the Library tells the player that
+        // Merge & Install takes those mods out, so this does, with Remove from game's own question,
+        // game check and backup, rather than stopping at "add a mod first".
+        if (!HasAnythingToBuild && HasExistingInstall && !IsRebuilding && !IsInstalling)
+        {
+            var why = Queue.Count > 0
+                ? "None of the ticked mods are in your Library, so there's nothing to build.\n\n"
+                : "Nothing is ticked, so there's nothing to build.\n\n";
+            await RunInstallStepAsync(() => RemoveFromGameCoreAsync(why));
+            return;
+        }
+
         if (await RebuildAsync())
         {
             await InstallAsync();
@@ -173,6 +186,17 @@ public sealed partial class MergeInstallViewModel
             // Before the mods are read, so a change made while the build runs counts as "Changed".
             var builtFrom = await FingerprintQueueAsync(snapshot.Queue);
             var loaded = await LoadQueuedPackagesAsync(snapshot.Queue);
+            foreach (var gone in loaded.SkippedMissing)
+            {
+                Warnings.Add($"'{gone.Name}' is in this profile but not in your Library, so it is NOT part of this build. Import it again, or remove it from the queue.");
+            }
+
+            if (loaded.Entries.Count == 0 && loaded.PrebuiltPakFilePaths.Count == 0 && !snapshot.Options.IsAnyActive && snapshot.ArcFission is not { HasRows: true })
+            {
+                StatusMessage = "None of the queued mods are in your Library — add mods to the queue, or enable a gameplay option, first.";
+                return false;
+            }
+
             // The ArcFission mods' rows (read from their rows.lua): into the merge (which outranks
             // the data pak ArcFission Library writes), lowest priority, so any queued mod or option
             // wins a clash with them.
@@ -283,13 +307,24 @@ public sealed partial class MergeInstallViewModel
     /// Each queued mod's version and a hash of its files, taken BEFORE the build reads them: a mod
     /// saved in the editor or updated while a long build runs then reads "Changed" afterwards
     /// (the pak has the copy from before), never "In game". Null when they can't be read (the
-    /// build goes on without the hint).
+    /// build goes on without the hint). A mod whose folder is gone is left out, as the build leaves it.
     /// </summary>
     private async Task<IReadOnlyList<MergedModFingerprint>?> FingerprintQueueAsync(IReadOnlyList<LibraryEntry> queue)
     {
         try
         {
-            var mods = queue.Select(e => (e.FolderName, e.Version, Folder: _libraryRepository.GetFolderPath(e.FolderName))).ToList();
+            var mods = new List<(string FolderName, string Version, string Folder)>();
+            foreach (var entry in queue)
+            {
+                try
+                {
+                    mods.Add((entry.FolderName, entry.Version, _libraryRepository.GetFolderPath(entry.FolderName)));
+                }
+                catch (DirectoryNotFoundException)
+                {
+                }
+            }
+
             return await Task.Run(() => (IReadOnlyList<MergedModFingerprint>)
                 [.. mods.Select(m => new MergedModFingerprint(m.FolderName, m.Version, MergedModFingerprints.HashFolder(m.Folder)))]);
         }

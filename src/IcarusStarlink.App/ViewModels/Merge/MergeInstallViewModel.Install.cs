@@ -61,16 +61,29 @@ public sealed partial class MergeInstallViewModel
             {
                 // The merged pak under an earlier name (left by an older version) is an install too:
                 // it still loads, and Install/Remove clear it.
-                var modsDirectory = Path.Combine(_settingsService.Current.IcarusContentPath!, "Paks", "mods");
-                SetHasExistingInstallIfCurrent(version, InstallManifestNames.AllMergedPakFileNames
-                    .Prepend(Path.GetFileName(_outputPakPath))
-                    .Any(name => File.Exists(Path.Combine(modsDirectory, name))));
+                SetHasExistingInstallIfCurrent(version, FindInstalledMergedPak(_settingsService.Current.IcarusContentPath!) is not null);
             }
             catch (Exception)
             {
                 // Best-effort — the button label just stays whatever it already was.
             }
         });
+    }
+
+    /// <summary>
+    /// The merged pak in the game's mods folder: under the name Install writes in this game now
+    /// (InstalledMergedPakFileName), else under another name it has gone by (ArcFission Library
+    /// turned on or off since, an older version's name), else under the staged name. Null when none
+    /// is there. Reads the disk (ue4ss\Mods, Paks\mods): call it off the UI thread.
+    /// </summary>
+    private string? FindInstalledMergedPak(string contentPath)
+    {
+        var modsDirectory = Path.Combine(contentPath, "Paks", "mods");
+        return InstallManifestNames.AllMergedPakFileNames
+            .Prepend(InstallManifestNames.InstalledMergedPakFileName(contentPath))
+            .Append(Path.GetFileName(_outputPakPath))
+            .Select(name => Path.Combine(modsDirectory, name))
+            .FirstOrDefault(File.Exists);
     }
 
     /// <summary>Bumped whenever Install, Remove or Restore sets HasExistingInstall itself.</summary>
@@ -211,27 +224,29 @@ public sealed partial class MergeInstallViewModel
         if (string.IsNullOrWhiteSpace(contentPath))
         {
             ChangedSinceInstall = new Dictionary<string, string>();
+            InstalledModFolderNames = [];
             return;
         }
 
-        var installedPak = Path.Combine(contentPath, "Paks", "mods", Path.GetFileName(_outputPakPath));
         var recordPath = BuildRecordPath;
         var current = _libraryRepository.GetAll().ToDictionary(e => e.FolderName, StringComparer.OrdinalIgnoreCase);
         try
         {
-            var changedNow = await Task.Run(() =>
+            var (changedNow, builtFrom) = await Task.Run(() =>
             {
                 var changed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                if (MergedModFingerprints.ForInstalledPak(recordPath, installedPak) is not { } record)
+                // Found inside the Task.Run: which name Install uses depends on ue4ss\Mods.
+                if (FindInstalledMergedPak(contentPath) is not { } installedPak
+                    || MergedModFingerprints.ForInstalledPak(recordPath, installedPak) is not { } record)
                 {
-                    return changed;
+                    return (changed, (IReadOnlyList<string>)[]);
                 }
 
                 foreach (var mod in record.Mods)
                 {
                     // A mod gone from the Library is the queue's business (a missing row), not "changed".
                     if (!current.TryGetValue(mod.FolderName, out var entry)
-                        || MergedModFingerprints.HashFolder(_libraryRepository.GetFolderPath(mod.FolderName)) is not { Length: > 0 } hash
+                        || HashLibraryFolder(mod.FolderName) is not { Length: > 0 } hash
                         || string.Equals(hash, mod.Hash, StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
@@ -242,11 +257,12 @@ public sealed partial class MergeInstallViewModel
                         : $"v{mod.Version.TrimStart('v', 'V')} → v{entry.Version.TrimStart('v', 'V')}";
                 }
 
-                return changed;
+                return (changed, (IReadOnlyList<string>)[.. record.Mods.Select(m => m.FolderName)]);
             });
             if (version == _changedSinceInstallVersion)
             {
                 ChangedSinceInstall = changedNow;
+                InstalledModFolderNames = builtFrom;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -255,9 +271,32 @@ public sealed partial class MergeInstallViewModel
             if (version == _changedSinceInstallVersion)
             {
                 ChangedSinceInstall = new Dictionary<string, string>();
+                InstalledModFolderNames = [];
             }
         }
     }
+
+    /// <summary>A Library mod's files hashed; empty when its folder is gone (the Library hasn't caught up yet).</summary>
+    private string HashLibraryFolder(string folderName)
+    {
+        try
+        {
+            return MergedModFingerprints.HashFolder(_libraryRepository.GetFolderPath(folderName));
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// The Library folders the installed merged pak was built from, in merge order, when Starlink
+    /// recorded that build (ISL-Merged.mods.json); empty for a pak built elsewhere or none
+    /// installed. A renamed mod, whose name is no longer the one ISL-Merged.txt lists, still reads
+    /// as in the game.
+    /// </summary>
+    [ObservableProperty]
+    private IReadOnlyList<string> _installedModFolderNames = [];
 
     /// <summary>Guards RefreshChangedSinceInstallAsync like _checkVersion guards RecomputeChecksAsync.</summary>
     private int _changedSinceInstallVersion;
@@ -298,21 +337,22 @@ public sealed partial class MergeInstallViewModel
         {
             var installed = await _installService.GetInstalledStateAsync(_settingsService.Current.IcarusContentPath!);
 
-            // For an opaque entry, the name RebuildService's own WriteManifest actually records is
-            // Path.GetFileNameWithoutExtension of its resolved .pak file, not its (possibly Nexus-
-            // enriched) display Name — the comparison below is a literal string match against what
-            // the real manifest on disk says, so opaque entries need that same derivation here.
-            // An opaque entry can hold several paks (a bundle) — the manifest lists each one, so
-            // the comparison expands the entry the same way.
-            var currentList = Queue.Where(e => !e.IsMissingFromLibrary).SelectMany(entry =>
+            // Each mod named the way RebuildService's WriteManifest names it, since the comparison
+            // is a literal match against that list: an EXMOD by its package name (a mod renamed in
+            // the Library keeps it), an opaque entry by the file name of each .pak it holds (a
+            // bundle lists each one). A row whose folder is gone is left out, as a build leaves it.
+            var queue = Queue.Where(IsBuildable).ToList();
+            var loaded = await LoadQueuedPackagesAsync(queue);
+            var currentList = queue.Where(entry => !loaded.SkippedMissing.Contains(entry)).SelectMany(entry =>
             {
                 if (!entry.IsOpaquePak)
                 {
-                    return [entry.Name];
+                    return [loaded.Packages[loaded.Entries.IndexOf(entry)].Package.Name];
                 }
 
-                var pakPaths = Directory.GetFiles(_libraryRepository.GetFolderPath(entry.FolderName), "*.pak").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
-                return pakPaths.Count > 0 ? pakPaths.Select(Path.GetFileNameWithoutExtension).Select(n => n!) : [entry.Name];
+                var pakNames = loaded.PrebuiltPakFilePaths.Where((_, i) => ReferenceEquals(loaded.PrebuiltPakEntries[i], entry))
+                    .Select(p => Path.GetFileNameWithoutExtension(p)).ToList();
+                return pakNames.Count > 0 ? pakNames : (IEnumerable<string>)[entry.Name];
             }).ToList();
             // Rebuild merges the ArcFission mods' rows in too, and the manifest lists them.
             if (ScanArcFission() is { HasRows: true } arcFission)
@@ -469,7 +509,9 @@ public sealed partial class MergeInstallViewModel
         // new one. Matches the same "name every file before deleting it" transparency the FTP
         // "Install merged pak to server" action already established.
         var modsDirectory = Path.Combine(_settingsService.Current.IcarusContentPath!, "Paks", "mods");
-        var targetPakFileName = Path.GetFileName(_outputPakPath);
+        // The name InstallService writes the merge under in this game (its own rule), not the
+        // staged name: the staged name is zz_zz_…_9999 only because a build can't know the game.
+        var targetPakFileName = InstallManifestNames.InstalledMergedPakFileName(_settingsService.Current.IcarusContentPath!);
 
         // ArcFission Library's data pak is kept (its rows are in the merge, and the library would
         // only write it again) — unless the library itself is gone or off: then nothing rewrites it,
@@ -483,7 +525,7 @@ public sealed partial class MergeInstallViewModel
             + "Back it up and remove it?",
             "Leftover ArcFission data");
 
-        var otherFilesToClear = Directory.Exists(modsDirectory)
+        var filesThere = Directory.Exists(modsDirectory)
             ? Directory.GetFiles(modsDirectory)
                 .Select(Path.GetFileName)
                 .OfType<string>()
@@ -492,10 +534,20 @@ public sealed partial class MergeInstallViewModel
                     && !(keepArcFission && InstallManifestNames.IsArcFissionDataPak(name)))
                 .ToList()
             : [];
+        // Starlink's own merged pak under another of its names (ArcFission Library turned on or
+        // off since, an older version) is replaced, not "another file": a Find the broken mod
+        // round doesn't ask about it either.
+        var ownOtherNames = filesThere.Where(InstallManifestNames.IsMergedPakFile).ToList();
+        var otherFilesToClear = filesThere.Except(ownOtherNames).ToList();
         var clearNote = otherFilesToClear.Count > 0
             ? $"\n\nIt will also remove {otherFilesToClear.Count} other file(s) already there (backed up first, not part of this merge):\n"
                 + string.Join('\n', otherFilesToClear.Select(n => $"  - {n}"))
             : "";
+        if (ownOtherNames.Count > 0)
+        {
+            // InstallService backs up every file other than its own target, even in a finder round.
+            clearNote += $"\n\nIt also replaces Starlink's merged pak saved under {(ownOtherNames.Count == 1 ? "an earlier name" : "earlier names")} ({string.Join(", ", ownOtherNames)}), backed up first.";
+        }
 
         // ArcFission's older data copies go too (InstallService keeps only the newest).
         var newestArcFission = Path.GetFileName(InstallManifestNames.CurrentArcFissionDataPak(_settingsService.Current.IcarusContentPath!));
@@ -672,9 +724,10 @@ public sealed partial class MergeInstallViewModel
     /// game folder.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
-    private Task RemoveFromGameAsync() => RunInstallStepAsync(RemoveFromGameCoreAsync);
+    private Task RemoveFromGameAsync() => RunInstallStepAsync(() => RemoveFromGameCoreAsync());
 
-    private async Task RemoveFromGameCoreAsync()
+    /// <param name="questionIntro">Put before the question (Update install with nothing ticked says why it removes).</param>
+    private async Task RemoveFromGameCoreAsync(string questionIntro = "")
     {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
@@ -691,7 +744,7 @@ public sealed partial class MergeInstallViewModel
         // from the user's actual game folder, so it shouldn't be reachable via a single accidental
         // click any more than overwriting it already isn't.
         if (!ConfirmWithGameClosed(
-            $"This removes IcarusStarlink's installed pak from '{_settingsService.Current.IcarusContentPath}\\Paks\\mods'.\n\n" +
+            questionIntro + $"This removes IcarusStarlink's installed pak from '{_settingsService.Current.IcarusContentPath}\\Paks\\mods'.\n\n" +
             $"It's backed up first (last {BackupLimits.MergedPakKept(_settingsService)} kept), and your Library copy of this mod isn't touched — only the real game install.\n\nContinue?",
             "Remove from Icarus", retry: "Remove again"))
         {

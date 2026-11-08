@@ -2769,10 +2769,13 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         /// <summary>Runs before GetFolderPath answers (a test holds one caller back here).</summary>
         public Action<string>? BeforeGetFolderPath { get; set; }
 
+        /// <summary>Throws for a folder it doesn't know, as FolderLibraryRepository does for a mod folder that's gone.</summary>
         public string GetFolderPath(string folderName)
         {
             BeforeGetFolderPath?.Invoke(folderName);
-            return FolderPaths[folderName];
+            return FolderPaths.TryGetValue(folderName, out var path)
+                ? path
+                : throw new DirectoryNotFoundException($"No library entry named '{folderName}'.");
         }
     }
 
