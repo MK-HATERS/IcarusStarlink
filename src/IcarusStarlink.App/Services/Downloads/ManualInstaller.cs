@@ -213,14 +213,14 @@ public static class ManualInstaller
     public static async Task<IReadOnlyList<PendingDownloadActivatedItem>> InstallAsync(
         IReadOnlyList<ManualInstallItem> items, ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
-        string? source, int? nexusModId, string? catalogEntryId, IReadOnlyCollection<string>? ue4ssNamesInUse)
+        string? source, int? nexusModId, string? catalogEntryId, IReadOnlyCollection<string>? ue4ssNamesInUse, ReplacementWrites? writes = null)
     {
         CheckPlan(items);
 
         var installed = new List<PendingDownloadActivatedItem>();
         try
         {
-            await InstallEachAsync(items, installed, libraryRepository, ue4ssModRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, ue4ssNamesInUse);
+            await InstallEachAsync(items, installed, libraryRepository, ue4ssModRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, ue4ssNamesInUse, writes);
         }
         catch
         {
@@ -252,8 +252,15 @@ public static class ManualInstaller
     private static async Task InstallEachAsync(
         IReadOnlyList<ManualInstallItem> items, List<PendingDownloadActivatedItem> installed, ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
-        string? source, int? nexusModId, string? catalogEntryId, IReadOnlyCollection<string>? ue4ssNamesInUse)
+        string? source, int? nexusModId, string? catalogEntryId, IReadOnlyCollection<string>? ue4ssNamesInUse, ReplacementWrites? writes)
     {
+        // Each line is reported the moment it is in, before anything else that can fail.
+        void Landed(string folderName, PendingDownloadActivationKind kind)
+        {
+            installed.Add(new PendingDownloadActivatedItem(folderName, kind));
+            writes?.Wrote(folderName, kind);
+        }
+
         foreach (var item in items)
         {
             var name = item.Name.Trim();
@@ -267,8 +274,8 @@ public static class ManualInstaller
                         ? await prebuiltPakImporter.ImportAsync(paks[0], dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId, catalogEntryId: catalogEntryId, name: name)
                         : libraryRepository.ImportPaks(paks, name, source, nexusModId, catalogEntryId);
 
+                    Landed(entry.FolderName, PendingDownloadActivationKind.Library);
                     RenameIfAsked(libraryRepository, entry, item);
-                    installed.Add(new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library));
                     break;
                 }
 
@@ -288,8 +295,8 @@ public static class ManualInstaller
                         }
 
                         var entry = libraryRepository.Import(folder, source: source, nexusModId: nexusModId, catalogEntryId: catalogEntryId);
+                        Landed(entry.FolderName, PendingDownloadActivationKind.Library);
                         RenameIfAsked(libraryRepository, entry, item);
-                        installed.Add(new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library));
                     }
                     finally
                     {
@@ -301,8 +308,7 @@ public static class ManualInstaller
 
                 case ManualInstallKind.Ue4ssMod:
                 {
-                    var staged = ue4ssModRepository.ImportFromFolder(item.FullPath, name, ue4ssNamesInUse);
-                    installed.Add(new PendingDownloadActivatedItem(staged, PendingDownloadActivationKind.Ue4ssMod));
+                    Landed(ue4ssModRepository.ImportFromFolder(item.FullPath, name, ue4ssNamesInUse), PendingDownloadActivationKind.Ue4ssMod);
                     break;
                 }
             }

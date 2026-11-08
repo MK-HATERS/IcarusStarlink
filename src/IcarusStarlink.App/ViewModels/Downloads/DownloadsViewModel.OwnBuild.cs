@@ -76,7 +76,7 @@ public sealed partial class DownloadsViewModel
             var source = nexusModId is null ? "Local" : PendingDownloadEntry.NexusSource;
             var result = await RunInstallStepAsync(() => _modReplacement.ReplaceAsync(
                 new ModReplacementRequest(name, previous.LibraryFolders, previous.Ue4ssFolders, Pristine: false),
-                async removeOld => (await ClassifyAndImportExtractedModAsync(scratch, Path.GetFileName(path), source, nexusModId, null, previous, () => RemoveOldOrExplain(removeOld))).Items));
+                async (removeOld, writes) => (await ClassifyAndImportExtractedModAsync(scratch, Path.GetFileName(path), source, nexusModId, null, previous, () => RemoveOldOrExplain(removeOld), writes)).Items));
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             if (!result.Succeeded)
             {

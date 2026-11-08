@@ -73,9 +73,9 @@ public static class ExtractedModClassifier
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
         string? source = null, int? nexusModId = null, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame = null,
         string? catalogEntryId = null, Func<string, IReadOnlyList<ArchiveChoice>, int?>? chooseArchive = null,
-        Action? beforeFirstWrite = null)
+        Action? beforeFirstWrite = null, ReplacementWrites? writes = null)
     {
-        var session = new ImportSession(beforeFirstWrite);
+        var session = new ImportSession(beforeFirstWrite, writes);
         try
         {
             return await ClassifyAndImportCore(
@@ -95,9 +95,10 @@ public static class ExtractedModClassifier
     /// One classify-and-import run. beforeFirstWrite runs once, right before the first thing is
     /// written — a reinstall removes the previous copy there, AFTER any "which one?" question, so
     /// cancelling that question leaves the installed mod alone. Records what was written so a
-    /// half-finished import can be undone.
+    /// half-finished import can be undone, and tells the ReplacementWrites it's handed (if any) too, so
+    /// a replacement that fails takes out only what this import made.
     /// </summary>
-    private sealed class ImportSession(Action? beforeFirstWrite)
+    private sealed class ImportSession(Action? beforeFirstWrite, ReplacementWrites? writes)
     {
         private Action? _beforeFirstWrite = beforeFirstWrite;
         private readonly List<PendingDownloadActivatedItem> _written = [];
@@ -112,6 +113,7 @@ public static class ExtractedModClassifier
         public string Wrote(string folderName, PendingDownloadActivationKind kind)
         {
             _written.Add(new PendingDownloadActivatedItem(folderName, kind));
+            writes?.Wrote(folderName, kind);
             return folderName;
         }
 

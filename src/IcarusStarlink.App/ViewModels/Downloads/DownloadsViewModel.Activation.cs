@@ -150,9 +150,9 @@ public sealed partial class DownloadsViewModel
         (string Status, IReadOnlyList<string> Requirements) installed = ("", []);
         var replaced = await _modReplacement.ReplaceAsync(
             new ModReplacementRequest(item.DisplayName, previous.LibraryFolders, previous.Ue4ssFolders, pristine),
-            async removeOld =>
+            async (removeOld, writes) =>
             {
-                var (items, status, requirementLines) = await InstallDownloadAsync(item, localFilePath, source, nexusModId, previous, () => RemoveOldOrExplain(removeOld));
+                var (items, status, requirementLines) = await InstallDownloadAsync(item, localFilePath, source, nexusModId, previous, () => RemoveOldOrExplain(removeOld), writes);
                 installed = (status, requirementLines);
                 return items;
             });
@@ -190,10 +190,11 @@ public sealed partial class DownloadsViewModel
     /// <summary>
     /// Imports the download itself (the install step ModReplacementService runs): a .pak straight
     /// through the pak importer, anything else unpacked and classified. Calls removeOld right
-    /// before the first write. Returns what landed, the status line and the README requirements.
+    /// before the first write, and tells <paramref name="writes"/> about every folder it makes.
+    /// Returns what landed, the status line and the README requirements.
     /// </summary>
     private async Task<(IReadOnlyList<PendingDownloadActivatedItem> Items, string Status, IReadOnlyList<string> Requirements)> InstallDownloadAsync(
-        PendingDownloadItemViewModel item, string localFilePath, string source, int? nexusModId, PreviousCopies previous, Action removeOld)
+        PendingDownloadItemViewModel item, string localFilePath, string source, int? nexusModId, PreviousCopies previous, Action removeOld, ReplacementWrites writes)
     {
         if (string.Equals(Path.GetExtension(localFilePath), ".pak", StringComparison.OrdinalIgnoreCase))
         {
@@ -211,6 +212,7 @@ public sealed partial class DownloadsViewModel
                 // The catalog's author, as Library's Get update passes it — without it the same
                 // pak read "Unknown" or the real author depending on which way it was installed.
                 author: item.IsCatalog ? item.Author ?? CatalogAuthorOf(item.CatalogEntryId) : null);
+            writes.Wrote(entry.FolderName, PendingDownloadActivationKind.Library);
             if (nexusModId is { } && (entry.IsOpaquePak || entry.ConvertedFromPrebuiltPak))
             {
                 // A converted entry's own Name/Author are still just placeholders (the pak's
@@ -255,7 +257,7 @@ public sealed partial class DownloadsViewModel
             }
 
             var (classifiedStatus, classifiedItems, classifiedRequirements) =
-                await ClassifyAndImportExtractedModAsync(tempExtractDirectory, UntaggedFileName(item), source, nexusModId, item.CatalogEntryId, previous, removeOld);
+                await ClassifyAndImportExtractedModAsync(tempExtractDirectory, UntaggedFileName(item), source, nexusModId, item.CatalogEntryId, previous, removeOld, writes);
             return (classifiedItems, classifiedStatus, classifiedRequirements);
         }
         finally
@@ -472,7 +474,7 @@ public sealed partial class DownloadsViewModel
     /// </summary>
     private async Task<(string StatusMessage, IReadOnlyList<PendingDownloadActivatedItem> Items, IReadOnlyList<string> Requirements)> ClassifyAndImportExtractedModAsync(
         string extractedDirectory, string originalFileName, string source, int? nexusModId, string? catalogEntryId, PreviousCopies previous,
-        Action removeOld)
+        Action removeOld, ReplacementWrites writes)
     {
         // Only meaningful if the game path is actually configured — with nothing to check against,
         // this degrades to the same "no collision avoidance" behavior importing already had. This
@@ -484,7 +486,7 @@ public sealed partial class DownloadsViewModel
             extractedDirectory, originalFileName, _libraryRepository, _ue4ssModRepository,
             _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, source: source, nexusModId: nexusModId,
             ue4ssNamesAlreadyInstalledInGame: installedUe4ssNames, catalogEntryId: catalogEntryId, chooseArchive: ChooseArchive,
-            beforeFirstWrite: removeOld);
+            beforeFirstWrite: removeOld, writes: writes);
 
         var landed = await FollowUpImportedAsync(classified.Items, nexusModId);
 
@@ -568,7 +570,7 @@ public sealed partial class DownloadsViewModel
                 // question was already answered by it too.
                 var result = await _modReplacement.ReplaceAsync(
                     new ModReplacementRequest(item.DisplayName, previous.LibraryFolders, previous.Ue4ssFolders, pristine, AskBeforeReplacingEdits: false),
-                    async removeOld =>
+                    async (removeOld, writes) =>
                     {
                         var namesInGame = _ue4ssNames.InGameExcept(previous.Ue4ssNames);
                         // Every line checked before the installed copy is taken out.
@@ -576,7 +578,7 @@ public sealed partial class DownloadsViewModel
                         removeOld();
                         var installed = await ManualInstaller.InstallAsync(
                             plan, _libraryRepository, _ue4ssModRepository, _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath,
-                            source, nexusModId, item.CatalogEntryId, namesInGame);
+                            source, nexusModId, item.CatalogEntryId, namesInGame, writes);
                         landed = await FollowUpImportedAsync(installed, nexusModId);
                         return installed;
                     });

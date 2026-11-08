@@ -903,6 +903,35 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         Assert.Equal(345, harness.Ue4ssMeta.Load("MiniMapa").NexusModId);
     }
 
+    /// <summary>Regression: an install that failed took out every mod new since it started, a mod another page added meanwhile too.</summary>
+    [Fact]
+    public async Task Activate_FailsAfterAnotherPageAddedAMod_TakesOutOnlyItsOwnParts()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        vm.ManualInstall = (_, _, _, _) => null;
+        var item = harness.AddDownload("PartA.zip", a =>
+        {
+            WriteEntry(a, "Icarus/Binaries/Win64/ue4ss/Mods/PartA/Scripts/main.lua", "a");
+            WriteEntry(a, "Icarus/Content/Paks/mods/PartA_P.pak", "pak a");
+        }, modId: 620, fileId: 1);
+        var otherPak = Path.Combine(_root, "Other", "OtherMod_P.pak");
+        Directory.CreateDirectory(Path.GetDirectoryName(otherPak)!);
+        File.WriteAllBytes(otherPak, TestPaks.Bytes("other"));
+        harness.PakImporter.OnImport = () =>
+        {
+            // The UE4SS half is staged by now; another page adds a mod, then the pak import fails.
+            harness.Library.ImportPak(otherPak, source: "Nexus", nexusModId: 999);
+            throw new IOException("disk full");
+        };
+
+        var result = await vm.ActivateAsync(item);
+
+        Assert.False(result.Succeeded);
+        Assert.Empty(harness.Ue4ss.GetAll());
+        Assert.Contains(harness.Library.GetAll(), e => e.NexusModId == 999);
+    }
+
     /// <summary>The real Minimap README asks for "Icarus Mod Manager", and its heading underline was stored as a blank requirement — neither is a download to get.</summary>
     [Fact]
     public async Task Activate_ModManagerRequirement_IsSatisfiedAndNotOffered()
@@ -1283,11 +1312,15 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         /// <summary>The author passed with each import, in order.</summary>
         public List<string?> Authors { get; } = [];
 
+        /// <summary>Runs at the start of each import (a test can add another mod meanwhile, or throw).</summary>
+        public Action? OnImport { get; set; }
+
         public Task<LibraryEntry> ImportAsync(
             string pakFilePath, string dataFolder, string? unrealPakExePath,
             string? source = null, int? nexusModId = null, string? catalogEntryId = null,
             string? name = null, string? author = null, CancellationToken cancellationToken = default)
         {
+            OnImport?.Invoke();
             ImportedPaks.Add(Path.GetFileName(pakFilePath));
             Authors.Add(author);
             return Task.FromResult(library.ImportPak(pakFilePath, source: source, nexusModId: nexusModId));
