@@ -54,6 +54,17 @@ public sealed class ValueDiffTests
         Assert.Equal("20000", row.Game);
     }
 
+    /// <summary>Regression: a stats key showed its quotes and "+" as " and +.</summary>
+    [Fact]
+    public void AStatsKey_ShowsPlusAndQuotesAsTheyAre()
+    {
+        static JsonObject Stats(int value) => new() { ["(Value=\"X_+%\")"] = value };
+
+        var rows = ValueDiff.Build(Stats(1), Stats(2), Stats(2));
+
+        Assert.Contains(rows, r => r.Mod is { } mod && mod.Contains("(Value=\\\"X_+%\\\")", StringComparison.Ordinal));
+    }
+
     private static JsonArray Links(params string[] rows) =>
         new([.. rows.Select(r => (JsonNode)new JsonObject { ["RowName"] = r, ["DataTableName"] = "D_RecipeSets" })]);
 }

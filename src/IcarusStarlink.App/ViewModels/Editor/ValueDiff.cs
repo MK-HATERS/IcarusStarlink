@@ -29,7 +29,8 @@ public sealed record DiffRow(string? Mod, string? Game, string? After, DiffSide 
 /// </summary>
 public static class ValueDiff
 {
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    /// <summary>JSON shown to or searched by a person, on one line: "+", quotes and accents as they are, not +.</summary>
+    internal static readonly JsonSerializerOptions CompactDisplay = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     /// <summary>True when both sides are lists of named entries (shown entry by entry).</summary>
     public static bool IsList(JsonNode? mod, JsonNode? game) => Entries(mod) is not null && Entries(game) is not null;
@@ -90,7 +91,7 @@ public static class ValueDiff
     }
 
     private static string[] Lines(JsonNode? value) =>
-        value is null ? ["(not set: the mod deletes it)"] : value.ToJsonString(Indented).Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
+        value is null ? ["(not set: the mod deletes it)"] : value.ToJsonString(IcarusStarlink.PakIO.Exmod.ExmodJson.DisplayOptions).Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
 
     /// <summary>Lines aligned on their longest common run (LCS), the rest paired up as changed or left one-sided.</summary>
     private static List<DiffRow> LineRows(string[] mod, string[] game, bool afterIsMod)
