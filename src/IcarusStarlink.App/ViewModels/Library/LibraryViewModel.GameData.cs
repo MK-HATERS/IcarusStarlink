@@ -143,13 +143,6 @@ public sealed partial class LibraryViewModel
     private ModFixService FixService => _modFixService ??= ModFixService.Registered(new ModFixService(_repository, _dataFolder, GameHistory, FixDecisionsDirectory,
         BaseGameContent as IGameAssetCatalog));
 
-    /// <summary>
-    /// The row's warning badge, and right-click › Check against the game &amp; fix…: the fix window,
-    /// listing what in this mod doesn't fit the current game with a fix for each. Checks the mod
-    /// now when no whole-library check has yet. Not while a whole-library check or Fix sure
-    /// problems is running (they write mods too), and not while the mod is open in the editor:
-    /// the fix window is modal, so the editor couldn't be closed from behind it.
-    /// </summary>
     /// <summary>Whether the extracted game data folder has any data in it. A folder that can't be read
     /// counts as none (said as "run Refresh game data") rather than an unhandled error from a click.</summary>
     private bool HasExtractedGameData()
@@ -164,6 +157,13 @@ public sealed partial class LibraryViewModel
         }
     }
 
+    /// <summary>
+    /// The row's warning badge, and right-click › Check against the game &amp; fix…: the fix window,
+    /// listing what in this mod doesn't fit the current game with a fix for each. Checks the mod
+    /// now when no whole-library check has yet. Not while a whole-library check or Fix sure
+    /// problems is running (they write mods too), and not while the mod is open in the editor:
+    /// the fix window is modal, so the editor couldn't be closed from behind it.
+    /// </summary>
     [RelayCommand]
     private async Task OpenModFixAsync(LibraryItemViewModel? item)
     {

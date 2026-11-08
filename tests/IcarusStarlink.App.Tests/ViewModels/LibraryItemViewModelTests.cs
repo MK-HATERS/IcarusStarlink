@@ -78,17 +78,6 @@ public sealed class LibraryItemViewModelTests : IDisposable
         }
     }
 
-    /// <summary>
-    /// A real case: Ferani's Steadfast Structures, downloaded through the in-app Nexus catalog,
-    /// declares "1.0" inside its EXMOD while the Nexus page says "1" — the old ordinal compare showed
-    /// "Update available: v1" forever, with nothing to update to. NexusVersion null here, exactly
-    /// like an entry activated before activation started recording it.
-    /// </summary>
-    /// <summary>
-    /// Regression: a LibraryChangedMessage from an unrelated import arriving inside the 500 ms
-    /// notes-save debounce made Update() revert the Notes box to the on-disk text, and the still-
-    /// pending save then wrote that stale text back over what the user had typed.
-    /// </summary>
     /// <summary>A bundle (one download holding several paks) lists every pak's files, not only the first pak's.</summary>
     [Fact]
     public async Task LoadPakContents_BundleOfSeveralPaks_ListsEveryPak()
@@ -106,6 +95,11 @@ public sealed class LibraryItemViewModelTests : IDisposable
         Assert.Null(item.PakListingStatus);
     }
 
+    /// <summary>
+    /// Regression: a LibraryChangedMessage from an unrelated import arriving inside the 500 ms
+    /// notes-save debounce made Update() revert the Notes box to the on-disk text, and the still-
+    /// pending save then wrote that stale text back over what the user had typed.
+    /// </summary>
     [Fact]
     public void Update_WhileANotesSaveIsStillPending_DoesNotRevertTheTypedNotes()
     {
@@ -121,6 +115,12 @@ public sealed class LibraryItemViewModelTests : IDisposable
         Assert.Equal("being typed right now", item.Notes);
     }
 
+    /// <summary>
+    /// A real case: Ferani's Steadfast Structures, downloaded through the in-app Nexus catalog,
+    /// declares "1.0" inside its EXMOD while the Nexus page says "1" — the old ordinal compare showed
+    /// "Update available: v1" forever, with nothing to update to. NexusVersion null here, exactly
+    /// like an entry activated before activation started recording it.
+    /// </summary>
     [Fact]
     public void HasUpdateAvailable_LatestEqualsDeclaredVersionNumerically_IsFalse()
     {
