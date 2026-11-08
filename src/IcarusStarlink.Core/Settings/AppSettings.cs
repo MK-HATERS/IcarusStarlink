@@ -120,6 +120,9 @@ public sealed class AppSettings
     /// </summary>
     public DateTimeOffset? LastInstallAtUtc { get; set; }
 
+    /// <summary>The newest game crash already reported at launch (SettingsViewModel), so each crash is reported once. Null until one is.</summary>
+    public DateTimeOffset? LastReportedCrashAtUtc { get; set; }
+
     /// <summary>
     /// Set once SettingsViewModel's first-launch setup has had its one-time say — i.e. once the
     /// game folder and UnrealPak were both in place and the first "Update data folder" extraction

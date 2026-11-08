@@ -42,6 +42,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IGameProcessChecker _gameProcessChecker;
     private readonly IGameDataFreshness _gameDataFreshness;
     private readonly string _stagedUe4ssDirectory;
+    private readonly string? _gameCrashesFolder;
 
     /// <summary>Resolved lazily (not injected directly) purely to avoid forcing Merge &amp; Install's own construction — with its Library scan and catalog wiring — every time Settings is opened.</summary>
     private readonly Func<MergeInstallViewModel> _mergeInstallViewModel;
@@ -64,8 +65,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<MergeInstallViewModel> mergeInstallViewModel, IUnrealPakInstaller unrealPakInstaller, IActivityLog activityLog,
         IDialogService dialogService, IGameProcessChecker gameProcessChecker,
         string backupDirectory, string dataOutputDirectory, string logsDirectory, string settingsFilePath,
-        string stagedUe4ssDirectory, IGameDataFreshness? gameDataFreshness = null)
+        string stagedUe4ssDirectory, IGameDataFreshness? gameDataFreshness = null, string? gameCrashesFolder = null)
     {
+        // Null: the game's own crash folder (%LocalAppData%\Icarus\Saved\Crashes).
+        _gameCrashesFolder = gameCrashesFolder;
         // The same "is data.pak still the one extracted?" check Merge & Install asks (it was
         // written out twice); null builds the usual one.
         _gameDataFreshness = gameDataFreshness ?? new GameDataFreshness(unrealPakService, settingsService, () => this);
@@ -104,6 +107,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             _advancedLogging = false;
             OnPropertyChanged(nameof(AdvancedLogging));
         };
+        // settings.json couldn't be used at start: the whole session runs on defaults, so say so
+        // where it stays (the Activity panel) and on this page.
+        if (_settingsService.LoadProblem is { } settingsProblem)
+        {
+            _activityLog.Log(settingsProblem, ActivityEntryKind.Warning);
+            SavedMessage = settingsProblem;
+        }
+
         RefreshNxmHandlerState();
         WeakReferenceMessenger.Default.Register<NxmHandlerChangedMessage>(this, (recipient, _) => ((SettingsViewModel)recipient).RefreshNxmHandlerState());
         WeakReferenceMessenger.Default.Register<StarlinkUpdateLinkMessage>(this, (recipient, message) =>
@@ -128,6 +139,31 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             var install = ((SettingsViewModel)recipient).InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
         });
+        // Closing Starlink or updating it now would cut these off partway: the window close and
+        // Update now ask every page what's running (AppBusyCheck).
+        WeakReferenceMessenger.Default.Register<BackgroundWorkRequestMessage>(this, (recipient, message) =>
+        {
+            var settings = (SettingsViewModel)recipient;
+            if (settings.IsMigratingFromImm)
+            {
+                message.Reply("a classic IMM migration");
+            }
+
+            if (settings.IsUpdatingDataFolder)
+            {
+                message.Reply("a game data refresh");
+            }
+
+            if (settings.IsInstallingUe4ss)
+            {
+                message.Reply("a UE4SS install");
+            }
+
+            if (settings.IsUninstallingUe4ss)
+            {
+                message.Reply("a UE4SS removal");
+            }
+        });
         // The first-launch questions and the "Update available" offer are NOT started here: they
         // show modal dialogs, and anything that resolved this singleton while one was open (opening
         // Settings, an nxm:// link, GameDataFreshness) re-entered the DI factory mid-construction
@@ -147,7 +183,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         _settingsService.Current.UnrealPakExePath = UnrealPakExePath;
         SavedMessage = _settingsService.Save()
             ? $"Saved at {DateTime.Now:T}"
-            : "Failed to save settings — check the logs.";
+            : "Couldn't save settings. settings.json may be open in another program (OneDrive, antivirus), or Starlink's folder may be read-only. "
+                + "Close that program, then click Save settings again.";
         // UE4SS follows the saved game folder: this is when a newly chosen install's UE4SS shows.
         RefreshUe4ssStatus();
         WeakReferenceMessenger.Default.Send(new SettingsSavedMessage());

@@ -1130,6 +1130,150 @@ public sealed class SettingsViewModelTests
         Assert.True(File.Exists(Path.Combine(backups, "zz_zz_ISL-Merged_9999_P_20261016-150000.pak")));
     }
 
+    /// <summary>Regression: a settings.json that couldn't be read at start ran the whole session on defaults with no word to the player.</summary>
+    [Fact]
+    public void SettingsFileUnreadableAtStart_SaysSoAtLaunch()
+    {
+        using var harness = new Harness();
+        harness.SettingsService.LoadProblem = "settings problem";
+
+        var vm = harness.BuildViewModel();
+
+        var warning = Assert.Single(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning);
+        Assert.Equal("settings problem", warning.Message);
+        Assert.Equal("settings problem", vm.SavedMessage);
+    }
+
+    /// <summary>Regression: a failed Save settings only said "check the logs", with nothing to do about it.</summary>
+    [Fact]
+    public void Save_Fails_SaysWhatToDo()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+        harness.SettingsService.SaveShouldSucceed = false;
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Contains("Save settings again", vm.SavedMessage);
+    }
+
+    /// <summary>A crash folder dated two hours ago, after an install yesterday; returns the crash time.</summary>
+    private static DateTime AddCrashSinceLastInstall(Harness harness)
+    {
+        var crashesFolder = Path.Combine(harness.TempDir, "Crashes");
+        var crashDir = Path.Combine(crashesFolder, "UECC-Windows-Test");
+        Directory.CreateDirectory(crashDir);
+        File.WriteAllText(Path.Combine(crashDir, "CrashContext.runtime-xml"),
+            "<FGenericCrashContext><RuntimeProperties><ErrorMessage>Test crash</ErrorMessage></RuntimeProperties></FGenericCrashContext>");
+        var crashUtc = DateTime.UtcNow.AddHours(-2);
+        Directory.SetCreationTimeUtc(crashDir, crashUtc);
+        harness.Settings.LastInstallAtUtc = DateTimeOffset.UtcNow.AddDays(-1);
+        harness.CrashesFolder = crashesFolder;
+        return crashUtc;
+    }
+
+    private static string WriteUe4ssLog(Harness harness, DateTime lastWriteUtc)
+    {
+        var log = Path.Combine(harness.TempDir, "Binaries", "Win64", "ue4ss", "UE4SS.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+        File.WriteAllLines(log, ["UE4SS - v3.0.1", "Loading mods", "Mod loaded"]);
+        File.SetLastWriteTimeUtc(log, lastWriteUtc);
+        return log;
+    }
+
+    /// <summary>Regression: the "Icarus crashed since your last install" warning came back at every start until the next install.</summary>
+    [Fact]
+    public void CrashSinceLastInstall_IsReportedOnce_NotAtEveryStart()
+    {
+        using var harness = new Harness();
+        AddCrashSinceLastInstall(harness);
+
+        harness.BuildViewModel();
+        harness.BuildViewModel();
+
+        Assert.Single(harness.ActivityLog.Entries,
+            e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("Icarus crashed since your last install"));
+    }
+
+    /// <summary>Regression: the crash warning showed the UE4SS.log of a later game session as the log "at the time of that crash".</summary>
+    [Fact]
+    public void CrashSinceLastInstall_UE4SSLogFromALaterSession_IsNotShownAsTheCrashTail()
+    {
+        using var harness = new Harness();
+        var crashUtc = AddCrashSinceLastInstall(harness);
+        WriteUe4ssLog(harness, crashUtc.AddDays(1));
+
+        harness.BuildViewModel();
+
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Message.Contains("Icarus crashed since your last install"));
+        Assert.DoesNotContain(harness.ActivityLog.Entries, e => e.Message.Contains("UE4SS.log tail"));
+    }
+
+    /// <summary>The UE4SS.log written by the crashed session is still shown with the crash.</summary>
+    [Fact]
+    public void CrashSinceLastInstall_UE4SSLogFromThatSession_IsShown()
+    {
+        using var harness = new Harness();
+        var crashUtc = AddCrashSinceLastInstall(harness);
+        WriteUe4ssLog(harness, crashUtc.AddMinutes(-1));
+
+        harness.BuildViewModel();
+
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Message.Contains("UE4SS.log tail"));
+    }
+
+    /// <summary>Regression: after UnrealPak finished, comparing every game table with the last extraction ran on the UI thread and froze the window.</summary>
+    [Fact]
+    public async Task RefreshGameData_RunsTheExtractionOffTheCallingThread()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+        harness.UnrealPakService.ExtractResultFactory = () => new UnrealPakExtractResult(10, null);
+
+        var previous = SynchronizationContext.Current;
+        var callerContext = new SynchronizationContext();
+        SynchronizationContext.SetSynchronizationContext(callerContext);
+        Task run;
+        try
+        {
+            run = vm.UpdateDataFolderCommand.ExecuteAsync(null);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+
+        await run;
+
+        Assert.Equal(1, harness.UnrealPakService.ExtractCallCount);
+        Assert.NotSame(callerContext, harness.UnrealPakService.ContextAtExtract);
+    }
+
+    /// <summary>Regression: closing Starlink (or Update now) mid-migration or mid-refresh wasn't questioned: Settings never answered the what's-running check.</summary>
+    [Fact]
+    public void LongJobs_AnswerTheWhatsRunningCheck()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+
+        try
+        {
+            vm.IsMigratingFromImm = true;
+            Assert.Contains("classic IMM migration", AppBusyCheck.DescribeRunning());
+            vm.IsMigratingFromImm = false;
+
+            vm.IsUpdatingDataFolder = true;
+            Assert.Contains("game data refresh", AppBusyCheck.DescribeRunning());
+        }
+        finally
+        {
+            vm.IsMigratingFromImm = false;
+            vm.IsUpdatingDataFolder = false;
+        }
+
+        GC.KeepAlive(vm);
+    }
+
     private sealed class Harness : IDisposable
     {
         public readonly string TempDir;
@@ -1177,7 +1321,20 @@ public sealed class SettingsViewModelTests
         public readonly FakeCredentialStore CredentialStore = new();
         public INexusApiClient NexusApiClient = new FakeNexusApiClient();
 
-        public SettingsViewModel BuildViewModel() => new(
+        /// <summary>Where the VM looks for game crash reports; null = the real %LocalAppData% one (never reached while LastInstallAtUtc is null).</summary>
+        public string? CrashesFolder;
+
+        /// <summary>Every VM built here, taken off the app-wide messenger at Dispose: one a test left mid-job (IsUninstallingUe4ss set, say) would otherwise answer the what's-running check in later tests.</summary>
+        private readonly List<SettingsViewModel> _built = [];
+
+        public SettingsViewModel BuildViewModel()
+        {
+            var vm = CreateViewModel();
+            _built.Add(vm);
+            return vm;
+        }
+
+        private SettingsViewModel CreateViewModel() => new(
             SettingsService, UnrealPakService, WeeklyChangeReportStore,
             SteamInstallLocator, CredentialStore, NexusApiClient,
             NxmProtocolRegistrar, Ue4ssLoaderInstallService, Ue4ssReleaseClient, AppUpdateClient,
@@ -1186,7 +1343,8 @@ public sealed class SettingsViewModelTests
             () => throw new InvalidOperationException("MergeInstallViewModel factory not exercised by these tests"),
             UnrealPakInstaller, ActivityLog, DialogService, GameProcessChecker,
             Path.Combine(TempDir, "Backups"), Path.Combine(TempDir, "Data"), Path.Combine(TempDir, "Logs"),
-            Path.Combine(TempDir, "settings.json"), Path.Combine(TempDir, "Staged_UE4SS"));
+            Path.Combine(TempDir, "settings.json"), Path.Combine(TempDir, "Staged_UE4SS"),
+            gameCrashesFolder: CrashesFolder);
 
         /// <summary>
         /// SettingsViewModel takes a real, concrete ImmMigrationService (not an interface) purely
@@ -1201,6 +1359,11 @@ public sealed class SettingsViewModelTests
 
         public void Dispose()
         {
+            foreach (var vm in _built)
+            {
+                WeakReferenceMessenger.Default.UnregisterAll(vm);
+            }
+
             try
             {
                 Directory.Delete(TempDir, recursive: true);
@@ -1224,6 +1387,7 @@ public sealed class SettingsViewModelTests
         public AppSettings Current { get; } = settings;
         public int SaveCallCount { get; private set; }
         public bool SaveShouldSucceed { get; set; } = true;
+        public string? LoadProblem { get; set; }
 
         public bool Save()
         {
@@ -1242,10 +1406,14 @@ public sealed class SettingsViewModelTests
         /// <summary>When set, an extraction waits for it (a slow one), so a second request can arrive meanwhile.</summary>
         public TaskCompletionSource? ExtractGate { get; set; }
 
+        /// <summary>The SynchronizationContext the extraction was started under: the window's, when it ran on the UI thread.</summary>
+        public SynchronizationContext? ContextAtExtract { get; private set; }
+
         public async Task<UnrealPakExtractResult> ExtractDataPakAsync(
             string unrealPakExePath, string icarusContentPath, string outputDirectory,
             DateTimeOffset? previousUpdateAt, CancellationToken cancellationToken = default)
         {
+            ContextAtExtract = SynchronizationContext.Current;
             ExtractCallCount++;
             if (ExtractGate is { } gate)
             {

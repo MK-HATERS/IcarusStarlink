@@ -7,6 +7,7 @@ using IcarusStarlink.App.Services;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.Core.GameHealth;
+using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Pak;
 
@@ -210,7 +211,13 @@ public sealed partial class SettingsViewModel
         try
         {
             var previousUpdateAt = _settingsService.Current.LastDataFolderUpdatedAt;
-            var result = await _unrealPakService.ExtractDataPakAsync(UnrealPakExePath, IcarusContentPath, _dataOutputDirectory, previousUpdateAt);
+            var unrealPakExePath = UnrealPakExePath;
+            var icarusContentPath = IcarusContentPath;
+            var dataOutputDirectory = _dataOutputDirectory;
+            // Off the UI thread: after UnrealPak finishes, the service compares every game table
+            // with the last extraction, then swaps and counts the folders. Awaited directly, all of
+            // that ran on the UI thread and the window stopped responding for seconds.
+            var result = await Task.Run(() => _unrealPakService.ExtractDataPakAsync(unrealPakExePath, icarusContentPath, dataOutputDirectory, previousUpdateAt));
 
             if (result.ChangeReport is { } report)
             {
@@ -296,11 +303,13 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>
-    /// Silent once-per-launch check, same shape as CheckForAppUpdatesOnLaunchAsync — the closest
-    /// thing this app can offer to "did that merge actually work in Icarus" without guessing at
-    /// DataTable-parse-error text (see GameSessionHealthCheck's own doc comment for why). Only a
-    /// real crash reported AFTER the last recorded Install logs anything; nothing here ever nags on
-    /// a launch with no prior install, or one where the game simply never crashed.
+    /// Silent once-per-launch check, the closest thing this app can offer to "did that merge
+    /// actually work in Icarus" without guessing at DataTable-parse-error text (see
+    /// GameSessionHealthCheck's own doc comment for why). A game crash newer than the last install
+    /// and newer than the last crash already reported logs one warning, so each crash is reported
+    /// once (LastReportedCrashAtUtc), not at every start until the next install. The UE4SS.log
+    /// tail goes with it only when that log was written by the crashed session: UE4SS rewrites it
+    /// at each game start, so after a later game run it belongs to another session.
     /// </summary>
     private void CheckForGameCrashesSinceLastInstall()
     {
@@ -311,7 +320,10 @@ public sealed partial class SettingsViewModel
 
         try
         {
-            var crashes = GameSessionHealthCheck.FindCrashesSince(lastInstallAtUtc);
+            var reported = _settingsService.Current.LastReportedCrashAtUtc;
+            var crashes = GameSessionHealthCheck.FindCrashesSince(lastInstallAtUtc, _gameCrashesFolder)
+                .Where(c => reported is null || c.OccurredAtUtc > reported)
+                .ToList();
             if (crashes.Count == 0)
             {
                 return;
@@ -321,13 +333,20 @@ public sealed partial class SettingsViewModel
             _activityLog.Log(
                 $"Icarus crashed since your last install ({mostRecent.OccurredAtUtc.ToLocalTime():g}): {mostRecent.ErrorMessage}",
                 ActivityEntryKind.Warning);
+            _settingsService.Current.LastReportedCrashAtUtc = mostRecent.OccurredAtUtc;
+            _settingsService.Save();
 
             // The other half of this same health check (see GameSessionHealthCheck's own doc
             // comment): a real crash is a strong enough signal to also show what UE4SS itself was
             // last doing, in case a UE4SS mod's load failure is what actually caused it — plain log
             // text, not pattern-matched, for the same "no guessing" reason FindCrashesSince's own
-            // message isn't inferred either.
-            if (!string.IsNullOrWhiteSpace(IcarusContentPath))
+            // message isn't inferred either. No lower bound on the log's time: a long session can
+            // go hours without writing to it. ResolveLoaderLogPath throws for a drive root; the
+            // catch below covers it.
+            if (!string.IsNullOrWhiteSpace(IcarusContentPath)
+                && Ue4ssGamePaths.ResolveLoaderLogPath(IcarusContentPath) is var logPath
+                && File.Exists(logPath)
+                && File.GetLastWriteTimeUtc(logPath) <= mostRecent.OccurredAtUtc.UtcDateTime + TimeSpan.FromMinutes(2))
             {
                 var logTail = GameSessionHealthCheck.ReadUe4ssLogTail(IcarusContentPath);
                 if (logTail.Count > 0)
