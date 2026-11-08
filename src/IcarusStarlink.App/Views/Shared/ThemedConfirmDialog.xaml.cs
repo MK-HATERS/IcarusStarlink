@@ -24,6 +24,8 @@ public partial class ThemedConfirmDialog : Window
         Title = title;
         TitleText.Text = title;
         MessageTextBlock.Text = message;
+        // The message may take up to 60% of the screen; past that it scrolls, so the buttons stay visible.
+        MessageScroller.MaxHeight = Math.Max(120, SystemParameters.WorkArea.Height * 0.6);
 
         var (geometryKey, brushKey) = severity switch
         {
@@ -117,6 +119,35 @@ public partial class ThemedConfirmDialog : Window
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void Copy_Executed(object sender, ExecutedRoutedEventArgs e)
+    {
+        var buttons = new[] { CancelButton, ThirdButton, NoButton, YesButton }
+            .Where(b => b.Visibility == Visibility.Visible)
+            .Select(b => b.Content?.ToString() ?? "");
+        try
+        {
+            Clipboard.SetText(CopyText(TitleText.Text, MessageTextBlock.Text, buttons));
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            // Another program holds the clipboard; copying is a convenience, so skip it.
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// The box as text, laid out like the Windows message box's Ctrl+C: title, message and the
+    /// button words in screen order, between dashed lines.
+    /// </summary>
+    internal static string CopyText(string title, string message, IEnumerable<string> buttons)
+    {
+        const string line = "---------------------------\r\n";
+        var words = string.Concat(buttons.Select(b => b + "   "));
+        var body = message.ReplaceLineEndings("\r\n");
+        return $"{line}{title}\r\n{line}{body}\r\n{line}{words}\r\n{line}";
+    }
 
     protected override void OnKeyDown(KeyEventArgs e)
     {

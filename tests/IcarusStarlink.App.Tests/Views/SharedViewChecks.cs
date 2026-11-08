@@ -33,7 +33,72 @@ internal static class SharedViewChecks
         ("Type tag text", TypeTagText),
         ("Beta tag text", BetaTagText),
         ("Disabled pill button", DisabledPillButton),
+        ("Long question box message", LongQuestionMessage),
+        ("Question box Ctrl+C", QuestionBoxCopy),
     ];
+
+    /// <summary>A question with a very long message scrolls inside the box, so Yes and No stay on screen.</summary>
+    private static string? LongQuestionMessage()
+    {
+        var dialog = NewQuestionBox(string.Join("\n", Enumerable.Range(1, 80).Select(i => $"Mod number {i}")));
+        try
+        {
+            if (dialog.FindName("MessageTextBlock") is not TextBlock message)
+            {
+                return "harness: the question box has no MessageTextBlock";
+            }
+
+            DependencyObject? parent = message;
+            while (parent is not null and not ScrollViewer and not Window)
+            {
+                parent = LogicalTreeHelper.GetParent(parent) ?? VisualTreeHelper.GetParent(parent);
+            }
+
+            if (parent is not ScrollViewer scroller)
+            {
+                return "the message isn't in a scroll area, so a long one pushes Yes and No off the screen";
+            }
+
+            var screen = SystemParameters.WorkArea.Height;
+            return scroller.MaxHeight < screen
+                ? null
+                : $"the message's scroll area can grow to {scroller.MaxHeight} on a {screen} high screen";
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    /// <summary>Ctrl+C in a question box copies it, as in the Windows message box.</summary>
+    private static string? QuestionBoxCopy()
+    {
+        var dialog = NewQuestionBox("Delete this mod?");
+        try
+        {
+            if (dialog.FindName("YesButton") is not Button yes)
+            {
+                return "harness: the question box has no YesButton";
+            }
+
+            return ApplicationCommands.Copy.CanExecute(null, yes)
+                ? null
+                : "Ctrl+C does nothing in a question box";
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    /// <summary>A Yes/No question box built but not shown (the constructor is private: the app only shows it through the static Show methods).</summary>
+    private static ThemedConfirmDialog NewQuestionBox(string message) =>
+        (ThemedConfirmDialog)Activator.CreateInstance(
+            typeof(ThemedConfirmDialog),
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            binder: null,
+            args: [null, message, "Starlink", ThemedConfirmSeverity.Question],
+            culture: null)!;
 
     /// <summary>A primary button's label is drawn in the theme's "text on accent" colour, not the page text colour.</summary>
     private static string? PrimaryButtonLabel()

@@ -10,8 +10,12 @@
 
     <!--
     Built in code, not bound to a view model: the static Show methods set the title, message and
-    severity, then ShowDialog.
+    severity, then ShowDialog. Ctrl+C copies the whole box as text, as in the Windows message box.
     -->
+    <Window.CommandBindings>
+        <CommandBinding Command="ApplicationCommands.Copy" Executed="Copy_Executed"/>
+    </Window.CommandBindings>
+
     <Grid Margin="24,20,24,16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -26,8 +30,12 @@
             <TextBlock x:Name="TitleText" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"/>
         </StackPanel>
 
-        <TextBlock x:Name="MessageTextBlock" Grid.Row="1" TextWrapping="Wrap"
-                   Foreground="{DynamicResource ForegroundBrush}" FontSize="13" Margin="0,0,0,20"/>
+        <!-- MaxHeight is set in code from the screen height, so a long message scrolls and the buttons stay on screen. -->
+        <ScrollViewer x:Name="MessageScroller" Grid.Row="1" Margin="0,0,0,20" Focusable="False"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <TextBlock x:Name="MessageTextBlock" TextWrapping="Wrap"
+                       Foreground="{DynamicResource ForegroundBrush}" FontSize="13"/>
+        </ScrollViewer>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="CancelButton" Content="Cancel" Click="Cancel_Click" Margin="0,0,8,0" MinWidth="72" Visibility="Collapsed"/>
