@@ -42,4 +42,48 @@ public sealed class JsonFileStoreTests : IDisposable
         Assert.Equal("old", File.ReadAllText(path));
         Assert.Equal([path], Directory.GetFiles(_dir));
     }
+
+    /// <summary>Regression: a sync client or antivirus holding a store's file for a moment failed its save at once, though Load already tried three times.</summary>
+    [Fact]
+    public void Save_TargetLockedForAMoment_TriesAgainAndSaves()
+    {
+        var path = Path.Combine(_dir, "data.json");
+        File.WriteAllText(path, "\"old\"");
+        var waits = new List<int>();
+        var heldBySyncClient = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        try
+        {
+            JsonFileStore.Save(path, "new", attempt =>
+            {
+                waits.Add(attempt);
+                heldBySyncClient.Dispose();
+            });
+        }
+        finally
+        {
+            heldBySyncClient.Dispose();
+        }
+
+        Assert.Equal("\"new\"", File.ReadAllText(path));
+        Assert.Equal([1], waits);
+        Assert.Equal([path], Directory.GetFiles(_dir));
+    }
+
+    /// <summary>A file that stays locked: three tries, then the error goes to the caller, and the old file is left as it was.</summary>
+    [Fact]
+    public void Save_TargetStaysLocked_GivesUpAfterThreeTries()
+    {
+        var path = Path.Combine(_dir, "data.json");
+        File.WriteAllText(path, "\"old\"");
+        var waits = new List<int>();
+
+        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.ThrowsAny<Exception>(() => JsonFileStore.Save(path, "new", waits.Add));
+        }
+
+        Assert.Equal([1, 2], waits);
+        Assert.Equal("\"old\"", File.ReadAllText(path));
+        Assert.Equal([path], Directory.GetFiles(_dir));
+    }
 }

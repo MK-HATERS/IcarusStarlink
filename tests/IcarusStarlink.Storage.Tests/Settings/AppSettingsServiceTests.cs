@@ -217,7 +217,59 @@ public sealed class AppSettingsServiceTests : IDisposable
         service.Current.ThemeName = "Light";
         Assert.True(service.Save());
 
-        Assert.Empty(Directory.GetFiles(_dir, "*.bak"));
+        Assert.Empty(Directory.GetFiles(_dir, "settings.json.unreadable-*.bak"));
         Assert.Equal("Light", new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance).Current.ThemeName);
+    }
+
+    /// <summary>Regression: no copy of settings.json was kept, so a file broken by a power cut or a bad hand-edit lost every setting.</summary>
+    [Fact]
+    public void Save_KeepsTheFileItReplacesAsSettingsJsonBak()
+    {
+        Directory.CreateDirectory(_dir);
+        const string before = """{"ThemeName":"Dark"}""";
+        File.WriteAllText(Path.Combine(_dir, "settings.json"), before);
+
+        var service = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance);
+        service.Current.ThemeName = "Light";
+        Assert.True(service.Save());
+
+        Assert.Equal(before, File.ReadAllText(Path.Combine(_dir, "settings.json.bak")));
+    }
+
+    /// <summary>Regression: a settings.json that wasn't valid JSON started Starlink on defaults, though the copy from before the last save was fine.</summary>
+    [Fact]
+    public void Load_NotValidJson_UsesSettingsJsonBak()
+    {
+        Directory.CreateDirectory(_dir);
+        var settingsPath = Path.Combine(_dir, "settings.json");
+        File.WriteAllText(settingsPath, """{"ThemeName":"Dark"}""");
+        var first = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance);
+        first.Current.ThemeName = "Light";
+        Assert.True(first.Save());
+        // The last save cut off half-way.
+        File.WriteAllText(settingsPath, """{ "ThemeName": "Li""");
+
+        var service = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance);
+
+        Assert.Equal("Dark", service.Current.ThemeName);
+        Assert.Contains("settings.json.bak", ((ISettingsService)service).LoadProblem);
+    }
+
+    /// <summary>After starting from settings.json.bak, the first save keeps the broken file aside and never copies it over the good backup.</summary>
+    [Fact]
+    public void Save_AfterStartingFromTheBackup_KeepsTheBrokenFileAsideAndTheBackupGood()
+    {
+        Directory.CreateDirectory(_dir);
+        const string broken = """{ "ThemeName": "Li""";
+        const string good = """{"ThemeName":"Dark"}""";
+        File.WriteAllText(Path.Combine(_dir, "settings.json"), broken);
+        File.WriteAllText(Path.Combine(_dir, "settings.json.bak"), good);
+
+        var service = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance);
+        Assert.True(service.Save());
+
+        Assert.Equal(good, File.ReadAllText(Path.Combine(_dir, "settings.json.bak")));
+        Assert.Equal(broken, File.ReadAllText(Assert.Single(Directory.GetFiles(_dir, "settings.json.unreadable-*.bak"))));
+        Assert.Equal("Dark", new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance).Current.ThemeName);
     }
 }

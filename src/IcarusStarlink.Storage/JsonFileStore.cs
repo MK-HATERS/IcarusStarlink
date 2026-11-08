@@ -183,13 +183,37 @@ internal static class JsonFileStore
         return items;
     }
 
-    /// <summary>Serializes value with the shared Options, then writes it via WriteAtomically.</summary>
-    public static void Save<T>(string filePath, T value) => WriteAtomically(filePath, JsonSerializer.Serialize(value, Options));
+    /// <summary>
+    /// Serializes value with the shared Options, then writes it via WriteAtomically. A locked or
+    /// denied file is tried three times (100 ms, then 200 ms apart), the same as Load: a sync
+    /// client or antivirus holding it for a moment used to fail the save at once.
+    /// </summary>
+    public static void Save<T>(string filePath, T value) => Save(filePath, value, attempt => Thread.Sleep(100 * attempt));
+
+    /// <param name="waitBeforeRetry">Called with the failed attempt's number (1, 2) before the next try. Tests use it to let go of a lock.</param>
+    internal static void Save<T>(string filePath, T value, Action<int> waitBeforeRetry)
+    {
+        var content = JsonSerializer.Serialize(value, Options);
+        const int attempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                WriteAtomically(filePath, content);
+                return;
+            }
+            catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && attempt < attempts)
+            {
+                waitBeforeRetry(attempt);
+            }
+        }
+    }
 
     /// <summary>
     /// Writes to a temp file in the same directory, then File.Move(overwrite: true)'s it into
     /// place — not a direct File.WriteAllText, which truncates filePath in place and would leave it
-    /// malformed if the process is killed mid-write (a crash, forced shutdown, or power loss). The
+    /// malformed if the process is killed mid-write (a crash or a forced shutdown). What survives a
+    /// power cut is up to AtomicFile and the disk, so settings.json also keeps a .bak copy. The
     /// temp file's own name is unique per call so two concurrent writes to the same path can't
     /// collide with each other's in-progress write. Public (not just used by Save&lt;T&gt;) so a
     /// caller writing pre-serialized or non-JSON content — IcarusStarlink.Storage.Saves.SaveRepository
