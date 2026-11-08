@@ -298,4 +298,21 @@ public sealed class ServerUe4ssSyncTests : IDisposable
         Assert.True(File.Exists(Path.Combine(serverMods, "Pets", "Scripts", "main.lua")));
         Assert.False(File.Exists(Path.Combine(serverMods, "Pets", "Pets.log")));
     }
+
+    [Theory]
+    [InlineData("ArcFissionLibrary", "state.lua", true)]
+    [InlineData("ArcFission Library", "registry.txt", true)]
+    [InlineData("ArcFission-Library", "CORE_RUNNING.TXT", true)]
+    [InlineData("ArcFissionLibrary", "status.lua", true)]
+    [InlineData("ArcFissionLibrary", "core_queue.txt", true)]
+    [InlineData("ArcFissionLibrary", "core_off.txt", false)]
+    [InlineData("ArcFissionLibrary", "README.md", false)]
+    [InlineData("ArcFissionLibrary", "Scripts/state.lua", false)]
+    [InlineData("WirelessPower", "state.lua", false)]
+    public void IsArcFissionLibraryState_OnlyTheLibrarysTopLevelSessionFiles(string folderName, string relativePath, bool expected)
+    {
+        var modFolder = Path.Combine(_root, "game", folderName) + Path.DirectorySeparatorChar;
+
+        Assert.Equal(expected, ServerUe4ssSync.IsArcFissionLibraryState(modFolder, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+    }
 }

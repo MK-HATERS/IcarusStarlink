@@ -247,8 +247,15 @@ public static class ServerUe4ssSync
     /// </summary>
     private static readonly string[] ArcFissionLibraryStateFiles = ["state.lua", "status.lua", "registry.txt", "core_queue.txt", "core_running.txt"];
 
-    /// <summary>A file in the ArcFission Library folder (named "ArcFissionLibrary…", as InstallManifestNames finds it) that is its runtime state.</summary>
-    private static bool IsArcFissionLibraryState(string modFolder, string relativePath)
+    /// <summary>
+    /// A file in the ArcFission Library folder (named "ArcFissionLibrary…" read as letters and digits,
+    /// as InstallManifestNames finds it) that is its runtime state: one of the session files above, at
+    /// the folder's top level (<paramref name="relativePath"/> is relative to <paramref name="modFolder"/>).
+    /// The one list for every copy of a mod folder that leaves another PC's session behind: the server
+    /// sync here, and a shared patch's bundled UE4SS mods. Only these names: the user's own switches
+    /// (core_off.txt) and a README are part of the mod.
+    /// </summary>
+    public static bool IsArcFissionLibraryState(string modFolder, string relativePath)
     {
         var letters = new string([.. Path.GetFileName(Path.TrimEndingDirectorySeparator(modFolder)).Where(char.IsLetterOrDigit)]);
         return letters.StartsWith("ArcFissionLibrary", StringComparison.OrdinalIgnoreCase)
