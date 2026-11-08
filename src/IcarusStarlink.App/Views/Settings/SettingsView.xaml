@@ -458,6 +458,9 @@
                                                                            Visibility="{Binding ShowKeyName, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                                 <TextBlock Text="  changed" Foreground="{DynamicResource AccentBrush}" FontSize="11" VerticalAlignment="Center"
                                                                            Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                                                <TextBlock Text="  not in your file yet" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource FaintForegroundBrush}"
+                                                                           ToolTip="This UE4SS build has this setting but your UE4SS-settings.ini doesn't, so UE4SS uses the value shown. Change it and save to add it to your file."
+                                                                           Visibility="{Binding IsNotInFile, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                                             </WrapPanel>
                                                             <TextBlock Text="{Binding Description}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                                                        Visibility="{Binding HasDescription, Converter={StaticResource BoolToVisibilityConverter}}"/>
@@ -587,6 +590,9 @@
                             <Button Content="Open log folder" Command="{Binding OpenLogFolderCommand}" Margin="8,0,0,0"
                                     ToolTip="Opens the folder with the log files (icarusstarlink-date.log)"/>
                         </WrapPanel>
+                        <!-- 20 is CrashReportWriter.MaxReports; 14 is LogDetail.MaxFiles, which PerformanceTracker keeps of its daily timing logs. -->
+                        <TextBlock Text="The zip hides your Windows user name (your user folder shows as %USERPROFILE%). Starlink keeps the newest 20 crash reports and the newest 14 daily timing logs."
+                                   Foreground="{DynamicResource FaintForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,6,0,0"/>
                         <TextBlock Text="{Binding DiagnosticsStatusMessage}" Margin="0,8,0,0" TextWrapping="Wrap"
                                    Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"
                                    Visibility="{Binding DiagnosticsStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
