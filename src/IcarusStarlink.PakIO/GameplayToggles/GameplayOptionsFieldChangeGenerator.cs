@@ -148,7 +148,7 @@ public static class GameplayOptionsFieldChangeGenerator
         ];
     }
 
-    /// <summary>Reads one real base-game file fresh and returns one named row, keyed the same way every other file in this pipeline is — null (with a warning already added to report) if the file or row doesn't exist, never throws.</summary>
+    /// <summary>Reads one real base-game file fresh and returns one named row, keyed the same way every other file in this pipeline is — null (with a warning already added to report) if the file or row doesn't exist. A file that can't be read (locked) or isn't valid JSON throws, as BaseDataFileReader.ParseFile does.</summary>
     private static JsonObject? ReadKeyedRow(string dataFolder, string currentFile, string rowName, MergeReport report)
     {
         var keyed = BaseDataFileReader.ReadKeyedTable(dataFolder, currentFile, report);

@@ -18,6 +18,7 @@ public static class MergeEngine
     /// FindConflicts' own doc comment for why. Passing null skips this (matches every existing
     /// caller's behavior before this parameter existed).
     /// </summary>
+    /// <exception cref="StaleConflictPickException">A manual pick's index no longer fits the mods changing its field.</exception>
     public static IReadOnlyList<FieldChange> Merge(
         IReadOnlyList<IReadOnlyList<FieldChange>> orderedModChanges,
         MergeRuleRegistry registry,
@@ -34,14 +35,12 @@ public static class MergeEngine
             {
                 if (pickedIndex < 0 || pickedIndex >= changes.Count)
                 {
-                    // Most likely cause: the pick was made before a later queue reorder/removal
-                    // changed how many mods now touch this field. Surface that clearly instead
-                    // of an IndexOutOfRangeException or silently applying the wrong mod's value.
-                    throw new ArgumentOutOfRangeException(
-                        nameof(manualPicks),
-                        pickedIndex,
-                        $"Manual pick for {key.CurrentFile}:{key.ItemName}.{key.FieldName} is out of range " +
-                        $"— {changes.Count} mod(s) currently touch this field. The pick is likely stale.");
+                    // The pick was made for another set of mods changing this field (the queue
+                    // changed since). Stop with a message the build can show as it is, instead of
+                    // an IndexOutOfRangeException or silently applying the wrong mod's value.
+                    throw new StaleConflictPickException(
+                        $"A pick in Check the merge no longer matches the queue ({key.ItemName} › {StatEntries.Display(key.FieldName)} in {key.CurrentFile}: " +
+                        $"{changes.Count} mod(s) change it now). Open Check the merge, pick again, then build.");
                 }
 
                 resolved.Add(changes[pickedIndex]);
@@ -157,16 +156,14 @@ public static class MergeEngine
     }
 
     /// <summary>
-    /// For every mod named in any conflict's own Candidates (or, when given, any newItemCollision's
-    /// own ModNames — the same "which other mods should this queue row warn about" question, just
-    /// for a name collision instead of a field disagreement), the set of every OTHER mod it shares
-    /// that with — aggregated across all of them, since two mods can disagree on more than one
-    /// field (or collide on more than one item name), and a mod can be involved with different mods
-    /// in different ways. Built for a per-row "which mods does this one conflict with" queue
-    /// indicator, so a user doesn't need to open the full conflict picker just to see that a row is
-    /// involved in one. Keyed by ConflictCandidate.ModName/NewItemNameCollision.ModNames — display
-    /// text, not a folder identifier, matching FieldConflict's own established convention (see its
-    /// doc comment).
+    /// For every mod named in any conflict's own Candidates (and, when given, any newItemCollision's
+    /// own ModNames), the set of every OTHER mod it shares a conflict with, aggregated across all of
+    /// them, since two mods can disagree on more than one field and a mod can be involved with
+    /// different mods in different ways. Built for the Merge &amp; Install queue's per-row "conflicts
+    /// with" indicator, which passes field conflicts only: two mods adding a row of the same name
+    /// don't mark a queue row (Check the merge lists those). Keyed by
+    /// ConflictCandidate.ModName/NewItemNameCollision.ModNames — display text, not a folder
+    /// identifier, matching FieldConflict's own established convention (see its doc comment).
     /// </summary>
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> GroupConflictsByMod(
         IReadOnlyList<FieldConflict> conflicts, IReadOnlyList<NewItemNameCollision>? newItemCollisions = null)

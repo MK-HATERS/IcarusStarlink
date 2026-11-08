@@ -210,6 +210,10 @@ public class MergeEngineTests
         Assert.True(change.IsNewItem);
     }
 
+    /// <summary>
+    /// Regression: a stale pick used to throw ArgumentOutOfRangeException, and the build showed
+    /// "Manual pick for … is out of range … (Parameter 'manualPicks') Actual value was 5." with no next step.
+    /// </summary>
     [Fact]
     public void Merge_ManualPickIndexOutOfRange_ThrowsClearException()
     {
@@ -219,10 +223,12 @@ public class MergeEngineTests
         var key = ("Items-D_ItemsStatic.json", "Sword", "Damage");
         var manualPicks = new Dictionary<(string, string, string), int> { [key] = 5 }; // stale pick
 
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(
+        var ex = Assert.Throws<StaleConflictPickException>(
             () => MergeEngine.Merge([modA, modB], new MergeRuleRegistry(), manualPicks));
         Assert.Contains("Sword", ex.Message);
         Assert.Contains("Damage", ex.Message);
+        Assert.Contains("pick again", ex.Message);
+        Assert.DoesNotContain("Parameter", ex.Message);
     }
 
     [Fact]
