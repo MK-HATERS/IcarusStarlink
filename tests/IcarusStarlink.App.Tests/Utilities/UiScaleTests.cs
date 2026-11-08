@@ -6,6 +6,9 @@ using IcarusStarlink.App.Utilities;
 
 namespace IcarusStarlink.App.Tests.Utilities;
 
+// UiScale.Current is one static for the whole process; SettingsViewModelTests sets and asserts it
+// too, so the two classes share a collection and never run at the same time.
+[Collection(MessengerCollection.Name)]
 public class UiScaleTests
 {
     /// <summary>
