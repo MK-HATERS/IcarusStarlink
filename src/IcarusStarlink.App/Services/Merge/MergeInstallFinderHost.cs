@@ -52,15 +52,15 @@ public sealed class MergeInstallFinderHost(Func<MergeInstallViewModel> mergeInst
     private const int WorldZipsKept = 3;
 
     /// <summary>
-    /// Every save slot as the Saves page's Backup now does it (a "manual" zip, never pruned, that
-    /// Saves › Restore puts back), plus a zip of the slot's worlds, which that backup doesn't hold.
+    /// Every save slot as a find-broken-mod backup (newest 3 kept per slot) that Saves › Restore
+    /// puts back, plus a zip of the slot's worlds, which that backup doesn't hold.
     /// </summary>
     public IReadOnlyList<string> BackUpSaves()
     {
         var zips = new List<string>();
         foreach (var slot in saves.ListSlots())
         {
-            zips.Add(saves.BackupSlotManually(slot.SteamId));
+            zips.Add(saves.BackupSlotBeforeFindBrokenMod(slot.SteamId));
             var prospects = Path.Combine(slot.FolderPath, "Prospects");
             if (Directory.Exists(prospects) && Directory.EnumerateFileSystemEntries(prospects).Any())
             {

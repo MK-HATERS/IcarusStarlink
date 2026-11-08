@@ -66,6 +66,17 @@ public sealed class MergeInstallFinderHostTests : IDisposable
         Assert.DoesNotContain(written[0], kept);
     }
 
+    /// <summary>The slot backup was a "Backup now" zip, which is never pruned, so every search left one more behind.</summary>
+    [Fact]
+    public void BackUpSaves_BacksUpEachSlotAsAFindBrokenModBackup_NotAManualOne()
+    {
+        var slotZips = _host.BackUpSaves().Where(z => !z.Contains("_worlds_")).Select(Path.GetFileName).ToList();
+
+        var zip = Assert.Single(slotZips);
+        Assert.StartsWith($"{SteamId}_before_find_broken_mod_", zip);
+        Assert.DoesNotContain("_manual", zip);
+    }
+
     /// <summary>Regression: a zip that failed half way left a .partial file behind in the backups folder.</summary>
     [Fact]
     public void BackUpSaves_WorldZipFails_LeavesNoPartialFile()
