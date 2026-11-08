@@ -70,6 +70,50 @@ public sealed class ManualInstallerTests : IDisposable
         Assert.Null(ManualInstaller.Problem(new ManualInstallItem(ManualInstallKind.PakMod, Path.Combine(_root, "Paks"), "Paks", "Paks")));
     }
 
+    /// <summary>A UE4SS mod's typed name becomes its folder name: "UE4SS Mods\MiniMapa" used to stage a "UE4SS Mods" folder with the mod inside, and "Name: 2" failed with a Windows path error.</summary>
+    [Theory]
+    [InlineData("UE4SS Mods/MiniMapa")]
+    [InlineData("UE4SS Mods\\MiniMapa")]
+    [InlineData("Name: 2")]
+    [InlineData("MiniMapa.")]
+    [InlineData("CON")]
+    [InlineData("..")]
+    public void Problem_Ue4ssNameThatIsntAFolderName_IsRefused(string name)
+    {
+        var line = new ManualInstallItem(ManualInstallKind.Ue4ssMod, Path.Combine(_root, "UE4SS Mods", "MiniMapa"), "UE4SS Mods/MiniMapa", "MiniMapa") { Name = name };
+
+        Assert.Contains("folder name", ManualInstaller.Problem(line));
+    }
+
+    [Fact]
+    public void Problem_Ue4ssPlainName_IsFine()
+    {
+        var line = new ManualInstallItem(ManualInstallKind.Ue4ssMod, Path.Combine(_root, "UE4SS Mods", "MiniMapa"), "UE4SS Mods/MiniMapa", "MiniMapa") { Name = " MiniMapa " };
+
+        Assert.Null(ManualInstaller.Problem(line));
+    }
+
+    /// <summary>A UE4SS name with a slash staged a "UE4SS Mods" folder (never started by UE4SS); it is refused before anything is staged.</summary>
+    [Fact]
+    public async Task Install_Ue4ssNameWithASlash_StagesNothing()
+    {
+        var store = Path.Combine(_root, "_store");
+        using var library = new IcarusStarlink.Storage.Library.FolderLibraryRepository(
+            Path.Combine(store, "Extracted_Mods"), Path.Combine(store, "Library_Meta"), Path.Combine(store, "Backups"),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<IcarusStarlink.Storage.Library.FolderLibraryRepository>.Instance);
+        var ue4ss = new IcarusStarlink.Storage.Ue4ss.Ue4ssModRepository(Path.Combine(store, "Staged_UE4SS"));
+        IReadOnlyList<ManualInstallItem> plan =
+        [
+            new(ManualInstallKind.Ue4ssMod, Path.Combine(_root, "UE4SS Mods", "MiniMapa"), "UE4SS Mods/MiniMapa", "MiniMapa") { Name = "UE4SS Mods/MiniMapa" },
+        ];
+
+        await Assert.ThrowsAsync<FormatException>(() => ManualInstaller.InstallAsync(
+            plan, library, ue4ss, new FailingPakImporter(), Path.Combine(_root, "Data"), null, null, null, null, null));
+
+        Assert.Empty(ue4ss.GetAll());
+        Assert.False(Directory.Exists(Path.Combine(store, "Staged_UE4SS", "UE4SS Mods")));
+    }
+
     /// <summary>Adding the same piece twice installed it twice (a second "_2" copy): the second add is refused.</summary>
     [Fact]
     public void DuplicateProblem_RefusesThePathAlreadyInThePlan()

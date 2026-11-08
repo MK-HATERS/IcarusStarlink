@@ -5,6 +5,7 @@ using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Import;
+using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.App.Services;
 
@@ -136,6 +137,14 @@ public static class ManualInstaller
         if (string.IsNullOrWhiteSpace(item.Name))
         {
             return $"'{item.RelativePath}': give it a name.";
+        }
+
+        // A UE4SS mod's name becomes its staged folder's name ("UE4SS Mods\MiniMapa" staged a
+        // "UE4SS Mods" folder UE4SS never starts). Pak and EXMOD names are only display names.
+        if (item.Kind == ManualInstallKind.Ue4ssMod && item.Name.Trim() is var folderName
+            && (!AssetPathGuard.IsSimpleFileName(folderName) || folderName.EndsWith('.')))
+        {
+            return $"'{item.RelativePath}': a UE4SS mod's name is its folder name, so it can't contain \\ / : * ? \" < > |, end with a dot, or be a name Windows keeps for itself (CON, NUL, COM1…).";
         }
 
         var isFolder = Directory.Exists(item.FullPath);
