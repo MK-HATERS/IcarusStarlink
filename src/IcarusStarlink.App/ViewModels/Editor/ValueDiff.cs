@@ -29,7 +29,7 @@ public sealed record DiffRow(string? Mod, string? Game, string? After, DiffSide 
 /// </summary>
 public static class ValueDiff
 {
-    /// <summary>JSON shown to or searched by a person, on one line: "+", quotes and accents as they are, not +.</summary>
+    /// <summary>JSON shown to or searched by a person, on one line: "+", quotes and accents as they are, not as escape codes.</summary>
     internal static readonly JsonSerializerOptions CompactDisplay = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     /// <summary>True when both sides are lists of named entries (shown entry by entry).</summary>

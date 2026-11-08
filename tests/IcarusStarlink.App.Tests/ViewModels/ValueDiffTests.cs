@@ -54,7 +54,7 @@ public sealed class ValueDiffTests
         Assert.Equal("20000", row.Game);
     }
 
-    /// <summary>Regression: a stats key showed its quotes and "+" as " and +.</summary>
+    /// <summary>Regression: a stats key showed its quotes and "+" as escape codes.</summary>
     [Fact]
     public void AStatsKey_ShowsPlusAndQuotesAsTheyAre()
     {

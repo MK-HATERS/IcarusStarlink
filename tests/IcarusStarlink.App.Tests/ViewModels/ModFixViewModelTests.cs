@@ -610,7 +610,7 @@ public sealed class ModFixViewModelTests : IDisposable
         Assert.Equal(1, sent);
     }
 
-    /// <summary>Regression: the short Mod/Game text showed "+" and quotes as + and ".</summary>
+    /// <summary>Regression: the short Mod/Game text showed "+" and quotes as escape codes.</summary>
     [Fact]
     public void Describe_ShowsPlusAndQuotesAsTheyAre()
     {
