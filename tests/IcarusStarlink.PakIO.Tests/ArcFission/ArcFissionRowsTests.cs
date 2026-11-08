@@ -114,7 +114,7 @@ public sealed class ArcFissionRowsTests : IDisposable
     [Theory]
     [InlineData("Mod : 0\r\nMod : 1\r\n", true)]
     [InlineData("mod : 1\r\n", false)]
-    public void Scan_TakesAModTurnedOnInModsTxt_ByUe4sssOwnRule(string modsTxt, bool scanned)
+    public void Scan_TakesAModTurnedOnInModsTxt_ByUe4ssOwnRule(string modsTxt, bool scanned)
     {
         Mod("Mod", "Mod", Rows(("Crafting/D_ProcessorRecipes.json", "Mod_Row", 1)), enabled: false);
         File.WriteAllText(Path.Combine(ModsFolder, "mods.txt"), modsTxt);

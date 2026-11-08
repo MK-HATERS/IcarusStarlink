@@ -22,7 +22,7 @@ public sealed class Ue4ssModsTxtTests
     [InlineData("M : 1", "M", true)]
     [InlineData("MyMod : 1", "My Mod", null)]
     [InlineData("", "X", null)]
-    public void StartsByList_FollowsUe4sssOwnRules(string text, string folderName, bool? expected)
+    public void StartsByList_FollowsUe4ssOwnRules(string text, string folderName, bool? expected)
     {
         Assert.Equal(expected, Ue4ssModsTxt.Parse(text).StartsByList(folderName));
     }
