@@ -119,6 +119,7 @@ public sealed partial class LibraryViewModel
                 Ue4ssMods.Add(row);
             }
             RecomputeHasPendingUe4ssChanges();
+            RefreshUe4ssLastRun();
 
             // A sidecar whose mod folder is gone (deleted by hand, renamed) is dead weight that can
             // attach a stale Nexus link to an unrelated mod landing under the same name later —
@@ -471,6 +472,63 @@ public sealed partial class LibraryViewModel
         catch (Exception ex)
         {
             Ue4ssStatusMessage = $"Couldn't open the folder: {ex.Message}";
+        }
+    }
+
+    /// <summary>Opens UE4SS.log, where UE4SS says which mods it started the last time the game ran.</summary>
+    [RelayCommand]
+    private void OpenUe4ssLog()
+    {
+        var contentPath = _settingsService.Current.IcarusContentPath;
+        if (string.IsNullOrWhiteSpace(contentPath))
+        {
+            Ue4ssStatusMessage = "Set the Icarus Content folder in Settings first.";
+            return;
+        }
+
+        try
+        {
+            var logPath = Ue4ssGamePaths.ResolveLoaderLogPath(contentPath);
+            if (!File.Exists(logPath))
+            {
+                Ue4ssStatusMessage = "No UE4SS.log yet: UE4SS writes it when the game starts. Play once, then try again.";
+                return;
+            }
+
+            UrlOpener.TryOpen(logPath);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException)
+        {
+            Ue4ssStatusMessage = $"Couldn't open UE4SS.log: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Sets each UE4SS row's last-run badge from UE4SS.log (read shared, cached by its write time, so
+    /// this is cheap on every reload and every time the page is shown again after a game run).
+    /// </summary>
+    private void RefreshUe4ssLastRun()
+    {
+        var contentPath = _settingsService.Current.IcarusContentPath;
+        if (string.IsNullOrWhiteSpace(contentPath) || Ue4ssMods.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var modsFolder = Ue4ssGamePaths.ResolveModsFolder(contentPath);
+            var log = Ue4ssLogStarts.Read(Ue4ssGamePaths.ResolveLoaderLogPath(contentPath));
+            foreach (var row in Ue4ssMods)
+            {
+                row.LastRun = row.RealIsEnabled && !row.IsAlwaysOn
+                    ? log.StateFor(row.Name, Ue4ssLogStarts.LastChanged(modsFolder, row.Name))
+                    : Ue4ssLastRun.Unknown;
+            }
+        }
+        catch (ArgumentException)
+        {
+            // A Content path with no parent folder: no log to read.
         }
     }
 

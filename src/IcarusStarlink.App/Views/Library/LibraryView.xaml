@@ -191,6 +191,9 @@
                                   Command="{Binding PlacementTarget.Tag.OpenUe4ssModFolderCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
                                   ToolTip="Opens this mod's folder: in the game's Mods folder when it's on, in Starlink's own holding folder when it's off"/>
+                        <MenuItem Header="Open UE4SS.log"
+                                  Command="{Binding PlacementTarget.Tag.OpenUe4ssLogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  ToolTip="Opens UE4SS's own log from the last game run, which says which mods it started and what went wrong"/>
                         <MenuItem Header="Edit config…"
                                   Command="{Binding PlacementTarget.Tag.EditUe4ssModConfigCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
@@ -287,6 +290,35 @@
                 <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0" Visibility="{Binding DataContext.ShowStatusColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Ellipse Style="{StaticResource ModStatusDotStyle}"/>
                     <TextBlock Text="{Binding InstallStatus}" FontSize="12" VerticalAlignment="Center" ToolTip="{Binding InstallStatusDetail}" Style="{StaticResource ModStatusTextStyle}"/>
+                    <!-- What UE4SS did with it the last time the game ran (UE4SS.log). -->
+                    <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,1" VerticalAlignment="Center" BorderThickness="1"
+                            ToolTip="{Binding LastRunTooltip}"
+                            AutomationProperties.Name="{Binding LastRunText, StringFormat='Last game run: {0}'}"
+                            Visibility="{Binding ShowLastRun, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{DynamicResource CardRaisedBackgroundBrush}"/>
+                                <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding LastRunFailed}" Value="True">
+                                        <Setter Property="BorderBrush" Value="{DynamicResource DangerBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding LastRunText}" FontSize="10">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding LastRunFailed}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Border>
                     <Button Style="{StaticResource PillButtonStyle}" Background="{DynamicResource AccentBrush}" Margin="6,0,0,0"
                             Command="{Binding DataContext.GetUe4ssUpdateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"

@@ -87,9 +87,37 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
         OnPropertyChanged(nameof(InstallStatusDetail));
         OnPropertyChanged(nameof(IsInGame));
         OnPropertyChanged(nameof(NeedsAction));
+        OnPropertyChanged(nameof(ShowLastRun));
     }
 
     public bool IsInGame => InstallStatus == "In game";
+
+    /// <summary>Set by LibraryViewModel from UE4SS.log (Ue4ssLogStarts): what UE4SS did with this mod the last time the game ran.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowLastRun), nameof(LastRunFailed), nameof(LastRunText), nameof(LastRunTooltip))]
+    private Ue4ssLastRun _lastRun;
+
+    /// <summary>The last-run badge: only on a mod that is on (not waiting for Apply), with UE4SS installed, when the log has something to say.</summary>
+    public bool ShowLastRun => LastRun != Ue4ssLastRun.Unknown && RealIsEnabled && !IsDirty && !LoaderMissing && !IsAlwaysOn;
+
+    /// <summary>On, but UE4SS didn't start it last time: the badge is a warning.</summary>
+    public bool LastRunFailed => LastRun == Ue4ssLastRun.NotStarted;
+
+    public string LastRunText => LastRun switch
+    {
+        Ue4ssLastRun.Started => "Started",
+        Ue4ssLastRun.NotStarted => "Didn't start",
+        Ue4ssLastRun.NotRunSince => "Not run since",
+        _ => "",
+    };
+
+    public string LastRunTooltip => LastRun switch
+    {
+        Ue4ssLastRun.Started => "UE4SS started this mod the last time the game ran (UE4SS.log says so).",
+        Ue4ssLastRun.NotStarted => "This mod is on, but UE4SS didn't start it the last time the game ran. Right-click it and choose Open UE4SS.log to see why.",
+        Ue4ssLastRun.NotRunSince => "The game hasn't run since this mod was turned on or changed (or since UE4SS was installed), so there's no word yet on whether UE4SS starts it. Play once, then look again.",
+        _ => "",
+    };
 
     /// <summary>Set by LibraryViewModel: the mod ships a config file (config.lua, config.ini…), so the right-click menu offers Edit config.</summary>
     [ObservableProperty]
@@ -335,6 +363,7 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
         OnPropertyChanged(nameof(InstallStatusDetail));
         OnPropertyChanged(nameof(IsInGame));
         OnPropertyChanged(nameof(NeedsAction));
+        OnPropertyChanged(nameof(ShowLastRun));
         _onDirtyChanged();
     }
 }

@@ -214,6 +214,9 @@ public sealed partial class LibraryViewModel
         // Steam may have updated the game while another page was open.
         _ = CheckForGameUpdateAsync();
 
+        // The game may have run (and rewritten UE4SS.log) while another page was open.
+        RefreshUe4ssLastRun();
+
         if (_fileRisksStale && BaseGameContent is not null)
         {
             _fileRisksStale = false;
