@@ -97,6 +97,99 @@ public class AppUpdateClientTests
         Assert.Null(await client.GetReleaseAsync("9.9.9"));
     }
 
+    /// <summary>
+    /// cdn-a never answers (HttpClient's own timeout, a TaskCanceledException nobody asked for) or
+    /// answers and then stops sending; cdn-b serves the zip.
+    /// </summary>
+    private sealed class SlowFirstServerHandler(bool stallAfterHeaders) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.Host == "cdn-a.example")
+            {
+                return stallAfterHeaders
+                    ? Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StreamContent(new NeverSendsStream()) })
+                    : Task.FromException<HttpResponseMessage>(new TaskCanceledException(
+                        "The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.", new TimeoutException()));
+            }
+
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("zip-bytes") });
+        }
+    }
+
+    /// <summary>A body that never sends another byte until the reader gives up.</summary>
+    private sealed class NeverSendsStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+    }
+
+    /// <summary>
+    /// The first Nexus server timing out escaped the server loop (only HttpRequestException and
+    /// IOException moved on), so the other servers Nexus offered were never tried.
+    /// </summary>
+    [Fact]
+    public async Task DownloadAsync_FirstServerTimesOut_TriesTheNext()
+    {
+        var client = new AppUpdateClient(new HttpClient(new SlowFirstServerHandler(stallAfterHeaders: false))) { TestFeedFolder = null };
+        var destinationPath = Path.Combine(Path.GetTempPath(), $"starlink-update-{Guid.NewGuid():N}.zip");
+        try
+        {
+            await client.DownloadAsync(["https://cdn-a.example/starlink.zip", "https://cdn-b.example/starlink.zip"], MatchingDigestForZipBytes, destinationPath, null);
+
+            Assert.Equal("zip-bytes", File.ReadAllText(destinationPath));
+        }
+        finally
+        {
+            File.Delete(destinationPath);
+        }
+    }
+
+    /// <summary>
+    /// A server that answered and then stopped sending froze the update's progress bar until the
+    /// user pressed Cancel: the body was read with no idle limit, and no other server was tried.
+    /// </summary>
+    [Fact]
+    public async Task DownloadAsync_AServerThatStopsSending_TriesTheNext()
+    {
+        var client = new AppUpdateClient(new HttpClient(new SlowFirstServerHandler(stallAfterHeaders: true)))
+        {
+            TestFeedFolder = null,
+            IdleTimeout = TimeSpan.FromMilliseconds(200),
+        };
+        var destinationPath = Path.Combine(Path.GetTempPath(), $"starlink-update-{Guid.NewGuid():N}.zip");
+        using var giveUp = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            await client.DownloadAsync(["https://cdn-a.example/starlink.zip", "https://cdn-b.example/starlink.zip"], MatchingDigestForZipBytes, destinationPath, null,
+                giveUp.Token);
+
+            Assert.False(giveUp.IsCancellationRequested);
+            Assert.Equal("zip-bytes", File.ReadAllText(destinationPath));
+        }
+        finally
+        {
+            File.Delete(destinationPath);
+        }
+    }
+
     /// <summary>Progress&lt;T&gt; posts to a sync context; this reports straight away.</summary>
     private sealed class SyncProgress(Action<AppUpdateDownloadProgress> report) : IProgress<AppUpdateDownloadProgress>
     {

@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using IcarusStarlink.Catalog.GitHub;
+using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.Catalog.AppUpdate;
 
@@ -36,6 +37,9 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
         Environment.GetEnvironmentVariable("STARLINK_UPDATE_FEED") is { Length: > 0 } folder && Directory.Exists(folder) ? folder : null;
 
     public string? UpdateTestFeed => TestFeedFolder;
+
+    /// <summary>How long a download may go without a single byte arriving before that server is given up on.</summary>
+    public TimeSpan IdleTimeout { get; init; } = HttpFileDownloader.DefaultIdleTimeout;
 
     public async Task<AppUpdateRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken = default)
     {
@@ -177,9 +181,10 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
                 last = null;
                 break;
             }
-            catch (Exception ex) when (ex is HttpRequestException or IOException && !cancellationToken.IsCancellationRequested)
+            catch (Exception ex) when ((ex is HttpRequestException or IOException or TimeoutException or TaskCanceledException) && !cancellationToken.IsCancellationRequested)
             {
-                // That server didn't answer or dropped: the next one (Nexus offers several).
+                // That server didn't answer, dropped, stalled or ran into HttpClient's own timeout
+                // (a TaskCanceledException nobody asked for): the next one (Nexus offers several).
                 last = ex;
             }
         }
@@ -199,34 +204,52 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
     {
         // The test feed's zip (TestFeedFolder): read from disk, through the same progress loop.
         HttpResponseMessage? response = null;
-        Stream source;
-        long? total;
-        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.IsFile)
+        try
         {
-            // Links are network data (Nexus hands out the server list): a file on this PC only
-            // ever comes from the developer's own test feed.
-            if (TestFeedFolder is null)
+            Stream source;
+            long? total;
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.IsFile)
             {
-                throw new HttpRequestException($"Not a download link: {url}");
+                // Links are network data (Nexus hands out the server list): a file on this PC only
+                // ever comes from the developer's own test feed.
+                if (TestFeedFolder is null)
+                {
+                    throw new HttpRequestException($"Not a download link: {url}");
+                }
+
+                source = File.OpenRead(uri.LocalPath);
+                total = source.Length;
+            }
+            else
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                GitHubUserAgent.EnsureOn(request);
+                response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                response.EnsureSuccessStatusCode();
+                total = response.Content.Headers.ContentLength;
+                source = await response.Content.ReadAsStreamAsync(cancellationToken);
             }
 
-            source = File.OpenRead(uri.LocalPath);
-            total = source.Length;
+            await CopyToFileAsync(source, total, destinationPath, progress, cancellationToken);
         }
-        else
+        finally
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            GitHubUserAgent.EnsureOn(request);
-            response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            response.EnsureSuccessStatusCode();
-            total = response.Content.Headers.ContentLength;
-            source = await response.Content.ReadAsStreamAsync(cancellationToken);
+            response?.Dispose();
         }
+    }
 
+    /// <summary>
+    /// Copies the body into the zip file; a server that stops sending for <see cref="IdleTimeout"/>
+    /// ends it with a TimeoutException (the caller then tries the next server).
+    /// </summary>
+    private async Task CopyToFileAsync(Stream source, long? total, string destinationPath, IProgress<AppUpdateDownloadProgress>? progress,
+        CancellationToken cancellationToken)
+    {
         // Both streams are disposed (and the file handle released) before VerifySha256Async
-        // re-opens the same path to hash it — a using-declaration here would keep fileStream open
-        // for the rest of the method and turn that re-open into a sharing-violation bug.
-        using var disposeResponse = response;
+        // re-opens the same path to hash it — a using-declaration in the caller would keep
+        // fileStream open and turn that re-open into a sharing-violation bug.
+        using var idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        idle.CancelAfter(IdleTimeout);
         try
         {
             await using var contentStream = source;
@@ -235,9 +258,10 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
             long received = 0;
             var lastReport = DateTime.MinValue;
             int read;
-            while ((read = await contentStream.ReadAsync(buffer, cancellationToken)) > 0)
+            while ((read = await contentStream.ReadAsync(buffer, idle.Token)) > 0)
             {
                 await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                idle.CancelAfter(IdleTimeout);
                 received += read;
 
                 // A few times a second is enough for a progress bar.
@@ -250,10 +274,15 @@ public sealed class AppUpdateClient(HttpClient httpClient) : IAppUpdateClient
 
             progress?.Report(new AppUpdateDownloadProgress(received, total));
         }
-        catch
+        catch (Exception ex)
         {
-            // A dropped connection or a cancel leaves a truncated zip; don't leave it lying there.
+            // A dropped connection, a stall or a cancel leaves a truncated zip; don't leave it lying there.
             TryDelete(destinationPath);
+            if (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException($"The download stalled: nothing arrived for {IdleTimeout.TotalSeconds:0} seconds.", ex);
+            }
+
             throw;
         }
     }
