@@ -71,6 +71,13 @@ public sealed partial class LocalServerViewModel
     public bool HasMergedPak => _mergedPakPath is not null && File.Exists(_mergedPakPath);
 
     /// <summary>
+    /// The last read of the selected server's worlds for the world settings panel (on select and
+    /// when the server starts or stops). It parses every world file, so it runs off the UI thread;
+    /// tests await it before they read WorldSettings.
+    /// </summary>
+    internal Task WorldsLoadTask { get; private set; } = Task.CompletedTask;
+
+    /// <summary>
     /// Re-checks the merged pak Merge &amp; Install builds. Called when the Server page is shown and
     /// after a build (MergedPakBuiltMessage), not only on profile select — otherwise "Install my
     /// merged pak" stayed disabled after the first build until the app restarted.
@@ -311,6 +318,7 @@ public sealed partial class LocalServerViewModel
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't copy the pak: {ex.Message}";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
         }
         finally
         {
@@ -323,8 +331,9 @@ public sealed partial class LocalServerViewModel
 
     private bool CanRemoveSelectedPak() => SelectedServerPak is not null && CanChangeInstallFiles;
 
+    /// <summary>Moves the pak into the backups off the UI thread (with the backups on another drive, the move is a full copy).</summary>
     [RelayCommand(CanExecute = nameof(CanRemoveSelectedPak))]
-    private void RemoveSelectedPak()
+    private async Task RemoveSelectedPakAsync()
     {
         if (SelectedProfile is not { } p || SelectedServerPak is not { } pak || !EnsureInstallStoppedFor(p, "change its mods"))
         {
@@ -336,21 +345,28 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        var backups = ServerBackupsFolder(p);
+        BeginBackupWork(p);
         try
         {
-            var movedTo = ServerModFiles.RemovePak(p.InstallFolder, pak.FileName, ServerBackupsFolder(p));
+            var movedTo = await OffUiThread(() => ServerModFiles.RemovePak(p.InstallFolder, pak.FileName, backups));
             StatusMessage = $"Moved {pak.FileName} to {movedTo}.";
         }
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't remove the pak: {ex.Message}";
         }
+        finally
+        {
+            EndBackupWork();
+        }
 
         RefreshMods();
     }
 
+    /// <summary>Copies UE4SS from the game to the server off the UI thread.</summary>
     [RelayCommand(CanExecute = nameof(CanInstallUe4ssOnServer))]
-    private void InstallUe4ssOnServer()
+    private async Task InstallUe4ssOnServerAsync()
     {
         if (SelectedProfile is not { } p || !EnsureInstallStoppedFor(p, "install UE4SS on it"))
         {
@@ -363,15 +379,20 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
+        BeginBackupWork(p);
         try
         {
-            StatusMessage = ServerModFiles.InstallUe4ssFromGame(gameWin64, p.InstallFolder)
+            StatusMessage = await OffUiThread(() => ServerModFiles.InstallUe4ssFromGame(gameWin64, p.InstallFolder))
                 ? $"UE4SS copied from your game to '{p.Name}' (loader, settings, framework). Tick the Lua mods to put on it below."
                 : "Your game has no UE4SS to copy — install it from the Settings page first.";
         }
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't install UE4SS on the server: {ex.Message}";
+        }
+        finally
+        {
+            EndBackupWork();
         }
 
         RefreshMods();
@@ -553,6 +574,7 @@ public sealed partial class LocalServerViewModel
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             StatusMessage = $"Couldn't copy {row.Name}'s settings: {ex.Message}";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
         }
 
         var message = StatusMessage;

@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Server;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -228,9 +229,17 @@ public sealed partial class LocalServerViewModel
             StatusMessage = $"Restored '{backup.Name}'. The state before it is in {Path.GetFileName(safety)}.";
             _activityLog.Log($"Restored server backup '{backup.Name}' to '{p.Name}'.", ActivityEntryKind.Success);
         }
+        catch (ServerRestoreException ex)
+        {
+            StatusMessage = ex.SavedChanged
+                ? $"Restore stopped part way: {ex.InnerException?.Message}. Some files may already be restored; restore '{Path.GetFileNameWithoutExtension(ex.SafetyBackupPath)}' to put everything back."
+                : $"Restore failed: {ex.InnerException?.Message}. Nothing was changed.";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
+        }
         catch (Exception ex)
         {
             StatusMessage = $"Restore failed: {ex.Message}";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
         }
         finally
         {
@@ -330,11 +339,9 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        var admins = AdminWhitelistText.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
-        var bad = admins.Where(id => id.Length != 17 || !id.All(char.IsDigit)).ToList();
-        if (bad.Count > 0)
+        var admins = AdminLines();
+        if (!AdminsAreSteam64Ids(admins))
         {
-            StatusMessage = $"Admin list entries must be Steam64 ids (17 digits): {string.Join(", ", bad)}";
             return;
         }
 
@@ -347,7 +354,12 @@ public sealed partial class LocalServerViewModel
         }
 
         // Read again: a list not edited here may have just taken the newer text from disk.
-        admins = AdminWhitelistText.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+        admins = AdminLines();
+        if (!AdminsAreSteam64Ids(admins))
+        {
+            return;
+        }
+
         try
         {
             WriteList(adminPath, admins);
@@ -361,6 +373,22 @@ public sealed partial class LocalServerViewModel
         {
             StatusMessage = $"Couldn't save the lists: {ex.Message}";
         }
+    }
+
+    private List<string> AdminLines() =>
+        AdminWhitelistText.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+
+    /// <summary>The same check as the hint under the box (<see cref="ServerAccessLists.IsSteam64Id"/>); says which entries aren't ids.</summary>
+    private bool AdminsAreSteam64Ids(IReadOnlyList<string> admins)
+    {
+        var bad = admins.Where(id => !ServerAccessLists.IsSteam64Id(id)).ToList();
+        if (bad.Count == 0)
+        {
+            return true;
+        }
+
+        StatusMessage = $"Admin list entries must be Steam64 ids (17 digits starting 7656): {string.Join(", ", bad)}";
+        return false;
     }
 
     /// <summary>The file's text, "" when there is none, null when it exists but can't be read (an empty box for a locked file used to be saved over it).</summary>
@@ -384,6 +412,7 @@ public sealed partial class LocalServerViewModel
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, lines.Count == 0 ? "" : string.Join("\r\n", lines) + "\r\n");
+        // Through a temp file: a crash part way keeps the old list instead of an empty one.
+        AtomicFile.WriteAllText(path, lines.Count == 0 ? "" : string.Join("\r\n", lines) + "\r\n");
     }
 }

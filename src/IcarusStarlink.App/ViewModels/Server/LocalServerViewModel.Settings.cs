@@ -159,7 +159,7 @@ public sealed partial class LocalServerViewModel
         RememberIniOnDisk(_iniUnreadable ? null : DedicatedServerLayout.SettingsIniPath(p.InstallFolder, p.SavedDirSuffix));
         FillProspects(ReadProspectFiles(p));
 
-        WorldSettings.Reload();
+        WorldsLoadTask = WorldSettings.ReloadAsync();
         OnPropertyChanged(nameof(InstallFolder));
         OnPropertyChanged(nameof(SettingsIniPath));
         OnPropertyChanged(nameof(CommandLinePreview));
@@ -219,7 +219,7 @@ public sealed partial class LocalServerViewModel
             FillProspects(DedicatedServerLayout.ListProspectFiles(p.InstallFolder, p.SavedDirSuffix));
 
             // The server just wrote its worlds: show what they hold now.
-            WorldSettings.Reload();
+            WorldsLoadTask = WorldSettings.ReloadAsync();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

@@ -327,6 +327,7 @@ public sealed partial class LocalServerViewModel
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't change the firewall: {ex.Message}";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
         }
         finally
         {
