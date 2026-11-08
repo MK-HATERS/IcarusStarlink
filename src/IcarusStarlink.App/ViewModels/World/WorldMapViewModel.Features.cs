@@ -595,14 +595,12 @@ public sealed partial class WorldMapViewModel
 
     private static readonly Brush DropSiteBrush = Frozen("#FF8A3D");
 
-    /// <summary>Said under Key when no marker is shown; null while some are.</summary>
-    public string? LegendEmptyText => Legend.Count == 0 ? "empty" : null;
+    /// <summary>No marker is shown: Key says so.</summary>
+    public bool IsLegendEmpty => Legend.Count == 0;
 
     private void BuildLegend()
     {
         Legend.Clear();
-        Legend.CollectionChanged -= OnLegendChanged;
-        Legend.CollectionChanged += OnLegendChanged;
         var shown = Markers.Select(m => m.Feature.Kind).ToHashSet();
         if (ShowDropSites && DropSites.Count > 0)
         {
@@ -636,7 +634,7 @@ public sealed partial class WorldMapViewModel
         Add(WorldFeatureKind.MissionSpot, "M", MissionBrush, "Mission spot", DarkGlyph);
     }
 
-    private void OnLegendChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) => OnPropertyChanged(nameof(LegendEmptyText));
+    private void OnLegendChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) => OnPropertyChanged(nameof(IsLegendEmpty));
 
     /// <summary>The shown drop sites' and markers' names, spread so none sits on another.</summary>
     private void SpreadAllLabels()

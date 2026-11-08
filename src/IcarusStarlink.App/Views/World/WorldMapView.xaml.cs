@@ -40,10 +40,6 @@ public partial class WorldMapView : UserControl
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
-        }
-
-        if (_viewModel is not null)
-        {
             _viewModel.ZoomRequested -= OnZoomRequested;
         }
 

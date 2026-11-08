@@ -5,6 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.World;
 
@@ -34,8 +35,6 @@ public sealed partial class WorldDropSiteViewModel(WorldDropSite site) : Observa
     /// <summary>How far (screen pixels) the name is moved down so it doesn't sit on a nearby one.</summary>
     [ObservableProperty]
     private double _labelShift;
-
-    public string Label => $"{site.Number} · {site.Name}";
 
     public double X => site.Centre.U * WorldMapViewModel.MapUnits;
 
@@ -146,7 +145,7 @@ public sealed class WorldZoneViewModel
 /// geysers, spots, water; the Features partial), read from the game's own files. The drawn maps are
 /// kept in Cache\World (WorldMapStore); Reload redraws what changed, Rebuild all redraws everything.
 /// </summary>
-public sealed partial class WorldMapViewModel : ObservableObject
+public sealed partial class WorldMapViewModel : ObservableObject, IcarusStarlink.Core.Memory.IIdleReleasable
 {
     /// <summary>How see-through the zones are over the map (0-255).</summary>
     private const byte ZoneAlpha = 0x60;
@@ -180,12 +179,29 @@ public sealed partial class WorldMapViewModel : ObservableObject
     private Dictionary<WorldLayerKind, uint> _selectedColors = [];
     private bool _loadedOnce;
 
-    public WorldMapViewModel(WorldMapStore store, ISettingsService settings, string dataFolder)
+    /// <summary>Where drawing that ends while the page isn't shown is said; optional (tests).</summary>
+    private readonly IActivityLog? _activityLog;
+
+    /// <summary>The page is on screen (OnPageShown until OnPageLeft).</summary>
+    private bool _isShown;
+
+    private DateTime _leftUtc = DateTime.MinValue;
+
+    /// <summary>The picked world isn't drawn on the page (let go while idle, or redrawn while the page was away): OnPageShown shows it.</summary>
+    private bool _showPending;
+
+    /// <summary>Stops the Reload or Rebuild all that is drawing; null when none is.</summary>
+    private CancellationTokenSource? _reloadCancel;
+
+    public WorldMapViewModel(WorldMapStore store, ISettingsService settings, string dataFolder, IActivityLog? activityLog = null)
     {
         _store = store;
         _settings = settings;
         _dataFolder = dataFolder;
+        _activityLog = activityLog;
+        Legend.CollectionChanged += OnLegendChanged;
         RestoreChoices();
+        IcarusStarlink.Core.Memory.IdleMemory.Register(this);
     }
 
     public string Title => "Map";
@@ -228,6 +244,11 @@ public sealed partial class WorldMapViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ReloadCommand), nameof(RebuildAllCommand))]
     private bool _isBusy;
 
+    /// <summary>A Reload or Rebuild all is drawing (Stop shows next to the status line).</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StopCommand))]
+    private bool _isDrawing;
+
     [ObservableProperty]
     private string _statusMessage = "";
 
@@ -251,12 +272,51 @@ public sealed partial class WorldMapViewModel : ObservableObject
     /// <summary>The page was opened: the first time the maps are listed (and made if they never were); every time, the game's files are checked for changes.</summary>
     public void OnPageShown()
     {
+        _isShown = true;
+        // Let go while idle, or redrawn while the page was away: the same world comes back.
+        if (_showPending)
+        {
+            ShowMap(SelectedMap);
+        }
+
         if (IsBusy)
         {
             return;
         }
 
         _ = _loadedOnce ? CheckAsync() : LoadAsync();
+    }
+
+    /// <summary>The page was left for another: from now its images can be let go while the app is idle (ReleaseIfIdle).</summary>
+    public void OnPageLeft()
+    {
+        _isShown = false;
+        _leftUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// The picked world's picture, zone images and markers (well over 100 MB on Olympus) are let go while
+    /// the app sits in the background with the Map page closed; opening the page shows them again.
+    /// </summary>
+    public bool ReleaseIfIdle(TimeSpan idleFor)
+    {
+        bool Release()
+        {
+            if (_isShown || IsBusy || _showPending || DateTime.UtcNow - _leftUtc < idleFor
+                || (Picture is null && _layers.Count == 0 && Markers.Count == 0))
+            {
+                return false;
+            }
+
+            ShowMap(null); // clears the picture, layers, zone and highlight images, features, markers, drop sites
+            _highlightBuffer = null;
+            _highlightBitmap = null;
+            _showPending = true;
+            return true;
+        }
+
+        // Called on a background thread (BackgroundMemoryTrimmer); the images and lists belong to the UI thread.
+        return UiDispatcher() is { } dispatcher && !dispatcher.CheckAccess() ? dispatcher.Invoke(Release) : Release();
     }
 
     private bool CanRun() => !IsBusy;
@@ -268,6 +328,14 @@ public sealed partial class WorldMapViewModel : ObservableObject
     /// <summary>Draws every map again, changed or not.</summary>
     [RelayCommand(CanExecute = nameof(CanRun))]
     private Task RebuildAllAsync() => RunReloadAsync(everything: true);
+
+    /// <summary>Stops the drawing after the map it's on; what's drawn is kept, and the rest is drawn next time.</summary>
+    [RelayCommand(CanExecute = nameof(IsDrawing))]
+    private void Stop()
+    {
+        _reloadCancel?.Cancel();
+        StatusMessage = "Stopping after the map being drawn now…";
+    }
 
     /// <summary>
     /// Update everything's step: Reload, but only when Redraw during Update everything is ticked and
@@ -297,7 +365,7 @@ public sealed partial class WorldMapViewModel : ObservableObject
         }
 
         // A reload that threw, or left a map undrawn, is Skipped with its message, not Done.
-        var result = await RunReloadAsync(everything: false);
+        var result = await RunReloadAsync(everything: false, forGameUpdate: true);
         return (result is { Failed.Count: 0 }, StatusMessage);
     }
 
@@ -310,6 +378,7 @@ public sealed partial class WorldMapViewModel : ObservableObject
         }
 
         IsBusy = true;
+        IReadOnlyList<WorldMapInfo>? maps = null;
         try
         {
             StatusMessage = "Reading the game's maps…";
@@ -321,7 +390,7 @@ public sealed partial class WorldMapViewModel : ObservableObject
                 return;
             }
 
-            var maps = await Task.Run(_store.ReadMaps);
+            maps = await Task.Run(_store.ReadMaps);
             ShowMaps(maps);
             _loadedOnce = true;
             StatusMessage = "";
@@ -337,10 +406,21 @@ public sealed partial class WorldMapViewModel : ObservableObject
             IsBusy = false;
         }
 
-        await CheckAsync();
+        // With the worlds just read: the game's tables aren't read a second time for the check.
+        await CheckWithAsync(maps);
     }
 
-    internal async Task CheckAsync()
+    /// <summary>The check that's running (or ran last): opening the page again while it runs doesn't start another.</summary>
+    private Task? _checking;
+
+    /// <summary>Compares the game's files with the drawn maps and puts up (or clears) the out-of-date bar.</summary>
+    internal Task CheckAsync() => CheckWithAsync(null);
+
+    /// <summary>A check still running (the page opened twice quickly) answers for both; <paramref name="maps"/> null reads them.</summary>
+    private Task CheckWithAsync(IReadOnlyList<WorldMapInfo>? maps) =>
+        _checking is { IsCompleted: false } running ? running : _checking = RunCheckAsync(maps);
+
+    private async Task RunCheckAsync(IReadOnlyList<WorldMapInfo>? maps)
     {
         if (Problem() is not null)
         {
@@ -351,7 +431,7 @@ public sealed partial class WorldMapViewModel : ObservableObject
         WorldMapCheckResult? check;
         try
         {
-            check = await Task.Run(_store.Check);
+            check = await Task.Run(() => maps is null ? _store.Check() : _store.Check(maps));
         }
         catch (Exception)
         {
@@ -370,8 +450,9 @@ public sealed partial class WorldMapViewModel : ObservableObject
     /// <summary>Reloads started so far: a check that finishes after one started keeps its answer to itself.</summary>
     private int _reloadsStarted;
 
-    /// <returns>What the reload did (its Failed lists the maps it couldn't draw); null when it didn't run or threw (StatusMessage says why).</returns>
-    private async Task<WorldMapReloadResult?> RunReloadAsync(bool everything)
+    /// <param name="forGameUpdate">Update everything's step: the picked world is loaded only if the page is shown, and no toast (the step reports it).</param>
+    /// <returns>What the reload did (its Failed lists the maps it couldn't draw); null when it didn't run, was stopped or threw (StatusMessage says why).</returns>
+    private async Task<WorldMapReloadResult?> RunReloadAsync(bool everything, bool forGameUpdate = false)
     {
         if (Problem() is { } problem)
         {
@@ -380,29 +461,66 @@ public sealed partial class WorldMapViewModel : ObservableObject
         }
 
         _reloadsStarted++;
+        using var stop = new CancellationTokenSource();
+        _reloadCancel = stop;
         IsBusy = true;
+        IsDrawing = true;
         try
         {
             StatusMessage = everything ? "Drawing every map again…" : "Checking the game's map files…";
             var progress = new Progress<string>(text => StatusMessage = text);
-            var result = await Task.Run(() => _store.Reload(everything, progress));
-            ShowMaps(result.Maps);
+            var result = await Task.Run(() => _store.Reload(everything, progress, stop.Token));
+            // Never opened this session (Update everything): the maps are listed, the picked one waits for the page.
+            ShowMaps(result.Maps, showPicked: !forGameUpdate || _isShown);
             _loadedOnce = true;
             OutOfDateMessage = null;
             StatusMessage = result.Summary;
+            Toast(forGameUpdate, result.Summary, result.Failed.Count > 0 ? ActivityEntryKind.Warning : ActivityEntryKind.Success);
             return result;
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested)
+        {
+            // Stop: the maps drawn so far are kept (the index is saved after each). The next opening
+            // of the page carries on from there (LoadAsync finishes a build that isn't complete).
+            _loadedOnce = false;
+            _pictureSources = null;
+            if (SelectedMap is not null)
+            {
+                ShowPicked(_isShown); // its files may have just been redrawn
+            }
+
+            StatusMessage = everything
+                ? "Stopped: the maps not redrawn yet keep their last drawing."
+                : "Stopped: the maps drawn so far are kept. Reload, or opening Map again, draws the rest.";
+            return null;
         }
         catch (Exception ex)
         {
             // Not awaited by anyone either (a button, the page opening): say what went wrong.
             StatusMessage = $"Couldn't make the maps: {ex.Message}";
+            Toast(forGameUpdate, StatusMessage, ActivityEntryKind.Warning);
             return null;
         }
         finally
         {
             // A reload that threw may still have saved part of the index.
             _pictureSources = null;
+            _reloadCancel = null;
+            IsDrawing = false;
             IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Drawing that ends while the Map page isn't shown (a first build takes minutes) is said in the
+    /// activity panel: what changed and which maps couldn't be drawn. On the page the status line says
+    /// it; Update everything reports its own step.
+    /// </summary>
+    private void Toast(bool forGameUpdate, string message, ActivityEntryKind kind)
+    {
+        if (!forGameUpdate && !_isShown)
+        {
+            _activityLog?.Log($"Map: {message}", kind);
         }
     }
 
@@ -433,7 +551,8 @@ public sealed partial class WorldMapViewModel : ObservableObject
 
     private IReadOnlyDictionary<string, WorldPictureSource> PictureSourcesNow() => _pictureSources ??= _store.PictureSources();
 
-    private void ShowMaps(IReadOnlyList<WorldMapInfo> maps)
+    /// <param name="showPicked">False: the picked world isn't loaded now (the page isn't shown); OnPageShown shows it.</param>
+    private void ShowMaps(IReadOnlyList<WorldMapInfo> maps, bool showPicked = true)
     {
         _pictureSources = null;
         var keep = SelectedMap?.Map.Id;
@@ -456,12 +575,27 @@ public sealed partial class WorldMapViewModel : ObservableObject
 
         // One ShowMap for the refilled list: the picker's own null on Clear and the new item above skip
         // it while the list refills, and the picked world's files may have been redrawn.
-        ShowMap(SelectedMap);
+        ShowPicked(showPicked);
+        OnPropertyChanged(nameof(MapEmptyText));
+    }
+
+    /// <summary>Shows the picked world, or (false) lets go of what's shown and leaves it for OnPageShown.</summary>
+    private void ShowPicked(bool now)
+    {
+        if (now)
+        {
+            ShowMap(SelectedMap);
+            return;
+        }
+
+        ShowMap(null);
+        _showPending = true;
     }
 
     partial void OnSelectedMapChanged(WorldMapItemViewModel? value)
     {
         OnPropertyChanged(nameof(MapPickerPlaceholder));
+        OnPropertyChanged(nameof(MapEmptyText));
         if (!_refillingMaps)
         {
             ShowMap(value);
@@ -473,10 +607,35 @@ public sealed partial class WorldMapViewModel : ObservableObject
         ? null
         : IsBusy ? "Reading the maps…" : Maps.Count == 0 ? "No maps yet: click Reload" : "Pick a map…";
 
-    partial void OnIsBusyChanged(bool value) => OnPropertyChanged(nameof(MapPickerPlaceholder));
+    partial void OnIsBusyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(MapPickerPlaceholder));
+        OnPropertyChanged(nameof(MapEmptyText));
+    }
+
+    partial void OnIsDrawingChanged(bool value) => OnPropertyChanged(nameof(MapEmptyText));
+
+    partial void OnPictureChanged(ImageSource? value) => OnPropertyChanged(nameof(MapEmptyText));
+
+    /// <summary>What the map area says while it has no picture (why, and what to do); null while it has one.</summary>
+    public string? MapEmptyText =>
+        Picture is not null ? null
+        : IsDrawing ? "Drawing the maps: they show here when they're done."
+        : IsBusy ? "Reading the maps…"
+        : Problem() is { } problem ? problem
+        : Maps.Count == 0 ? "No maps yet: click Reload."
+        : SelectedMap is not { } item ? "Pick a map above."
+        : NoPictureText(item.Map.Id);
+
+    /// <summary>Why the picked world has no picture: not drawn yet, its file is gone, or the game has none.</summary>
+    private string NoPictureText(string mapId) =>
+        !PictureSourcesNow().TryGetValue(mapId, out var source) ? "This map isn't drawn yet: click Reload to draw it."
+        : source == WorldPictureSource.None ? "No map picture for this world in the game files yet."
+        : "This map's picture is missing or can't be read: click Reload to draw it again.";
 
     private void ShowMap(WorldMapItemViewModel? item)
     {
+        _showPending = false;
         // The zone boxes ticked for the last world stay ticked for the next; the first world gets what
         // was ticked last time (first time ever: creatures only, as the game's fishing zones cover the
         // land too and together they hide the creature zones).
@@ -522,23 +681,24 @@ public sealed partial class WorldMapViewModel : ObservableObject
             }
         }
 
-        var source = PictureSourcesNow().GetValueOrDefault(map.Id, WorldPictureSource.None);
+        // Not in the index: never drawn, or its drawing failed. Then nothing is known about what the game has.
+        var drawn = PictureSourcesNow().TryGetValue(map.Id, out var source);
         var notes = new List<string>();
         if (map.InDevelopment)
         {
             notes.Add("In development: the game has this world in its files but doesn't offer it yet, so the map may be unfinished or change.");
         }
 
-        if (source == WorldPictureSource.Relief)
+        if (Picture is null)
+        {
+            notes.Add(NoPictureText(map.Id));
+        }
+        else if (source == WorldPictureSource.Relief)
         {
             notes.Add("The game has no map picture for it yet: this one is drawn from its height data.");
         }
-        else if (Picture is null)
-        {
-            notes.Add("The game has no map picture for this world yet.");
-        }
 
-        if (Layers.Count == 0)
+        if (drawn && (Picture is not null || source == WorldPictureSource.None) && Layers.Count == 0)
         {
             notes.Add("No creature, fishing or biome zones for it in the game files yet.");
         }
@@ -694,10 +854,10 @@ public sealed partial class WorldMapViewModel : ObservableObject
         return names.Count == 0 ? zone.Name : $"{zone.Name}: {string.Join(", ", names)}{(names.Count < zone.Entries.Select(e => e.Name).Distinct().Count() ? "…" : "")}";
     }
 
-    /// <summary>Lights up the clicked zones, those under the mouse, and every zone the search finds, in the ticked layers.</summary>
     /// <summary>What the highlight image was last drawn for (layers, found zones, clicked and hovered zone); null when there's none.</summary>
     private string? _highlightDrawn;
 
+    /// <summary>Lights up the clicked zones, those under the mouse, and every zone the search finds, in the ticked layers.</summary>
     private void UpdateHighlight()
     {
         var query = SearchText.Trim();

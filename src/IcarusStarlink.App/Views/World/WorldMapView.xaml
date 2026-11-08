@@ -126,9 +126,15 @@
             </StackPanel>
         </WrapPanel>
 
-        <!-- What Reload / Rebuild all did, or what they're doing. -->
-        <TextBlock Grid.Row="3" Text="{Binding StatusMessage}" Style="{StaticResource PageBodyTextStyle}" Margin="0,10,0,0" TextWrapping="Wrap"
-                   Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+        <!-- What Reload / Rebuild all did, or what they're doing, with Stop while they draw. -->
+        <DockPanel Grid.Row="3" LastChildFill="True">
+            <Button DockPanel.Dock="Right" Content="Stop" Command="{Binding StopCommand}" Margin="12,10,0,0" VerticalAlignment="Center"
+                    Visibility="{Binding IsDrawing, Converter={StaticResource BoolToVisibilityConverter}}"
+                    AutomationProperties.Name="Stop drawing the maps"
+                    ToolTip="Stops after the map being drawn now. The maps drawn so far are kept; Reload, or opening Map again, draws the rest."/>
+            <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource PageBodyTextStyle}" Margin="0,10,0,0" TextWrapping="Wrap" VerticalAlignment="Center"
+                       Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
+        </DockPanel>
 
         <!-- The game's files changed since the maps were made. -->
         <Border Grid.Row="4" Margin="0,10,0,0" Padding="12,8" CornerRadius="6" BorderThickness="1"
@@ -340,9 +346,9 @@
                         <TextBlock Text="{Binding HoverText}" FontSize="12"/>
                     </Border>
 
-                    <!-- No picture: the game has none for this world, or the map isn't made yet. -->
-                    <TextBlock Text="No map picture for this world in the game files yet." Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
-                               Visibility="{Binding Picture, Converter={StaticResource NullToVisibilityConverter}, ConverterParameter=Invert}"/>
+                    <!-- No picture: why (being drawn, nothing set up, not drawn yet, missing, or the game has none) and what to do. -->
+                    <TextBlock Text="{Binding MapEmptyText}" Style="{StaticResource EmptyStateTextStyle}" IsHitTestVisible="False"
+                               Visibility="{Binding MapEmptyText, Converter={StaticResource NullToVisibilityConverter}}"/>
                 </Grid>
             </Border>
 
@@ -447,7 +453,7 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                         <TextBlock Text="Tick something under Show to see it on the map." FontSize="12" Foreground="{DynamicResource FaintForegroundBrush}"
-                                   Visibility="{Binding LegendEmptyText, Converter={StaticResource NullToVisibilityConverter}}"/>
+                                   Visibility="{Binding IsLegendEmpty, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     </StackPanel>
                 </ScrollViewer>
             </Border>

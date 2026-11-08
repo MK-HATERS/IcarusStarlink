@@ -247,17 +247,27 @@ public sealed class WorldMapViewModelTests : IDisposable
 
         public bool Broken { get; set; }
 
+        /// <summary>A world with picture tiles gets a (tiny, not really a JPEG) picture.</summary>
+        public bool WithPicture { get; init; }
+
+        /// <summary>Each drawing waits for this (set by the test) after saying it started.</summary>
+        public ManualResetEventSlim? Hold { get; init; }
+
+        public ManualResetEventSlim Drawing { get; } = new(false);
+
         public List<string> Drawn { get; } = [];
 
         public (byte[]? Jpeg, WorldPictureSource Source) RenderPicture(WorldMapInfo map)
         {
             Drawn.Add(map.Id);
+            Drawing.Set();
+            Hold?.Wait(TimeSpan.FromSeconds(10));
             if (Broken)
             {
                 throw new IOException("The pak is locked.");
             }
 
-            return (null, WorldPictureSource.None);
+            return WithPicture && map.PictureTiles.Count > 0 ? ([1, 2, 3], WorldPictureSource.Picture) : (null, WorldPictureSource.None);
         }
 
         public WorldLayerPixels? ReadLayer(string heatmapAssetPath) => Layer;
@@ -445,6 +455,165 @@ public sealed class WorldMapViewModelTests : IDisposable
         ((System.Windows.Media.Imaging.BitmapSource)vm.HighlightImage!).CopyPixels(lit, 8, 0);
         Assert.Equal(0u, lit[0]);
         Assert.NotEqual(0u, lit[1]);
+    }
+
+    /// <summary>Regression: a world whose picture file was gone said the game has no picture for it, instead of saying to redraw it.</summary>
+    [Fact]
+    public void AMapWhosePictureFileIsMissing_SaysToReload_NotThatTheGameHasNone()
+    {
+        var map = new WorldMapInfo("Terrain_016", "Olympus", false, [new WorldTile(0, 0, "PROC/x0_y0.uasset")], [], []);
+        var store = new WorldMapStore(Path.Combine(_root, "World"), () => [map], new MapRenderer { WithPicture = true });
+        store.Reload(everything: false);
+        File.Delete(store.PicturePath(map.Id));
+        var vm = new WorldMapViewModel(store, GameReady(), Path.Combine(_root, "Data"));
+
+        vm.SelectedMap = new WorldMapItemViewModel(map);
+
+        Assert.DoesNotContain("The game has no map picture", vm.MapNote);
+        Assert.Contains("Reload", vm.MapNote);
+        Assert.Contains("Reload", vm.MapEmptyText);
+    }
+
+    /// <summary>Regression: with no game folder set, the map area said the game has no picture for the world.</summary>
+    [Fact]
+    public void WithNoGameFolder_TheMapAreaSaysToSetIt()
+    {
+        var vm = Build(new Settings());
+
+        Assert.Contains("Settings", vm.MapEmptyText);
+    }
+
+    /// <summary>A world with one Creatures zone image (two zones), drawn into a fresh store.</summary>
+    private (WorldMapStore Store, WorldMapInfo Map) LayeredWorld()
+    {
+        var map = new WorldMapInfo("A", "Alpha", false, [], [],
+            [new WorldLayer(WorldLayerKind.Creatures, "Heatmaps/x.uasset",
+                new Dictionary<uint, WorldZone> { [0xAA0000] = new("OLY_A", "A", []), [0x00BB00] = new("OLY_B", "B", []) })]);
+        var store = new WorldMapStore(Path.Combine(_root, "World"), () => [map],
+            new MapRenderer { Layer = new WorldLayerPixels(2, [0xAA0000, 0x00BB00, 0xAA0000, 0x00BB00]) });
+        store.Reload(everything: false);
+        return (store, map);
+    }
+
+    /// <summary>Regression: the picked world's picture, zone images and markers (100+ MB on Olympus) stayed in memory for the session after one visit to Map.</summary>
+    [Fact]
+    public void ALeftMapPage_LetsGoOfItsImagesWhenIdle_AndShowsThemAgainWhenOpened()
+    {
+        var (store, map) = LayeredWorld();
+        var vm = new WorldMapViewModel(store, new Settings(), Path.Combine(_root, "Data")) { UiDispatcher = () => null };
+        vm.SelectedMap = new WorldMapItemViewModel(map);
+        Assert.NotEmpty(vm.Layers);
+        Assert.NotNull(vm.ZonesImage);
+
+        vm.OnPageLeft();
+        Assert.True(vm.ReleaseIfIdle(TimeSpan.Zero));
+
+        Assert.Empty(vm.Layers);
+        Assert.Null(vm.ZonesImage);
+
+        vm.OnPageShown();
+
+        Assert.NotEmpty(vm.Layers);
+        Assert.NotNull(vm.ZonesImage);
+        Assert.False(vm.ReleaseIfIdle(TimeSpan.Zero));
+    }
+
+    /// <summary>Regression: Update everything's redraw loaded the first world's picture and zones even when Map was never opened.</summary>
+    [Fact]
+    public async Task AnUpdateEverythingRedraw_DoesntLoadAWorldWhenThePageWasNeverOpened()
+    {
+        var (store, _) = LayeredWorld();
+        var settings = GameReady();
+        settings.Current.RedrawMapsDuringGameUpdate = true;
+        var vm = new WorldMapViewModel(store, settings, Path.Combine(_root, "Data"));
+
+        await vm.ReloadForGameUpdateAsync();
+
+        Assert.Single(vm.Maps);
+        Assert.Empty(vm.Layers);
+
+        vm.OnPageShown();
+        await vm.CheckAsync(); // the check the page opening started
+
+        Assert.NotEmpty(vm.Layers);
+    }
+
+    /// <summary>Regression: every visit to Map read the game's tables again for the check, and opening it twice quickly read them twice at once.</summary>
+    [Fact]
+    public async Task OpeningMapTwiceQuickly_ChecksOnce()
+    {
+        var reads = 0;
+        var renderer = new HeldCheckRenderer();
+        var store = new WorldMapStore(Path.Combine(_root, "World"),
+            () => { Interlocked.Increment(ref reads); return [World("Terrain_016", "Olympus")]; }, renderer);
+        store.Reload(everything: false);
+        var vm = new WorldMapViewModel(store, GameReady(), Path.Combine(_root, "Data"));
+        await vm.ReloadCommand.ExecuteAsync(null);
+        reads = 0;
+        renderer.StampNow = "2";
+        renderer.HoldFirst = true;
+
+        var first = vm.CheckAsync();
+        Assert.True(renderer.Holding.Wait(TimeSpan.FromSeconds(10)), "the check never asked for a stamp");
+        var second = vm.CheckAsync();
+        renderer.Release.Set();
+        await Task.WhenAll(first, second);
+
+        Assert.Equal(1, reads);
+        Assert.NotNull(vm.OutOfDateMessage);
+    }
+
+    /// <summary>Stop while the maps are drawn: the one being drawn is finished and kept, the rest wait, and opening Map carries on.</summary>
+    [Fact]
+    public async Task Stop_FinishesTheMapItsOn_KeepsWhatsDrawn_AndOpeningMapDrawsTheRest()
+    {
+        var renderer = new MapRenderer { Hold = new(false) };
+        var store = new WorldMapStore(Path.Combine(_root, "World"), () => [World("A", "Alpha"), World("B", "Beta"), World("C", "Gamma")], renderer);
+        var vm = new WorldMapViewModel(store, GameReady(), Path.Combine(_root, "Data"));
+        Assert.False(vm.StopCommand.CanExecute(null));
+
+        var reload = vm.ReloadCommand.ExecuteAsync(null);
+        Assert.True(renderer.Drawing.Wait(TimeSpan.FromSeconds(10)), "nothing was drawn");
+        Assert.True(vm.StopCommand.CanExecute(null));
+        vm.StopCommand.Execute(null);
+        renderer.Hold!.Set();
+        await reload;
+
+        Assert.Equal(["A"], renderer.Drawn);
+        Assert.Contains("Stopped", vm.StatusMessage);
+        Assert.False(vm.StopCommand.CanExecute(null));
+
+        renderer.Drawn.Clear();
+        await vm.LoadAsync();
+
+        Assert.Equal(["B", "C"], renderer.Drawn);
+    }
+
+    private sealed class ActivityLog : IcarusStarlink.Core.Activity.IActivityLog
+    {
+        public System.Collections.ObjectModel.ObservableCollection<IcarusStarlink.Core.Activity.ActivityEntry> Entries { get; } = [];
+
+        public void Log(string message, IcarusStarlink.Core.Activity.ActivityEntryKind kind = IcarusStarlink.Core.Activity.ActivityEntryKind.Info) =>
+            Entries.Add(new(message, kind, DateTimeOffset.Now));
+    }
+
+    /// <summary>Drawing that ends while Map isn't on screen is said in the activity panel, with the maps that couldn't be drawn.</summary>
+    [Fact]
+    public async Task DrawingThatEndsWhileMapIsntShown_IsSaidInTheActivityPanel()
+    {
+        var renderer = new MapRenderer();
+        var store = new WorldMapStore(Path.Combine(_root, "World"), () => [World("Terrain_016", "Olympus")], renderer);
+        store.Reload(everything: false);
+        var log = new ActivityLog();
+        var vm = new WorldMapViewModel(store, GameReady(), Path.Combine(_root, "Data"), log);
+        renderer.StampNow = "2";
+        renderer.Broken = true;
+
+        await vm.ReloadCommand.ExecuteAsync(null);
+
+        var entry = Assert.Single(log.Entries);
+        Assert.Contains("Couldn't draw Olympus", entry.Message);
+        Assert.Equal(IcarusStarlink.Core.Activity.ActivityEntryKind.Warning, entry.Kind);
     }
 
     [Fact]
