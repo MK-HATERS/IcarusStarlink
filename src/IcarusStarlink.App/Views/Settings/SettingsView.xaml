@@ -217,8 +217,8 @@
                                         <TextBlock Text="Get API key…" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-                                <TextBox Text="{Binding NexusApiKeyInput, UpdateSourceTrigger=PropertyChanged}"
-                                         ToolTip="Paste your Nexus Personal API Key here (from the bottom of the API Access page, not an OAuth application key)"/>
+                                <PasswordBox views:PasswordBoxText.Text="{Binding NexusApiKeyInput}" AutomationProperties.Name="Nexus API key"
+                                             ToolTip="Paste your Nexus Personal API Key here (from the bottom of the API Access page, not an OAuth application key)"/>
                             </DockPanel>
                             <Button Content="Authorize" Command="{Binding AuthorizeNexusCommand}" HorizontalAlignment="Left"
                                     IsEnabled="{Binding CanAuthorizeNexus}"

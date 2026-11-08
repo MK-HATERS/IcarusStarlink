@@ -8,7 +8,7 @@ namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class SettingsViewModel
 {
-    // --- Custom skin (big-plan item 6) ---
+    // --- Custom skin ---
 
     /// <summary>Display order + plain-language description per token, so the editor reads as "what part of the UI is this" rather than a bare brush-key dump. Tokens the themes define but this list doesn't know still show (appended at the end, keyed name as its own description) — the editor can't silently drop a token added to the theme files later.</summary>
     private static readonly (string Key, string Description)[] SkinTokenOrder =
@@ -52,10 +52,11 @@ public sealed partial class SettingsViewModel
     [ObservableProperty]
     private string? _skinStatusMessage;
 
-    private void LoadSkinTokens()
+    /// <summary>One box per token: the skin file's colour, else the Icarus theme's.</summary>
+    private void LoadSkinTokens(CustomSkin? skin)
     {
         var defaults = _themeService.GetThemeColors("Icarus");
-        var saved = _customSkinStore.Load()?.Colors ?? [];
+        var saved = skin?.Colors ?? [];
 
         SkinTokens.Clear();
         foreach (var (key, description) in SkinTokenOrder)
@@ -157,7 +158,16 @@ public sealed partial class SettingsViewModel
     [RelayCommand]
     private void ReloadSkinFile()
     {
-        LoadSkinTokens();
+        // A file that doesn't load used to fill every box with the Icarus colours and say
+        // "reloaded"; the next Save skin then wrote them over the player's edit.
+        var skin = _customSkinStore.Load(out var problem);
+        if (problem is not null)
+        {
+            SkinStatusMessage = $"The skin file wasn't loaded: {problem}. Fix it and click Reload skin file again. Nothing was changed.";
+            return;
+        }
+
+        LoadSkinTokens(skin);
         if (_settingsService.Current.ThemeName == ThemeService.CustomThemeName)
         {
             _themeService.ApplyTheme(ThemeService.CustomThemeName);

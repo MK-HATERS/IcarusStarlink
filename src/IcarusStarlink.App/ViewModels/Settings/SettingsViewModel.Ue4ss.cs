@@ -201,8 +201,8 @@ public sealed partial class SettingsViewModel
         catch (Exception)
         {
             // A path with no parent (a drive root picked in Browse) makes the game-path resolver
-            // throw; from inside a property-changed hook that took the whole app down (an audit
-            // finding). Not a real install = not installed.
+            // throw, and from inside a property-changed hook that took the whole app down. Not a
+            // real install = not installed.
             IsUe4ssInstalled = false;
             Ue4ssInstalledVersion = null;
             Ue4ssInstalledCommit = null;
@@ -467,8 +467,7 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>
-    /// The last item of the big plan, deliberately saved for last: removes the UE4SS loader
-    /// entirely (dwmapi.dll + the ue4ss folder). The safety story, in order: the user's own mods —
+    /// Removes the UE4SS loader entirely (dwmapi.dll + the ue4ss folder). The safety story, in order: the user's own mods —
     /// everything NOT in UE4SS's own mods.json manifest — are moved to this app's staging first,
     /// the whole install is backed up (keep-last-5), and only then does anything get deleted.
     /// Icarus's own files are never touched; UE4SS lives entirely in those two paths.

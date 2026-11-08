@@ -253,6 +253,9 @@ public sealed partial class SettingsViewModel
 
             _settingsService.SetAndSave(s => s.UpdateChannel, (s, v) => s.UpdateChannel = v, channel);
             OnPropertyChanged();
+            // The release found for the other channel isn't an offer on this one: until the new
+            // check answers, Update now would have installed it.
+            LatestAppUpdateRelease = null;
             RaiseAppUpdateOfferChanged();
             CheckForAppUpdatesCommand.Execute(null);
         }
@@ -301,29 +304,50 @@ public sealed partial class SettingsViewModel
             ? left.CompareTo(right) == 0
             : string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Bumped by every manual check. Switching the channel starts a new check while the last one
+    /// may still run, and either can answer first: an answer from a check that isn't the newest,
+    /// or for a channel no longer chosen, is dropped (a late Beta answer on Stable offered the beta).
+    /// </summary>
+    private int _appUpdateCheckNumber;
+
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task CheckForAppUpdatesAsync()
     {
+        var checkNumber = ++_appUpdateCheckNumber;
+        var channel = UpdateChannel;
         IsCheckingForAppUpdate = true;
         AppUpdateStatusMessage = null;
+        AppUpdateRelease? release;
         try
         {
-            LatestAppUpdateRelease = await GetChannelReleaseAsync();
-            AppUpdateStatusMessage = LatestAppUpdateRelease switch
-            {
-                null => IcarusStarlink.Catalog.GitHub.GitHubApiCache.RateLimitMessage is { } limit
-                    ? $"Couldn't check for updates. {limit}"
-                    : "Couldn't check for updates: GitHub didn't answer (offline, or GitHub is down).",
-                { } r when IsSwitchBackToStable => $"Stable v{r.Version} is available — Update now switches you back from beta v{InstalledAppVersion}.",
-                { } r when IsStableReadyForBeta => $"Stable v{r.Version} is ready — you're on beta v{InstalledAppVersion}.",
-                { } r when IsAppUpdateAvailable => $"v{r.Version} is available (you have v{InstalledAppVersion}).",
-                _ => "You're up to date.",
-            };
+            release = await GetChannelReleaseAsync();
         }
         finally
         {
-            IsCheckingForAppUpdate = false;
+            // A newer check still running owns the button.
+            if (checkNumber == _appUpdateCheckNumber)
+            {
+                IsCheckingForAppUpdate = false;
+            }
         }
+
+        if (checkNumber != _appUpdateCheckNumber || channel != UpdateChannel)
+        {
+            return;
+        }
+
+        LatestAppUpdateRelease = release;
+        AppUpdateStatusMessage = LatestAppUpdateRelease switch
+        {
+            null => IcarusStarlink.Catalog.GitHub.GitHubApiCache.RateLimitMessage is { } limit
+                ? $"Couldn't check for updates. {limit}"
+                : "Couldn't check for updates: GitHub didn't answer (offline, or GitHub is down).",
+            { } r when IsSwitchBackToStable => $"Stable v{r.Version} is available — Update now switches you back from beta v{InstalledAppVersion}.",
+            { } r when IsStableReadyForBeta => $"Stable v{r.Version} is ready — you're on beta v{InstalledAppVersion}.",
+            { } r when IsAppUpdateAvailable => $"v{r.Version} is available (you have v{InstalledAppVersion}).",
+            _ => "You're up to date.",
+        };
 
         // A manual check covers UE4SS too (the answer shows on the UE4SS tab). Only here, never
         // on the automatic launch check.
@@ -341,13 +365,13 @@ public sealed partial class SettingsViewModel
     private bool _isInstallingAppUpdate;
 
     /// <summary>
-    /// Big-plan item 4 — the real automated in-place update: download the release zip, extract it,
-    /// stage a TEMP copy of Updater.exe (so its own file in the install folder can be replaced
-    /// too), hand off (this process's id, the install dir, the new files, the exe to relaunch),
-    /// and exit. Updater.exe waits for this process to fully exit, copies the new build over the
-    /// install directory WITHOUT deleting anything (user data is safe by construction — see
-    /// UpdateApplier), and relaunches the app. Gated behind its own explicit Yes/No, like every
-    /// other self-affecting action in this app.
+    /// Update now: the in-place update. Asks first, like every change to the app itself, then opens
+    /// the update window (AppUpdateViewModel), which downloads and checks the release zip, unpacks
+    /// it, starts a temporary copy of Updater.exe (so the one in the install folder can be replaced
+    /// too) and hands over; then this app exits. The updater waits for it to close, copies the new
+    /// build over the install folder, removes program files the new build no longer ships
+    /// (top-level DLLs and the old runtimes folder; never mods, profiles, settings or backups, see
+    /// UpdateApplier) and starts Starlink again.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task UpdateNowAsync()
@@ -428,8 +452,19 @@ public sealed partial class SettingsViewModel
     /// </summary>
     public async Task OfferUpdateFromNexusLinkAsync(string nxmUrl)
     {
-        if (IsInstallingAppUpdate || _credentialStore.Read(CredentialTargets.NexusApiKey) is not { } apiKey)
+        // The update window is open and takes such links itself.
+        if (IsInstallingAppUpdate)
         {
+            return;
+        }
+
+        // Without a key Nexus can't say which file it is. Said where it pops up: Starlink just came
+        // to the front, and nothing else happened.
+        if (_credentialStore.Read(CredentialTargets.NexusApiKey) is not { } apiKey)
+        {
+            AppUpdateStatusMessage = "That Nexus download is Icarus Starlink itself. Sign in to Nexus (Settings › Nexus) to install it from there, "
+                + "or use Settings › Maintenance › Check for updates.";
+            _activityLog.Log(AppUpdateStatusMessage, ActivityEntryKind.Warning);
             return;
         }
 
@@ -473,6 +508,8 @@ public sealed partial class SettingsViewModel
         if (release is null)
         {
             AppUpdateStatusMessage = "That Nexus download is Icarus Starlink itself, but Nexus didn't say which version it is — use Check for updates instead.";
+            // The status line only shows on Settings › Maintenance.
+            _activityLog.Log(AppUpdateStatusMessage, ActivityEntryKind.Warning);
             return;
         }
 
@@ -575,8 +612,13 @@ public sealed partial class SettingsViewModel
             return;
         }
 
+        // Read, not bumped: bumping would stop a running manual check from ever clearing
+        // IsCheckingForAppUpdate. A manual check or a channel switch meanwhile owns the answer
+        // (What's new then waits for the next launch).
+        var checkNumber = _appUpdateCheckNumber;
+        var channel = UpdateChannel;
         var release = await GetChannelReleaseAsync();
-        if (release is null)
+        if (release is null || checkNumber != _appUpdateCheckNumber || channel != UpdateChannel)
         {
             return;
         }

@@ -173,18 +173,32 @@ public sealed partial class SettingsViewModel : ObservableObject
         ReportLastAppUpdateOutcome();
         _ = RefreshBackupsSizeAsync();
 
-        LoadSkinTokens();
+        var skin = _customSkinStore.Load(out var skinProblem);
+        LoadSkinTokens(skin);
+        if (skinProblem is not null)
+        {
+            SkinStatusMessage = $"Your skin file couldn't be used ({skinProblem}), so the boxes show the Icarus colours. "
+                + "Fix the file and click Reload skin file. Save skin replaces it and keeps the old file beside it as a .bak.";
+        }
     }
 
     [RelayCommand]
     private void Save()
     {
+        // Any folder used to be saved as the Content folder. A game folder holding it is switched
+        // to it; one without Data\data.pak is still saved (the game may be mid-install), with a warning.
+        var switchedTo = SwitchToContentFolderInside();
         _settingsService.Current.IcarusContentPath = IcarusContentPath;
         _settingsService.Current.UnrealPakExePath = UnrealPakExePath;
-        SavedMessage = _settingsService.Save()
-            ? $"Saved at {DateTime.Now:T}"
-            : "Couldn't save settings. settings.json may be open in another program (OneDrive, antivirus), or Starlink's folder may be read-only. "
-                + "Close that program, then click Save settings again.";
+        SavedMessage = !_settingsService.Save()
+            ? "Couldn't save settings. settings.json may be open in another program (OneDrive, antivirus), or Starlink's folder may be read-only. "
+                + "Close that program, then click Save settings again."
+            : switchedTo is not null
+            ? $"Saved at {DateTime.Now:T}, using {switchedTo} (the game's Content folder inside the one you gave)."
+            : !string.IsNullOrWhiteSpace(IcarusContentPath) && !IcarusContentFolder.HasDataPak(IcarusContentPath)
+            ? $"Saved at {DateTime.Now:T}, but that folder doesn't look like the game's Content folder (there's no Data\\data.pak in it). "
+                + "Pick …\\Icarus\\Icarus\\Content: merging, installing and Refresh game data need it."
+            : $"Saved at {DateTime.Now:T}";
         // UE4SS follows the saved game folder: this is when a newly chosen install's UE4SS shows.
         RefreshUe4ssStatus();
         WeakReferenceMessenger.Default.Send(new SettingsSavedMessage());

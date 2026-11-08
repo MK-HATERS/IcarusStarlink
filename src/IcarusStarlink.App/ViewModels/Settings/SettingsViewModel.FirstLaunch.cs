@@ -166,8 +166,12 @@ public sealed partial class SettingsViewModel
                 try
                 {
                     _nxmProtocolRegistrar.Register();
-                    IsNxmProtocolRegisteredToThisApp = _nxmProtocolRegistrar.IsRegisteredToThisApp();
-                    NxmProtocolStatusMessage = "Registered — Nexus \"Mod Manager Download\" buttons now open IcarusStarlink.";
+                    // The whole Nexus tab state, as Settings › Nexus › Register does: setting only
+                    // the flag left the header saying the replaced app (Vortex) still had the links.
+                    RefreshNxmHandlerState();
+                    NxmProtocolStatusMessage = IsNxmProtocolRegisteredToThisApp
+                        ? "Registered — Nexus \"Mod Manager Download\" buttons now open IcarusStarlink."
+                        : "Registration didn't take effect — try again from Settings → Nexus.";
                 }
                 catch (Exception ex)
                 {

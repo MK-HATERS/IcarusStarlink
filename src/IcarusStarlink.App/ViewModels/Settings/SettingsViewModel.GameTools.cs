@@ -53,10 +53,45 @@ public sealed partial class SettingsViewModel
     [RelayCommand]
     private void BrowseIcarusContentFolder()
     {
-        if (_dialogService.PickFolder("Select the Icarus\\Icarus\\Content folder", IcarusContentPath) is { } folder)
+        if (_dialogService.PickFolder("Select the Icarus\\Icarus\\Content folder", IcarusContentPath) is not { } folder)
         {
-            IcarusContentPath = folder;
+            return;
         }
+
+        // The game folder or its Icarus folder are common picks: the Content folder inside is used.
+        // Anything else is kept as picked (the game may still be installing), with a word why it
+        // won't work yet.
+        var content = IcarusContentFolder.Find(folder);
+        IcarusContentPath = content ?? folder;
+        SavedMessage = content is null
+            ? NotTheContentFolderMessage
+            : !string.Equals(content, folder, StringComparison.OrdinalIgnoreCase)
+            ? $"Using {content}: the game's Content folder inside the folder you picked. Click Save settings to keep it."
+            : null;
+    }
+
+    private const string NotTheContentFolderMessage =
+        "That folder doesn't look like the game's Content folder (there's no Data\\data.pak in it). "
+        + "Pick …\\Icarus\\Icarus\\Content: merging, installing and Refresh game data need it.";
+
+    /// <summary>
+    /// For Save settings: a typed or picked game folder becomes the Content folder inside it (null
+    /// when the path already is one, is empty, or nothing inside it is).
+    /// </summary>
+    private string? SwitchToContentFolderInside()
+    {
+        if (string.IsNullOrWhiteSpace(IcarusContentPath) || IcarusContentFolder.HasDataPak(IcarusContentPath))
+        {
+            return null;
+        }
+
+        if (IcarusContentFolder.Find(IcarusContentPath) is not { } content)
+        {
+            return null;
+        }
+
+        IcarusContentPath = content;
+        return content;
     }
 
     /// <summary>
@@ -210,7 +245,13 @@ public sealed partial class SettingsViewModel
 
         try
         {
-            var previousUpdateAt = _settingsService.Current.LastDataFolderUpdatedAt;
+            // A reset settings file loses the date but not the report history or the Data folder:
+            // either still gives the next refresh something to compare with (without one, no
+            // Weekly Changes report was made for that patch).
+            var previousUpdateAt = LastDataRefreshAt
+                ?? (Directory.Exists(_dataOutputDirectory)
+                    ? new DateTimeOffset(Directory.GetLastWriteTimeUtc(_dataOutputDirectory), TimeSpan.Zero)
+                    : null);
             var unrealPakExePath = UnrealPakExePath;
             var icarusContentPath = IcarusContentPath;
             var dataOutputDirectory = _dataOutputDirectory;

@@ -1009,6 +1009,8 @@ public sealed class SettingsViewModelTests
         await vm.OfferUpdateFromNexusLinkAsync("nxm://icarus/mods/330/files/400?key=abc&expires=1700000000&user_id=1");
 
         Assert.Contains("Nexus didn't say which version", vm.AppUpdateStatusMessage);
+        // The status line only shows on Settings › Maintenance; the warning pops up wherever the player is.
+        Assert.Single(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("Nexus didn't say which version"));
     }
 
     [Fact]
@@ -1274,6 +1276,245 @@ public sealed class SettingsViewModelTests
         GC.KeepAlive(vm);
     }
 
+    // ---- Update channel switched while a check runs ----
+
+    private static readonly AppUpdateRelease OldStable = new("1.0.0", "", "https://example.invalid/a.zip", null);
+    private static readonly AppUpdateRelease NewBeta = new("99.1.0-beta.1", "", "https://example.invalid/b.zip", null);
+
+    /// <summary>Regression: switching Beta → Stable while the Beta check still ran let the late beta answer win, so Stable offered the beta.</summary>
+    [Fact]
+    public async Task ChannelSwitchedWhileABetaCheckRuns_TheBetaAnswerIsDropped()
+    {
+        using var harness = new Harness();
+        harness.Settings.UpdateChannel = SettingsViewModel.BetaChannel;
+        harness.AppUpdateClient.ReleaseToReturn = OldStable;
+        harness.AppUpdateClient.BetaGate = new TaskCompletionSource<AppUpdateRelease?>();
+        var vm = harness.BuildViewModel();
+
+        var betaCheck = vm.CheckForAppUpdatesCommand.ExecuteAsync(null);
+        vm.UpdateChannel = SettingsViewModel.StableChannel;
+        harness.AppUpdateClient.BetaGate.SetResult(NewBeta);
+        await betaCheck;
+
+        Assert.Equal("1.0.0", vm.LatestAppUpdateRelease?.Version);
+        Assert.DoesNotContain("99.1.0-beta.1", vm.AppUpdateStatusMessage ?? "");
+        Assert.False(vm.IsCheckingForAppUpdate);
+    }
+
+    /// <summary>Regression: after switching Beta → Stable the beta stayed on offer (Update now would install it) until the Stable check answered.</summary>
+    [Fact]
+    public async Task SwitchingChannel_DropsTheOtherChannelsOfferAtOnce()
+    {
+        using var harness = new Harness();
+        harness.Settings.UpdateChannel = SettingsViewModel.BetaChannel;
+        harness.AppUpdateClient.BetaToReturn = NewBeta;
+        var vm = harness.BuildViewModel();
+        await vm.CheckForAppUpdatesCommand.ExecuteAsync(null);
+        Assert.True(vm.IsAppUpdateAvailable);
+
+        harness.AppUpdateClient.StableGate = new TaskCompletionSource<AppUpdateRelease?>();
+        vm.UpdateChannel = SettingsViewModel.StableChannel;
+
+        Assert.Null(vm.LatestAppUpdateRelease);
+        Assert.False(vm.IsAppUpdateAvailable);
+        harness.AppUpdateClient.StableGate.SetResult(null);
+        await (vm.CheckForAppUpdatesCommand.ExecutionTask ?? Task.CompletedTask);
+        Assert.False(vm.IsCheckingForAppUpdate);
+    }
+
+    /// <summary>Regression: a Mod Manager Download of Starlink itself did nothing at all when no Nexus key was saved.</summary>
+    [Fact]
+    public async Task NexusLinkForStarlink_NoNexusKey_SaysHowToUpdate()
+    {
+        using var harness = new Harness(dialogConfirmResult: false);
+        harness.Settings.AutoCheckAppUpdates = false;
+        var vm = harness.BuildViewModel();
+
+        await vm.OfferUpdateFromNexusLinkAsync("nxm://icarus/mods/330/files/400?key=abc&expires=1700000000&user_id=1");
+
+        Assert.Contains("Sign in to Nexus", vm.AppUpdateStatusMessage);
+        Assert.Single(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("Sign in to Nexus"));
+    }
+
+    // ---- Custom skin ----
+
+    /// <summary>Regression: Reload skin file on a file with a stray comma quietly filled every box with the Icarus colours and said "reloaded".</summary>
+    [Fact]
+    public void ReloadSkinFile_FileNotValidJson_LeavesTheEditorAlone()
+    {
+        using var harness = new Harness();
+        harness.ThemeService.Colors = new Dictionary<string, string> { ["AccentBrush"] = "#FF8A3D" };
+        var vm = harness.BuildViewModel();
+        var token = Assert.Single(vm.SkinTokens);
+        token.Hex = "#123456";
+
+        harness.CustomSkinStore.ProblemToReturn = "it isn't valid JSON";
+        vm.ReloadSkinFileCommand.Execute(null);
+
+        Assert.Equal("#123456", vm.SkinTokens.Single().Hex);
+        Assert.Contains("Nothing was changed", vm.SkinStatusMessage);
+    }
+
+    /// <summary>A broken skin file at start is named on the Appearance tab, not silently shown as the Icarus colours.</summary>
+    [Fact]
+    public void SkinFileNotValidJsonAtStart_SaysSo()
+    {
+        using var harness = new Harness();
+        harness.ThemeService.Colors = new Dictionary<string, string> { ["AccentBrush"] = "#FF8A3D" };
+        harness.CustomSkinStore.ProblemToReturn = "it isn't valid JSON";
+
+        var vm = harness.BuildViewModel();
+
+        Assert.Contains("couldn't be used", vm.SkinStatusMessage);
+    }
+
+    // ---- Nexus ----
+
+    /// <summary>Regression: after Yes to the first-launch "Nexus download links" offer, the Nexus tab still said Vortex had the links.</summary>
+    [Fact]
+    public async Task FirstLaunch_NxmLinksTakenFromVortex_TheNexusTabShowsItAtOnce()
+    {
+        using var harness = new Harness();
+        harness.Settings.FirstLaunchSetupCompletedAtUtc = null;
+        harness.Settings.LastDataFolderUpdatedAt = DateTimeOffset.UtcNow.AddDays(-1);
+        harness.NxmProtocolRegistrar.Registered = false;
+        const string vortex = "\"C:\\Vortex\\Vortex.exe\" -d \"%1\"";
+        harness.NxmProtocolRegistrar.OtherHandler = vortex;
+        harness.NxmProtocolRegistrar.OtherAppsAfterRegister = [new NxmOtherApp(vortex, [])];
+        var vm = harness.BuildViewModel();
+        Assert.Equal("Vortex has them now", vm.NxmHandlerHeaderState);
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        await vm.StartFirstLaunchSetup();
+
+        Assert.Null(vm.NxmHandlerOwner);
+        Assert.Contains(nameof(SettingsViewModel.NxmHandlerHeaderState), changed);
+        Assert.Single(vm.NxmOtherApps);
+        Assert.Contains("Registered", vm.NxmProtocolStatusMessage);
+    }
+
+    /// <summary>Regression: a Credential Manager failure after Nexus accepted the key was shown as "Couldn't reach Nexus".</summary>
+    [Fact]
+    public async Task Authorize_CredentialManagerFails_SaysSoNotCouldntReachNexus()
+    {
+        using var harness = new Harness();
+        harness.NexusApiClient = new IcarusStarlink.App.Tests.Services.FakeStarlinkNexus();
+        var vm = harness.BuildViewModel();
+        harness.CredentialStore.SaveException = new InvalidOperationException("Windows Credential Manager write failed (Win32 error 1312)");
+        vm.NexusApiKeyInput = "abc";
+
+        await vm.AuthorizeNexusCommand.ExecuteAsync(null);
+
+        Assert.Contains("Nexus accepted the key", vm.NexusStatusMessage);
+        Assert.DoesNotContain("Couldn't reach Nexus", vm.NexusStatusMessage);
+        Assert.Null(vm.NexusSignedInAs);
+        Assert.Equal("abc", vm.NexusApiKeyInput);
+    }
+
+    // ---- Icarus Content folder ----
+
+    /// <summary>Regression: picking the game folder (steamapps\common\Icarus) was stored as is, so Install copied the merged pak where the game never loads it.</summary>
+    [Fact]
+    public void BrowseIcarusContentFolder_GameFolderPicked_UsesTheContentFolderInsideIt()
+    {
+        using var harness = new Harness();
+        var gameFolder = Path.Combine(harness.TempDir, "Steam", "common", "Icarus");
+        var content = Path.Combine(gameFolder, "Icarus", "Content");
+        Directory.CreateDirectory(Path.Combine(content, "Data"));
+        File.WriteAllText(Path.Combine(content, "Data", "data.pak"), "pak");
+        harness.DialogService.FolderToPick = gameFolder;
+        var vm = harness.BuildViewModel();
+
+        vm.BrowseIcarusContentFolderCommand.Execute(null);
+
+        Assert.Equal(content, vm.IcarusContentPath);
+        Assert.Contains("Click Save settings", vm.SavedMessage);
+    }
+
+    /// <summary>Regression: Save settings said "Saved at …" for any folder, though merging, installing and Refresh game data need the Content folder.</summary>
+    [Fact]
+    public void Save_FolderWithoutDataPak_SavesButWarns()
+    {
+        using var harness = new Harness();
+        var empty = Path.Combine(harness.TempDir, "SomeFolder");
+        Directory.CreateDirectory(empty);
+        var vm = harness.BuildViewModel();
+        vm.IcarusContentPath = empty;
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Contains("doesn't look like", vm.SavedMessage);
+        Assert.Equal(empty, harness.Settings.IcarusContentPath);
+    }
+
+    [Fact]
+    public void Save_GameFolderTyped_SavesTheContentFolderInsideIt()
+    {
+        using var harness = new Harness();
+        var gameFolder = Path.Combine(harness.TempDir, "Icarus");
+        var content = Path.Combine(gameFolder, "Icarus", "Content");
+        Directory.CreateDirectory(Path.Combine(content, "Data"));
+        File.WriteAllText(Path.Combine(content, "Data", "data.pak"), "pak");
+        var vm = harness.BuildViewModel();
+        vm.IcarusContentPath = gameFolder;
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(content, harness.Settings.IcarusContentPath);
+        Assert.Equal(content, vm.IcarusContentPath);
+        Assert.Contains("Content folder inside", vm.SavedMessage);
+    }
+
+    [Fact]
+    public void Save_RightFolder_SaysSavedOnly()
+    {
+        using var harness = new Harness();
+        var content = Path.Combine(harness.TempDir, "Content");
+        Directory.CreateDirectory(Path.Combine(content, "Data"));
+        File.WriteAllText(Path.Combine(content, "Data", "data.pak"), "pak");
+        var vm = harness.BuildViewModel();
+        vm.IcarusContentPath = content;
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.StartsWith("Saved at", vm.SavedMessage);
+        Assert.DoesNotContain("doesn't look like", vm.SavedMessage);
+    }
+
+    // ---- Refresh game data after a settings reset ----
+
+    /// <summary>Regression: a reset settings file lost the last refresh date, so the next refresh made no Weekly Changes report though a report existed.</summary>
+    [Fact]
+    public async Task RefreshGameData_SettingsResetButAReportExists_ComparesWithIt()
+    {
+        using var harness = new Harness();
+        var report = MakeReport(changedFileCount: 0);
+        harness.WeeklyChangeReportStore.Save(report);
+        harness.Settings.LastDataFolderUpdatedAt = null;
+        harness.UnrealPakService.ExtractResultFactory = () => new UnrealPakExtractResult(10, null);
+        var vm = harness.BuildViewModel();
+
+        await vm.UpdateDataFolderCommand.ExecuteAsync(null);
+
+        Assert.Equal(report.CurrentUpdateAt, harness.UnrealPakService.LastPreviousUpdateAt);
+    }
+
+    /// <summary>Regression: the same with no report but an old extraction still in the Data folder.</summary>
+    [Fact]
+    public async Task RefreshGameData_SettingsResetDataFolderOnDisk_ComparesWithIt()
+    {
+        using var harness = new Harness();
+        Directory.CreateDirectory(Path.Combine(harness.TempDir, "Data"));
+        harness.Settings.LastDataFolderUpdatedAt = null;
+        harness.UnrealPakService.ExtractResultFactory = () => new UnrealPakExtractResult(10, null);
+        var vm = harness.BuildViewModel();
+
+        await vm.UpdateDataFolderCommand.ExecuteAsync(null);
+
+        Assert.NotNull(harness.UnrealPakService.LastPreviousUpdateAt);
+    }
+
     private sealed class Harness : IDisposable
     {
         public readonly string TempDir;
@@ -1320,6 +1561,8 @@ public sealed class SettingsViewModelTests
 
         public readonly FakeCredentialStore CredentialStore = new();
         public INexusApiClient NexusApiClient = new FakeNexusApiClient();
+        public readonly FakeThemeService ThemeService = new();
+        public readonly FakeCustomSkinStore CustomSkinStore = new();
 
         /// <summary>Where the VM looks for game crash reports; null = the real %LocalAppData% one (never reached while LastInstallAtUtc is null).</summary>
         public string? CrashesFolder;
@@ -1338,7 +1581,7 @@ public sealed class SettingsViewModelTests
             SettingsService, UnrealPakService, WeeklyChangeReportStore,
             SteamInstallLocator, CredentialStore, NexusApiClient,
             NxmProtocolRegistrar, Ue4ssLoaderInstallService, Ue4ssReleaseClient, AppUpdateClient,
-            new HttpClient(_httpHandler), new FakeThemeService(), new FakeCustomSkinStore(),
+            new HttpClient(_httpHandler), ThemeService, CustomSkinStore,
             BuildImmMigrationService(),
             () => throw new InvalidOperationException("MergeInstallViewModel factory not exercised by these tests"),
             UnrealPakInstaller, ActivityLog, DialogService, GameProcessChecker,
@@ -1409,11 +1652,15 @@ public sealed class SettingsViewModelTests
         /// <summary>The SynchronizationContext the extraction was started under: the window's, when it ran on the UI thread.</summary>
         public SynchronizationContext? ContextAtExtract { get; private set; }
 
+        /// <summary>The previousUpdateAt the last extraction got: null means it had nothing to compare with.</summary>
+        public DateTimeOffset? LastPreviousUpdateAt { get; private set; }
+
         public async Task<UnrealPakExtractResult> ExtractDataPakAsync(
             string unrealPakExePath, string icarusContentPath, string outputDirectory,
             DateTimeOffset? previousUpdateAt, CancellationToken cancellationToken = default)
         {
             ContextAtExtract = SynchronizationContext.Current;
+            LastPreviousUpdateAt = previousUpdateAt;
             ExtractCallCount++;
             if (ExtractGate is { } gate)
             {
@@ -1504,7 +1751,18 @@ public sealed class SettingsViewModelTests
     {
         private readonly Dictionary<string, string> _values = [];
 
-        public void Save(string target, string secret) => _values[target] = secret;
+        /// <summary>Thrown by Save when set (Credential Manager blocked by policy, say).</summary>
+        public Exception? SaveException { get; set; }
+
+        public void Save(string target, string secret)
+        {
+            if (SaveException is { } error)
+            {
+                throw error;
+            }
+
+            _values[target] = secret;
+        }
 
         public string? Read(string target) => _values.GetValueOrDefault(target);
 
@@ -1551,9 +1809,17 @@ public sealed class SettingsViewModelTests
         public bool Registered { get; set; }
         public int RegisterCallCount { get; private set; }
 
+        /// <summary>The other app's command that has the links while Starlink doesn't (null = nothing has them).</summary>
+        public string? OtherHandler { get; set; }
+
+        /// <summary>The apps Starlink replaced, listed once Register ran.</summary>
+        public List<NxmOtherApp> OtherAppsAfterRegister { get; set; } = [];
+
         public bool IsRegisteredToThisApp() => Registered;
 
-        public string? CurrentHandlerCommand() => Registered ? "\"C:\\IcarusStarlink\\IcarusStarlink.App.exe\" \"%1\"" : null;
+        public string? CurrentHandlerCommand() => Registered ? "\"C:\\IcarusStarlink\\IcarusStarlink.App.exe\" \"%1\"" : OtherHandler;
+
+        public IReadOnlyList<NxmOtherApp> OtherApps() => RegisterCallCount > 0 ? OtherAppsAfterRegister : [];
 
         public string? PreviousHandlerCommand() => null;
 
@@ -1677,11 +1943,22 @@ public sealed class SettingsViewModelTests
         public AppUpdateRelease? ReleaseToReturn { get; set; }
         public int LatestReleaseCalls { get; private set; }
 
+        /// <summary>When set, the stable lookup answers only once this is completed (a slow GitHub).</summary>
+        public TaskCompletionSource<AppUpdateRelease?>? StableGate { get; set; }
+
+        public AppUpdateRelease? BetaToReturn { get; set; }
+
+        /// <summary>When set, the beta lookup answers only once this is completed.</summary>
+        public TaskCompletionSource<AppUpdateRelease?>? BetaGate { get; set; }
+
         public Task<AppUpdateRelease?> GetLatestReleaseAsync(CancellationToken cancellationToken = default)
         {
             LatestReleaseCalls++;
-            return Task.FromResult(ReleaseToReturn);
+            return StableGate?.Task ?? Task.FromResult(ReleaseToReturn);
         }
+
+        public Task<AppUpdateRelease?> GetLatestBetaReleaseAsync(CancellationToken cancellationToken = default) =>
+            BetaGate?.Task ?? Task.FromResult(BetaToReturn);
 
         public Task DownloadAssetAsync(AppUpdateRelease release, string destinationPath, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("not exercised by these tests");
@@ -1691,18 +1968,32 @@ public sealed class SettingsViewModelTests
     {
         public IReadOnlyList<string> AvailableThemes => [];
 
+        /// <summary>What every theme's colours are (the skin editor gets one box per token here).</summary>
+        public Dictionary<string, string> Colors { get; set; } = [];
+
         public void ApplyTheme(string themeName)
         {
         }
 
-        public IReadOnlyDictionary<string, string> GetThemeColors(string themeName) => new Dictionary<string, string>();
+        public IReadOnlyDictionary<string, string> GetThemeColors(string themeName) => Colors;
     }
 
     private sealed class FakeCustomSkinStore : ICustomSkinStore
     {
         public string FilePath => "fake-skin.json";
 
-        public CustomSkin? Load() => null;
+        public CustomSkin? SkinToReturn { get; set; }
+
+        /// <summary>Why the skin file couldn't be used, as the real store says it; null = it loaded.</summary>
+        public string? ProblemToReturn { get; set; }
+
+        public CustomSkin? Load() => SkinToReturn;
+
+        public CustomSkin? Load(out string? problem)
+        {
+            problem = ProblemToReturn;
+            return ProblemToReturn is null ? SkinToReturn : new CustomSkin();
+        }
 
         public void Save(CustomSkin skin)
         {

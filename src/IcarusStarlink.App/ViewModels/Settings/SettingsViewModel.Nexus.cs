@@ -143,7 +143,18 @@ public sealed partial class SettingsViewModel
                 return;
             }
 
-            _credentialStore.Save(CredentialTargets.NexusApiKey, trimmedKey);
+            // Its own try: a Credential Manager failure isn't Nexus being unreachable. The key
+            // stays in the box so Authorize can try again.
+            try
+            {
+                _credentialStore.Save(CredentialTargets.NexusApiKey, trimmedKey);
+            }
+            catch (Exception ex)
+            {
+                NexusStatusMessage = $"Nexus accepted the key, but Windows couldn't save it in Credential Manager ({ex.Message}). Click Authorize to try again.";
+                return;
+            }
+
             NexusSignedInAs = user.IsPremium ? $"{user.Name} (Premium)" : user.Name;
             NexusApiKeyInput = "";
             NexusStatusMessage = "Signed in.";
