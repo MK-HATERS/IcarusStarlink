@@ -33,7 +33,7 @@ public sealed class ExeRenameMigrationTests : IDisposable
     }
 
     private ExeRenameMigration Migration() =>
-        new(_install, _shortcuts, _nxm, [new(_desktop, false), new(_startMenu, true)]) { LauncherExitWait = TimeSpan.Zero };
+        new(_install, _shortcuts, _nxm, [new(_desktop, false), new(_startMenu, true)]) { LauncherExitWait = TimeSpan.Zero, DeleteRetryDelay = TimeSpan.Zero };
 
     private string OldExe => Path.Combine(_install, "IcarusStarlink.App.exe");
 

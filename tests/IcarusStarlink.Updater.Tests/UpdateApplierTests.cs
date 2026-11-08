@@ -10,6 +10,8 @@ public sealed class UpdateApplierTests : IDisposable
 
     public UpdateApplierTests()
     {
+        // No test here releases a lock while a copy retries: the waits would only slow the run.
+        UpdateApplier.CopyRetryDelay = TimeSpan.Zero;
         _installDirectory = Path.Combine(_root, "install");
         _newFilesDirectory = Path.Combine(_root, "new");
         Directory.CreateDirectory(_installDirectory);

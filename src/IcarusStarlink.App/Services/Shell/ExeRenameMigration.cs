@@ -23,6 +23,9 @@ public sealed class ExeRenameMigration(
     /// <summary>Waits this long for the old launcher to exit (it starts this app and closes straight away).</summary>
     public TimeSpan LauncherExitWait { get; init; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>The wait between two tries at deleting the old exe (antivirus may be scanning it). Tests set it to zero.</summary>
+    public TimeSpan DeleteRetryDelay { get; init; } = TimeSpan.FromMilliseconds(400);
+
     /// <summary>What there is to do; reads every shortcut, so call it off the UI thread.</summary>
     public ExeRenamePlan Plan()
     {
@@ -110,9 +113,15 @@ public sealed class ExeRenameMigration(
     private string? DeleteOldExe()
     {
         WaitForLauncherToExit();
+        const int attempts = 5;
         string? last = null;
-        for (var attempt = 0; attempt < 5; attempt++)
+        for (var attempt = 0; attempt < attempts; attempt++)
         {
+            if (attempt > 0)
+            {
+                Thread.Sleep(DeleteRetryDelay);
+            }
+
             try
             {
                 if (File.Exists(OldExePath))
@@ -127,7 +136,6 @@ public sealed class ExeRenameMigration(
             {
                 // Antivirus scanning it, or the launcher still closing.
                 last = ex.Message;
-                Thread.Sleep(400);
             }
         }
 

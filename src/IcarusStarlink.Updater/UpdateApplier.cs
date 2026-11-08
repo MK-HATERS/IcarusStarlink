@@ -18,7 +18,9 @@ public static class UpdateApplier
     public const string AppExeName = "IcarusStarlink.exe";
     public const string OldAppExeName = "IcarusStarlink.App.exe";
     private const int CopyAttempts = 5;
-    private const int CopyRetryDelayMs = 500;
+
+    /// <summary>The wait between two tries of one file copy. Tests set it to zero.</summary>
+    internal static TimeSpan CopyRetryDelay { get; set; } = TimeSpan.FromMilliseconds(500);
 
     /// <summary>
     /// Root-level file shapes the app itself ships and nothing else ever puts there — a stale one
@@ -266,7 +268,7 @@ public static class UpdateApplier
             {
                 log($"Attempt {attempt} to copy '{destinationPath}' failed ({ex.Message}) — retrying.");
                 TryClearReadOnly(destinationPath);
-                Thread.Sleep(CopyRetryDelayMs);
+                Thread.Sleep(CopyRetryDelay);
             }
         }
     }
