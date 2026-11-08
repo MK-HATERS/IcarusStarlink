@@ -48,7 +48,24 @@ public sealed class OwnModWriter(ILibraryRepository repository, IMessenger? mess
         repository.MarkLocallyEdited(folderName);
         ModPackageFile.Write(repository.GetFolderPath(folderName), package);
         newStamp = StampOf(folderName, package.FileName);
+        RefreshEntry(repository, folderName);
         (messenger ?? WeakReferenceMessenger.Default).Send(new LibraryChangedMessage());
         return true;
+    }
+
+    /// <summary>
+    /// Reads the written mod into the Library again, so its search finds what it holds now. Best
+    /// effort: the mod is written either way, and the next full refresh reads it.
+    /// </summary>
+    internal static void RefreshEntry(ILibraryRepository repository, string folderName)
+    {
+        try
+        {
+            repository.RefreshEntry(folderName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or System.Text.Json.JsonException)
+        {
+            Serilog.Log.Warning(ex, "Couldn't read {Folder} into the Library again after writing it", folderName);
+        }
     }
 }

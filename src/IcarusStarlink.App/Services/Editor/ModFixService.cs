@@ -523,6 +523,7 @@ public sealed class ModFixService(
             AssetReferenceRewriter.Commit(rewritten);
         }
 
+        OwnModWriter.RefreshEntry(repository, folderName);
         return applied + repointed.Sum(r => r.Fixes);
     }
 

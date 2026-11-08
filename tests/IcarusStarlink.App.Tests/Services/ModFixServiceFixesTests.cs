@@ -151,4 +151,50 @@ public sealed class ModFixServiceFixesTests : IDisposable
 
         Assert.True(_library.HasModBackup(_folder));
     }
+
+    /// <summary>A paid DLC never limits a mod: a DLC-only row copied whole is no problem, and Fix sure problems leaves its gate as the game has it.</summary>
+    [Fact]
+    public void ADlcGatedRowCopiedWhole_IsNoProblem_AndFixSureKeepsItsGate()
+    {
+        Table("Items/D_ItemsStatic.json", """
+            {"Name": "Bread", "Weight": 20},
+            {"Name": "Hunter_Suit", "Weight": 30, "Metadata": {"RequiredFeatureLevel": {"RowName": "GreatHunts", "DataTableName": "D_FeatureLevels"}}}
+            """);
+        ExmodFolder.Write(_library.GetFolderPath(_folder), new ExmodPackageContents(ExmodJson.Parse("""
+            {
+                "name": "Fix Me", "author": "Me", "version": "1", "description": "D", "fileName": "Fix_Me",
+                "Rows": [
+                    {"CurrentFile": "Items-D_ItemsStatic.json", "File_Items": [
+                        {"Name": "Hunter_Suit", "Weight": 10, "Metadata": {"RequiredFeatureLevel": {"RowName": "GreatHunts", "DataTableName": "D_FeatureLevels"}}},
+                        {"Name": "Hunter_Suit_Light", "Weight": 10, "Metadata": {"RequiredFeatureLevel": {"RowName": "GreatHunts", "DataTableName": "D_FeatureLevels"}}}
+                    ]}
+                ]
+            }
+            """), []));
+        var service = Service();
+
+        var report = service.Check(_folder);
+        // The new row has no template yet (NothingGivesItem), like any new item: nothing about its gate.
+        Assert.Empty(report.Issues.Where(i => !i.IsTidyOnly && i.Kind != ModIssueKind.NothingGivesItem && (i.FieldName == "Metadata" || i.FieldName is null)).Select(i => $"{i.Kind} {i.ItemName}.{i.FieldName}: {i.Why}"));
+        service.FixSure(_folder);
+
+        foreach (var item in Mod().Rows.Single(r => r.CurrentFile == "Items-D_ItemsStatic.json").FileItems)
+        {
+            Assert.Equal("GreatHunts", item.Fields["Metadata"]!["RequiredFeatureLevel"]!["RowName"]!.GetValue<string>());
+        }
+    }
+
+    /// <summary>Regression: a fix rewrote the mod but the Library search kept its old words.</summary>
+    [Fact]
+    public void AFixedMod_IsSearchedByWhatItHoldsNow()
+    {
+        _library.RefreshEntry(_folder);
+        Assert.Contains(_library.Search("Wieght"), e => e.FolderName == _folder);
+        var service = Service();
+        var typo = service.Check(_folder).Issues.Single(i => i.FieldName == "Wieght");
+
+        service.Apply(_folder, [(typo, ModIssueFix.UseGame)]);
+
+        Assert.DoesNotContain(_library.Search("Wieght"), e => e.FolderName == _folder);
+    }
 }
