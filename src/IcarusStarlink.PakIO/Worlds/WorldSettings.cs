@@ -125,18 +125,32 @@ public sealed class WorldSave
     /// <summary>The values the save holds now, by setting name (a setting it doesn't list uses the game's default).</summary>
     public Dictionary<string, int> Settings { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>A world save, or null when the file isn't one (no ProspectInfo).</summary>
+    /// <summary>
+    /// A world save, or null when the file isn't one (no ProspectInfo). Only ProspectInfo becomes
+    /// a node tree; the rest of the file (ProspectBlob, the world itself, often megabytes) is
+    /// only scanned past.
+    /// </summary>
     public static WorldSave? Load(string path)
     {
         try
         {
-            return JsonNode.Parse(File.ReadAllText(path)) is JsonObject root && root["ProspectInfo"] is JsonObject info ? new WorldSave(path, info) : null;
+            using var stream = File.OpenRead(path);
+            using var document = JsonDocument.Parse(stream);
+            return ProspectInfoOf(document) is { } info ? new WorldSave(path, info) : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
             return null;
         }
     }
+
+    /// <summary>The root's ProspectInfo object as its own node tree, or null when there's none.</summary>
+    private static JsonObject? ProspectInfoOf(JsonDocument document) =>
+        document.RootElement.ValueKind == JsonValueKind.Object
+        && document.RootElement.TryGetProperty("ProspectInfo", out var info)
+        && info.ValueKind == JsonValueKind.Object
+            ? JsonObject.Create(info.Clone())
+            : null;
 
     /// <summary>Every world save in a Prospects folder (newest first; the game's .backup copies aren't worlds).</summary>
     public static IReadOnlyList<WorldSave> LoadFolder(string prospectsFolder) =>
@@ -157,9 +171,13 @@ public sealed class WorldSave
     public string Save(IReadOnlyDictionary<string, int> values, string backupFolder, string backupOwner = "world", int backupsKept = BackupLimits.DefaultSaveBackupsKept)
     {
         var text = File.ReadAllText(Path);
-        var current = JsonNode.Parse(text) is JsonObject root && root["ProspectInfo"] is JsonObject info
-            ? ReadSettings(info)
-            : throw new FormatException("Not a world save: no ProspectInfo.");
+        List<KeyValuePair<string, int>> current;
+        using (var document = JsonDocument.Parse(text))
+        {
+            current = ProspectInfoOf(document) is { } info
+                ? ReadSettings(info)
+                : throw new FormatException("Not a world save: no ProspectInfo.");
+        }
         var merged = new List<KeyValuePair<string, int>>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (name, value) in current)

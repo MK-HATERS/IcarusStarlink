@@ -107,7 +107,8 @@
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" IsEnabled="{Binding IsEditable}">
                                         <CheckBox Style="{StaticResource ToggleSwitchStyle}" IsChecked="{Binding BoolValue}" AutomationProperties.Name="{Binding Label}"
                                                   Visibility="{Binding IsBool, Converter={StaticResource BoolToVisibilityConverter}}"/>
-                                        <TextBox Text="{Binding ValueText, UpdateSourceTrigger=LostFocus}" Width="80" AutomationProperties.Name="{Binding Label}"
+                                        <!-- Counts on every keystroke (Save turns on at once); the box is tidied to the in-range value when it loses focus. -->
+                                        <TextBox Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" LostFocus="OnNumberBoxLostFocus" Width="80" AutomationProperties.Name="{Binding Label}"
                                                  Visibility="{Binding IsNumber, Converter={StaticResource BoolToVisibilityConverter}}"/>
                                         <ComboBox ItemsSource="{Binding Options}" SelectedIndex="{Binding Value}" MinWidth="160" AutomationProperties.Name="{Binding Label}"
                                                   Visibility="{Binding IsDropDown, Converter={StaticResource BoolToVisibilityConverter}}"/>

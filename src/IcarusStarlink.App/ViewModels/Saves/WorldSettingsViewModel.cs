@@ -96,24 +96,43 @@ public sealed partial class WorldSettingRowViewModel : ObservableObject
         set => Value = value ? 1 : 0;
     }
 
-    /// <summary>A number setting, kept within the game's own range.</summary>
+    /// <summary>What's typed in the number box while typing goes on (null: the box shows Value).</summary>
+    private string? _typed;
+
+    /// <summary>
+    /// A number setting, kept within the game's own range. Every keystroke counts at once (Save
+    /// turns on as soon as the number differs), but the box keeps what was typed until
+    /// EndTyping: putting "1" up to a minimum of 10 mid-typing would make "15" impossible to type.
+    /// </summary>
     public string ValueText
     {
-        get => Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        get => _typed ?? Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         set
         {
+            _typed = value;
             if (int.TryParse(value, out var n))
             {
                 Value = Definition.MaxValue > Definition.MinValue ? Math.Clamp(n, Definition.MinValue, Definition.MaxValue) : n;
             }
-
-            // The box shows the value Save will write: letters, or a number past the range when the
-            // value was already at its end, stayed typed in the box while the old value was saved.
-            OnPropertyChanged();
         }
     }
 
     public bool IsChanged => Value != _saved;
+
+    /// <summary>
+    /// The number box lost focus: it shows the value Save writes again (letters, or a number past
+    /// the range, are replaced by the in-range value).
+    /// </summary>
+    public void EndTyping()
+    {
+        if (_typed is null)
+        {
+            return;
+        }
+
+        _typed = null;
+        OnPropertyChanged(nameof(ValueText));
+    }
 }
 
 /// <summary>
@@ -200,11 +219,19 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
     /// <summary>Bumped by every reload, so an older one still parsing in the background doesn't overwrite a newer list.</summary>
     private int _reloadGeneration;
 
+    /// <summary>
+    /// Whose worlds the shown list is, read with the folder: during a slot switch the page's owner
+    /// already answers for the new slot while this list (and its Save and Restore) is still the
+    /// old slot's, so backups go by this one.
+    /// </summary>
+    private string? _shownOwner;
+
     /// <summary>Reads the worlds again (the slot or server changed, or a world was saved elsewhere).</summary>
     public void Reload()
     {
         var folder = _prospectsFolder();
-        Show(++_reloadGeneration, folder is null ? [] : WorldSave.LoadFolder(folder));
+        var owner = _backupOwner?.Invoke();
+        Show(++_reloadGeneration, folder is null ? [] : WorldSave.LoadFolder(folder), owner);
     }
 
     /// <summary>
@@ -215,6 +242,7 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
     {
         var generation = ++_reloadGeneration;
         var folder = _prospectsFolder();
+        var owner = _backupOwner?.Invoke();
         IReadOnlyList<WorldSave> saves;
         try
         {
@@ -226,15 +254,17 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
             StatusMessage = $"Couldn't read the worlds: {ex.Message}";
         }
 
-        Show(generation, saves);
+        Show(generation, saves, owner);
     }
 
-    private void Show(int generation, IReadOnlyList<WorldSave> saves)
+    private void Show(int generation, IReadOnlyList<WorldSave> saves, string? owner)
     {
         if (generation != _reloadGeneration)
         {
             return;
         }
+
+        _shownOwner = owner;
 
         // A reload replaces the list (whoever asked for it already asked about unsaved settings).
         var keep = SelectedWorld?.Save.Path;
@@ -377,7 +407,7 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
         try
         {
             var changes = Rows.Where(r => r.IsChanged).ToDictionary(r => r.Definition.Name, r => r.Value, StringComparer.OrdinalIgnoreCase);
-            var backup = world.Save.Save(changes, _backupFolder, _backupOwner?.Invoke() ?? "world", BackupsKept);
+            var backup = world.Save.Save(changes, _backupFolder, _shownOwner ?? "world", BackupsKept);
             LoadRows();
             StatusMessage = $"Saved {changes.Count} setting(s) for '{world.Title}'. The world was backed up first ({Path.GetFileName(backup)}).";
             _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
@@ -398,7 +428,7 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
     {
         var keep = SelectedBackup?.Backup.Path;
         Backups.Clear();
-        if (SelectedWorld is { } world && _backupOwner?.Invoke() is { } owner)
+        if (SelectedWorld is { } world && _backupOwner is not null && _shownOwner is { } owner)
         {
             try
             {
@@ -423,12 +453,13 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
     /// <summary>
     /// Puts the selected world back to the chosen backup: refused while the game (or server)
     /// runs, asked first, the world as it is now backed up, then only this world's file written
-    /// (through a temp file). From a zip of every world, only this one comes back.
+    /// (through a temp file). From a zip of every world, only this one comes back. The copy and
+    /// the list read again run off the UI thread (a slot's worlds can be many megabytes each).
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanRestoreBackup))]
-    private void RestoreBackup()
+    private async Task RestoreBackupAsync()
     {
-        if (SelectedWorld is not { } world || SelectedBackup is not { } item || _backupOwner?.Invoke() is not { } owner)
+        if (SelectedWorld is not { } world || SelectedBackup is not { } item || _backupOwner is null || _shownOwner is not { } owner)
         {
             return;
         }
@@ -453,8 +484,9 @@ public sealed partial class WorldSettingsViewModel : ObservableObject
 
         try
         {
-            WorldBackups.Restore(item.Backup, world.Save.Path, _backupFolder, owner, BackupsKept);
-            Reload();
+            var kept = BackupsKept;
+            await Task.Run(() => WorldBackups.Restore(item.Backup, world.Save.Path, _backupFolder, owner, kept));
+            await ReloadAsync();
             StatusMessage = $"Restored '{world.Title}' to how it was {item.When}. The world as it was just now is in the backups list.";
             _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
         }

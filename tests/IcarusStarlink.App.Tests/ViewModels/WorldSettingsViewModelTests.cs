@@ -59,7 +59,7 @@ public sealed class WorldSettingsViewModelTests : IDisposable
     }
 
     [Fact]
-    public void Backups_TheSelectedWorldsBackupsAreListed_AndRestorePutsTheChosenOneBack()
+    public async Task Backups_TheSelectedWorldsBackupsAreListed_AndRestorePutsTheChosenOneBack()
     {
         var vm = Create(owner: Slot);
         Assert.True(vm.ShowsBackups);
@@ -74,7 +74,7 @@ public sealed class WorldSettingsViewModelTests : IDisposable
         vm.SelectedBackup = backup;
         Assert.True(vm.RestoreBackupCommand.CanExecute(null));
         var started = DateTime.Now.AddSeconds(-2);
-        vm.RestoreBackupCommand.Execute(null);
+        await vm.RestoreBackupCommand.ExecuteAsync(null);
 
         Assert.Equal(0, WorldSave.Load(WorldPath)!.Settings["Arachnophobia"]);
         Assert.False(vm.Rows.Single(r => r.Definition.Name == "Arachnophobia").BoolValue);
@@ -87,7 +87,7 @@ public sealed class WorldSettingsViewModelTests : IDisposable
     }
 
     [Fact]
-    public void Restore_WhileTheGameRuns_IsRefused_AndNothingIsWritten()
+    public async Task Restore_WhileTheGameRuns_IsRefused_AndNothingIsWritten()
     {
         var vm = Create(owner: Slot);
         SaveArachnophobia(vm, true);
@@ -95,7 +95,7 @@ public sealed class WorldSettingsViewModelTests : IDisposable
         var worldBefore = File.ReadAllText(WorldPath);
         _blocked = "Close Icarus first.";
 
-        vm.RestoreBackupCommand.Execute(null);
+        await vm.RestoreBackupCommand.ExecuteAsync(null);
 
         Assert.Equal("Close Icarus first.", vm.StatusMessage);
         Assert.Equal(worldBefore, File.ReadAllText(WorldPath));
@@ -104,14 +104,14 @@ public sealed class WorldSettingsViewModelTests : IDisposable
     }
 
     [Fact]
-    public void Restore_AsksFirst_AndNoChangesNothing()
+    public async Task Restore_AsksFirst_AndNoChangesNothing()
     {
         var dialogs = new FakeDialogs(false);
         var vm = Create(dialogs: dialogs, owner: Slot);
         SaveArachnophobia(vm, true);
         vm.SelectedBackup = vm.Backups.Single();
 
-        vm.RestoreBackupCommand.Execute(null);
+        await vm.RestoreBackupCommand.ExecuteAsync(null);
 
         Assert.Equal(1, dialogs.Asked);
         Assert.Equal(1, WorldSave.Load(WorldPath)!.Settings["Arachnophobia"]);
@@ -254,9 +254,63 @@ public sealed class WorldSettingsViewModelTests : IDisposable
 
         row.ValueText = "nonsense";
         row.ValueText = "99";
+        row.EndTyping();
 
-        Assert.Equal(2, told);
+        Assert.Equal(1, told);
         Assert.Equal("50", row.ValueText);
+    }
+
+    /// <summary>
+    /// Regression: a typed number reached the settings only when the box lost focus, so Save world
+    /// settings (on only with a change) stayed greyed out and a click on it did nothing. The box
+    /// keeps what's typed (a first digit isn't pushed up to the minimum mid-typing) and shows the
+    /// in-range value once typing ends.
+    /// </summary>
+    [Fact]
+    public void NumberSetting_TypingCountsAtOnce_ButTheBoxIsTidiedOnlyWhenTypingEnds()
+    {
+        var row = new WorldSettingRowViewModel(
+            new WorldSettingDefinition("Count", "Count", "", "Misc", "Int", 10, 10, 50, true, []), 12);
+
+        row.ValueText = "1";
+        Assert.Equal(10, row.Value);
+        Assert.True(row.IsChanged);
+        Assert.Equal("1", row.ValueText);
+
+        row.ValueText = "15";
+        Assert.Equal(15, row.Value);
+
+        row.EndTyping();
+        Assert.Equal("15", row.ValueText);
+    }
+
+    /// <summary>
+    /// Regression: during a slot switch the tab still showed the old slot's world while the backup
+    /// name already came from the new slot, so Save backed it up (and pruned) under the other slot.
+    /// </summary>
+    [Fact]
+    public void SaveDuringASlotSwitch_BacksUpUnderTheSlotTheWorldWasLoadedFor()
+    {
+        var owner = "76561198000000001";
+        var vm = new WorldSettingsViewModel(
+            () => Path.Combine(_root, "Prospects"),
+            () => Path.Combine(_root, "Data"),
+            () => _blocked,
+            Path.Combine(_root, "Backups"),
+            _log,
+            null,
+            () => owner,
+            () => 10);
+        vm.Reload();
+        vm.Rows.Single(r => r.Definition.Name == "Arachnophobia").BoolValue = true;
+
+        // The slot changed; the list hasn't been read again yet.
+        owner = "76561198000000002";
+        vm.SaveCommand.Execute(null);
+
+        var backup = Assert.Single(Directory.GetFiles(Path.Combine(_root, "Backups")));
+        Assert.StartsWith("76561198000000001_", Path.GetFileName(backup));
+        Assert.StartsWith("76561198000000001_", Assert.Single(vm.Backups).FileName);
     }
 
     /// <summary>Refresh game data used to rebuild the rows (InvalidateDefinitions) and drop the unsaved settings.</summary>

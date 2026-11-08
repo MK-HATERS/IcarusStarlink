@@ -143,6 +143,36 @@ public sealed class WorldSettingsTests : IDisposable
         Assert.Equal(2, Directory.GetFiles(Path.Combine(_root, "bk")).Length);
     }
 
+    /// <summary>A world whose multi-megabyte ProspectBlob comes before ProspectInfo still reads.</summary>
+    [Fact]
+    public void Load_ReadsProspectInfo_WhenTheBlobComesFirst()
+    {
+        var blob = new string('A', 5 * 1024 * 1024);
+        var path = Write("big.json",
+            "{\"ProspectBlob\": {\"BinaryBlob\": \"" + blob + "\"}, \"ProspectInfo\": {\"ProspectID\": \"Big\", \"Difficulty\": \"Extreme\", \"NoRespawns\": true, "
+            + "\"CustomSettings\": [{\"SettingRowName\": \"Arachnophobia\", \"SettingValue\": 1}]}}");
+
+        var world = WorldSave.Load(path)!;
+
+        Assert.Equal("Big", world.Name);
+        Assert.Equal("Extreme", world.Difficulty);
+        Assert.True(world.Hardcore);
+        Assert.Equal(1, world.Settings["Arachnophobia"]);
+    }
+
+    [Fact]
+    public void Load_FileWithAUtf8Bom_StillLoads()
+    {
+        var path = Path.Combine(_root, "bom.json");
+        File.WriteAllText(path, SaveWithSettings, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        Assert.Equal(0xEF, File.ReadAllBytes(path)[0]);
+
+        var world = WorldSave.Load(path)!;
+
+        Assert.Equal("My World", world.Name);
+        Assert.Equal(0, world.Settings["Arachnophobia"]);
+    }
+
     [Fact]
     public void LoadFolder_SkipsFilesThatArentWorlds()
     {
