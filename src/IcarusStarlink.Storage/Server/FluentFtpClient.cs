@@ -62,7 +62,11 @@ public sealed class FluentFtpClient : CoreIFtpClient
             }
 
             e.Accept = false;
-            untrusted = new FtpUntrustedCertificateException(thumbprint, cert.Subject, cert.Issuer, e.PolicyErrorMessage);
+            // Only Connect's failure (the control connection) turns this into a question for the user.
+            if (!e.IsDataConnection)
+            {
+                untrusted = new FtpUntrustedCertificateException(thumbprint, cert.Subject, cert.Issuer, e.PolicyErrorMessage);
+            }
         };
 
         try
