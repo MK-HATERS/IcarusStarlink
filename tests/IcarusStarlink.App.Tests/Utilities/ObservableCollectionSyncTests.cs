@@ -18,6 +18,19 @@ public class ObservableCollectionSyncTests
         Assert.Equal([new Row("A"), new Row("A")], current);
     }
 
+    /// <summary>Regression: with more equal record rows than the target had, the extras stayed at the end of the list.</summary>
+    [Fact]
+    public void SyncTo_CurrentWithMoreEqualItemsThanTheTarget_DropsTheExtras()
+    {
+        var twice = new ObservableCollection<Row>([new Row("A"), new Row("A")]);
+        ObservableCollectionSync.SyncTo(twice, [new Row("A")]);
+        Assert.Equal([new Row("A")], twice);
+
+        var mixed = new ObservableCollection<Row>([new Row("A"), new Row("B"), new Row("A")]);
+        ObservableCollectionSync.SyncTo(mixed, [new Row("B"), new Row("A")]);
+        Assert.Equal([new Row("B"), new Row("A")], mixed);
+    }
+
     [Fact]
     public void SyncTo_ReordersRemovesAndInserts_KeepingExistingInstances()
     {

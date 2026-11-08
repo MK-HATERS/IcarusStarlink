@@ -136,14 +136,19 @@ public static class UiScale
     /// A side the window sizes to its content follows it by itself; a set side is scaled. So a
     /// question box (a set width, its height from its text) gets wider too: it used to keep its
     /// width, its content was squeezed into two thirds of it at 150%, and a row of three buttons
-    /// ran off the edge.
+    /// ran off the edge. A maximized or minimized pop-up gets its restore size scaled too, so a
+    /// remembered size (stored at 100%) doesn't shrink each session it reopens maximized.
     /// </summary>
     private static void ResizePopUpWindow(Window window, double factor)
     {
-        if (window is MainWindow || window.WindowState != WindowState.Normal)
+        if (window is MainWindow)
         {
             return;
         }
+
+        // Maximized or minimized, Width/Height are the size it goes back to (and a remembered size is
+        // stored at 100%), so they scale too; only a window showing at that size is re-centred.
+        var showingAtThisSize = window.WindowState == WindowState.Normal;
 
         var scaleWidth = window.SizeToContent is SizeToContent.Manual or SizeToContent.Height && !double.IsNaN(window.Width);
         var scaleHeight = window.SizeToContent is SizeToContent.Manual or SizeToContent.Width && !double.IsNaN(window.Height);
@@ -165,12 +170,12 @@ public static class UiScale
         // Re-centred only, not clamped to the primary screen's work area: that would pull a window
         // off a second monitor. The title bar is kept from going above the top of the screen it's on.
         // A side sized to its content is left to WPF.
-        if (scaleWidth && !double.IsNaN(window.Left))
+        if (showingAtThisSize && scaleWidth && !double.IsNaN(window.Left))
         {
             window.Left -= (window.Width - oldWidth) / 2;
         }
 
-        if (scaleHeight && !double.IsNaN(window.Top))
+        if (showingAtThisSize && scaleHeight && !double.IsNaN(window.Top))
         {
             window.Top = Math.Max(window.Top - (window.Height - oldHeight) / 2, SystemParameters.VirtualScreenTop);
         }

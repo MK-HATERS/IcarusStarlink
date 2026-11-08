@@ -91,6 +91,53 @@ public class UiScaleTests
         }
     }
 
+    /// <summary>
+    /// A remembered size is stored at 100% and scaled up as the window loads. A window reopened
+    /// maximized skipped that, kept its 100% restore size, and stored it shrunk again on close,
+    /// so at 150% it got a third smaller every session.
+    /// </summary>
+    [Fact]
+    public void AWindowOpenedMaximized_GetsItsRestoreSizeScaled_AndKeepsItsPlace()
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                UiScale.Initialize(1.5);
+                var window = new Window
+                {
+                    Width = 400, Height = 300, MinWidth = 200, MinHeight = 150, Left = 50, Top = 60,
+                    WindowState = WindowState.Maximized, Content = new Grid(),
+                };
+
+                window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent, window));
+
+                Assert.Equal(Math.Min(600, SystemParameters.WorkArea.Width), window.Width);
+                Assert.Equal(Math.Min(450, SystemParameters.WorkArea.Height), window.Height);
+                Assert.Equal(Math.Min(300, SystemParameters.WorkArea.Width), window.MinWidth);
+                Assert.Equal(50, window.Left);
+                Assert.Equal(60, window.Top);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+            finally
+            {
+                UiScale.Initialize(UiScale.Normal);
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+
+        if (failure is not null)
+        {
+            throw failure;
+        }
+    }
+
     [Fact]
     public void AChoice_ReadsAsItsLabel()
     {

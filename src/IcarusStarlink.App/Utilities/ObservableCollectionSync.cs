@@ -52,5 +52,12 @@ internal static class ObservableCollectionSync
                 current.Insert(i, target[i]);
             }
         }
+
+        // More equal items than the target has (two equal record rows before, one now): positions
+        // 0..target.Count-1 already match, so drop the extras left at the end.
+        while (current.Count > target.Count)
+        {
+            current.RemoveAt(current.Count - 1);
+        }
     }
 }
