@@ -445,4 +445,34 @@ public class Ue4ssSettingsDocumentTests
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
         Assert.Equal("Real", Assert.Single(settings).Key);
     }
+
+    /// <summary>
+    /// Regression: a comment shared by the settings under it was read again for each of them, so one
+    /// huge comment over thousands of settings in a downloaded config.ini froze Edit config.
+    /// </summary>
+    [Fact]
+    public void OneCommentOverThousandsOfSettings_ReadsQuickly()
+    {
+        var text = "[A]\n"
+            + string.Concat(Enumerable.Repeat("; a long line of comment text about the settings below\n", 1_000))
+            + string.Concat(Enumerable.Range(0, 10_000).Select(i => $"Key{i} = 1\n"));
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var settings = Ue4ssSettingsDocument.Parse(text, keepCommentLines: true).Settings;
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
+        Assert.Equal(10_000, settings.Count);
+    }
+
+    /// <summary>A real mod's comment over a few settings is still shared by them.</summary>
+    [Fact]
+    public void AShortCommentOverAFewSettings_IsSharedByThem()
+    {
+        var settings = Ue4ssSettingsDocument.Parse(
+            "; LogReports  1 = a report every minute\n; Debug  1 = one line per failing piece\nLogReports = 0\nDebug = 0\n", keepCommentLines: true).Settings;
+
+        Assert.Equal(2, settings.Count);
+        Assert.Equal(settings[0].Description, settings[1].Description);
+        Assert.NotEqual("", settings[0].Description);
+    }
 }

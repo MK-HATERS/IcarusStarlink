@@ -177,6 +177,14 @@ public sealed partial class Ue4ssSettingsDocument
     /// </summary>
     public void Save(string path) => Encoding = ConfigTextFile.Write(path, ToText(), Encoding);
 
+    /// <summary>
+    /// A comment shared by the settings right under it is read again for each of them (Describe), so
+    /// one huge comment over thousands of settings in a downloaded config froze Edit config. Real mods
+    /// share a few lines over a few settings; past these limits a setting with no comment of its own has none.
+    /// </summary>
+    private const int MaxSharedCommentLines = 40;
+    private const int MaxSettingsSharingAComment = 20;
+
     /// <summary>Every setting in file order, with its section and what its comment block says.</summary>
     public IReadOnlyList<Ue4ssSetting> Settings
     {
@@ -189,6 +197,7 @@ public sealed partial class Ue4ssSettingsDocument
             // ("LogReports  1 = ...", "ChatMessages  1 = ..."): the settings right under the first
             // one (no blank line between) share its comment.
             List<string> shared = [];
+            var sharedUses = 0;
             var afterSetting = false;
             foreach (var line in _lines)
             {
@@ -215,9 +224,12 @@ public sealed partial class Ue4ssSettingsDocument
                     var note = comment.Trim().TrimStart(';').Trim();
                     // A setting with its own comment on its line is described by that; it doesn't
                     // borrow the comment above the setting before it (that one was about the other).
-                    var block = comments.Count == 0 && afterSetting && _descriptionSeparator == "\n" && note.Length == 0 ? shared : [.. comments];
+                    var shares = comments.Count == 0 && afterSetting && _descriptionSeparator == "\n" && note.Length == 0
+                        && shared.Count <= MaxSharedCommentLines && sharedUses < MaxSettingsSharingAComment;
+                    var block = shares ? shared : [.. comments];
                     var setting = Describe(section, keyMatch.Groups["key"].Value.Trim(), value, block, _descriptionSeparator, note);
                     settings.Add(setting);
+                    sharedUses = shares ? sharedUses + 1 : 0;
                     // A [tip] / [warning] note is shown once, above the first setting under it.
                     shared = setting.Notice is null ? block : [];
                     comments.Clear();
