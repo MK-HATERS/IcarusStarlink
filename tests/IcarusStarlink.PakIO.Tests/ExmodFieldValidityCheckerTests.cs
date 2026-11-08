@@ -33,7 +33,7 @@ public class ExmodFieldValidityCheckerTests : IDisposable
         var package = MakePackage(MakeRow("Traits-D_Itemable.json", "Stone_Pickaxe",
             new() { ["MaxStackk"] = JsonValue.Create(200) }));
 
-        var findings = ExmodFieldValidityChecker.Check(package, _dataFolder);
+        var findings = ExmodFieldValidityChecker.Check(package, new GameTableIndex(_dataFolder));
 
         var finding = Assert.Single(findings);
         Assert.Equal("MaxStackk", finding.FieldName);
@@ -52,7 +52,7 @@ public class ExmodFieldValidityCheckerTests : IDisposable
         var row = MakeRow("Traits-D_Itemable.json", "Stone_Pickaxe", new() { ["MaxStackk"] = JsonValue.Create(200), ["MaxStack"] = JsonValue.Create("lots") });
         row.FileItems.Add(new ExmodFileItem { Name = "stone_pickaxe", Fields = new() { ["MaxStack"] = JsonValue.Create(5) } });
 
-        var finding = Assert.Single(ExmodFieldValidityChecker.Check(MakePackage(row), _dataFolder));
+        var finding = Assert.Single(ExmodFieldValidityChecker.Check(MakePackage(row), new GameTableIndex(_dataFolder)));
 
         Assert.Equal("MaxStackk", finding.FieldName);
         Assert.True(finding.IsUnknownField);
@@ -68,7 +68,7 @@ public class ExmodFieldValidityCheckerTests : IDisposable
         var row = MakeRow("Traits-D_Itemable.json", "Stone_Pickaxe", new() { ["MaxStackk"] = JsonValue.Create(200), ["MaxStack"] = JsonValue.Create(4) });
         row.FileItems.Add(new ExmodFileItem { Name = "Stone_Pickaxe", Fields = new() { ["MaxStackk"] = JsonValue.Create(300) } });
 
-        var finding = Assert.Single(ExmodFieldValidityChecker.Check(MakePackage(row), _dataFolder));
+        var finding = Assert.Single(ExmodFieldValidityChecker.Check(MakePackage(row), new GameTableIndex(_dataFolder)));
 
         Assert.Equal("MaxStack", finding.SuggestedField);
     }
@@ -81,7 +81,7 @@ public class ExmodFieldValidityCheckerTests : IDisposable
         var package = MakePackage(MakeRow("Traits-D_Itemable.json", "Stone_Pickaxe",
             new() { ["MaxStack"] = JsonValue.Create(200) }));
 
-        var findings = ExmodFieldValidityChecker.Check(package, _dataFolder);
+        var findings = ExmodFieldValidityChecker.Check(package, new GameTableIndex(_dataFolder));
 
         Assert.Empty(findings);
     }
@@ -94,7 +94,7 @@ public class ExmodFieldValidityCheckerTests : IDisposable
         var package = MakePackage(MakeRow("Traits-D_Itemable.json", "Stone_Pickaxe",
             new() { ["MaxStack"] = JsonValue.Create("two hundred") }));
 
-        var findings = ExmodFieldValidityChecker.Check(package, _dataFolder);
+        var findings = ExmodFieldValidityChecker.Check(package, new GameTableIndex(_dataFolder));
 
         var finding = Assert.Single(findings);
         Assert.Equal("MaxStack", finding.FieldName);
@@ -112,7 +112,7 @@ public class ExmodFieldValidityCheckerTests : IDisposable
         var package = MakePackage(MakeRow("Traits-D_Itemable.json", "Stone_Pickaxe",
             new() { ["bAllowZeroWeight"] = JsonValue.Create(true) }));
 
-        var findings = ExmodFieldValidityChecker.Check(package, _dataFolder);
+        var findings = ExmodFieldValidityChecker.Check(package, new GameTableIndex(_dataFolder));
 
         Assert.Empty(findings);
     }
@@ -127,7 +127,7 @@ public class ExmodFieldValidityCheckerTests : IDisposable
         var package = MakePackage(MakeRow("Traits-D_Itemable.json", "Stone_Pickaxe",
             new() { ["Behaviour"] = JsonValue.Create("Something") }));
 
-        var findings = ExmodFieldValidityChecker.Check(package, _dataFolder);
+        var findings = ExmodFieldValidityChecker.Check(package, new GameTableIndex(_dataFolder));
 
         Assert.Empty(findings);
     }
@@ -142,7 +142,7 @@ public class ExmodFieldValidityCheckerTests : IDisposable
         var package = MakePackage(MakeRow("Traits-D_Itemable.json", "Stone_Pickaxe",
             new() { ["Metadata"] = JsonValue.Create("y") }));
 
-        var findings = ExmodFieldValidityChecker.Check(package, _dataFolder);
+        var findings = ExmodFieldValidityChecker.Check(package, new GameTableIndex(_dataFolder));
 
         Assert.Empty(findings);
     }
@@ -154,7 +154,7 @@ public class ExmodFieldValidityCheckerTests : IDisposable
         WriteBaseTable("EndOfMod", """{"RowStruct":"S","Defaults":{"A":1},"Rows":[]}""");
         var package = MakePackage(MakeRow("EndOfMod", "X", new() { ["Bogus"] = JsonValue.Create(1) }));
 
-        var findings = ExmodFieldValidityChecker.Check(package, _dataFolder);
+        var findings = ExmodFieldValidityChecker.Check(package, new GameTableIndex(_dataFolder));
 
         Assert.Empty(findings);
     }
@@ -165,30 +165,9 @@ public class ExmodFieldValidityCheckerTests : IDisposable
         var package = MakePackage(MakeRow("Traits-D_DoesNotExist.json", "Some_Item",
             new() { ["SomeField"] = JsonValue.Create(1) }));
 
-        var findings = ExmodFieldValidityChecker.Check(package, _dataFolder);
+        var findings = ExmodFieldValidityChecker.Check(package, new GameTableIndex(_dataFolder));
 
         Assert.Empty(findings);
-    }
-
-    [Fact]
-    public void Check_SharedSchemaCacheAcrossTwoMods_BothStillCheckedCorrectly()
-    {
-        WriteBaseTable("Traits/D_Itemable.json",
-            """{"RowStruct":"S","Defaults":{"MaxStack":1},"Rows":[{"Name":"Stone_Pickaxe","MaxStack":1}]}""");
-        var cache = new Dictionary<string, Dictionary<string, System.Text.Json.JsonValueKind>?>();
-
-        var goodPackage = MakePackage(MakeRow("Traits-D_Itemable.json", "Stone_Pickaxe",
-            new() { ["MaxStack"] = JsonValue.Create(5) }));
-        var badPackage = MakePackage(MakeRow("Traits-D_Itemable.json", "Stone_Pickaxe",
-            new() { ["MaxStackk"] = JsonValue.Create(5) }));
-
-        var firstResult = ExmodFieldValidityChecker.Check(goodPackage, _dataFolder, cache);
-        // Gone from disk: the second check can only work from the cache.
-        File.Delete(Path.Combine(_dataFolder, "Traits", "D_Itemable.json"));
-        var secondResult = ExmodFieldValidityChecker.Check(badPackage, _dataFolder, cache);
-
-        Assert.Empty(firstResult);
-        Assert.Single(secondResult);
     }
 
     public void Dispose()

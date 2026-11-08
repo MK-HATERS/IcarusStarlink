@@ -18,7 +18,7 @@ public static partial class KnownGameBehaviour
     {
         ["D_CharacterGrowth"] = new("D_CharacterGrowth", NewRowsBreak: true,
             "The game can't use rows a mod adds to this table: tames pointed at such a row showed level 0, \"-1\" XP and a broken max level "
-            + "(tested in game by MkHaters' Animal Talents 2.0, 2026-10-27). Change the game's own rows here, never add new ones."),
+            + "(tested in game). Change the game's own rows here, never add new ones."),
         // The game logs a mismatch for these too when a mod adds rows; nothing visible went wrong in in-game tests.
         ["D_AIRelationships"] = new("D_AIRelationships", NewRowsBreak: false, "The game logs a row-count mismatch at start; nothing visible went wrong in tests."),
         ["D_RecipeSets"] = new("D_RecipeSets", NewRowsBreak: false, "The game logs a row-count mismatch at start; nothing visible went wrong in tests."),
@@ -44,15 +44,15 @@ public static partial class KnownGameBehaviour
         if (IsTable(table, "D_ItemsStatic") && IsField(field, "AdditionalStats") && placedItem && IsAuraStat(statName))
         {
             return "A placed item gets no aura from its stats: the game turns aura stats into auras only on characters. A bed with "
-                + "GrantedAuraHealthRegen and a heater with GrantedAuraHypothermiaResistance gave nobody an aura (tested in game by MkHaters' "
-                + "Hook Scout, 2026-11-01). A placed item's aura needs a UE4SS (Lua) part.";
+                + "GrantedAuraHealthRegen and a heater with GrantedAuraHypothermiaResistance gave nobody an aura (tested in game). "
+                + "A placed item's aura needs a UE4SS (Lua) part.";
         }
 
         if (string.Equals(statName, SpoilRateStat, StringComparison.OrdinalIgnoreCase)
             && ((IsTable(table, "D_InventoryInfo") && IsField(field, "Stats")) || (IsTable(table, "D_ItemsStatic") && IsField(field, "AdditionalStats"))))
         {
-            return "Changes nothing: a bag's or a storage's spoil speed isn't read from this stat (tested in game by MkHaters' Hook Scout, "
-                + "2026-10-23). Only a UE4SS (Lua) part can change how fast food spoils in a bag.";
+            return "Changes nothing: a bag's or a storage's spoil speed isn't read from this stat (tested in game). "
+                + "Only a UE4SS (Lua) part can change how fast food spoils in a bag.";
         }
 
         return null;

@@ -775,7 +775,7 @@ public sealed class ModHealthCheckerTests : IDisposable
         Assert.DoesNotContain(ModHealthChecker.Check(Mod((Items, "MkHaters_Lantern", "Weight", 5)), _data, rowHistory: history).Issues, i => i.Kind == ModIssueKind.MisspeltRow);
     }
 
-    /// <summary>Tested in game (Animal Talents 2.0): new rows in D_CharacterGrowth load but the game can't use them; editing its own rows is fine. The game's log is quoted as proof.</summary>
+    /// <summary>Tested in game: new rows in D_CharacterGrowth load but the game can't use them; editing its own rows is fine. The game's log is quoted as proof.</summary>
     [Fact]
     public void NewRowsInABuiltInTable_AreFlagged_WithTheGamesLogAsProof()
     {
@@ -800,6 +800,8 @@ public sealed class ModHealthCheckerTests : IDisposable
         {
             new JsonObject { ["Name"] = "Wood_Bed", ["Deployable"] = new JsonObject { ["RowName"] = "Bed" } },
             new JsonObject { ["Name"] = "Envirosuit", ["Weight"] = 100 },
+            // Regression: a lower-case "none" link used to count as a placed item, so its aura stats were called useless.
+            new JsonObject { ["Name"] = "Lantern", ["Deployable"] = new JsonObject { ["RowName"] = "none" } },
         };
         Write("Items/D_ItemsStatic.json", rows);
         Write("Inventory/D_InventoryInfo.json", new JsonArray { new JsonObject { ["Name"] = "Food_Bag", ["Stats"] = new JsonObject() } });
@@ -807,6 +809,7 @@ public sealed class ModHealthCheckerTests : IDisposable
         var package = Mod(
             (Items, "Wood_Bed", "AdditionalStats", Stat("GrantedAuraHealthRegen_?")),
             (Items, "Envirosuit", "AdditionalStats", Stat("GrantedAuraHealthRegen_?")),
+            (Items, "Lantern", "AdditionalStats", Stat("GrantedAuraHealthRegen_?")),
             ("Inventory-D_InventoryInfo.json", "Food_Bag", "Stats", Stat(KnownGameBehaviour.SpoilRateStat)));
 
         var noEffect = ModHealthChecker.Check(package, _data).Issues.Where(i => i.Kind == ModIssueKind.NoEffect).ToList();

@@ -26,10 +26,9 @@ public static class ExmodStalenessChecker
     public static IReadOnlyList<StaleItem> FindLikelyStaleItems(
         ExmodPackage package, string dataFolder, ISemanticClassifier classifier,
         IDictionary<string, JsonObject?>? baseTableCache = null,
-        IReadOnlyList<string>? ownAssetPaths = null,
-        MergeReport? report = null)
+        IReadOnlyList<string>? ownAssetPaths = null)
     {
-        var changes = ExmodBaseDiffer.DiffAgainstBase(package, dataFolder, classifier, report, baseTableCache);
+        var changes = ExmodBaseDiffer.DiffAgainstBase(package, dataFolder, classifier, report: null, baseTableCache);
 
         // Tokenized once per mod here, not once per candidate item inside HasPlausibleOwnAsset — an
         // asset's own filename never changes across items being checked against it, so re-tokenizing

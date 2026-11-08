@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using IcarusStarlink.PakIO.DataChanges;
 
 namespace IcarusStarlink.PakIO.Exmod;
 
@@ -31,16 +30,7 @@ public static class ExmodFieldValidityChecker
     /// <summary>How far a typo may be from the real field name (edits) and still be offered.</summary>
     private const int MaxSuggestionDistance = 2;
 
-    /// <param name="schemaCache">
-    /// Keyed by CurrentFile, reused across a whole merge-queue pass the same way ExmodBaseDiffer's
-    /// own baseTableCache is — several queued mods commonly touch the same real DataTable file, so
-    /// this parses and scans each one once instead of once per mod.
-    /// </param>
-    public static IReadOnlyList<InvalidField> Check(
-        ExmodPackage package, string dataFolder, IDictionary<string, Dictionary<string, JsonValueKind>?>? schemaCache = null) =>
-        Check(package, currentFile => ResolveSchema(currentFile, dataFolder, schemaCache));
-
-    /// <summary>The same check from tables the health check has already read (GameTableIndex), each table's field list built once per call.</summary>
+    /// <summary>Checks the mod's field names and value kinds against tables the health check has already read (GameTableIndex), each table's field list built once per call.</summary>
     public static IReadOnlyList<InvalidField> Check(ExmodPackage package, GameTableIndex gameIndex)
     {
         var schemas = new Dictionary<string, Dictionary<string, JsonValueKind>?>(StringComparer.OrdinalIgnoreCase);
@@ -141,20 +131,6 @@ public static class ExmodFieldValidityChecker
             .OrderBy(c => c.Distance)
             .ToList();
         return close.Count == 1 || (close.Count > 1 && close[0].Distance < close[1].Distance) ? close[0].Field : null;
-    }
-
-    private static Dictionary<string, JsonValueKind>? ResolveSchema(
-        string currentFile, string dataFolder, IDictionary<string, Dictionary<string, JsonValueKind>?>? schemaCache)
-    {
-        if (schemaCache is not null && schemaCache.TryGetValue(currentFile, out var cached))
-        {
-            return cached;
-        }
-
-        var fileJson = BaseDataFileReader.ParseFile(dataFolder, currentFile, report: null);
-        var schema = fileJson is null ? null : BuildFieldKinds(fileJson["Defaults"] as JsonObject, (fileJson["Rows"] as JsonArray ?? []).OfType<JsonObject>());
-        schemaCache?.Add(currentFile, schema);
-        return schema;
     }
 
     /// <summary>

@@ -177,9 +177,10 @@ public static partial class ModHealthChecker
     private static bool IsPlacedItem(ExmodFileItem item, JsonObject? gameRow) =>
         LinkedRow(item.Fields.TryGetValue("Deployable", out var mine) ? mine : gameRow?["Deployable"]) is not null;
 
-    /// <summary>The row a link names, or null for none ("None", not a link).</summary>
+    /// <summary>The row a link names, or null for none ("None" in any case, not a link).</summary>
     private static string? LinkedRow(JsonNode? value) =>
-        (value as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var name) && name is { Length: > 0 } and not "None" ? name : null;
+        (value as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var name) && name.Length > 0
+            && !string.Equals(name, "None", StringComparison.OrdinalIgnoreCase) ? name : null;
 
     /// <summary>The mod's item templates by the item they make (ItemStaticData), each template's own name.</summary>
     private static Dictionary<string, List<string>> TemplatesByItem(IEnumerable<ExmodFileRow> rows)
