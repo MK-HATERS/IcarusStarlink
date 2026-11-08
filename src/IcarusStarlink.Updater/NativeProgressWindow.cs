@@ -5,13 +5,15 @@ namespace IcarusStarlink.Updater;
 /// <summary>
 /// A small "Installing Icarus Starlink…" window with a moving bar, shown while the updater works
 /// (without it, once Starlink closed, nothing was on screen until it came back). Plain
-/// Win32 like NativeMessageBox (this exe has no WPF or WinForms, and is trimmed); it runs its own
+/// Win32 like NativeMessageBox (this exe is Native AOT, with no WPF or WinForms); it runs its own
 /// message loop on a background thread. Best-effort: if it can't be created the update goes on
-/// without it.
+/// without it. It has no close box and ignores Alt+F4 until Dispose: closed while the updater
+/// still waits or copies, it looked finished, and a Starlink started by hand then locked the files
+/// being copied.
 /// </summary>
 internal sealed class NativeProgressWindow : IDisposable
 {
-    private const int WS_OVERLAPPED = 0x00000000, WS_CAPTION = 0x00C00000, WS_SYSMENU = 0x00080000, WS_VISIBLE = 0x10000000, WS_CHILD = 0x40000000;
+    private const int WS_OVERLAPPED = 0x00000000, WS_CAPTION = 0x00C00000, WS_VISIBLE = 0x10000000, WS_CHILD = 0x40000000;
     private const int WS_EX_TOPMOST = 0x00000008, WS_EX_TOOLWINDOW = 0x00000080;
     private const int PBS_MARQUEE = 0x08, PBM_SETMARQUEE = 0x0400 + 10;
     private const int WM_SETFONT = 0x0030, WM_CLOSE = 0x0010, WM_DESTROY = 0x0002, WM_CTLCOLORSTATIC = 0x0138;
@@ -23,10 +25,17 @@ internal sealed class NativeProgressWindow : IDisposable
     private nint _text;
     private WndProc? _wndProc;
 
+    /// <summary>Set by Dispose: only then may WM_CLOSE close the window.</summary>
+    private volatile bool _closeRequested;
+
     public NativeProgressWindow(string title, string text)
     {
         _thread = new Thread(() => Run(title, text)) { IsBackground = true, Name = "Updater window" };
-        _thread.SetApartmentState(ApartmentState.STA);
+        if (OperatingSystem.IsWindows())
+        {
+            _thread.SetApartmentState(ApartmentState.STA);
+        }
+
         _thread.Start();
         _ready.Wait(TimeSpan.FromSeconds(3));
     }
@@ -42,6 +51,7 @@ internal sealed class NativeProgressWindow : IDisposable
 
     public void Dispose()
     {
+        _closeRequested = true;
         if (_window != 0)
         {
             PostMessageW(_window, WM_CLOSE, 0, 0);
@@ -56,6 +66,12 @@ internal sealed class NativeProgressWindow : IDisposable
             var instance = GetModuleHandleW(null);
             _wndProc = (hwnd, message, wParam, lParam) =>
             {
+                // Alt+F4 and the taskbar's Close send WM_CLOSE too: only Dispose's own counts.
+                if (message == WM_CLOSE && !_closeRequested)
+                {
+                    return 0;
+                }
+
                 if (message == WM_DESTROY)
                 {
                     PostQuitMessage(0);
@@ -81,7 +97,7 @@ internal sealed class NativeProgressWindow : IDisposable
             var x = (GetSystemMetrics(0) - width) / 2;
             var y = (GetSystemMetrics(1) - height) / 2;
             _window = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, windowClass.lpszClassName, title,
-                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, x, y, width, height, 0, 0, instance, 0);
+                WS_OVERLAPPED | WS_CAPTION, x, y, width, height, 0, 0, instance, 0);
             if (_window == 0)
             {
                 return;
