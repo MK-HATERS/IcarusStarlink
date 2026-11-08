@@ -142,12 +142,19 @@ public sealed partial class SettingsViewModel
                 problems.Add($"{result.FailedCount} couldn't be imported");
             }
 
+            if (result.WarningCount > 0)
+            {
+                problems.Add($"{result.WarningCount} with a warning");
+            }
+
             MigrationStatusMessage =
                 $"Brought over {result.ImportedCount} mod(s)"
                 + (result.AlreadyPresentCount > 0 ? $", {result.AlreadyPresentCount} already here" : "")
                 + (linked.Count > 0 ? $" ({string.Join(", ", linked)})" : "")
                 + (problems.Count > 0 ? $" — {string.Join(", ", problems)}; see the list below." : ".")
-                + " Your merge list is now queued in Merge & Install."
+                // Merge & Install's own line for the list: queued, refused while a build runs, no
+                // names in it, or couldn't be read. It used to say "queued" whatever happened.
+                + (mergeInstall.StatusMessage is { Length: > 0 } mergeListStatus ? $" Merge list: {mergeListStatus}" : "")
                 + (result.FailedCatalogSources.Count > 0
                     ? $" ({string.Join(" and ", result.FailedCatalogSources)} unavailable — some mods may have missed a database link; try migrating again.)"
                     : "");

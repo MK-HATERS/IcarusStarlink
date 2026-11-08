@@ -8,6 +8,7 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Migration;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Import;
 
 namespace IcarusStarlink.App.Services;
@@ -25,13 +26,16 @@ public sealed record ImmMigratedMod(string ListName, ImmMigrationOutcome Outcome
 {
     public string Display => Outcome switch
     {
-        ImmMigrationOutcome.Imported => $"{ListName} — brought over{SourceSuffix}",
-        ImmMigrationOutcome.AlreadyInLibrary => $"{ListName} — already in your Library{SourceSuffix}",
+        ImmMigrationOutcome.Imported => $"{ListName} — brought over{SourceSuffix}{NoteSuffix}",
+        ImmMigrationOutcome.AlreadyInLibrary => $"{ListName} — already in your Library{SourceSuffix}{NoteSuffix}",
         ImmMigrationOutcome.NotFoundOnDisk => $"{ListName} — not found in classic IMM's own mods folder",
         _ => $"{ListName} — couldn't import: {Detail}",
     };
 
     private string SourceSuffix => Source is null ? "" : $" (linked to {Source})";
+
+    /// <summary>On a mod that did come over: an import warning, or a link that couldn't be made.</summary>
+    private string NoteSuffix => string.IsNullOrWhiteSpace(Detail) ? "" : $"; {Detail}";
 }
 
 public sealed record ImmMigrationResult(IReadOnlyList<ImmMigratedMod> Mods, IReadOnlyList<string> FailedCatalogSources)
@@ -42,6 +46,9 @@ public sealed record ImmMigrationResult(IReadOnlyList<ImmMigratedMod> Mods, IRea
     public int FailedCount => Mods.Count(m => m.Outcome == ImmMigrationOutcome.Failed);
     public int LinkedToDatabaseCount => Mods.Count(m => m.Source == "Database");
     public int LinkedToNexusCount => Mods.Count(m => m.Source == "Nexus");
+
+    /// <summary>Mods that came over (or were already here) with something to say on their line: an import warning, or a link that couldn't be made.</summary>
+    public int WarningCount => Mods.Count(m => m.Outcome is ImmMigrationOutcome.Imported or ImmMigrationOutcome.AlreadyInLibrary && !string.IsNullOrWhiteSpace(m.Detail));
 }
 
 /// <summary>
@@ -64,10 +71,19 @@ public sealed class ImmMigrationService(
     ISettingsService settingsService,
     string dataFolder)
 {
+    // FolderLibraryRepository can register an already-read package, so reading a mod moves off the
+    // UI thread; registering stays on the caller's thread because the Library's cache and search
+    // index are only used from there. (AppServices registers the same instance under both.)
+    private readonly IExmodPackageImporter? _packageImporter = repository as IExmodPackageImporter;
+
     public async Task<ImmMigrationResult> MigrateAsync(
         string modListPath, string installRoot, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
     {
-        var listNames = ModListText.ParseNames(await File.ReadAllTextAsync(modListPath, cancellationToken));
+        // Real IMM lists repeat names; the second copy would find the first one's import and count
+        // as "already here". Deduped here, not in ParseNames, which Merge and Server share.
+        var listNames = ModListText.ParseNames(await File.ReadAllTextAsync(modListPath, cancellationToken))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         var immMods = ImmExtractedMods.Parse(await File.ReadAllTextAsync(ImmInstallPaths.ExtractedModsJson(installRoot), cancellationToken));
         var immExtractedModsFolder = ImmInstallPaths.ExtractedModsFolder(installRoot);
 
@@ -81,6 +97,9 @@ public sealed class ImmMigrationService(
             cancellationToken.ThrowIfCancellationRequested();
             index++;
             progress?.Report($"Migrating {index} of {listNames.Count}: {listName}");
+            // Lets the window draw that line and answer clicks between mods; Task.Yield isn't
+            // enough under WPF (its continuation runs ahead of drawing and input).
+            await Task.Delay(1, cancellationToken);
             results.Add(await MigrateOneAsync(listName, immMods, immExtractedModsFolder, catalog, cancellationToken));
         }
 
@@ -98,8 +117,19 @@ public sealed class ImmMigrationService(
         var existing = FindInLibrary(listName, immMod);
         if (existing is not null)
         {
-            var linkedSource = await LinkSourceAsync(existing, immMod?.Author ?? existing.Author, catalog, cancellationToken);
-            return new ImmMigratedMod(listName, ImmMigrationOutcome.AlreadyInLibrary, linkedSource ?? existing.Source, null);
+            try
+            {
+                var linkedSource = await LinkSourceAsync(existing, immMod?.Author ?? existing.Author, catalog, cancellationToken);
+                return new ImmMigratedMod(listName, ImmMigrationOutcome.AlreadyInLibrary, linkedSource ?? existing.Source, null);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Its Library_Meta file locked (OneDrive, antivirus) or its folder gone: the mod is
+                // still in the Library, so this is a note on its line, not a failed import, and the
+                // rest of the run goes on.
+                return new ImmMigratedMod(listName, ImmMigrationOutcome.AlreadyInLibrary, existing.Source,
+                    $"couldn't link it to the mod database or Nexus ({ex.Message})");
+            }
         }
 
         if (immMod is null)
@@ -125,13 +155,17 @@ public sealed class ImmMigrationService(
                 return new ImmMigratedMod(listName, ImmMigrationOutcome.Failed, null, "no .EXMOD or .pak inside its folder");
             }
 
+            // A pak mod that came over as a prebuilt pak (no game data extracted yet, say) carries
+            // why it won't merge field by field; the Library and Downloads show this too.
+            var warning = imported.ImportWarnings.Count > 0 ? "warning: " + string.Join(" ", imported.ImportWarnings) : null;
+
             if (catalogEntry is not null)
             {
-                return new ImmMigratedMod(listName, ImmMigrationOutcome.Imported, "Database", null);
+                return new ImmMigratedMod(listName, ImmMigrationOutcome.Imported, "Database", warning);
             }
 
-            var nexusSource = await TryLinkNexusAsync(imported, cancellationToken);
-            return new ImmMigratedMod(listName, ImmMigrationOutcome.Imported, nexusSource, null);
+            var nexusSource = await TryLinkNexusAsync(imported, immMod.Author, cancellationToken);
+            return new ImmMigratedMod(listName, ImmMigrationOutcome.Imported, nexusSource, warning);
         }
         catch (Exception ex)
         {
@@ -143,11 +177,20 @@ public sealed class ImmMigrationService(
     /// <summary>Classic IMM's Extracted_Mods holds both real EXMOD mod folders and folders wrapping a prebuilt .pak — this app imports those through two different methods, so pick by what's actually inside.</summary>
     private async Task<LibraryEntry?> ImportFrom(string sourceFolder, CatalogEntry? catalogEntry)
     {
-        var files = Directory.EnumerateFiles(sourceFolder, "*", SearchOption.AllDirectories).ToList();
+        var files = await Task.Run(() => Directory.EnumerateFiles(sourceFolder, "*", SearchOption.AllDirectories).ToList());
 
         if (files.Any(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase)))
         {
-            return repository.Import(sourceFolder, source: catalogEntry is null ? null : "Database", catalogEntryId: catalogEntry?.Id);
+            var source = catalogEntry is null ? null : "Database";
+            if (_packageImporter is not null)
+            {
+                // Reading every file of the mod is the slow part; the same registration Import does
+                // after its own read then runs here, on the caller's thread.
+                var contents = await Task.Run(() => ExmodFolder.Read(sourceFolder));
+                return _packageImporter.ImportPackage(contents, source, catalogEntryId: catalogEntry?.Id);
+            }
+
+            return repository.Import(sourceFolder, source: source, catalogEntryId: catalogEntry?.Id);
         }
 
         var pakPath = files.FirstOrDefault(f => f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase));
@@ -193,30 +236,57 @@ public sealed class ImmMigrationService(
             return "Database";
         }
 
-        return await TryLinkNexusAsync(entry, cancellationToken);
+        return await TryLinkNexusAsync(entry, author, cancellationToken);
     }
 
+    /// <summary>
+    /// The catalog entry with the same name and author. Author is often blank or "Unknown" in
+    /// classic IMM's own cache, so a name-only match is taken too, but only when every catalog
+    /// entry with that name is by the same author: two sources listing one mod still link, while
+    /// two authors' same-named mods link to neither.
+    /// </summary>
     private static CatalogEntry? MatchCatalog(IReadOnlyList<CatalogEntry> catalog, string name, string author)
     {
         var key = CatalogKey.Normalize(name, author);
-        return catalog.FirstOrDefault(e => CatalogKey.Normalize(e.Name, e.Author) == key)
-            // Author is frequently blank or differently-spelled in classic IMM's own cache
-            // ("Unknown", ""), so fall back to a name-only match rather than missing a real hit.
-            ?? catalog.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (catalog.FirstOrDefault(e => CatalogKey.Normalize(e.Name, e.Author) == key) is { } exact)
+        {
+            return exact;
+        }
+
+        var sameName = catalog.Where(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase)).ToList();
+        return sameName.Count > 0 && sameName.Select(e => CatalogKey.Normalize(e.Name, e.Author).Author).Distinct().Count() == 1
+            ? sameName[0]
+            : null;
     }
+
+    /// <summary>Null when blank or "Unknown" (what classic IMM's cache says when it doesn't know), else trimmed.</summary>
+    private static string? KnownAuthor(string? author) =>
+        string.IsNullOrWhiteSpace(author) || string.Equals(author.Trim(), "Unknown", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : author.Trim();
 
     /// <summary>
     /// Nexus has no "which mod is this file from" lookup, so the only available signal is a search
     /// by name — accepted ONLY on an exact (case-insensitive) title match, since a fuzzy hit would
-    /// silently attach a mod to the wrong Nexus page and then offer its updates.
+    /// silently attach a mod to the wrong Nexus page and then offer its updates. When several mods
+    /// have that exact title, only the one by the same author (classic IMM's, else the mod's own)
+    /// is taken; with no known author, none is.
     /// </summary>
-    private async Task<string?> TryLinkNexusAsync(LibraryEntry entry, CancellationToken cancellationToken)
+    private async Task<string?> TryLinkNexusAsync(LibraryEntry entry, string? immAuthor, CancellationToken cancellationToken)
     {
         try
         {
             var apiKey = credentialStore.Read(CredentialTargets.NexusApiKey);
             var matches = await nexusApiClient.SearchModsAsync(apiKey, "icarus", entry.Name, cancellationToken);
-            var exact = matches.FirstOrDefault(m => string.Equals(m.Name, entry.Name, StringComparison.OrdinalIgnoreCase));
+            var exactTitles = matches.Where(m => string.Equals(m.Name, entry.Name, StringComparison.OrdinalIgnoreCase)).ToList();
+            var author = KnownAuthor(immAuthor) ?? KnownAuthor(entry.Author);
+            var exact = exactTitles.Count switch
+            {
+                1 => exactTitles[0],
+                > 1 when author is not null
+                    && exactTitles.Where(m => string.Equals(m.Author?.Trim(), author, StringComparison.OrdinalIgnoreCase)).ToList() is [var byAuthor] => byAuthor,
+                _ => null,
+            };
             if (exact is null)
             {
                 return null;
