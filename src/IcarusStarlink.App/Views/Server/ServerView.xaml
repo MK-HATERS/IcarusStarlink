@@ -177,7 +177,7 @@
                                 Visibility="{Binding IsConnected, Converter={StaticResource BoolToVisibilityConverter}}"/>
                     </StackPanel>
                     <TextBlock Text="{Binding ConnectionStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
-                    <TextBlock Text="This host doesn't allow deleting or replacing files via FTP — use its own file manager for cleanup."
+                    <TextBlock Text="This host doesn't allow deleting files via FTP — use its own file manager for cleanup."
                                Foreground="{DynamicResource DangerBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
                                Visibility="{Binding HasKnownDeleteRestriction, Converter={StaticResource BoolToVisibilityConverter}}"/>
 

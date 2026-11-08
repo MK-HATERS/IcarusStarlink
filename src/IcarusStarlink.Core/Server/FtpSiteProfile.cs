@@ -40,9 +40,9 @@ public sealed class FtpSiteProfile
     /// alongside everything else here. Null means "use normal certificate validation only."</summary>
     public string? TrustedCertificateThumbprint { get; set; }
 
-    /// <summary>Whether this site's own FTP account has ever been confirmed able to delete/overwrite
+    /// <summary>Whether this site's own FTP account has ever been confirmed able to delete
     /// an existing file — some budget hosts (confirmed live against a real SurvivalServers account)
-    /// allow creating new files but reject deleting or replacing one account-wide. Null means never
+    /// allow creating new files but reject deleting one account-wide. Null means never
     /// tested; set the first time a delete either succeeds or is rejected by the server, and reused
     /// to warn before attempting a delete known to fail rather than discovering it mid-operation.</summary>
     public bool? SupportsDelete { get; set; }

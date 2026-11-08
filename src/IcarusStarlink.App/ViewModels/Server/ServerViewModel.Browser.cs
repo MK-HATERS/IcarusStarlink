@@ -353,7 +353,7 @@ public sealed partial class ServerViewModel
         }
     }
 
-    /// <summary>Persists whether this site's own FTP account can delete/overwrite an existing file,
+    /// <summary>Persists whether this site's own FTP account can delete an existing file,
     /// once actually confirmed either way — shared by the single-file Delete button and Install
     /// merged pak to server, so either one learning the answer benefits the other.
     ///

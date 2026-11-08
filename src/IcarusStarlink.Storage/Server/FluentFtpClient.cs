@@ -91,9 +91,13 @@ public sealed class FluentFtpClient : CoreIFtpClient
     // FluentFTP reports a transfer that failed mid-stream (connection reset) or a missing source
     // as FtpStatus.Failed — a RETURN VALUE, not an exception. Dropping it meant every caller logged
     // "Uploaded"/"Installed the merged pak" over a truncated file on a live server.
+    //
+    // OverwriteInPlace is a plain STOR: no existence check and no DELE first. FluentFTP's Overwrite
+    // sends DELE before STOR when the file exists, and a host that refuses every delete but accepts
+    // a STOR over an existing file (SurvivalServers) then failed every replace of an existing name.
     public async Task UploadFileAsync(string localPath, string remotePath, CancellationToken cancellationToken = default)
     {
-        var status = await RequireClient().UploadFile(localPath, remotePath, FtpRemoteExists.Overwrite, createRemoteDir: true, token: cancellationToken);
+        var status = await RequireClient().UploadFile(localPath, remotePath, FtpRemoteExists.OverwriteInPlace, createRemoteDir: true, token: cancellationToken);
         if (status != FtpStatus.Success)
         {
             throw new IOException($"Upload of '{remotePath}' did not complete ({status}) — the server may hold a partial file; try again.");
@@ -157,11 +161,14 @@ public sealed class FluentFtpClient : CoreIFtpClient
         }
     }
 
+    // NoCheck is a plain RNFR/RNTO. With Overwrite or OverwriteInPlace FluentFTP sends DELE on an
+    // existing destination first, which a delete-blocked host refuses. Whether a rename may replace
+    // an existing file is then up to the server: when it refuses, FtpCommandException below.
     public async Task RenameFileAsync(string fromRemotePath, string toRemotePath, CancellationToken cancellationToken = default)
     {
         try
         {
-            if (!await RequireClient().MoveFile(fromRemotePath, toRemotePath, FtpRemoteExists.Overwrite, cancellationToken))
+            if (!await RequireClient().MoveFile(fromRemotePath, toRemotePath, FtpRemoteExists.NoCheck, cancellationToken))
             {
                 throw new FtpOperationRejectedException($"The server didn't rename '{fromRemotePath}' to '{toRemotePath}'.");
             }

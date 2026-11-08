@@ -104,8 +104,8 @@ public sealed partial class ServerViewModel : ObservableObject
     private bool _isConnecting;
 
     /// <summary>True once this site's own FTP account has been confirmed (by a real rejected
-    /// delete) unable to remove or replace an existing file — some budget hosts allow only
-    /// creating new files. Raised again by OnSelectedSiteChanged and RememberDeleteCapability,
+    /// delete) unable to remove an existing file — some budget hosts allow only creating new
+    /// files and writing over existing ones. Raised again by OnSelectedSiteChanged and RememberDeleteCapability,
     /// since FtpSiteProfile itself isn't a bindable/observable type.</summary>
     public bool HasKnownDeleteRestriction => SelectedSite?.SupportsDelete == false;
 

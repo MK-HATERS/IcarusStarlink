@@ -11,13 +11,14 @@ public interface IFtpClient : IAsyncDisposable
 
     Task<IReadOnlyList<FtpEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default);
 
+    /// <summary>Uploads a file, replacing an existing file of that name in place, without deleting it first.</summary>
     Task UploadFileAsync(string localPath, string remotePath, CancellationToken cancellationToken = default);
 
     Task DownloadFileAsync(string remotePath, string localPath, CancellationToken cancellationToken = default);
 
     Task DeleteFileAsync(string remotePath, CancellationToken cancellationToken = default);
 
-    /// <summary>Renames (moves) a file on the server, replacing one already at <paramref name="toRemotePath"/>. Throws FtpOperationRejectedException when the server refuses.</summary>
+    /// <summary>A plain rename (move) of a file on the server. Whether it may replace a file already at <paramref name="toRemotePath"/> is up to the server (most allow it). Throws FtpOperationRejectedException when the server refuses.</summary>
     Task RenameFileAsync(string fromRemotePath, string toRemotePath, CancellationToken cancellationToken = default);
 
     Task DisconnectAsync();
