@@ -222,18 +222,50 @@ public sealed partial class LibraryViewModel : ObservableObject
         EndorsementCheckStatusMessage = null;
     }
 
-    /// <summary>The "Check" dropdown's own four whole-library actions (Check for updates/Check
-    /// mods against game data/Check endorsements/Convert opaque mods) each run over every mod in
-    /// the library and are mutually exclusive in practice — bound to each MenuItem's IsEnabled so a
-    /// user can't fire a second one while one is already in flight, matching the re-entrancy guard
-    /// each of the four async methods already checks on its own busy flag.</summary>
-    public bool CanRunLibraryCheck =>
-        !IsCheckingForUpdates && !IsCheckingStaleness && !IsConvertingAllOpaqueMods && !IsCheckingEndorsements;
+    // ---- The Check menu: each item is greyed out only by what it really can't run beside. One
+    // flag for all of them used to grey out every item during the silent update check at launch.
 
-    partial void OnIsCheckingForUpdatesChanged(bool value) => OnPropertyChanged(nameof(CanRunLibraryCheck));
-    partial void OnIsCheckingStalenessChanged(bool value) => OnPropertyChanged(nameof(CanRunLibraryCheck));
-    partial void OnIsConvertingAllOpaqueModsChanged(bool value) => OnPropertyChanged(nameof(CanRunLibraryCheck));
-    partial void OnIsCheckingEndorsementsChanged(bool value) => OnPropertyChanged(nameof(CanRunLibraryCheck));
+    /// <summary>Check for updates: not while it already runs.</summary>
+    public bool CanCheckForUpdates => !IsCheckingForUpdates;
+
+    /// <summary>Update all: needs the update check's result, and changes mods, so not beside a pass that rewrites them.</summary>
+    public bool CanUpdateAll => !IsCheckingForUpdates && !IsCheckingStaleness && !IsConvertingAllOpaqueMods;
+
+    /// <summary>Check mods against game data, Fix sure problems and Make prebuilt paks editable: each rewrites mods, so they block each other.</summary>
+    public bool CanRunModPass => !IsCheckingStaleness && !IsConvertingAllOpaqueMods;
+
+    /// <summary>Check endorsements: not while it already runs (the quiet sync on the first Library visit included).</summary>
+    public bool CanCheckEndorsements => !IsCheckingEndorsements;
+
+    /// <summary>"Checking for updates… · Checking endorsements…": every library check running now, above Check results; null when none runs.</summary>
+    public string? LibraryChecksRunningText
+    {
+        get
+        {
+            var running = new[]
+            {
+                IsCheckingForUpdates ? "Checking for updates…" : null,
+                IsCheckingStaleness ? "Working on mods against the game data…" : null,
+                IsConvertingAllOpaqueMods ? "Making prebuilt paks editable…" : null,
+                IsCheckingEndorsements ? "Checking endorsements…" : null,
+            }.OfType<string>().ToList();
+            return running.Count == 0 ? null : string.Join(" · ", running);
+        }
+    }
+
+    partial void OnIsCheckingForUpdatesChanged(bool value) => RaiseLibraryChecksChanged();
+    partial void OnIsCheckingStalenessChanged(bool value) => RaiseLibraryChecksChanged();
+    partial void OnIsConvertingAllOpaqueModsChanged(bool value) => RaiseLibraryChecksChanged();
+    partial void OnIsCheckingEndorsementsChanged(bool value) => RaiseLibraryChecksChanged();
+
+    private void RaiseLibraryChecksChanged()
+    {
+        OnPropertyChanged(nameof(CanCheckForUpdates));
+        OnPropertyChanged(nameof(CanUpdateAll));
+        OnPropertyChanged(nameof(CanRunModPass));
+        OnPropertyChanged(nameof(CanCheckEndorsements));
+        OnPropertyChanged(nameof(LibraryChecksRunningText));
+    }
 
     /// <summary>Ctrl/Shift-click multi-select, for "Add to merge queue" — the only way mods reach Merge & Install's queue now that its own Library pane is gone. A plain list (not a HashSet): insertion order isn't meaningful here, but ObservableCollection gives free CollectionChanged notification for HasBulkSelection/BulkSelectedCount.</summary>
     public ObservableCollection<LibraryItemViewModel> BulkSelectedItems { get; } = [];
@@ -540,7 +572,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             // which can hit the same locked/permission-denied conditions RescanAll's own per-mod
             // catch already tolerates, except this one is the top-level directory enumeration
             // itself, which isn't wrapped per-folder.
-            StatusMessage = $"Refresh failed: {ex.Message}";
+            ReportProblem($"Refresh failed: {ex.Message}");
             return;
         }
 
