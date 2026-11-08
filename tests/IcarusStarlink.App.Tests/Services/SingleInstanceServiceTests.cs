@@ -20,6 +20,8 @@ public sealed class SingleInstanceServiceTests
     {
         // The listener allows one connection at a time: a second launch paused right after
         // connecting must not hold it, or every later link would be lost.
+        // Holds on .NET 10 with a synchronous pipe too; the CurrentUserOnly ACL test below is
+        // what guards the pipe options.
         var name = UniqueName();
         var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var service = new SingleInstanceService(name, name) { ReadTimeout = TimeSpan.FromMilliseconds(300) };
