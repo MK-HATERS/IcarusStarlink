@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Patches;
+using IcarusStarlink.Core.Server;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Safety;
 
@@ -112,32 +113,15 @@ public sealed class PatchService : IPatchService
     }
 
     /// <summary>
-    /// What ArcFission Library (and the ArcFission mods talking to it) write in its folder while the
-    /// game runs: state.lua (what the current data pak was built from), status.lua (its answer to
-    /// the mods), registry.txt (each mod's handshake this session), core_queue.txt and
-    /// core_running.txt (written each start). They describe the exporter's own session, not
-    /// settings: carried into a friend's copy they're stale there. core_off.txt is the user's own
-    /// switch and isn't one of these. Core's ServerUe4ssSync leaves the same files out of a server.
-    /// </summary>
-    private static readonly string[] ArcFissionLibrarySessionFiles = ["state.lua", "status.lua", "registry.txt", "core_queue.txt", "core_running.txt"];
-
-    /// <summary>
     /// A file of this copy of the mod, not of the mod: enabled.txt (the exporter's on/off), logs,
-    /// backups and caches, and ArcFission Library's session files (in a folder whose name read as
-    /// letters and digits starts with "ArcFissionLibrary", as InstallManifestNames finds it).
+    /// backups and caches, and ArcFission Library's session files: the exporter's own session,
+    /// stale in a friend's copy (<see cref="ServerUe4ssSync.IsArcFissionLibraryState"/>, the same
+    /// rule the server sync uses).
     /// </summary>
-    private static bool IsCopyOwnFile(string modFolder, string relativePath)
-    {
-        if (string.Equals(relativePath, "enabled.txt", StringComparison.OrdinalIgnoreCase)
-            || Ue4ssSkippedExtensions.Contains(Path.GetExtension(relativePath).ToLowerInvariant()))
-        {
-            return true;
-        }
-
-        var letters = new string([.. Path.GetFileName(Path.TrimEndingDirectorySeparator(modFolder)).Where(char.IsLetterOrDigit)]);
-        return letters.StartsWith("ArcFissionLibrary", StringComparison.OrdinalIgnoreCase)
-            && ArcFissionLibrarySessionFiles.Contains(relativePath, StringComparer.OrdinalIgnoreCase);
-    }
+    private static bool IsCopyOwnFile(string modFolder, string relativePath) =>
+        string.Equals(relativePath, "enabled.txt", StringComparison.OrdinalIgnoreCase)
+        || Ue4ssSkippedExtensions.Contains(Path.GetExtension(relativePath).ToLowerInvariant())
+        || ServerUe4ssSync.IsArcFissionLibraryState(modFolder, relativePath);
 
     /// <summary>Runs on a worker thread: a patch's bundled mods are inflated and its paks written to disk.</summary>
     public Task<PatchImportContents> ImportAsync(string patchFilePath, CancellationToken cancellationToken = default) =>
