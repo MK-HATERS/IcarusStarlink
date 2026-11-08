@@ -303,7 +303,16 @@ internal static class AppServices
             ue4ssRepository: sp.GetRequiredService<IUe4ssModRepository>(),
             ue4ssMetaStore: sp.GetRequiredService<IUe4ssModMetaStore>(),
             // Import patch fetches the mods a patch references through the Downloads page (registered below: resolved lazily).
-            patchFetcher: new DownloadsPatchFetcher(sp.GetRequiredService<DownloadsViewModel>, sp.GetRequiredService<ICredentialStore>())));
+            patchFetcher: new DownloadsPatchFetcher(sp.GetRequiredService<DownloadsViewModel>, sp.GetRequiredService<ICredentialStore>()))
+        {
+            // A patch that replaces a Library mod also clears what is kept for the old copy (the same folders the Library's own remover uses).
+            ModRemover = new LibraryModRemover(
+                sp.GetRequiredService<ILibraryRepository>(),
+                sp.GetRequiredService<IPrebuiltPakSourceStore>(),
+                Path.Combine(appDataDirectory, "Cache", "PakPreviews"),
+                sp.GetRequiredService<ModFixService>(),
+                Path.Combine(appDataDirectory, "Cache", "Thumbnails")),
+        });
         services.AddSingleton(sp => new DownloadsViewModel(
             sp.GetRequiredService<IDaedalusCatalogClient>(),
             sp.GetRequiredService<IJimk72CatalogClient>(),
@@ -401,7 +410,8 @@ internal static class AppServices
                 new IcarusStarlink.PakIO.World.WorldMapRenderer(sp.GetRequiredService<IBaseGameContentProvider>(), () => settings.Current.IcarusContentPath));
         });
         services.AddSingleton(sp => new WorldMapViewModel(
-            sp.GetRequiredService<IcarusStarlink.PakIO.World.WorldMapStore>(), sp.GetRequiredService<ISettingsService>(), Path.Combine(appDataDirectory, "Data")));
+            sp.GetRequiredService<IcarusStarlink.PakIO.World.WorldMapStore>(), sp.GetRequiredService<ISettingsService>(), Path.Combine(appDataDirectory, "Data"),
+            sp.GetRequiredService<IActivityLog>()));
         services.AddSingleton(sp => new DatabaseViewModel(sp.GetRequiredService<NexusCatalogViewModel>(), sp.GetRequiredService<LibraryViewModel>()));
         services.AddSingleton(sp => new GameEditorViewModel(sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data"), sp.GetRequiredService<IActivityLog>(), sp.GetRequiredService<IBaseGameIconDecoder>()));
         services.AddSingleton(sp => new ServerViewModel(
