@@ -270,6 +270,41 @@ public sealed class NewItemWizardTests : IDisposable
         Assert.Null(wizard.DlcGateNote);
     }
 
+    /// <summary>A paid DLC never holds the wizard back: a DLC item copies like any other, with nothing greyed, and the copy keeps the game's gate as it is.</summary>
+    [Fact]
+    public void ADlcItem_CopiesLikeAnyOther_AndKeepsItsGate()
+    {
+        Write("Items/D_ItemsStatic.json", """
+            {"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"}},"Rows":[
+              {"Name":"Envirosuit","Itemable":{"RowName":"Item_Envirosuit"}},
+              {"Name":"Hunter_Suit","Itemable":{"RowName":"Item_Hunter_Suit"},"Metadata":{"RequiredFeatureLevel":{"RowName":"GreatHunts"}}}
+            ]}
+            """);
+        Write("Traits/D_Itemable.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Envirosuit"},{"Name":"Item_Hunter_Suit"}]}""");
+        Write("Development/D_FeatureLevels.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"GreatHunts","DisplayName":"INVTEXT(\"Great Hunts\")"}]}""");
+
+        // How it's obtained follows the game's own recipe or workshop entry (Envirosuit is a workshop item here), not the DLC.
+        static object Enabled(NewItemWizardViewModel w) => new
+        {
+            w.HasSource,
+            w.CanUnlockWithSource,
+            Links = string.Join(",", w.Links.Select(l => $"{l.Field}:{l.CanChange}")),
+        };
+
+        var plain = new NewItemWizardViewModel(new GameTableIndex(DataFolder), null);
+        plain.SelectedSource = plain.FilteredItems.Single(i => i.Name == "Envirosuit");
+        var wizard = new NewItemWizardViewModel(new GameTableIndex(DataFolder), null);
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Hunter_Suit");
+        Assert.Equal(Enabled(plain), Enabled(wizard));
+
+        wizard.DisplayName = "Dragon Suit";
+        wizard.IsJustItem = true;
+        Assert.True(wizard.TryCreate(), wizard.Error);
+
+        var copy = wizard.Result!.Single(r => r.CurrentFile == "Items-D_ItemsStatic.json").FileItems.Single(i => i.Name == "Dragon_Suit");
+        Assert.Equal("GreatHunts", copy.Fields["Metadata"]!["RequiredFeatureLevel"]!["RowName"]!.GetValue<string>());
+    }
+
     /// <summary>Regression: free updates gate their items too (Galileo is fishing, Laika is taming), and those items got the DLC note though every player has them.</summary>
     [Fact]
     public void AnItemFromAFreeUpdate_GetsNoDlcNote()
