@@ -72,7 +72,7 @@
                       ToolTip="On: after a game update, Update everything also redraws the maps whose game files changed (a big map takes about a minute). Off: this page says which maps are out of date and Reload is left to you."/>
             <Button DockPanel.Dock="Right" Command="{Binding RebuildAllCommand}" Margin="8,0,0,0" VerticalAlignment="Center"
                     Content="Rebuild all maps" AutomationProperties.Name="Rebuild all maps"
-                    ToolTip="Deletes every map Starlink made and draws them all again from the game's files, even if nothing changed. Reads every world's caves and spots too, so it takes several minutes."/>
+                    ToolTip="Draws every map again from the game's files, even if nothing changed (each map's old copy is replaced once its new one is ready). Reads every world's caves and spots too, so it takes several minutes."/>
             <Button DockPanel.Dock="Right" Command="{Binding ReloadCommand}" Margin="16,0,0,0" VerticalAlignment="Center"
                     AutomationProperties.Name="Reload the maps"
                     ToolTip="Checks the game's map files and zones and draws again only the maps that changed (after a game update, or a mod or file changed).">

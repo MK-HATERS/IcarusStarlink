@@ -265,14 +265,14 @@ public sealed partial class WorldMapViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanRun))]
     private Task ReloadAsync() => RunReloadAsync(everything: false);
 
-    /// <summary>Deletes every drawn map and draws them all again, changed or not.</summary>
+    /// <summary>Draws every map again, changed or not.</summary>
     [RelayCommand(CanExecute = nameof(CanRun))]
     private Task RebuildAllAsync() => RunReloadAsync(everything: true);
 
     /// <summary>
     /// Update everything's step: Reload, but only when Redraw during Update everything is ticked and
-    /// the maps were made before (making them all the first time takes minutes; that waits until the
-    /// Map page is opened). Says whether the reload ran (false: why not), and what changed.
+    /// the maps were all made before (making them the first time takes minutes; that waits until the
+    /// Map page is opened). Says whether every map was redrawn (false: why not), and what changed.
     /// </summary>
     public async Task<(bool Redrawn, string Message)> ReloadForGameUpdateAsync()
     {
@@ -286,9 +286,9 @@ public sealed partial class WorldMapViewModel : ObservableObject
             return (false, "Left for you: the Map page says which maps changed, and Reload redraws them (or tick Redraw during Update everything on the Map page).");
         }
 
-        if (_store.PictureSources().Count == 0)
+        if (!_store.IsComplete())
         {
-            return (false, "The maps haven't been made yet: they're made the first time you open Map.");
+            return (false, "The maps haven't all been made yet: they're made when you open Map.");
         }
 
         if (IsBusy)
@@ -296,12 +296,12 @@ public sealed partial class WorldMapViewModel : ObservableObject
             return (false, "The Map page is already busy drawing.");
         }
 
-        // A reload that threw says so in StatusMessage: that's Skipped, not "redrawn".
-        var done = await RunReloadAsync(everything: false);
-        return (done, StatusMessage);
+        // A reload that threw, or left a map undrawn, is Skipped with its message, not Done.
+        var result = await RunReloadAsync(everything: false);
+        return (result is { Failed.Count: 0 }, StatusMessage);
     }
 
-    private async Task LoadAsync()
+    internal async Task LoadAsync()
     {
         if (Problem() is { } problem)
         {
@@ -313,8 +313,8 @@ public sealed partial class WorldMapViewModel : ObservableObject
         try
         {
             StatusMessage = "Reading the game's maps…";
-            var neverMade = _store.PictureSources().Count == 0;
-            if (neverMade)
+            // Never made, or a build stopped half-way: finish it (the worlds already drawn are kept).
+            if (!_store.IsComplete())
             {
                 IsBusy = false;
                 await RunReloadAsync(everything: false);
@@ -370,13 +370,13 @@ public sealed partial class WorldMapViewModel : ObservableObject
     /// <summary>Reloads started so far: a check that finishes after one started keeps its answer to itself.</summary>
     private int _reloadsStarted;
 
-    /// <returns>Whether the reload ran to the end (false: StatusMessage says why).</returns>
-    private async Task<bool> RunReloadAsync(bool everything)
+    /// <returns>What the reload did (its Failed lists the maps it couldn't draw); null when it didn't run or threw (StatusMessage says why).</returns>
+    private async Task<WorldMapReloadResult?> RunReloadAsync(bool everything)
     {
         if (Problem() is { } problem)
         {
             StatusMessage = problem;
-            return false;
+            return null;
         }
 
         _reloadsStarted++;
@@ -390,16 +390,18 @@ public sealed partial class WorldMapViewModel : ObservableObject
             _loadedOnce = true;
             OutOfDateMessage = null;
             StatusMessage = result.Summary;
-            return true;
+            return result;
         }
         catch (Exception ex)
         {
             // Not awaited by anyone either (a button, the page opening): say what went wrong.
             StatusMessage = $"Couldn't make the maps: {ex.Message}";
-            return false;
+            return null;
         }
         finally
         {
+            // A reload that threw may still have saved part of the index.
+            _pictureSources = null;
             IsBusy = false;
         }
     }
@@ -412,33 +414,58 @@ public sealed partial class WorldMapViewModel : ObservableObject
             return "Set the game folder in Settings first: the maps are read from the game's files.";
         }
 
+        // Without its paks every map would read as changed and draw as nothing.
+        if (!Directory.Exists(Path.Combine(_settings.Current.IcarusContentPath, "Paks")))
+        {
+            return "The game folder in Settings has no Paks folder (was the game moved, or is its drive unplugged?): check the game folder in Settings.";
+        }
+
         return Directory.Exists(Path.Combine(_dataFolder, "World"))
             ? null
             : "Refresh game data in Settings first: the maps' zones are read from it.";
     }
 
+    /// <summary>The map list is being refilled: picking (and the picker's own null on Clear) doesn't show a world until it's done.</summary>
+    private bool _refillingMaps;
+
+    /// <summary>How each world's picture was made, read from index.json once per reload (not on every pick).</summary>
+    private IReadOnlyDictionary<string, WorldPictureSource>? _pictureSources;
+
+    private IReadOnlyDictionary<string, WorldPictureSource> PictureSourcesNow() => _pictureSources ??= _store.PictureSources();
+
     private void ShowMaps(IReadOnlyList<WorldMapInfo> maps)
     {
+        _pictureSources = null;
         var keep = SelectedMap?.Map.Id;
-        Maps.Clear();
-        // Open world maps, then mission-only maps, then outposts, then those no prospect uses yet; in development last within each.
-        foreach (var map in maps.OrderBy(m => m.KindOrder).ThenBy(m => m.InDevelopment))
+        _refillingMaps = true;
+        try
         {
-            Maps.Add(new WorldMapItemViewModel(map));
+            Maps.Clear();
+            // Open world maps, then mission-only maps, then outposts, then those no prospect uses yet; in development last within each.
+            foreach (var map in maps.OrderBy(m => m.KindOrder).ThenBy(m => m.InDevelopment))
+            {
+                Maps.Add(new WorldMapItemViewModel(map));
+            }
+
+            SelectedMap = Maps.FirstOrDefault(m => m.Map.Id == keep) ?? Maps.FirstOrDefault();
+        }
+        finally
+        {
+            _refillingMaps = false;
         }
 
-        SelectedMap = Maps.FirstOrDefault(m => m.Map.Id == keep) ?? Maps.FirstOrDefault();
-        // The same world picked again: ShowMap didn't run, but its files may have been redrawn.
-        if (SelectedMap?.Map.Id == keep)
-        {
-            ShowMap(SelectedMap);
-        }
+        // One ShowMap for the refilled list: the picker's own null on Clear and the new item above skip
+        // it while the list refills, and the picked world's files may have been redrawn.
+        ShowMap(SelectedMap);
     }
 
     partial void OnSelectedMapChanged(WorldMapItemViewModel? value)
     {
         OnPropertyChanged(nameof(MapPickerPlaceholder));
-        ShowMap(value);
+        if (!_refillingMaps)
+        {
+            ShowMap(value);
+        }
     }
 
     /// <summary>What the map picker says while it's empty; null once a map is picked.</summary>
@@ -473,11 +500,12 @@ public sealed partial class WorldMapViewModel : ObservableObject
 
         OnPropertyChanged(nameof(DropSitesText));
         SelectedFeature = null;
+        // Features first: ShowLayers' highlight also writes the search line, from the places FindPlaces just found.
         if (item is null)
         {
             MapNote = null;
-            ShowLayers();
             ShowFeatures(null);
+            ShowLayers();
             return;
         }
 
@@ -494,7 +522,7 @@ public sealed partial class WorldMapViewModel : ObservableObject
             }
         }
 
-        var source = _store.PictureSources().GetValueOrDefault(map.Id, WorldPictureSource.None);
+        var source = PictureSourcesNow().GetValueOrDefault(map.Id, WorldPictureSource.None);
         var notes = new List<string>();
         if (map.InDevelopment)
         {
@@ -517,8 +545,8 @@ public sealed partial class WorldMapViewModel : ObservableObject
 
         MapNote = notes.Count > 0 ? string.Join(" ", notes) : null;
         OnPropertyChanged(nameof(HasLayers));
-        ShowLayers();
         ShowFeatures(map);
+        ShowLayers();
     }
 
     private void OnLayerTicked(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -544,27 +572,45 @@ public sealed partial class WorldMapViewModel : ObservableObject
 
     /// <summary>
     /// Typing waits for a short pause before it searches: each search can redraw every marker and a
-    /// whole-map highlight, and doing that on every key made typing lag. Without a window (tests) it
-    /// searches at once.
+    /// whole-map highlight, and doing that on every key made typing lag. Without a window (tests), or
+    /// off its thread, it searches at once.
     /// </summary>
     partial void OnSearchTextChanged(string value)
     {
-        if (System.Windows.Application.Current?.Dispatcher is not { } dispatcher)
+        if (UiDispatcher() is not { } dispatcher || !dispatcher.CheckAccess())
         {
             RunSearch();
             return;
         }
 
+        _searchPending = true;
         _searchPause ??= new System.Windows.Threading.DispatcherTimer(TimeSpan.FromMilliseconds(250), System.Windows.Threading.DispatcherPriority.Background,
-            (_, _) => { _searchPause!.Stop(); RunSearch(); }, dispatcher);
+            (_, _) => RunPendingSearch(), dispatcher);
         _searchPause.Stop();
         _searchPause.Start();
     }
 
     private System.Windows.Threading.DispatcherTimer? _searchPause;
 
+    /// <summary>The window's dispatcher (null without one: tests). Typing waits on it before searching.</summary>
+    internal Func<System.Windows.Threading.Dispatcher?> UiDispatcher { get; set; } = () => System.Windows.Application.Current?.Dispatcher;
+
+    /// <summary>A search typed but not run yet (the pause hasn't passed).</summary>
+    private bool _searchPending;
+
+    /// <summary>Runs the search still waiting for its pause, if there is one.</summary>
+    private void RunPendingSearch()
+    {
+        _searchPause?.Stop();
+        if (_searchPending)
+        {
+            RunSearch();
+        }
+    }
+
     private void RunSearch()
     {
+        _searchPending = false;
         FindPlaces();
         UpdateHighlight();
     }
@@ -703,7 +749,19 @@ public sealed partial class WorldMapViewModel : ObservableObject
 
         _highlightDrawn = drawing;
         var size = layers.Max(l => l.Pixels.Size);
-        var pixels = new uint[size * size];
+        // One buffer and one bitmap, reused while the size stays: a new pair on every zone the mouse
+        // crossed was two whole-map allocations (16 MB each at 2048²) and a new texture each time.
+        if (_highlightBuffer is null || _highlightBitmap is null || _highlightBitmap.PixelWidth != size)
+        {
+            _highlightBuffer = new uint[size * size];
+            _highlightBitmap = new WriteableBitmap(size, size, 96, 96, PixelFormats.Pbgra32, null);
+        }
+        else
+        {
+            Array.Clear(_highlightBuffer);
+        }
+
+        var pixels = _highlightBuffer;
         foreach (var (kind, layer, _) in layers)
         {
             var selected = _selectedColors.TryGetValue(kind, out var s) ? s : (uint?)null;
@@ -714,12 +772,13 @@ public sealed partial class WorldMapViewModel : ObservableObject
                 continue;
             }
 
+            var sameSize = layer.Size == size;
             for (var y = 0; y < size; y++)
             {
-                var row = y * layer.Size / size * layer.Size;
+                var row = sameSize ? y * size : y * layer.Size / size * layer.Size;
                 for (var x = 0; x < size; x++)
                 {
-                    var color = layer.Pixels[row + x * layer.Size / size];
+                    var color = layer.Pixels[sameSize ? row + x : row + x * layer.Size / size];
                     // Premultiplied BGRA: the accent orange, stronger for the clicked zone.
                     if (color == selected)
                     {
@@ -737,8 +796,15 @@ public sealed partial class WorldMapViewModel : ObservableObject
             }
         }
 
-        HighlightImage = ToBitmap(pixels, size);
+        // Not frozen: this always runs on the UI thread (mouse, the search pause, awaited continuations).
+        // The same bitmap set again raises nothing; WritePixels makes the image redraw by itself.
+        _highlightBitmap.WritePixels(new Int32Rect(0, 0, size, size), pixels, size * 4, 0);
+        HighlightImage = _highlightBitmap;
     }
+
+    /// <summary>The highlight's pixels and bitmap, kept for the next highlight of the same size.</summary>
+    private uint[]? _highlightBuffer;
+    private WriteableBitmap? _highlightBitmap;
 
     /// <summary>The ticked layers' zones in the game's own colours, see-through, one over another; anything not in a zone stays clear.</summary>
     private ImageSource? DrawZones()
@@ -805,7 +871,10 @@ public sealed partial class WorldMapViewModel : ObservableObject
             image.Freeze();
             return image;
         }
-        catch (Exception ex) when (ex is IOException or NotSupportedException or UnauthorizedAccessException)
+        // FormatException (WPF's FileFormatException) and COMException: a half-written picture.jpg (a
+        // crash while it was written) shows as missing instead of stopping the map from showing.
+        catch (Exception ex) when (ex is IOException or NotSupportedException or UnauthorizedAccessException
+            or FormatException or System.Runtime.InteropServices.COMException)
         {
             return null;
         }

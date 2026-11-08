@@ -26,6 +26,9 @@ public partial class WorldMapView : UserControl
     private double _fitScale = 1;
     private WorldMapViewModel? _viewModel;
 
+    /// <summary>The world the view was last fitted to: picking it again (a Reload) keeps the zoom.</summary>
+    private string? _fittedMapId;
+
     public WorldMapView()
     {
         InitializeComponent();
@@ -45,6 +48,7 @@ public partial class WorldMapView : UserControl
         }
 
         _viewModel = DataContext as WorldMapViewModel;
+        _fittedMapId = _viewModel?.SelectedMap?.Map.Id;
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -94,7 +98,13 @@ public partial class WorldMapView : UserControl
     {
         if (e.PropertyName == nameof(WorldMapViewModel.SelectedMap))
         {
-            Fit();
+            // Another world: show all of it. The same world again (a Reload refilled the list, passing
+            // through none on the way): the zoom stays.
+            if (_viewModel?.SelectedMap?.Map.Id is { } id && !string.Equals(id, _fittedMapId, StringComparison.OrdinalIgnoreCase))
+            {
+                _fittedMapId = id;
+                Fit();
+            }
         }
         else if (e.PropertyName == nameof(WorldMapViewModel.ShowDropSites))
         {

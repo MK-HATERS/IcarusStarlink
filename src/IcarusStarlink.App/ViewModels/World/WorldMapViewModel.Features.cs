@@ -235,7 +235,8 @@ public sealed partial class WorldMapViewModel
 
         DrawWater();
         DrawGrid(map);
-        // The search is looked for again on this world (FindPlaces redraws the markers).
+        // The search is looked for again on this world, and the markers drawn once for it.
+        _foundForFeatures = null;
         FindPlaces();
     }
 
@@ -294,7 +295,13 @@ public sealed partial class WorldMapViewModel
 
     partial void OnMissionCategoryChanged(WorldFilterOption? value)
     {
-        RebuildMarkers();
+        // While the list is refilled for another world (the picker's null on Clear, then the new pick)
+        // ShowFeatures draws the markers once at the end.
+        if (!_listingCategories)
+        {
+            RebuildMarkers();
+        }
+
         // Only a pick the user made is kept (a world without that kind falls back to "all" without forgetting it).
         if (!_restoring && !_listingCategories && value is not null)
         {
@@ -444,7 +451,7 @@ public sealed partial class WorldMapViewModel
             }
         }
 
-        // The markers are only drawn again when what the search finds changed (a new world always does).
+        // The markers are only drawn again when what the search finds changed, or the world did (ShowFeatures clears _foundForFeatures).
         if (!found.SetEquals(_found) || _foundForFeatures != _features)
         {
             _found = found;
@@ -481,6 +488,8 @@ public sealed partial class WorldMapViewModel
     /// <summary>Enter in the search: zoom to what it found (a grid square, or all the places found; zones aren't zoomed to).</summary>
     public void ZoomToSearch()
     {
+        // Enter right after typing: the search still waiting for its pause runs now, so Enter zooms to what's typed.
+        RunPendingSearch();
         var points = _found.Select(f => f.At).ToList();
         if (GridSquareAt(Query()) is { } square)
         {
