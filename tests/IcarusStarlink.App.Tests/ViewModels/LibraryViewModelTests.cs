@@ -336,7 +336,9 @@ public sealed partial class LibraryViewModelTests
         vm.DeleteItemCommand.Execute(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "WirelessPower"));
 
         Assert.Equal(["WirelessPower"], harness.Ue4ssModRepository.DeleteCalls);
-        var backup = Assert.Single(FolderBackup.EnumerateFolderBackups(harness.BackupDirectory, "WirelessPower"));
+        // In Backups\UE4SS, with the copies turning a mod off or replacing it makes.
+        Assert.Empty(FolderBackup.EnumerateFolderBackups(harness.BackupDirectory, "WirelessPower"));
+        var backup = Assert.Single(FolderBackup.EnumerateFolderBackups(Path.Combine(harness.BackupDirectory, "UE4SS"), "WirelessPower"));
         Assert.Equal("print('hi')", File.ReadAllText(Path.Combine(backup, "Scripts", "main.lua")));
     }
 
@@ -2536,12 +2538,24 @@ public sealed partial class LibraryViewModelTests
         public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank) =>
             throw new NotSupportedException("Not exercised by these tests.");
 
-        public IReadOnlyList<string> ListAssetPaths(string folderName) => [];
-        public IReadOnlyList<string> ListAssetPaths(string folderName, IReadOnlyList<string> precomputedFiles) => [];
+        /// <summary>What a mod's Files list and Readme read back as (empty and null for a mod not named here).</summary>
+        public Dictionary<string, IReadOnlyList<string>> AssetPathsByFolder { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, string> ReadmeByFolder { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>How many times a mod's folder was walked for its details.</summary>
+        public int ListFolderFilesCallCount { get; private set; }
+
+        public IReadOnlyList<string> ListAssetPaths(string folderName) => AssetPathsByFolder.GetValueOrDefault(folderName) ?? [];
+        public IReadOnlyList<string> ListAssetPaths(string folderName, IReadOnlyList<string> precomputedFiles) => ListAssetPaths(folderName);
         public byte[] ReadAssetContent(string folderName, string relativePath) => throw new NotSupportedException("Not exercised by these tests.");
-        public string? ReadReadme(string folderName) => null;
-        public string? ReadReadme(string folderName, IReadOnlyList<string> precomputedFiles) => null;
-        public IReadOnlyList<string> ListFolderFiles(string folderName) => [];
+        public string? ReadReadme(string folderName) => ReadmeByFolder.GetValueOrDefault(folderName);
+        public string? ReadReadme(string folderName, IReadOnlyList<string> precomputedFiles) => ReadReadme(folderName);
+
+        public IReadOnlyList<string> ListFolderFiles(string folderName)
+        {
+            ListFolderFilesCallCount++;
+            return [];
+        }
         // Matches the real FolderLibraryRepository.GetFolderPath: a plain existence check against
         // the current entries, throwing (not returning a path anyway) for a folder name that isn't
         // one right now — e.g. because it was already Delete()d. An earlier version of this fake
