@@ -714,8 +714,8 @@ public sealed partial class ModFixViewModel : ObservableObject
         ModIssueKind.WrongType => "The mod sets these to another kind of value than the game has (text where the game has a number, say), so the game may ignore them. Nothing to fix automatically; the mod's author has to correct it.",
         ModIssueKind.SharedTextKey => "Each text in the game has its own key (row name and field). These texts use another row's key with other words, usually a row copied without changing its key, so the game can show one text in place of the other. The fix gives each its own key; the words stay the same.",
         ModIssueKind.MisspeltRow => "A row name the game never had, a letter or two from one of its rows with the same fields. A misspelt name doesn't change the game's row: the game adds a new row that nothing uses, so the change does nothing. Rename it to the game's row if that's what was meant; keep it if it really is a new row.",
-        ModIssueKind.RowsInBuiltInTable => "The game has some tables built into its code and can't use rows a mod adds to them. Tested in game (MkHaters' Animal Talents): tames pointed at a new growth row showed level 0 and \"-1\" XP. Changing the game's own rows there works; adding rows needs a UE4SS part instead.",
-        ModIssueKind.NoEffect => "Tested in game (MkHaters' Hook Scout): the game doesn't use these values where the mod puts them, so they change nothing. Only the mod's author can do it another way (most need a UE4SS part).",
+        ModIssueKind.RowsInBuiltInTable => "The game has some tables built into its code and can't use rows a mod adds to them. Tested in game: tames pointed at a new growth row showed level 0 and \"-1\" XP. Changing the game's own rows there works; adding rows needs a UE4SS part instead.",
+        ModIssueKind.NoEffect => "Tested in game: the game doesn't use these values where the mod puts them, so they change nothing. Only the mod's author can do it another way (most need a UE4SS part).",
         ModIssueKind.NothingGivesItem => "New items only reach players through an item template that a recipe, the workshop, a reward or loot hands out. Nothing in these mods does, so unless another mod does, nobody can get them.",
         _ => "",
     };
@@ -746,7 +746,8 @@ public sealed partial class ModFixViewModel : ObservableObject
     {
         ModIssueFix.UseGame when kind == ModIssueKind.SameAsGame => "Take them all out",
         ModIssueFix.KeepMod when kind == ModIssueKind.SameAsGame => "Leave them all",
-        ModIssueFix.KeepMod when kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart or ModIssueKind.UnknownTable or ModIssueKind.WrongType => "Leave them all as they are",
+        ModIssueFix.KeepMod when kind is ModIssueKind.MissingAsset or ModIssueKind.MissingAssetPart or ModIssueKind.UnknownTable or ModIssueKind.WrongType
+            or ModIssueKind.NoEffect or ModIssueKind.NothingGivesItem or ModIssueKind.RowsInBuiltInTable => "Leave them all as they are",
         ModIssueFix.UseGame when kind == ModIssueKind.UnknownField => "Take them all out",
         ModIssueFix.UseGame => "Use the game's for all",
         ModIssueFix.KeepMod => "Keep the mod's for all",
@@ -778,12 +779,12 @@ public sealed partial class ModFixViewModel : ObservableObject
     }
 
     /// <summary>
-    /// For two lists (tags, links): what this side has that the other lacks, "only here: A, B", or
+    /// For two lists (tags, links, recipe items as "Wood ×3"; the entries ValueDiff shows): what this side has that the other lacks, "only here: A, B", or
     /// "nothing the other lacks". Null when they aren't lists, so the plain value is shown.
     /// </summary>
     internal static string? OnlyIn(JsonNode? side, JsonNode? other)
     {
-        if (Entries(side) is not { } mine || Entries(other) is not { } theirs)
+        if (ValueDiff.Entries(side) is not { } mine || ValueDiff.Entries(other) is not { } theirs)
         {
             return null;
         }
@@ -806,13 +807,4 @@ public sealed partial class ModFixViewModel : ObservableObject
         var text = only.Count == 0 ? "nothing the other lacks" : $"only here: {string.Join(", ", only)}";
         return text.Length > 140 ? text[..140] + "…" : text;
     }
-
-    private static List<string>? Entries(JsonNode? value) => value switch
-    {
-        JsonObject o when o["GameplayTags"] is JsonArray tags => [.. tags.Select(t => t?["TagName"]?.ToString() ?? "")],
-        JsonArray a when a.All(e => e is JsonValue) => [.. a.Select(e => e!.ToString())],
-        JsonArray a when a.All(e => e is JsonObject { } o && (o["RowName"] ?? o["TagName"]) is JsonValue) => [.. a.Select(e => (e!["RowName"] ?? e["TagName"])!.ToString())],
-        _ => null,
-    };
-
 }

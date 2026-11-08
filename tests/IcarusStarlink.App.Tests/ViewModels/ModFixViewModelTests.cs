@@ -339,7 +339,7 @@ public sealed class ModFixViewModelTests : IDisposable
 
         Assert.Equal(1, Service.FixSure(_folder).Applied);
 
-        Assert.Single(Directory.GetDirectories(backups, "*", SearchOption.AllDirectories).Where(d => Path.GetFileName(d).StartsWith(_folder, StringComparison.OrdinalIgnoreCase)));
+        Assert.Single(Directory.GetDirectories(backups, "*", SearchOption.AllDirectories), d => Path.GetFileName(d).StartsWith(_folder, StringComparison.OrdinalIgnoreCase));
         Assert.True(Service.RestoreBackup(_folder));
         Assert.True(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
     }
@@ -617,6 +617,42 @@ public sealed class ModFixViewModelTests : IDisposable
         var value = new JsonObject { ["(Value=\"X_+%\")"] = 1, ["B"] = 2, ["C"] = 3, ["D"] = 4 };
 
         Assert.Contains("(Value=\\\"X_+%\\\")", ModFixViewModel.Describe(value));
+    }
+
+    /// <summary>Regression: for a recipe list the MOD HAS column showed raw JSON while the panel below showed "Wood ×3".</summary>
+    [Fact]
+    public void OnlyIn_ARecipeList_NamesTheItemAndCount()
+    {
+        var mod = JsonNode.Parse("""[{"Element":{"RowName":"Wood"},"Count":3}]""");
+        var game = JsonNode.Parse("""[{"Element":{"RowName":"Wood"},"Count":5}]""");
+
+        Assert.Equal("only here: Wood ×3", ModFixViewModel.OnlyIn(mod, game));
+    }
+
+    /// <summary>Regression: the group button for changes the game ignores read "Keep the mod's for all", though the fix only leaves them.</summary>
+    [Theory]
+    [InlineData(ModIssueKind.NoEffect)]
+    [InlineData(ModIssueKind.NothingGivesItem)]
+    [InlineData(ModIssueKind.RowsInBuiltInTable)]
+    public void GroupChoiceLabel_ForProblemsOnlyTheAuthorCanFix_SaysLeaveThemAll(ModIssueKind kind)
+    {
+        Assert.Equal("Leave them all as they are", ModFixViewModel.GroupChoiceLabel(ModIssueFix.KeepMod, kind));
+    }
+
+    /// <summary>The explanations a player reads name no person, tool or date.</summary>
+    [Fact]
+    public void KindExplanation_NamesNoPersonOrTool()
+    {
+        foreach (var kind in Enum.GetValues<ModIssueKind>())
+        {
+            var text = ModFixViewModel.KindExplanation(kind);
+            Assert.DoesNotContain("MkHaters", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Hook Scout", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotMatch(@"\d{4}-\d{2}-\d{2}", text);
+        }
+
+        Assert.Contains("Tested in game", ModFixViewModel.KindExplanation(ModIssueKind.NoEffect));
+        Assert.Contains("Tested in game", ModFixViewModel.KindExplanation(ModIssueKind.RowsInBuiltInTable));
     }
 
     [Fact]
