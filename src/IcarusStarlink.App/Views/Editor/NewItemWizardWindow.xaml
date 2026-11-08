@@ -50,6 +50,9 @@
                 <TextBlock Text="2. Name it" Style="{StaticResource SectionHeaderStyle}"/>
                 <TextBlock Text="{Binding SourceSummary}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,4,0,0"
                            Visibility="{Binding SourceSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
+                <!-- A note, not a warning: the DLC gate comes from the game's data, not a test in game. -->
+                <TextBlock Text="{Binding DlcGateNote}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,4,0,0"
+                           Visibility="{Binding DlcGateNote, Converter={StaticResource NullToVisibilityConverter}}"/>
                 <WrapPanel Margin="0,6,0,0">
                     <StackPanel Margin="0,0,12,6" Width="230">
                         <TextBlock Text="Name in game" Style="{StaticResource FieldLabelStyle}"/>

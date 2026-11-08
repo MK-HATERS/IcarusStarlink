@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using IcarusStarlink.PakIO.Exmod;
 
@@ -92,7 +94,7 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
     private string _filterText = "";
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasSource), nameof(HasBuff), nameof(SourceSummary), nameof(CanUnlockWithSource))]
+    [NotifyPropertyChangedFor(nameof(HasSource), nameof(HasBuff), nameof(SourceSummary), nameof(CanUnlockWithSource), nameof(DlcGateNote))]
     private ItemChoice? _selectedSource;
 
     private ItemCloneSource? _source;
@@ -102,6 +104,50 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
     public bool HasBuff => _source?.BuffName is not null;
 
     public bool CanUnlockWithSource => _source?.RecipeHasUnlock == true;
+
+    /// <summary>
+    /// Said when the picked item is DLC-only in the game: its rows carry Metadata.RequiredFeatureLevel
+    /// (a D_FeatureLevels row, e.g. GreatHunts) and the copy keeps the whole row, gate and all.
+    /// </summary>
+    public string? DlcGateNote =>
+        DlcGateOf(_source) is { } gate
+            ? $"From the game's code, not tested in game: your copy keeps the original's DLC gate ({FeatureLevelName(gate)}), so players without that DLC can't use it."
+            : null;
+
+    /// <summary>The item's gate: on its D_ItemsStatic row, else on its Itemable row (both always copied). Null for base-game items.</summary>
+    private string? DlcGateOf(ItemCloneSource? source)
+    {
+        if (source is null)
+        {
+            return null;
+        }
+
+        var itemable = source.Links.FirstOrDefault(l => l.Field == "Itemable");
+        JsonObject?[] rows = [_game.Row(ItemsStaticFile, source.ItemName), itemable is null ? null : _game.Row(itemable.CurrentFile, itemable.RowName)];
+        return rows
+            .Select(r => TextAt(r?["Metadata"]?["RequiredFeatureLevel"]?["RowName"]))
+            .FirstOrDefault(gate => gate is { Length: > 0 } && gate != "None" && gate != "Core");
+    }
+
+    /// <summary>The feature level's DisplayName (INVTEXT("Great Hunts")) from D_FeatureLevels; the raw value when it isn't there.</summary>
+    private string FeatureLevelName(string gate)
+    {
+        var file = _game.CurrentFileFor("D_FeatureLevels");
+        if (TextAt(file is null ? null : _game.Row(file, gate)?["DisplayName"]) is not { } text)
+        {
+            return gate;
+        }
+
+        var shown = NsLocText.TextOf(text) ?? (InvText().Match(text) is { Success: true } m ? m.Groups[1].Value : text);
+        return string.IsNullOrWhiteSpace(shown) ? gate : shown;
+    }
+
+    private static string? TextAt(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+
+    [GeneratedRegex("""^INVTEXT\("((?:[^"\\]|\\.)*)"\)$""")]
+    private static partial Regex InvText();
+
+    private const string ItemsStaticFile = "Items-D_ItemsStatic.json";
 
     public string? SourceSummary => _source is null ? null : string.Join(" ", new[]
     {

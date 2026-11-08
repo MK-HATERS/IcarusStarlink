@@ -175,7 +175,7 @@ public sealed class NewItemWizardTests : IDisposable
         Assert.Contains("Every link", editor.ReferenceSummary);
     }
 
-    /// <summary>A review finding: typing in the search box cleared the list, the ListBox pushed back a null selection, and the pick and every tick were lost.</summary>
+    /// <summary>Regression:typing in the search box cleared the list, the ListBox pushed back a null selection, and the pick and every tick were lost.</summary>
     [Fact]
     public void Wizard_Searching_KeepsThePickedItemAndItsTicks()
     {
@@ -199,7 +199,7 @@ public sealed class NewItemWizardTests : IDisposable
         Assert.True(wizard.HasSource);
     }
 
-    /// <summary>A review finding: unticking Itemable silently dropped the typed name and description.</summary>
+    /// <summary>Regression:unticking Itemable silently dropped the typed name and description.</summary>
     [Fact]
     public void Wizard_ItemableCantBeUnticked_ItHoldsTheName()
     {
@@ -245,7 +245,32 @@ public sealed class NewItemWizardTests : IDisposable
         Assert.Equal("Crafting_Bench", recipe.Fields["RecipeSets"]![0]!["RowName"]!.GetValue<string>());
     }
 
-    /// <summary>A review finding: any Undo rebuilt the rule rows from the snapshot, silently dropping rule edits not applied yet.</summary>
+    /// <summary>Game items with Metadata.RequiredFeatureLevel are DLC-only, and the copy keeps that gate: the wizard says so, by the DLC's name.</summary>
+    [Fact]
+    public void ADlcItem_GetsANote_ThatTheCopyKeepsItsDlcGate()
+    {
+        Write("Items/D_ItemsStatic.json", """
+            {"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"}},"Rows":[
+              {"Name":"Envirosuit","Itemable":{"RowName":"Item_Envirosuit"}},
+              {"Name":"Hunter_Suit","Itemable":{"RowName":"Item_Hunter_Suit"},"Metadata":{"RequiredFeatureLevel":{"RowName":"GreatHunts"}}},
+              {"Name":"Clay_Suit","Itemable":{"RowName":"Item_Clay_Suit"},"Metadata":{"RequiredFeatureLevel":{"RowName":"NewFrontiers"}}}
+            ]}
+            """);
+        Write("Traits/D_Itemable.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Envirosuit"},{"Name":"Item_Hunter_Suit"},{"Name":"Item_Clay_Suit"}]}""");
+        Write("Development/D_FeatureLevels.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"GreatHunts","DisplayName":"INVTEXT(\"Great Hunts\")"}]}""");
+        var wizard = new NewItemWizardViewModel(new GameTableIndex(DataFolder), null);
+
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Hunter_Suit");
+        Assert.Equal("From the game's code, not tested in game: your copy keeps the original's DLC gate (Great Hunts), so players without that DLC can't use it.", wizard.DlcGateNote);
+
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Clay_Suit");
+        Assert.Contains("DLC gate (NewFrontiers)", wizard.DlcGateNote); // not in the table: the game's own value
+
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Envirosuit");
+        Assert.Null(wizard.DlcGateNote);
+    }
+
+    /// <summary>Regression:any Undo rebuilt the rule rows from the snapshot, silently dropping rule edits not applied yet.</summary>
     [Fact]
     public void Editor_Undo_KeepsRuleEditsNotAppliedYet()
     {
