@@ -284,6 +284,88 @@ public sealed class SaveRepositoryTests : IDisposable
     }
 
     /// <summary>
+    /// Regression: when the scratch folder couldn't be deleted after the restored files were already
+    /// swapped in (a scanner holding one of them), Restore threw, skipped pruning, and the page said
+    /// "Restore failed" over a slot that had in fact been restored.
+    /// </summary>
+    [Fact]
+    public void RestoreSlot_ScratchFolderThatCantBeDeleted_StillReportsTheRestore()
+    {
+        var settings = new FakeSettings();
+        settings.Current.SaveBackupsKept = 2;
+        var repository = new SaveRepository(_playerData, _backups, new FakeLocator(), settings)
+        {
+            DeleteFolder = _ => throw new IOException("held by a scanner"),
+        };
+        string? newest = null;
+        for (var i = 0; i < 3; i++)
+        {
+            newest = repository.BackupSlot(SteamId);
+            File.SetLastWriteTimeUtc(newest, DateTime.UtcNow.AddMinutes((i * 10) - 30));
+        }
+
+        var profilePath = Path.Combine(_playerData, SteamId, "Profile.json");
+        var backupProfile = File.ReadAllText(profilePath);
+        File.WriteAllText(profilePath, """{ "UserID": "changed since" }""");
+
+        var preRestorePath = repository.RestoreSlot(SteamId, newest!);
+
+        Assert.Contains("pre_restore", Path.GetFileName(preRestorePath));
+        Assert.Equal(backupProfile, File.ReadAllText(profilePath));
+        // The original, the newest automatic one before it, and the pre_restore zip made three:
+        // pruning ran after the restore and took the cap back to two.
+        Assert.Equal(2, Directory.GetFiles(_backups, $"{SteamId}_*.zip").Length);
+    }
+
+    /// <summary>
+    /// Regression: Restore unpacked the whole backup (every world in a backup made by the old
+    /// whole-folder shape) though only its top-level player files are used, and a zip entry that
+    /// named a path outside the slot failed the whole restore.
+    /// </summary>
+    [Fact]
+    public void RestoreSlot_WholeFolderBackup_RestoresOnlyItsPlayerFiles()
+    {
+        var slot = Path.Combine(_playerData, SteamId);
+        Directory.CreateDirectory(_backups);
+        var backupPath = Path.Combine(_backups, $"{SteamId}_2020-01-01_00-00-00.zip");
+        using (var zip = ZipFile.Open(backupPath, ZipArchiveMode.Create))
+        {
+            zip.CreateEntryFromFile(Path.Combine(slot, "Profile.json"), "Profile.json");
+            zip.CreateEntryFromFile(Path.Combine(slot, "Characters.json"), "Characters.json");
+            using (var writer = new StreamWriter(zip.CreateEntry("Prospects/big.json").Open()))
+            {
+                writer.Write("a whole world");
+            }
+
+            using (var writer = new StreamWriter(zip.CreateEntry("../escape.json").Open()))
+            {
+                writer.Write("outside the slot");
+            }
+        }
+
+        var backupProfile = File.ReadAllText(Path.Combine(slot, "Profile.json"));
+        File.WriteAllText(Path.Combine(slot, "Profile.json"), """{ "UserID": "changed since" }""");
+
+        var scratchFiles = new List<string>();
+        var repository = new SaveRepository(_playerData, _backups, new FakeLocator())
+        {
+            DeleteFolder = path =>
+            {
+                scratchFiles.AddRange(Directory.GetFiles(path, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(path, f)));
+                Directory.Delete(path, recursive: true);
+            },
+        };
+
+        repository.RestoreSlot(SteamId, backupPath);
+
+        Assert.Equal(backupProfile, File.ReadAllText(Path.Combine(slot, "Profile.json")));
+        Assert.False(Directory.Exists(Path.Combine(slot, "Prospects")));
+        Assert.Empty(Directory.GetFiles(_root, "escape.json", SearchOption.AllDirectories));
+        Assert.Empty(Directory.GetFiles(_root, "big.json", SearchOption.AllDirectories));
+        Assert.Equal(["Characters.json", "Profile.json"], scratchFiles.Order(StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// Restore put the files back with the zip's old times, so Steam Cloud could take its own copy
     /// for the newer one and undo the restore. Every restored file now has the time of the restore.
     /// </summary>

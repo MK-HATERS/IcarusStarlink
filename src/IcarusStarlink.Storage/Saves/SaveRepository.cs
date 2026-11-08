@@ -316,6 +316,9 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         return stamps;
     }
 
+    /// <summary>Deletes a restore scratch folder. A seam so tests can make the delete fail or look inside first.</summary>
+    internal Action<string> DeleteFolder { get; init; } = path => Directory.Delete(path, recursive: true);
+
     public string RestoreSlot(string steamId, string backupFilePath)
     {
         if (!File.Exists(backupFilePath))
@@ -329,12 +332,10 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         // would replace every player file with nothing, and a slot without Profile.json isn't
         // listed (ListSlots), so the page lost the slot and its Restore with it. Checked before
         // anything is written; a damaged zip already fails here too.
-        using (var backup = ZipFile.OpenRead(backupFilePath))
+        using var backup = ZipFile.OpenRead(backupFilePath);
+        if (!backup.Entries.Any(e => string.Equals(e.FullName, ProfileFileName, StringComparison.OrdinalIgnoreCase)))
         {
-            if (!backup.Entries.Any(e => string.Equals(e.FullName, ProfileFileName, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new InvalidDataException($"That backup has no {ProfileFileName} in it, so it isn't a whole player save. Nothing was changed.");
-            }
+            throw new InvalidDataException($"That backup has no {ProfileFileName} in it, so it isn't a whole player save. Nothing was changed.");
         }
 
         // The safety rule: "Restore writes a pre_restore safety zip first,
@@ -353,24 +354,25 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         // instead of deleting it before discovering the backup can't actually be read. The scratch
         // folder is a sibling of slotFolder (not under backupsDirectory) specifically so the final
         // swap below is a same-volume Directory.Move, not a cross-volume one that could itself fail
-        // partway through.
+        // partway through. Only the zip's top-level player files are unpacked: a backup made by the
+        // old whole-folder shape also holds every world (Prospects, MapData), which a restore never
+        // uses, and an entry naming a path outside the slot is skipped, not followed.
         var scratchFolder = Path.Combine(playerDataDirectory, $"{steamId}_restore_scratch_{Guid.NewGuid():N}");
         Directory.CreateDirectory(scratchFolder);
         try
         {
-            ZipFile.ExtractToDirectory(backupFilePath, scratchFolder);
+            ExtractPlayerFiles(backup, scratchFolder);
         }
         catch
         {
             // Nothing has touched the live slot yet at this point — safe to just clean up the
-            // not-yet-used scratch folder and rethrow.
-            if (Directory.Exists(scratchFolder))
-            {
-                Directory.Delete(scratchFolder, recursive: true);
-            }
-
+            // not-yet-used scratch folder and rethrow the real error.
+            TryDeleteScratch(scratchFolder);
             throw;
         }
+
+        // Closed now so PruneBackups below can delete this zip when it's the one past the cap.
+        backup.Dispose();
 
         // Replace, not merge: a restore means "the slot as it was then", and files created since
         // the backup (a new character's sidecar, the game's own rolling .backup copies) lingering
@@ -393,7 +395,9 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         }
         finally
         {
-            Directory.Delete(scratchFolder, recursive: true);
+            // The restored files are already in place: a scratch folder a scanner still holds must
+            // not turn that into "Restore failed". A leftover one is never listed as a slot.
+            TryDeleteScratch(scratchFolder);
         }
 
         // Pruning runs LAST, only after backupFilePath has already been fully read — running it
@@ -403,6 +407,54 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         PruneBackups(steamId);
 
         return preRestorePath;
+    }
+
+    /// <summary>Far above any real player file (a few MB): a restore refuses a backup entry this big.</summary>
+    private const long MaxRestoreEntryBytes = 256L * 1024 * 1024;
+
+    /// <summary>The most a restore unpacks in all.</summary>
+    private const long MaxRestoreTotalBytes = 1024L * 1024 * 1024;
+
+    /// <summary>
+    /// Unpacks the backup's top-level player files into folder, each copy bounded by its stated
+    /// size. Entries in subfolders, entries whose name isn't a plain file name and the files a
+    /// restore keeps out are skipped. A zip that names a file twice fails (CreateNew).
+    /// </summary>
+    private static void ExtractPlayerFiles(ZipArchive backup, string folder)
+    {
+        long total = 0;
+        foreach (var entry in backup.Entries)
+        {
+            if (!AssetPathGuard.IsSimpleFileName(entry.FullName) || IsKeptOutOfRestore(entry.FullName))
+            {
+                continue;
+            }
+
+            total += entry.Length;
+            if (entry.Length > MaxRestoreEntryBytes || total > MaxRestoreTotalBytes)
+            {
+                throw new InvalidDataException("That backup holds a file too big to be player data. Nothing was changed.");
+            }
+
+            using var source = entry.Open();
+            using var target = new FileStream(Path.Combine(folder, entry.FullName), FileMode.CreateNew);
+            BoundedZipEntryCopy.CopyBounded(source, target, entry.Length, entry.FullName);
+        }
+    }
+
+    private void TryDeleteScratch(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                DeleteFolder(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A leftover {steamId}_restore_scratch_ folder is inert: ListSlots lists all-digit names only.
+        }
     }
 
     /// <summary>Far above any real player file (a few MB): an entry this big isn't one of this editor's backups.</summary>
