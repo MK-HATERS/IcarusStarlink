@@ -94,7 +94,7 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
 
     /// <summary>Set by LibraryViewModel from UE4SS.log (Ue4ssLogStarts): what UE4SS did with this mod the last time the game ran.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowLastRun), nameof(LastRunFailed), nameof(LastRunText), nameof(LastRunTooltip))]
+    [NotifyPropertyChangedFor(nameof(ShowLastRun), nameof(LastRunFailed), nameof(LastRunText), nameof(LastRunTooltip), nameof(NeedsAction))]
     private Ue4ssLastRun _lastRun;
 
     /// <summary>The last-run badge: only on a mod that is on (not waiting for Apply), with UE4SS installed, when the log has something to say.</summary>
@@ -132,7 +132,8 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
         ? "Edit config… The last update added or removed some settings: have a look"
         : "Edit config…";
 
-    public bool NeedsAction => IsDirty || (LoaderMissing && IsEnabled) || IsSwitchedOffInGame;
+    /// <summary>Counted by the Library's Problems filter: waiting for Apply, on without UE4SS, in the game but not started by mods.txt, or on but not started by UE4SS last time.</summary>
+    public bool NeedsAction => IsDirty || (LoaderMissing && IsEnabled) || IsSwitchedOffInGame || (ShowLastRun && LastRunFailed);
 
     /// <summary>Whether this is one of UE4SS's own bundled mods (or its shared\ infrastructure folder) rather than something the user installed themselves — see IUe4ssLoaderInstallService.IsFrameworkOwned. Drives the "Default" badge, and whether Link to Nexus even makes sense to offer at all (a framework mod has no standalone Nexus page of its own).</summary>
     public bool IsBuiltIn { get; }

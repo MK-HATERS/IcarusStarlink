@@ -103,6 +103,25 @@ public class Ue4ssModRowViewModelTests
         Assert.True(row.HasUpdateAvailable);
     }
 
+    /// <summary>A mod that is on but that UE4SS didn't start last time counts as a problem; one it started, or one not run since, doesn't.</summary>
+    [Fact]
+    public void AModUe4ssDidntStart_CountsInTheProblemsFilter()
+    {
+        var row = new Ue4ssModRowViewModel("MkHatersCheats", true, false, nexusModId: null, knownVersion: null, null, null, () => { });
+        var changed = new List<string?>();
+        row.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        row.LastRun = Ue4ssLastRun.Started;
+        Assert.False(row.NeedsAction);
+
+        row.LastRun = Ue4ssLastRun.NotStarted;
+        Assert.True(row.NeedsAction);
+        Assert.Contains(nameof(Ue4ssModRowViewModel.NeedsAction), changed);
+
+        row.LastRun = Ue4ssLastRun.NotRunSince;
+        Assert.False(row.NeedsAction);
+    }
+
     /// <summary>
     /// A mod tracked to its addon file (2.1.1),
     /// while the page's "Only" file is 2.2, the version installed. Not "Your build", and no update.
