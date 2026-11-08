@@ -74,6 +74,7 @@ public sealed partial class LibraryViewModel
         // the UE4SS panel, linked to that one (library-model rule 1). Default/Name order interleaves both kinds by name
         // (pinned families first, as before); any other sort keeps the UE4SS rows after the groups.
         var libraryRows = new List<(string SortName, bool Pinned, object Row)>();
+        var resyncedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var group in groups)
         {
             if (!MatchesTypeFilter(group))
@@ -81,6 +82,7 @@ public sealed partial class LibraryViewModel
                 continue;
             }
 
+            resyncedFolders.UnionWith(group.Entries.Select(entry => entry.FolderName));
             var items = group.Entries.Select(entry => GetOrCreateItem(entry, fullResync)).ToList();
             var pinned = group.Entries.Any(e => e.IsPinned);
             if (group.IsFamily)
@@ -97,6 +99,22 @@ public sealed partial class LibraryViewModel
         var ue4ssRows = TypeFilter is "All" or "UE4SS"
             ? Ue4ssMods.Where(row => (ShowUe4ssBuiltIns || !row.IsBuiltIn) && MatchesSearch(row)).Select(row => (SortName: row.Name, Pinned: false, Row: (object)row)).ToList()
             : [];
+
+        // A full resync re-reads the rows the search hides too (they stay cached, see the eviction
+        // below): a mod updated, fixed or converted while hidden kept its old version, "Update
+        // available" badge and pak list once the search was cleared. Before the status pass, which
+        // reads those.
+        var allEntries = _repository.GetAll();
+        if (fullResync)
+        {
+            foreach (var entry in allEntries)
+            {
+                if (!resyncedFolders.Contains(entry.FolderName) && _itemsByFolderName.TryGetValue(entry.FolderName, out var hiddenRow))
+                {
+                    hiddenRow.Update(entry);
+                }
+            }
+        }
 
         // The filter chips need each row's current status (On, not in the game yet…) and count
         // over what the search found; the chip on then narrows both panels. A family stays when
@@ -164,7 +182,7 @@ public sealed partial class LibraryViewModel
         // Evicted only when the mod is GONE from the repository, not merely hidden by the current
         // search filter: whole-library checks run over AllLibraryItems() below,
         // and a hidden row must keep its fetched "Update available" badge until the filter clears.
-        var liveFolders = _repository.GetAll().Select(e => e.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var liveFolders = allEntries.Select(e => e.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var staleFolderName in _itemsByFolderName.Keys.Where(k => !liveFolders.Contains(k)).ToList())
         {
             _itemsByFolderName[staleFolderName].FlushPendingSave();
@@ -180,13 +198,14 @@ public sealed partial class LibraryViewModel
             ? stillSelected
             : null;
 
-        // OnSelectedItemChanged only fires on an actual reference change, but SelectedItem above
-        // is frequently reassigned to the exact same cached instance it already was (nothing
-        // selection-worthy changed) — that path still needs EnsureDetailsLoaded() run explicitly
-        // so a just-applied Update() (which clears AssetPaths/ReadmeContent/ThumbnailImage and
-        // resets _detailsLoaded) actually reloads the still-selected mod's details right away,
-        // rather than only the next time the user reselects it.
-        SelectedItem?.EnsureDetailsLoaded();
+        // The click selection keeps only rows still shown: after Ctrl+A and a search, a filter
+        // chip or a Refresh that dropped a mod, Space, Turn on/off and Delete acted on rows the
+        // list no longer showed (or on a mod already gone, which then failed).
+        DropHiddenRowsFromTheSelection();
+
+        // Update() above cleared the details of every row it re-read: a details window showing
+        // one of them reads it again now, not only once the user moves away and back.
+        ReloadOpenDetails();
 
         // New rows, or mods that may have changed on disk: rate the game files they replace again.
         // Not from the constructor's first load: the app sets BaseGameContent just after it.

@@ -335,7 +335,8 @@ public sealed partial class LibraryViewModel
         {
             item.NotifyBackupStateChanged();
             item.NotifyRepairedFromDisk();
-            if (ReferenceEquals(item, SelectedItem))
+            // Only a details window shows them: the list's selection alone isn't a reason to read them.
+            if (IsShownInDetailWindow(item))
             {
                 item.EnsureDetailsLoaded();
             }
@@ -454,7 +455,7 @@ public sealed partial class LibraryViewModel
                 WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             }
 
-            SelectedItem?.EnsureDetailsLoaded();
+            ReloadOpenDetails();
             return fixedMods;
         }
         finally

@@ -410,10 +410,9 @@ public partial class LibraryView : UserControl
     /// Shift-click selects the whole range from the last plain/Ctrl-clicked row to this one; a
     /// plain click clears whatever was previously bulk-selected, so a fresh click always starts a
     /// new selection rather than silently adding to a stale one. Deliberately doesn't set
-    /// e.Handled — TreeView's own normal single-select (SelectedItemChanged → SelectedItem →
-    /// EnsureDetailsLoaded) still runs for whatever was actually clicked, any modifier held or not;
-    /// the only side effect is the detail pane tracking the last-clicked row even during a
-    /// multi-select, which is harmless.
+    /// e.Handled — TreeView's own normal single-select (SelectedItemChanged → SelectedItem) still
+    /// runs for whatever was actually clicked, any modifier held or not, so Enter and double-click
+    /// open the last-clicked row even during a multi-select.
     /// </summary>
     private void LibraryTree_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {

@@ -89,6 +89,25 @@ public sealed partial class LibraryViewModel
         BulkSelectedUe4ssRows.Clear();
     }
 
+    /// <summary>
+    /// Unselects every row neither panel shows now (hidden by the search or a filter chip, or gone
+    /// after a Refresh), and forgets a Shift-click anchor that is hidden: the selection bar and
+    /// Space, Turn on/off and Delete only ever act on rows the user can see.
+    /// </summary>
+    private void DropHiddenRowsFromTheSelection()
+    {
+        var shown = new HashSet<object>(ExpandGroups(DataRootItems).Concat(Ue4ssRootItems), ReferenceEqualityComparer.Instance);
+        foreach (var row in BulkSelectedItems.Cast<object>().Concat(BulkSelectedUe4ssRows).Where(r => !shown.Contains(r)).ToList())
+        {
+            SetRowSelected(row, false);
+        }
+
+        if (_bulkSelectionAnchor is not null && !shown.Contains(_bulkSelectionAnchor))
+        {
+            _bulkSelectionAnchor = null;
+        }
+    }
+
     /// <summary>Plain click (no modifier): selects just this row (it turns grey) and makes it the anchor for a later Shift-click, like Explorer and Mod Organizer.</summary>
     public void SetBulkSelectionAnchor(object row)
     {

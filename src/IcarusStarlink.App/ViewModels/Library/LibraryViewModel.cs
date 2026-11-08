@@ -344,9 +344,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         _backupDirectory = backupDirectory;
         _dataFolder = dataFolder;
 
-        // Reload() rebuilds every row's ViewModel and re-queries the search index; without
-        // debouncing, every keystroke would pay that cost plus re-trigger the still-selected
-        // item's EnsureDetailsLoaded (a fresh instance loses its "already loaded" state).
+        // Reload() re-queries the search index and rebuilds both panels; without debouncing,
+        // every keystroke would pay that cost.
         _searchDebounceTimer = new DebounceTimer(TimeSpan.FromMilliseconds(250), () => Reload());
 
         // This VM is a DI singleton, constructed once and never re-scanned on its own — without
@@ -447,8 +446,6 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     partial void OnSearchTextChanged(string value) => _searchDebounceTimer.Restart();
-
-    partial void OnSelectedItemChanged(LibraryItemViewModel? value) => value?.EnsureDetailsLoaded();
 
     private void RaiseBulkSelectionChanged()
     {

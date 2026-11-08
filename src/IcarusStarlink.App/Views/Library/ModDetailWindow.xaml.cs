@@ -32,6 +32,7 @@ public partial class ModDetailWindow : Window
             if (_currentItem is not null)
             {
                 _currentItem.PropertyChanged -= OnCurrentItemPropertyChanged;
+                LibraryViewModel.DetailWindowStopsShowing(_currentItem);
             }
 
             // Releases whatever temp .wav file this window's own MediaElement still has open —
@@ -50,20 +51,24 @@ public partial class ModDetailWindow : Window
     /// newly-shown mod's own folder rather than the one navigated away from.</summary>
     private void ShowItem(LibraryItemViewModel item)
     {
-        // Description/Changes/Files/Readme are all lazy-loaded on first real selection (normally
-        // triggered by LibraryViewModel.OnSelectedItemChanged when the main tree's own SelectedItem
-        // changes) — Prev/Next never touches that property, it only swaps this window's own
-        // DataContext directly, so without this the newly-shown mod's own content just silently
-        // never loads. Self-guarding (a one-time flag per item instance), so calling it again for
-        // an item already shown once elsewhere is a safe no-op.
+        // Description/Changes/Files/Readme are loaded only here, when a window shows the mod (the
+        // list's selection loads nothing: the page shows none of it). Self-guarding (a one-time
+        // flag per item instance), so calling it again for an item already shown once elsewhere
+        // is a safe no-op.
         item.EnsureDetailsLoaded();
 
         if (_currentItem is not null)
         {
             _currentItem.PropertyChanged -= OnCurrentItemPropertyChanged;
+            LibraryViewModel.DetailWindowStopsShowing(_currentItem);
         }
         _currentItem = item;
         item.PropertyChanged += OnCurrentItemPropertyChanged;
+
+        // The Library reads this row's details again after a change clears them (any import,
+        // delete, link or fix). Told directly, not left to this window's own LibraryChangedMessage
+        // handler: the messenger gives no order between that one and the Library's.
+        LibraryViewModel.DetailWindowShows(item);
 
         DataContext = item;
         NotesExpander.IsExpanded = !string.IsNullOrWhiteSpace(item.Notes);
