@@ -172,7 +172,8 @@ public sealed partial class ExmodEditorViewModel
         }
 
         PushUndoSnapshot();
-        row.FileItems.Add(sourceItem.CloneAs(newName));
+        // A new row: its own texts move to keys under its own name (a text key is unique per row).
+        row.FileItems.Add(sourceItem.DuplicateAs(newName));
         RefreshBaseDiff();
 
         var newEditorItem = MakeItem(row.CurrentFile, newName);
@@ -219,8 +220,7 @@ public sealed partial class ExmodEditorViewModel
             .SelectMany(r => r.FileItems.Select(i => PickGameItemDialog.CoverageKey(r.CurrentFile, i.Name)))
             .ToHashSet();
 
-        var dialog = new PickGameItemDialog(gameItemIndex, coveredKeys) { Owner = OwnerWindow() };
-        if (dialog.ShowDialog() != true || dialog.SelectedItem is not { } picked)
+        if (PickGameItem(gameItemIndex, coveredKeys) is not { } picked)
         {
             return;
         }
@@ -292,6 +292,15 @@ public sealed partial class ExmodEditorViewModel
         ReloadItems();
         SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, previousFile) && Same(i.ItemName, previousName)) ?? Items.FirstOrDefault();
         StatusMessage = $"Added '{currentFile}' with no rows yet — add one with More ▾ › Copy a game row into this mod…, or Add an empty row.";
+    }
+
+    /// <summary>Test seam: picks the game row to copy (from the game's rows, and the keys of those already in this mod); null = cancelled. The real one shows the game row picker.</summary>
+    internal Func<IReadOnlyList<GameDataItemRef>, HashSet<string>, GameDataItemRef?> PickGameItem { get; set; }
+
+    private GameDataItemRef? ShowPickGameItemDialog(IReadOnlyList<GameDataItemRef> gameItemIndex, HashSet<string> coveredKeys)
+    {
+        var dialog = new PickGameItemDialog(gameItemIndex, coveredKeys) { Owner = OwnerWindow() };
+        return dialog.ShowDialog() == true ? dialog.SelectedItem : null;
     }
 
     /// <summary>Test seam: picks the mod to merge in; null = cancelled. The real one shows the mod picker.</summary>

@@ -171,6 +171,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     {
         _messenger = messenger ?? WeakReferenceMessenger.Default;
         PickModToMerge = ShowPickModDialog;
+        PickGameItem = ShowPickGameItemDialog;
         _repository = repository;
         _writer = new OwnModWriter(repository, _messenger);
         _folderName = folderName;
@@ -419,6 +420,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         _package.VariantSort = parsed.VariantSort;
         _package.Rows = parsed.Rows;
         _package.ScaleRules = parsed.ScaleRules;
+        _package.ExtraFields = parsed.ExtraFields;
         if (reloadRules)
         {
             LoadScaleRules();
