@@ -21,7 +21,9 @@ below.*
 
 1. Download the latest release zip from the
    **[Releases page](https://github.com/MK-HATERS/IcarusStarlink/releases/latest)**.
-2. Extract the zip anywhere — it unpacks into a single `IcarusStarlink` folder. It's a
+2. Extract the zip to a folder you own (Documents or `D:\Games`, not Program Files): Starlink keeps
+   your mods, settings and logs beside its exe, and won't start from a folder it can't write to.
+   It unpacks into a single `IcarusStarlink` folder. It's a
    self-contained, portable build, so nothing else needs to be installed separately (no .NET
    runtime download required).
 3. Run `IcarusStarlink.exe` from that folder (before 3.0 it was `IcarusStarlink.App.exe`; if an older install still has that file, Starlink offers to remove it once your shortcuts point at the new one). First launch sets itself up: it finds your
@@ -37,9 +39,10 @@ scan of the release.
 
 Run `Uninstall.bat` in the app's own folder. It closes the app if it's running, asks whether to
 keep or wipe your mods/profiles/settings (type `YES` to confirm either way), always removes the
-regenerable folders it created (Logs, Data, Staged_Build, Staged_UE4SS), and then removes its own
+regenerable folders it created (Logs, Data, Staged_Build), and then removes its own
 program files — it deliberately leaves the now-empty folder and itself behind, with a closing
-message saying so. Your Icarus game install itself is never touched.
+message saying so. `Staged_UE4SS` (your turned-off UE4SS mods) is kept when you keep your data,
+and removed only when you wipe it. Your Icarus game install itself is never touched.
 
 ## What it does
 
@@ -216,7 +219,10 @@ before the write itself).
 off, finished missions with their reward off, ranks above the game's maximum, and more) and fixes
 the sure ones in one click. **Clean up…** takes out talents, research, items, currencies, creatures
 and accolades the game doesn't have and no mod gives, and gives back the talent points they used;
-nothing is written until you press Save, which backs the slot up first.
+nothing is written until you press Save, which backs the slot up first. Clean up and the leftover
+fixes are turned off when a pak sits anywhere under `Content\Paks` other than `Paks\mods` (for
+example `Paks\~mods` or `Paks\LogicMods`), because Starlink can't tell those mods' rows from
+leftovers.
 
 ### Migration & verification
 
@@ -341,7 +347,8 @@ UnrealPak**, then click **Refresh game data** (in the section of that name below
 Found a bug, or something doesn't work the way this README says it should? Please open an issue:
 **<https://github.com/MK-HATERS/IcarusStarlink/issues>** — attaching the diagnostics export
 (Settings → Diagnostics, bundles logs, sanitized settings, and any crash reports — never your API
-keys or tokens) makes it much faster to track down.
+keys or tokens, and your Windows user folder shows as `%USERPROFILE%` instead of your user name)
+makes it much faster to track down.
 
 ## Changelog
 
