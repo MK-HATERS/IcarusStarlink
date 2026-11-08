@@ -5,7 +5,6 @@ using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Ue4ss;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Import;
-using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.App.Services;
 
@@ -140,6 +139,16 @@ public static class ManualInstaller
         }
 
         var isFolder = Directory.Exists(item.FullPath);
+        if (item.Kind == ManualInstallKind.PakMod && isFolder
+            && Directory.GetFiles(item.FullPath, "*.pak", SearchOption.AllDirectories)
+                .GroupBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(g => g.Count() > 1) is { } clash)
+        {
+            // One mod folder can't hold two paks of one name: almost always variants side by side.
+            var folders = clash.Take(2).Select(p => Path.GetRelativePath(item.FullPath, Path.GetDirectoryName(p)!)).ToList();
+            return $"'{item.RelativePath}' holds more than one pak named '{clash.Key}' (in '{folders[0]}' and '{folders[1]}'): add the folder you want on its own.";
+        }
+
         return item.Kind switch
         {
             ManualInstallKind.PakMod when isFolder && !Directory.EnumerateFiles(item.FullPath, "*.pak", SearchOption.AllDirectories).Any() =>
@@ -162,16 +171,41 @@ public static class ManualInstaller
             ? $"'{item.RelativePath}' is already in the list."
             : null;
 
+    /// <summary>
+    /// Throws FormatException with the first reason the plan can't go in: a line that doesn't fit
+    /// its kind (Problem), or a pak the game can't load (a web page or cut-off file saved as .pak,
+    /// or one packed for a newer engine). Runs before anything is written, so a reinstall checks
+    /// the plan before the installed copy is taken out.
+    /// </summary>
+    public static void CheckPlan(IReadOnlyList<ManualInstallItem> items)
+    {
+        if (items.Select(Problem).FirstOrDefault(p => p is not null) is { } problem)
+        {
+            throw new FormatException(problem);
+        }
+
+        foreach (var item in items.Where(i => i.Kind == ManualInstallKind.PakMod))
+        {
+            if (PaksOf(item).Select(ExtractedModClassifier.WhyNotLoadable).FirstOrDefault(why => why is not null) is { } notLoadable)
+            {
+                throw new FormatException(notLoadable);
+            }
+        }
+    }
+
+    /// <summary>A pak line's paks: the file itself, or every .pak under the folder.</summary>
+    private static List<string> PaksOf(ManualInstallItem item) =>
+        Directory.Exists(item.FullPath)
+            ? [.. Directory.GetFiles(item.FullPath, "*.pak", SearchOption.AllDirectories).OrderBy(p => p, StringComparer.OrdinalIgnoreCase)]
+            : [item.FullPath];
+
     /// <summary>Installs every line, in order. Throws (with the reason) on the first line that can't go in, after taking back the lines already in — a manual install is all or nothing.</summary>
     public static async Task<IReadOnlyList<PendingDownloadActivatedItem>> InstallAsync(
         IReadOnlyList<ManualInstallItem> items, ILibraryRepository libraryRepository, IUe4ssModRepository ue4ssModRepository,
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
         string? source, int? nexusModId, string? catalogEntryId, IReadOnlyCollection<string>? ue4ssNamesInUse)
     {
-        if (items.Select(Problem).FirstOrDefault(p => p is not null) is { } problem)
-        {
-            throw new FormatException(problem);
-        }
+        CheckPlan(items);
 
         var installed = new List<PendingDownloadActivatedItem>();
         try
@@ -217,27 +251,11 @@ public static class ManualInstaller
             {
                 case ManualInstallKind.PakMod:
                 {
-                    var paks = Directory.Exists(item.FullPath)
-                        ? Directory.GetFiles(item.FullPath, "*.pak", SearchOption.AllDirectories).OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList()
-                        : [item.FullPath];
-                    LibraryEntry entry;
-                    if (paks.Count == 1)
-                    {
-                        entry = await prebuiltPakImporter.ImportAsync(paks[0], dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId, catalogEntryId: catalogEntryId, name: name);
-                    }
-                    else
-                    {
-                        foreach (var pak in paks)
-                        {
-                            // A real pak (not a web page or cut-off file) the game can load, as for a single pak.
-                            if ((ModLints.CheckIsPak(pak) ?? ModLints.CheckPakVersion(pak)) is { } wrongVersion)
-                            {
-                                throw new FormatException(wrongVersion);
-                            }
-                        }
-
-                        entry = libraryRepository.ImportPaks(paks, name, source, nexusModId, catalogEntryId);
-                    }
+                    // Every pak was checked by CheckPlan before anything went in.
+                    var paks = PaksOf(item);
+                    var entry = paks.Count == 1
+                        ? await prebuiltPakImporter.ImportAsync(paks[0], dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId, catalogEntryId: catalogEntryId, name: name)
+                        : libraryRepository.ImportPaks(paks, name, source, nexusModId, catalogEntryId);
 
                     RenameIfAsked(libraryRepository, entry, item);
                     installed.Add(new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library));

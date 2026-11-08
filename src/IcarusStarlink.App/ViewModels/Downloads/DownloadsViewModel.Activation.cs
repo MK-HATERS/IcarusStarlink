@@ -65,7 +65,18 @@ public sealed partial class DownloadsViewModel
         try
         {
             var (replaced, previous) = await RunInstallStepAsync(() => InstallAndRecordAsync(item, pristine));
-            if (!replaced.Succeeded && !replaced.Cancelled && replaced.Error is not null)
+            if (replaced.Error is UnusableDownloadException)
+            {
+                // The file itself is damaged: a manual install would read the same file.
+                PendingDownloadStatusMessage = replaced.Error.Message;
+            }
+            else if (replaced.Error is OldCopyNotRemovedException)
+            {
+                // The download is fine; the installed copy is held open. A manual install would fail the same way.
+                PendingDownloadStatusMessage = $"{replaced.Error.Message} Close Icarus (or whatever has the file open), then try again."
+                    + (replaced.RolledBack ? "" : " Some of it couldn't be put back — use Restore latest backup.");
+            }
+            else if (!replaced.Succeeded && !replaced.Cancelled && replaced.Error is not null)
             {
                 // Mod Organizer's answer to a download it can't sort out: let the user say what's what.
                 replaced = await InstallManuallyAfterFailureAsync(item, replaced.Error.Message, pristine, previous) ?? replaced;
@@ -118,6 +129,12 @@ public sealed partial class DownloadsViewModel
     private async Task<(ModReplacementResult Result, PreviousCopies Previous)> InstallAndRecordAsync(PendingDownloadItemViewModel item, bool pristine)
     {
         var previous = await FindPreviousCopiesAsync(item);
+        if (RefuseWhileGameHoldsMods(previous, item.DisplayName) is { } refused)
+        {
+            PendingDownloadStatusMessage = refused;
+            return (ModReplacementResult.Cancel(refused), previous);
+        }
+
         var (source, nexusModId) = SourceOf(item);
 
         // Resolved at use: the stored path is absolute, so moving the app
@@ -129,7 +146,7 @@ public sealed partial class DownloadsViewModel
             new ModReplacementRequest(item.DisplayName, previous.LibraryFolders, previous.Ue4ssFolders, pristine),
             async removeOld =>
             {
-                var (items, status, requirementLines) = await InstallDownloadAsync(item, localFilePath, source, nexusModId, previous, removeOld);
+                var (items, status, requirementLines) = await InstallDownloadAsync(item, localFilePath, source, nexusModId, previous, () => RemoveOldOrExplain(removeOld));
                 installed = (status, requirementLines);
                 return items;
             });
@@ -174,10 +191,17 @@ public sealed partial class DownloadsViewModel
     {
         if (string.Equals(Path.GetExtension(localFilePath), ".pak", StringComparison.OrdinalIgnoreCase))
         {
+            // Checked before the installed copy is taken out: a web page or cut-off file saved as
+            // .pak used to remove the installed mod first and rely on putting it back.
+            if (ExtractedModClassifier.WhyNotLoadable(localFilePath) is { } notLoadable)
+            {
+                throw new UnusableDownloadException(notLoadable);
+            }
+
             removeOld();
             var entry = await _prebuiltPakImporter.ImportAsync(
                 localFilePath, _dataFolder, _settingsService.Current.UnrealPakExePath, source: source, nexusModId: nexusModId,
-                catalogEntryId: item.CatalogEntryId, name: item.IsCatalog ? item.DisplayName : null,
+                catalogEntryId: item.CatalogEntryId, name: item.IsCatalog ? item.DisplayName : Path.GetFileNameWithoutExtension(UntaggedFileName(item)),
                 // The catalog's author, as Library's Get update passes it — without it the same
                 // pak read "Unknown" or the real author depending on which way it was installed.
                 author: item.IsCatalog ? item.Author ?? CatalogAuthorOf(item.CatalogEntryId) : null);
@@ -213,9 +237,19 @@ public sealed partial class DownloadsViewModel
             // Off the UI thread: a 30 MB zip or a big .rar/.7z froze the whole window while it
             // unpacked. Only the unpacking — the classify-and-import below asks questions (which
             // archive?) and touches the Library, so it stays where it was.
-            await Task.Run(() => AnyArchiveExtractor.ExtractToDirectory(localFilePath, tempExtractDirectory));
+            try
+            {
+                await Task.Run(() => AnyArchiveExtractor.ExtractToDirectory(localFilePath, tempExtractDirectory));
+            }
+            catch (Exception ex)
+            {
+                // The manual install unpacks the same file with the same extractor, so it can't do better.
+                throw new UnusableDownloadException(
+                    $"Couldn't open '{item.FileName}': {ex.Message} It may be a cut-off download or a web page saved in its place. Discard it and download it again.", ex);
+            }
+
             var (classifiedStatus, classifiedItems, classifiedRequirements) =
-                await ClassifyAndImportExtractedModAsync(tempExtractDirectory, item.FileName, source, nexusModId, item.CatalogEntryId, previous, removeOld);
+                await ClassifyAndImportExtractedModAsync(tempExtractDirectory, UntaggedFileName(item), source, nexusModId, item.CatalogEntryId, previous, removeOld);
             return (classifiedItems, classifiedStatus, classifiedRequirements);
         }
         finally
@@ -231,6 +265,63 @@ public sealed partial class DownloadsViewModel
             }
         }
     }
+
+    /// <summary>The downloaded file itself can't be used (not an archive or a pak, cut off, or a web page saved in its place). No manual install is offered: it would read the same file.</summary>
+    private sealed class UnusableDownloadException(string message, Exception? inner = null) : Exception(message, inner);
+
+    /// <summary>Taking the installed copy out failed (a file the running game or another program holds). The download is fine, so no manual install is offered: it would fail the same way.</summary>
+    private sealed class OldCopyNotRemovedException(string message, Exception inner) : Exception(message, inner);
+
+    private static void RemoveOldOrExplain(Action removeOld)
+    {
+        try
+        {
+            removeOld();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new OldCopyNotRemovedException(ex.Message, ex);
+        }
+    }
+
+    /// <summary>
+    /// Null when the install may go ahead. While Icarus runs, an install that would take one of its
+    /// UE4SS mods out of the game's Mods folder is refused before anything moves: the game holds a
+    /// C++ mod's dll, and a Lua mod already loaded keeps running from memory. Data-only installs
+    /// only touch the Library, so they still go ahead.
+    /// </summary>
+    private string? RefuseWhileGameHoldsMods(PreviousCopies previous, string modName)
+    {
+        if (previous.Ue4ssFolders.Count == 0 || _gameProcessChecker is null)
+        {
+            return null;
+        }
+
+        var inGame = _ue4ssNames.InGame().Where(previous.Ue4ssNames.Contains).ToList();
+        if (inGame.Count == 0)
+        {
+            return null;
+        }
+
+        bool running;
+        try
+        {
+            running = _gameProcessChecker.IsRunning();
+        }
+        catch (Exception)
+        {
+            // A check that can't tell counts as not running, as Library's own check does.
+            running = false;
+        }
+
+        return running
+            ? $"Icarus is running, and {string.Join(", ", inGame)} is on in the game, so '{modName}' can't be replaced now. Close the game, then try again. Nothing was changed."
+            : null;
+    }
+
+    /// <summary>The download's file name without the "_&lt;modId&gt;-&lt;fileId&gt;" tag a second file of the same name is saved with: what its mods are named after.</summary>
+    private static string UntaggedFileName(PendingDownloadItemViewModel item) =>
+        NexusDownloadFileName.StripUniquenessTag(Path.GetFileNameWithoutExtension(item.FileName), item.ModId, item.FileId) + Path.GetExtension(item.FileName);
 
     /// <summary>What a (re)install of this download replaces: Library folders and UE4SS folders.</summary>
     private sealed record PreviousCopies(IReadOnlyList<string> LibraryFolders, IReadOnlyList<string> Ue4ssFolders)
@@ -449,6 +540,8 @@ public sealed partial class DownloadsViewModel
                     async removeOld =>
                     {
                         var namesInGame = _ue4ssNames.InGameExcept(previous.Ue4ssNames);
+                        // Every line checked before the installed copy is taken out.
+                        ManualInstaller.CheckPlan(plan);
                         removeOld();
                         var installed = await ManualInstaller.InstallAsync(
                             plan, _libraryRepository, _ue4ssModRepository, _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath,

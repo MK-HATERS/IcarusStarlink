@@ -211,7 +211,7 @@ public sealed class ExtractedModClassifierTests : IDisposable
     public async Task ClassifyAndImport_SingleBarePakNoExmod_ImportsThroughPrebuiltPakImporter()
     {
         var pakPath = Path.Combine(_extractedDir, "MyMod.pak");
-        File.WriteAllBytes(pakPath, [1, 2, 3, 4]);
+        File.WriteAllBytes(pakPath, TestPaks.Bytes(1, 2, 3, 4));
         var prebuiltPakImporter = new FakePrebuiltPakImporter
         {
             Result = new LibraryEntry
@@ -239,7 +239,7 @@ public sealed class ExtractedModClassifierTests : IDisposable
         // are PendingDownloadActivationKind.Library — only IsOpaquePak does, and it must come
         // straight from IPrebuiltPakImporter's own result, not be hardcoded true just because a
         // .pak file was what triggered this branch.
-        File.WriteAllBytes(Path.Combine(_extractedDir, "MyMod.pak"), [1, 2, 3, 4]);
+        File.WriteAllBytes(Path.Combine(_extractedDir, "MyMod.pak"), TestPaks.Bytes(1, 2, 3, 4));
         var prebuiltPakImporter = new FakePrebuiltPakImporter
         {
             Result = new LibraryEntry
@@ -291,6 +291,89 @@ public sealed class ExtractedModClassifierTests : IDisposable
 
         Assert.Contains("Second.pak", ex.Message);
         Assert.Empty(library.ImportPaksCalls);
+    }
+
+    /// <summary>A single pak that is a web page (or cut off) used to be checked only after the installed copy was taken out.</summary>
+    [Fact]
+    public async Task ClassifyAndImport_SinglePakThatIsntARealPak_IsRefusedBeforeAnythingIsRemoved()
+    {
+        File.WriteAllText(Path.Combine(_extractedDir, "Mod_P.pak"), "<!DOCTYPE html><html><body>Not Found</body></html>");
+        var prebuiltPakImporter = new FakePrebuiltPakImporter();
+        var removed = 0;
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Mod.zip", new FakeLibraryRepository(), new FakeUe4ssModRepository(), prebuiltPakImporter, "SomeDataFolder", null,
+            beforeFirstWrite: () => removed++));
+
+        Assert.Contains("Mod_P.pak", ex.Message);
+        Assert.Equal(0, removed);
+        Assert.Equal(0, prebuiltPakImporter.ImportCallCount);
+    }
+
+    /// <summary>Two variant folders holding a pak of the same name used to fail half-way with "The file '…X_P.pak' already exists."</summary>
+    [Fact]
+    public async Task ClassifyAndImport_SameNamedPaksInTwoFolders_IsRefusedNamingTheFolders()
+    {
+        Directory.CreateDirectory(Path.Combine(_extractedDir, "Option A"));
+        Directory.CreateDirectory(Path.Combine(_extractedDir, "Option B"));
+        File.WriteAllBytes(Path.Combine(_extractedDir, "Option A", "X_P.pak"), TestPaks.Bytes("a"));
+        File.WriteAllBytes(Path.Combine(_extractedDir, "Option B", "X_P.pak"), TestPaks.Bytes("b"));
+        var library = new FakeLibraryRepository();
+        var removed = 0;
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "X.zip", library, new FakeUe4ssModRepository(), new FakePrebuiltPakImporter(), "SomeDataFolder", null,
+            beforeFirstWrite: () => removed++));
+
+        Assert.Contains("X_P.pak", ex.Message);
+        Assert.Contains("Option A", ex.Message);
+        Assert.Contains("Option B", ex.Message);
+        Assert.Equal(0, removed);
+        Assert.Empty(library.ImportPaksCalls);
+    }
+
+    /// <summary>A "UE4SS included" pack staged UE4SS's own mods (shared, BPModLoaderMod, Keybinds) as user mods next to the real ones.</summary>
+    [Fact]
+    public async Task ClassifyAndImport_DownloadThatBundlesUe4ss_StagesOnlyTheModsOwnFolder()
+    {
+        var mods = Path.Combine(_extractedDir, "Icarus", "Binaries", "Win64", "ue4ss", "Mods");
+        WriteFile(Path.Combine(mods, "shared", "UEHelpers", "UEHelpers.lua"), "-- helpers");
+        WriteFile(Path.Combine(mods, "BPModLoaderMod", "Scripts", "main.lua"), "-- loader");
+        WriteFile(Path.Combine(mods, "Keybinds", "Scripts", "main.lua"), "-- keys");
+        WriteFile(Path.Combine(mods, "MyMod", "Scripts", "main.lua"), "-- mine");
+        WriteFile(Path.Combine(_extractedDir, "Icarus", "Binaries", "Win64", "ue4ss", "UE4SS.dll"), "dll");
+        var ue4ssModRepository = new FakeUe4ssModRepository { Result = "MyMod" };
+
+        var result = await ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "MyMod with UE4SS.zip", new FakeLibraryRepository(), ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null);
+
+        Assert.Equal(1, ue4ssModRepository.ImportFromFolderCallCount);
+        Assert.EndsWith("MyMod", ue4ssModRepository.LastSourceFolder);
+        Assert.Contains(result.Warnings, w => w.Contains("contains UE4SS itself"));
+    }
+
+    /// <summary>A download that is only UE4SS (its own mods and dll) used to be staged as user mods: it is refused instead.</summary>
+    [Fact]
+    public async Task ClassifyAndImport_DownloadThatIsOnlyUe4ss_IsRefused()
+    {
+        var mods = Path.Combine(_extractedDir, "Icarus", "Binaries", "Win64", "ue4ss", "Mods");
+        WriteFile(Path.Combine(mods, "shared", "UEHelpers", "UEHelpers.lua"), "-- helpers");
+        WriteFile(Path.Combine(mods, "BPModLoaderMod", "Scripts", "main.lua"), "-- loader");
+        WriteFile(Path.Combine(mods, "Keybinds", "Scripts", "main.lua"), "-- keys");
+        WriteFile(Path.Combine(_extractedDir, "Icarus", "Binaries", "Win64", "ue4ss", "UE4SS.dll"), "dll");
+        var ue4ssModRepository = new FakeUe4ssModRepository();
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "UE4SS.zip", new FakeLibraryRepository(), ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null));
+
+        Assert.Contains("UE4SS itself", ex.Message);
+        Assert.Equal(0, ue4ssModRepository.ImportFromFolderCallCount);
+    }
+
+    private static void WriteFile(string path, string content)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
     }
 
     [Fact]
@@ -411,7 +494,7 @@ public sealed class ExtractedModClassifierTests : IDisposable
     [Fact]
     public async Task ClassifyAndImport_PakWithLooseLuaHalf_StagesTheLuaHalfToo()
     {
-        File.WriteAllBytes(Path.Combine(_extractedDir, "MyMod_P.pak"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(_extractedDir, "MyMod_P.pak"), TestPaks.Bytes(1, 2, 3));
         Directory.CreateDirectory(Path.Combine(_extractedDir, "MyMod", "Scripts"));
         File.WriteAllText(Path.Combine(_extractedDir, "MyMod", "Scripts", "main.lua"), "print('lua half')");
         var ue4ssModRepository = new FakeUe4ssModRepository { Result = "MyMod" };
@@ -433,7 +516,7 @@ public sealed class ExtractedModClassifierTests : IDisposable
     {
         Directory.CreateDirectory(Path.Combine(_extractedDir, "MyMod", "Scripts"));
         File.WriteAllText(Path.Combine(_extractedDir, "MyMod", "Scripts", "main.lua"), "print('x')");
-        File.WriteAllBytes(Path.Combine(_extractedDir, "MyMod", "MyMod_P.pak"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(_extractedDir, "MyMod", "MyMod_P.pak"), TestPaks.Bytes(1, 2, 3));
         var ue4ssModRepository = new FakeUe4ssModRepository();
         var prebuiltPakImporter = new FakePrebuiltPakImporter();
 

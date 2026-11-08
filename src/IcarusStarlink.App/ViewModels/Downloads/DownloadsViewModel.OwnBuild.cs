@@ -56,14 +56,24 @@ public sealed partial class DownloadsViewModel
             });
 
             var previous = FindCopiesOfOwnBuild(scratch, name, out var nexusModId);
+            if (RefuseWhileGameHoldsMods(previous, name) is { } refused)
+            {
+                _activityLog.Log(refused, ActivityEntryKind.Warning);
+                return refused;
+            }
+
             var source = nexusModId is null ? "Local" : PendingDownloadEntry.NexusSource;
             var result = await RunInstallStepAsync(() => _modReplacement.ReplaceAsync(
                 new ModReplacementRequest(name, previous.LibraryFolders, previous.Ue4ssFolders, Pristine: false),
-                async removeOld => (await ClassifyAndImportExtractedModAsync(scratch, Path.GetFileName(path), source, nexusModId, null, previous, removeOld)).Items));
+                async removeOld => (await ClassifyAndImportExtractedModAsync(scratch, Path.GetFileName(path), source, nexusModId, null, previous, () => RemoveOldOrExplain(removeOld))).Items));
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             if (!result.Succeeded)
             {
-                var failed = result.Cancelled ? result.Message ?? "Cancelled." : $"Couldn't import the build '{name}': {result.Message}";
+                var failed = result.Cancelled ? result.Message ?? "Cancelled."
+                    : result.Error is OldCopyNotRemovedException
+                        ? $"Couldn't import the build '{name}': {result.Error.Message} Close Icarus (or whatever has the file open), then try again."
+                            + (result.RolledBack ? "" : " Some of it couldn't be put back — use Restore latest backup.")
+                        : $"Couldn't import the build '{name}': {result.Message}";
                 _activityLog.Log(failed, ActivityEntryKind.Warning);
                 return failed;
             }

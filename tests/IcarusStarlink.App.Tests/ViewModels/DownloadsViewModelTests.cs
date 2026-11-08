@@ -92,6 +92,9 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         /// <summary>When set, answers every HTTP download instead (a progress test holds the body back).</summary>
         public HttpMessageHandler? HttpHandler { get; set; }
 
+        /// <summary>When set, whether the built view model sees Icarus running; null leaves the check off.</summary>
+        public bool? GameRunning { get; set; }
+
         public DownloadsViewModel Build()
         {
             var settings = Settings ?? new FakeSettingsService();
@@ -103,7 +106,8 @@ public sealed partial class DownloadsViewModelTests : IDisposable
                 Library, Ue4ss, Ue4ssMeta, settings, NexusApi, new FakeCredentialStore(), PendingStore,
                 httpClient, new PerformanceTracker(settings, Path.Combine(PendingDownloadsDirectory, "..", "Perf")),
                 ActivityLog, new ActiveDownloadsTracker(), PendingDownloadsDirectory, PakImporter, Path.Combine(PendingDownloadsDirectory, "..", "Data"),
-                dialogService: Dialogs);
+                dialogService: Dialogs,
+                gameProcessChecker: GameRunning is { } running ? new FakeGameProcessChecker(running) : null);
         }
 
         /// <summary>A downloaded file as the real nxm:// pipeline leaves it: on disk under Pending_Downloads and recorded in the store, never activated.</summary>
@@ -118,6 +122,11 @@ public sealed partial class DownloadsViewModelTests : IDisposable
             PendingStore.Add(new PendingDownloadEntry { ModId = modId, FileId = fileId, FileName = fileName, LocalFilePath = path, DownloadedAtUtc = DateTimeOffset.UtcNow });
             return new PendingDownloadItemViewModel(PendingStore.Entries.Single(e => e.ModId == modId && e.FileId == fileId), Library, Ue4ss);
         }
+    }
+
+    private sealed class FakeGameProcessChecker(bool running) : IGameProcessChecker
+    {
+        public bool IsRunning() => running;
     }
 
     /// <summary>A zip entry with this text; a ".pak" entry gets a real pak footer after it (TestPaks), as every downloaded pak is checked.</summary>
@@ -1038,6 +1047,150 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("downloads list"));
     }
 
+    /// <summary>
+    /// A web page saved as a .zip used to end on "Manual install failed: 'Broken.zip' isn't a
+    /// recognized archive format": a manual install nobody asked for, and no word that the file
+    /// itself is damaged.
+    /// </summary>
+    [Fact]
+    public async Task Activate_DownloadThatIsntAnArchive_SaysItIsDamaged_WithoutTheManualInstall()
+    {
+        var harness = new Harness(_root);
+        var path = Path.Combine(harness.PendingDownloadsDirectory, "Broken.zip");
+        File.WriteAllText(path, "<!DOCTYPE html><html>Not Found</html>");
+        harness.PendingStore.Add(new PendingDownloadEntry { ModId = 610, FileId = 1, FileName = "Broken.zip", LocalFilePath = path, DownloadedAtUtc = DateTimeOffset.UtcNow });
+        var vm = harness.Build();
+        var opened = false;
+        vm.ManualInstall = (_, _, _, _) => { opened = true; return null; };
+
+        var result = await vm.ActivateAsync(vm.PendingDownloads.Single());
+
+        Assert.False(result.Succeeded);
+        Assert.False(opened);
+        Assert.DoesNotContain("Manual install failed", vm.PendingDownloadStatusMessage);
+        Assert.Contains("download it again", vm.PendingDownloadStatusMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>A Reinstall of a .pak whose new file is a web page took the installed copy out before the pak was checked.</summary>
+    [Fact]
+    public async Task Reinstall_PakThatIsntARealPak_LeavesTheInstalledCopyAlone()
+    {
+        var harness = new Harness(_root);
+        var path = Path.Combine(harness.PendingDownloadsDirectory, "Lasers_P.pak");
+        File.WriteAllBytes(path, TestPaks.Bytes("v1"));
+        harness.PendingStore.Add(new PendingDownloadEntry { ModId = 611, FileId = 1, FileName = "Lasers_P.pak", LocalFilePath = path, DownloadedAtUtc = DateTimeOffset.UtcNow });
+        var vm = harness.Build();
+        Assert.True((await vm.ActivateAsync(vm.PendingDownloads.Single())).Succeeded);
+        var installed = Assert.Single(harness.Library.GetAll()).FolderName;
+        File.WriteAllText(path, "<html>Not Found</html>");
+        var opened = false;
+        vm.ManualInstall = (_, _, _, _) => { opened = true; return null; };
+
+        var result = await vm.ActivateAsync(vm.PendingDownloads.Single());
+
+        Assert.False(result.Succeeded);
+        Assert.False(result.RolledBack);
+        Assert.False(opened);
+        Assert.Contains("isn't a working .pak file", vm.PendingDownloadStatusMessage);
+        Assert.Equal(installed, Assert.Single(harness.Library.GetAll()).FolderName);
+        var pak = Assert.Single(Directory.GetFiles(harness.Library.GetFolderPath(installed), "*.pak", SearchOption.AllDirectories));
+        Assert.Equal(TestPaks.Bytes("v1"), File.ReadAllBytes(pak));
+    }
+
+    /// <summary>
+    /// The installed UE4SS mod's dll was held by the running game: taking it out failed, and the
+    /// manual install opened with the lock message as if the download were the problem.
+    /// </summary>
+    [Fact]
+    public async Task Reinstall_EnabledModWhoseDllIsInUse_SaysCloseTheGame_WithoutTheManualInstall()
+    {
+        var harness = new Harness(_root) { IcarusContentPath = Path.Combine(_root, "Game", "Icarus", "Content") };
+        var vm = harness.Build();
+        var item = harness.AddDownload("MiniMapa.zip", a => WriteEntry(a, "MiniMapa/Scripts/main.lua", "new"), modId: 345, fileId: 2737);
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+        var gameMods = Ue4ssGamePaths.ResolveModsFolder(harness.IcarusContentPath);
+        Directory.CreateDirectory(Path.Combine(gameMods, "MiniMapa", "Scripts"));
+        Directory.CreateDirectory(Path.Combine(gameMods, "MiniMapa", "dlls"));
+        File.WriteAllText(Path.Combine(gameMods, "MiniMapa", "Scripts", "main.lua"), "old");
+        var dll = Path.Combine(gameMods, "MiniMapa", "dlls", "main.dll");
+        File.WriteAllText(dll, "dll");
+        harness.Ue4ss.Delete("MiniMapa");
+        var opened = false;
+        vm.ManualInstall = (_, _, _, _) => { opened = true; return null; };
+
+        ModReplacementResult result;
+        using (new FileStream(dll, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            result = await vm.ActivateAsync(item);
+        }
+
+        Assert.False(result.Succeeded);
+        Assert.False(opened);
+        Assert.Contains("Close Icarus", vm.PendingDownloadStatusMessage);
+        Assert.Equal("old", File.ReadAllText(Path.Combine(gameMods, "MiniMapa", "Scripts", "main.lua")));
+    }
+
+    /// <summary>A reinstall of a UE4SS mod that is on in the running game is refused before anything moves, with no manual install.</summary>
+    [Fact]
+    public async Task Reinstall_WhileTheGameRuns_IsRefusedBeforeAnythingMoves()
+    {
+        var harness = new Harness(_root) { IcarusContentPath = Path.Combine(_root, "Game", "Icarus", "Content") };
+        var item = harness.AddDownload("MiniMapa.zip", a => WriteEntry(a, "MiniMapa/Scripts/main.lua", "new"), modId: 345, fileId: 2737);
+        await harness.Build().ActivatePendingDownloadCommand.ExecuteAsync(item);
+        var gameMods = Ue4ssGamePaths.ResolveModsFolder(harness.IcarusContentPath);
+        Directory.CreateDirectory(Path.Combine(gameMods, "MiniMapa", "Scripts"));
+        File.WriteAllText(Path.Combine(gameMods, "MiniMapa", "Scripts", "main.lua"), "old");
+        harness.Ue4ss.Delete("MiniMapa");
+        harness.GameRunning = true;
+        var vm = harness.Build();
+        var opened = false;
+        vm.ManualInstall = (_, _, _, _) => { opened = true; return null; };
+
+        var result = await vm.ActivateAsync(vm.PendingDownloads.Single());
+
+        Assert.True(result.Cancelled);
+        Assert.Contains("Icarus is running", vm.PendingDownloadStatusMessage);
+        Assert.False(opened);
+        Assert.Equal("old", File.ReadAllText(Path.Combine(gameMods, "MiniMapa", "Scripts", "main.lua")));
+        Assert.Empty(harness.Ue4ss.GetAll());
+    }
+
+    /// <summary>A second version of a file is saved as "Pet_375-3048.zip"; that tag became the mod's name.</summary>
+    [Fact]
+    public async Task Activate_SecondVersionSavedWithTheIdTag_KeepsTheModsOwnName()
+    {
+        var harness = new Harness(_root);
+        harness.AddDownload("Pet_375-3048.zip", a => WriteEntry(a, "Scripts/main.lua", "x"), modId: 375, fileId: 3048);
+        var vm = harness.Build();
+        var item = vm.PendingDownloads.Single();
+
+        await vm.ActivateAsync(item);
+
+        Assert.Equal(["Pet"], harness.Ue4ss.GetAll());
+        Assert.Equal("Pet", vm.PendingDownloads.Single().DisplayName);
+    }
+
+    /// <summary>Two variant folders with one pak name ended on the raw "The file '…X_P.pak' already exists."</summary>
+    [Fact]
+    public async Task Activate_VariantFoldersWithTheSamePakName_GivesAPlainReason()
+    {
+        var harness = new Harness(_root);
+        harness.AddDownload("Variants.zip", a =>
+        {
+            WriteEntry(a, "Option A/X_P.pak", "a");
+            WriteEntry(a, "Option B/X_P.pak", "b");
+        }, modId: 612, fileId: 1);
+        var vm = harness.Build();
+        string? reasonShown = null;
+        vm.ManualInstall = (_, _, reason, _) => { reasonShown = reason; return null; };
+
+        await vm.ActivateAsync(vm.PendingDownloads.Single());
+
+        Assert.NotNull(reasonShown);
+        Assert.Contains("more than one pak named 'X_P.pak'", reasonShown);
+        Assert.Empty(harness.Library.GetAll());
+    }
+
     /// <summary>Only Nexus's download-link rejection is "you may need Premium": any other failure says what went wrong instead of opening the website.</summary>
     [Fact]
     public async Task FetchAndDownload_OtherFailure_IsNotReportedAsNeedingPremium()
@@ -1055,7 +1208,7 @@ public sealed partial class DownloadsViewModelTests : IDisposable
     [Fact]
     public async Task CatalogDownload_Pak_IsImportedWithTheCatalogAuthor()
     {
-        var harness = new Harness(_root) { HttpResponseBytes = [1, 2, 3] };
+        var harness = new Harness(_root) { HttpResponseBytes = TestPaks.Bytes(1, 2, 3) };
         var vm = harness.Build();
         var catalogEntry = new CatalogEntry(
             CatalogSource.Jimk72, "jimk72:stacks", "Bigger Stacks", "jimk72", "1.0", "D", "", null, null, null,

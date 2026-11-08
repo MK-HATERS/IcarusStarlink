@@ -156,7 +156,13 @@ public static class ExtractedModClassifier
         }
 
         var warnings = ModLints.CheckSplitAssetPairs(allFiles);
-        var hasExmod = allFiles.Any(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase));
+        var carriesUe4ss = CarriesUe4ssItself(extractedDirectory, allFiles);
+        if (carriesUe4ss)
+        {
+            warnings = [.. warnings, "This download also contains UE4SS itself. Starlink installs UE4SS from Settings › UE4SS, so only the mod's own folders were added."];
+        }
+
+        var hasExmod =allFiles.Any(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase));
 
         if (hasExmod)
         {
@@ -185,6 +191,8 @@ public static class ExtractedModClassifier
             var items = new List<PendingDownloadActivatedItem>();
             var names = new List<string>();
             var anyOpaque = false;
+            var bundlePaks = layoutPaks.Length > 0 ? layoutPaks : pakFiles;
+            ThrowIfPaksShareAName(bundlePaks, extractedDirectory);
             session.Writing();
             foreach (var modFolder in ue4ssModFolders)
             {
@@ -194,7 +202,6 @@ public static class ExtractedModClassifier
                 names.Add(folderName);
             }
 
-            var bundlePaks = layoutPaks.Length > 0 ? layoutPaks : pakFiles;
             if (bundlePaks.Length > 0)
             {
                 // The mod's own name, not the first pak's: a single UE4SS folder names the whole
@@ -217,6 +224,7 @@ public static class ExtractedModClassifier
         // hit exactly that on a Nexus download and had no way forward inside the app.
         if (pakFiles.Length >= 1)
         {
+            ThrowIfPaksShareAName(pakFiles, extractedDirectory);
             var entry = await ImportPakSetAsync(pakFiles, downloadName, libraryRepository, prebuiltPakImporter, dataFolder, unrealPakExePath, source, nexusModId, catalogEntryId, session);
             return WithLooseUe4ssHalves(
                 Single(entry.Name, entry.FolderName, PendingDownloadActivationKind.Library, entry.IsOpaquePak, requirements, [.. warnings, .. entry.ImportWarnings]),
@@ -322,6 +330,13 @@ public static class ExtractedModClassifier
         // the full Nexus file name with its id/timestamp/hash tail (a real complaint).
         var fallbackName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName), nexusModId);
 
+        // UE4SS's own files and mods and nothing else: staging that whole tree would add the
+        // loader's mods as user mods.
+        if (carriesUe4ss && !IsUe4ssModFolder(extractedDirectory) && FindLooseUe4ssModFolders(extractedDirectory).Count == 0)
+        {
+            throw new FormatException("This download is UE4SS itself, not a mod. Starlink installs UE4SS from Settings › UE4SS.");
+        }
+
         // The mod folders sit deeper than the top ("Mods\MyMod\Scripts", "MyMod v1.2\MyMod\Scripts",
         // a README beside "MyMod\Scripts", or two mods side by side): each is staged under its own
         // name. Staging the whole download put them one folder too deep for UE4SS to load
@@ -355,6 +370,12 @@ public static class ExtractedModClassifier
     {
         if (pakFiles.Count == 1)
         {
+            // Checked before the installed copy is taken out (the importer checks again).
+            if (WhyNotLoadable(pakFiles[0]) is { } why)
+            {
+                throw new FormatException(why);
+            }
+
             session.Writing();
             var single = await prebuiltPakImporter.ImportAsync(pakFiles[0], dataFolder, unrealPakExePath, source: source, nexusModId: nexusModId, catalogEntryId: catalogEntryId);
             session.Wrote(single.FolderName, PendingDownloadActivationKind.Library);
@@ -365,9 +386,9 @@ public static class ExtractedModClassifier
         // in when it came with others; a single pak was already checked) and one the game can load.
         foreach (var pak in pakFiles)
         {
-            if ((ModLints.CheckIsPak(pak) ?? ModLints.CheckPakVersion(pak)) is { } wrongVersion)
+            if (WhyNotLoadable(pak) is { } why)
             {
-                throw new FormatException(wrongVersion);
+                throw new FormatException(why);
             }
         }
 
@@ -375,6 +396,26 @@ public static class ExtractedModClassifier
         var bundle = libraryRepository.ImportPaks(pakFiles, modName, source, nexusModId, catalogEntryId);
         session.Wrote(bundle.FolderName, PendingDownloadActivationKind.Library);
         return bundle;
+    }
+
+    /// <summary>Why the game can't load this pak (not a real pak: a web page or a cut-off file; or packed for a newer engine), or null when it can.</summary>
+    internal static string? WhyNotLoadable(string pakPath) => ModLints.CheckIsPak(pakPath) ?? ModLints.CheckPakVersion(pakPath);
+
+    /// <summary>
+    /// Paks with the same file name can't go into one mod folder. In a download that is almost
+    /// always variants side by side ("Option A\X_P.pak", "Option B\X_P.pak"), so the import stops
+    /// before anything is written and names the folders.
+    /// </summary>
+    private static void ThrowIfPaksShareAName(IReadOnlyList<string> pakFiles, string root)
+    {
+        var clash = pakFiles.GroupBy(p => Path.GetFileName(p), StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1);
+        if (clash is null)
+        {
+            return;
+        }
+
+        var folders = clash.Select(p => Path.GetRelativePath(root, Path.GetDirectoryName(p)!)).Select(f => f == "." ? "the top folder" : $"'{f}'");
+        throw new FormatException($"This download has more than one pak named '{clash.Key}' (in {string.Join(" and ", folders)}). They're probably versions of the same mod to choose from: install the folder you want.");
     }
 
     private static ClassifiedImport Single(string entryName, string folderName, PendingDownloadActivationKind kind, bool isOpaquePak, IReadOnlyList<string> requirements, IReadOnlyList<string> warnings) =>
@@ -393,6 +434,7 @@ public static class ExtractedModClassifier
             .Where(IsUe4ssCodeFolder)
             .Select(scripts => Path.GetFullPath(Path.GetDirectoryName(scripts)!).TrimEnd(Path.DirectorySeparatorChar))
             .Where(folder => !string.Equals(folder, rootFull, StringComparison.OrdinalIgnoreCase))
+            .Where(folder => !Ue4ssServerFiles.FrameworkMods.Contains(Path.GetFileName(folder)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(folder => folder.Length)
             .ToList();
@@ -506,10 +548,17 @@ public static class ExtractedModClassifier
         }
     }
 
-    /// <summary>Every "&lt;anything&gt;\ue4ss\Mods\&lt;Mod&gt;" folder that actually contains files — the UE4SS install layout.</summary>
-    private static List<string> FindGameLayoutUe4ssModFolders(string root)
+    /// <summary>
+    /// Every "&lt;anything&gt;\ue4ss\Mods\&lt;Mod&gt;" folder that actually contains files — the UE4SS
+    /// install layout. UE4SS's own mods (shared, BPModLoaderMod, Keybinds…) are left out: a pack
+    /// that ships UE4SS itself carries them, and staged as user mods they landed as "BPModLoaderMod_2".
+    /// </summary>
+    private static List<string> FindGameLayoutUe4ssModFolders(string root) =>
+        [.. GameLayoutModFolders(root).Where(folder => !Ue4ssServerFiles.FrameworkMods.Contains(Path.GetFileName(folder)))];
+
+    /// <summary>Every non-empty folder under a "…\ue4ss\Mods" folder, UE4SS's own mods included.</summary>
+    private static IEnumerable<string> GameLayoutModFolders(string root)
     {
-        var result = new List<string>();
         foreach (var modsFolder in Directory.GetDirectories(root, "Mods", SearchOption.AllDirectories))
         {
             var parent = Path.GetFileName(Path.GetDirectoryName(modsFolder) ?? "");
@@ -522,13 +571,17 @@ public static class ExtractedModClassifier
             {
                 if (Directory.EnumerateFiles(modFolder, "*", SearchOption.AllDirectories).Any())
                 {
-                    result.Add(modFolder);
+                    yield return modFolder;
                 }
             }
         }
-
-        return result;
     }
+
+    /// <summary>The download ships UE4SS itself: its loader dll (UE4SS.dll, or the dwmapi.dll that loads it) or one of its own mods.</summary>
+    private static bool CarriesUe4ssItself(string root, IEnumerable<string> allFiles) =>
+        allFiles.Any(f => Path.GetFileName(f) is var name
+            && (name.Equals("UE4SS.dll", StringComparison.OrdinalIgnoreCase) || name.Equals("dwmapi.dll", StringComparison.OrdinalIgnoreCase)))
+        || GameLayoutModFolders(root).Any(folder => Ue4ssServerFiles.FrameworkMods.Contains(Path.GetFileName(folder)));
 
     private static bool IsUnderPaksFolder(string pakPath) =>
         (Path.GetDirectoryName(pakPath) ?? "")

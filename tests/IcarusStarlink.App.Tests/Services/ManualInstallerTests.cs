@@ -14,8 +14,8 @@ public sealed class ManualInstallerTests : IDisposable
         Write("Icarus Mod Manager/Minimap_PTBR.EXMODZ", "zip");
         Write("UE4SS Mods/MiniMapa/Scripts/main.lua", "-- lua");
         Write("UE4SS Mods/MiniMapa/icons/ore.png", "png");
-        Write("Paks/A_P.pak", "pak");
-        Write("Paks/B_P.pak", "pak");
+        WriteBytes("Paks/A_P.pak", TestPaks.Bytes("pak"));
+        WriteBytes("Paks/B_P.pak", TestPaks.Bytes("pak"));
         Write("README_EN.txt", "readme");
     }
 
@@ -32,6 +32,13 @@ public sealed class ManualInstallerTests : IDisposable
         var path = Path.Combine(_root, relative);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, content);
+    }
+
+    private void WriteBytes(string relative, byte[] content)
+    {
+        var path = Path.Combine(_root, relative);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, content);
     }
 
     [Fact]
@@ -101,6 +108,65 @@ public sealed class ManualInstallerTests : IDisposable
 
         Assert.Equal("broken pak", ex.Message);
         Assert.Empty(ue4ss.GetAll());
+    }
+
+    private sealed class CountingPakImporter : IcarusStarlink.PakIO.Import.IPrebuiltPakImporter
+    {
+        public int Calls { get; private set; }
+
+        public Task<IcarusStarlink.Core.Library.LibraryEntry> ImportAsync(
+            string pakFilePath, string dataFolder, string? unrealPakExePath, string? source = null, int? nexusModId = null,
+            string? catalogEntryId = null, string? name = null, string? author = null, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(new IcarusStarlink.Core.Library.LibraryEntry
+            {
+                FolderName = "Web", Name = "Web", Author = "Unknown", Version = "1.0", Description = "", FileName = "Web", IsOpaquePak = true,
+            });
+        }
+    }
+
+    /// <summary>A single pak line that is a web page went straight to the importer; it is refused with the plain reason before anything is installed.</summary>
+    [Fact]
+    public async Task Install_APakThatIsntARealPak_IsRefusedBeforeAnythingGoesIn()
+    {
+        Write("Web_P.pak", "<html>Not Found</html>");
+        var importer = new CountingPakImporter();
+        IReadOnlyList<ManualInstallItem> plan = [new(ManualInstallKind.PakMod, Path.Combine(_root, "Web_P.pak"), "Web_P.pak", "Web")];
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ManualInstaller.InstallAsync(
+            plan, null!, null!, importer, Path.Combine(_root, "Data"), null, null, null, null, null));
+
+        Assert.Contains("isn't a working .pak file", ex.Message);
+        Assert.Equal(0, importer.Calls);
+    }
+
+    /// <summary>A reinstall checks the plan before the installed copy is taken out: a pak line in a folder holding a web page is refused.</summary>
+    [Fact]
+    public void CheckPlan_APakThatIsntARealPak_IsRefused()
+    {
+        WriteBytes("Mixed/Good_P.pak", TestPaks.Bytes("good"));
+        Write("Mixed/Web_P.pak", "<html>Not Found</html>");
+
+        var ex = Assert.Throws<FormatException>(() => ManualInstaller.CheckPlan(
+            [new ManualInstallItem(ManualInstallKind.PakMod, Path.Combine(_root, "Mixed"), "Mixed", "Mixed")]));
+
+        Assert.Contains("'Web_P.pak' isn't a working .pak file", ex.Message);
+        ManualInstaller.CheckPlan([new ManualInstallItem(ManualInstallKind.PakMod, Path.Combine(_root, "Paks"), "Paks", "Paks")]);
+    }
+
+    /// <summary>A folder line holding two variants with one pak name failed half-way with "file already exists".</summary>
+    [Fact]
+    public void Problem_AFolderWithTwoPaksOfOneName_SaysToAddTheFolderYouWant()
+    {
+        WriteBytes("Variants/Option A/X_P.pak", TestPaks.Bytes("a"));
+        WriteBytes("Variants/Option B/X_P.pak", TestPaks.Bytes("b"));
+
+        var problem = ManualInstaller.Problem(new ManualInstallItem(ManualInstallKind.PakMod, Path.Combine(_root, "Variants"), "Variants", "Variants"));
+
+        Assert.NotNull(problem);
+        Assert.Contains("more than one pak named 'X_P.pak'", problem);
+        Assert.Contains("Option A", problem);
     }
 
     [Fact]
