@@ -160,7 +160,7 @@ public sealed partial class SavesViewModelTests : IDisposable
         try
         {
             await vm.WaitForPendingSlotLoadAsync();
-            Assert.Empty(vm.FilteredAccountFlags);
+            Assert.Empty(vm.AccountFlags);
 
             Directory.CreateDirectory(Path.Combine(dataFolder, "Flags"));
             File.WriteAllText(Path.Combine(dataFolder, "Flags", "D_AccountFlags.json"), """
@@ -170,7 +170,7 @@ public sealed partial class SavesViewModelTests : IDisposable
             await vm.WaitForPendingSlotLoadAsync();
 
             Assert.Empty(vm.Characters);
-            Assert.Equal(["Flag_A", "Flag_B"], vm.FilteredAccountFlags.Select(f => f.RowName));
+            Assert.Equal(["Flag_A", "Flag_B"], vm.AccountFlags.Select(f => f.RowName));
         }
         finally
         {
@@ -590,7 +590,7 @@ public sealed partial class SavesViewModelTests : IDisposable
         }
     }
 
-    /// <summary>Plan step 3: a finished mission whose reward is off is found, and its fix turns the reward on.</summary>
+    /// <summary>A finished mission whose reward is off is found, and its fix turns the reward on.</summary>
     [Fact]
     public async Task SaveCheck_FindsAMissionWhoseRewardIsOff_AndFixesIt()
     {
@@ -2546,6 +2546,12 @@ public sealed partial class SavesViewModelTests : IDisposable
         {
             BackupSlotCallCount++;
             return "fake_manual_backup.zip";
+        }
+
+        public string BackupSlotBeforeFindBrokenMod(string steamId)
+        {
+            BackupSlotCallCount++;
+            return "fake_before_find_broken_mod_backup.zip";
         }
 
         public IReadOnlyList<SaveBackupInfo> ListBackups(string steamId) => BackupsError is { } error ? throw error : Backups;

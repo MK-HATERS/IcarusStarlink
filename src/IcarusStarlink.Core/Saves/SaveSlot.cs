@@ -9,13 +9,13 @@ public sealed record SaveSlot(string SteamId, string FolderPath, string? Persona
 /// <summary>A file's last-write time and size: enough to tell that something rewrote it.</summary>
 public sealed record SaveFileStamp(DateTime LastWriteTimeUtc, long Length);
 
-/// <summary>One backup zip of a whole slot, newest-first in listings.</summary>
+/// <summary>One backup zip of a slot's player files, newest-first in listings.</summary>
 public sealed record SaveBackupInfo(string FilePath, DateTimeOffset TakenAtUtc)
 {
     /// <summary>"28/10/2026 14:03 — before a restore": what the backup is, not its zip name (a Steam ID and a timestamp).</summary>
     public string Display => $"{TakenAtUtc.LocalDateTime:g} — {Kind}";
 
-    /// <summary>Told apart by the name SaveRepository gives each kind ("_pre_restore_", "_manual_"); every other one is the backup Save takes.</summary>
+    /// <summary>Told apart by the name SaveRepository gives each kind ("_pre_restore_", "_manual_", "_before_find_broken_mod_"); every other one is the backup Save takes.</summary>
     public string Kind
     {
         get
@@ -23,6 +23,7 @@ public sealed record SaveBackupInfo(string FilePath, DateTimeOffset TakenAtUtc)
             var name = Path.GetFileName(FilePath);
             return name.Contains("_pre_restore_", StringComparison.OrdinalIgnoreCase) ? "before a restore"
                 : name.Contains("_manual_", StringComparison.OrdinalIgnoreCase) ? "made with Backup now"
+                : name.Contains("_before_find_broken_mod_", StringComparison.OrdinalIgnoreCase) ? "before Find the broken mod"
                 : "before a save";
         }
     }

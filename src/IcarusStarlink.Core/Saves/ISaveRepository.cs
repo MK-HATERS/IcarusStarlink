@@ -4,9 +4,9 @@ namespace IcarusStarlink.Core.Saves;
 
 /// <summary>
 /// The save editor's own data layer, built around two safety rules:
-/// every Save* method takes a full slot backup BEFORE writing anything, and Restore writes a
-/// pre_restore safety zip before replacing the slot — so there is no code path that changes
-/// player data without first capturing what was there.
+/// every Save* method takes a backup of the slot's player files BEFORE writing anything, and
+/// Restore writes a pre_restore safety zip before replacing them — so there is no code path that
+/// changes player data without first capturing what was there.
 ///
 /// Documents are exposed as raw JsonObject trees, NOT typed models: Icarus's save files carry far
 /// more fields than this editor understands (cosmetic hashes, flags, timestamps, whole subsystems),
@@ -29,7 +29,7 @@ public interface ISaveRepository
     /// </summary>
     IReadOnlyList<JsonObject> LoadCharacters(string steamId);
 
-    /// <summary>Backs up the whole slot first, then writes atomically (temp + move). Returns the backup path so the UI can say where the safety copy went — or null if takeBackup is false (a caller that already took its own backup this same save pass, to avoid zipping the same slot several times over for one user action).</summary>
+    /// <summary>Backs up the slot's player files first, then writes atomically (temp + move). Returns the backup path so the UI can say where the safety copy went — or null if takeBackup is false (a caller that already took its own backup this same save pass, to avoid zipping the same slot several times over for one user action).</summary>
     string? SaveProfile(string steamId, JsonObject profile, bool takeBackup = true);
 
     /// <summary>Same contract as SaveProfile. The list replaces the file's character array wholesale, so duplicate/remove-slot operations are just list operations for the caller.</summary>
@@ -57,8 +57,9 @@ public interface ISaveRepository
     /// Mounts.json as a mutable tree — SavedMounts, a flat array of tamed mounts. Each mount's
     /// MountName/MountLevel/MountType are plain, safely editable fields; its real stats/stomach/
     /// saddle state lives in RecorderBlob, a raw Unreal binary-serialized blob (confirmed against a
-    /// real save — not JSON), which this editor never touches. Returns an empty-shaped object if
-    /// the file doesn't exist yet.
+    /// real save — not JSON). The editor changes it only through MountBlob, and only for a mount
+    /// whose blob reads and writes back byte for byte. Returns an empty-shaped object if the file
+    /// doesn't exist yet.
     /// </summary>
     JsonObject LoadMounts(string steamId);
 
@@ -66,23 +67,30 @@ public interface ISaveRepository
     string? SaveMounts(string steamId, JsonObject mounts, bool takeBackup = true);
 
     /// <summary>
-    /// The slot's binary flags_&lt;SteamID&gt;.dat — a THIRD unlock store the game keeps beside the
-    /// JSON ones (confirmed against a real save: account-wide character-flag IDs like
-    /// Talent_RepairBench and Mission_Olympus_Unlock live here, NOT in any UnlockedFlags array).
-    /// Format, confirmed by parsing the real file: int32 string length, null-terminated ASCII
-    /// SteamID, int32 count, then count int32 flag IDs. Null when the slot has no such file —
+    /// The slot's binary flags_&lt;SteamID&gt;.dat: the game's cached list of the DLC this account
+    /// owns, as 0-based row numbers of D_DLCPackageData. The game rebuilds it from Steam when it
+    /// starts. Format, confirmed by parsing the real file: int32 string length, null-terminated
+    /// ASCII SteamID, int32 count, then count int32 IDs. Null when the slot has no such file —
     /// the editor shows the section only when the game itself has created one.
     /// </summary>
     IReadOnlyList<int>? LoadBinaryFlags(string steamId);
 
-    /// <summary>Same contract as SaveProfile: full slot backup first, then an atomic write of the binary flags file. Returns the backup path.</summary>
+    /// <summary>Same contract as SaveProfile: a backup of the slot's player files first, then an atomic write of the binary flags file. Returns the backup path.</summary>
     string? SaveBinaryFlags(string steamId, IReadOnlyList<int> flagIds, bool takeBackup = true);
 
-    /// <summary>Zips the entire slot folder into this app's own save_backups cache (never inside the game's folders). Returns the zip path.</summary>
+    /// <summary>Zips the slot's top-level player files into this app's own save_backups cache (never inside the game's folders). Prospects (worlds), map data and loadouts are never in it. Returns the zip path.</summary>
     string BackupSlot(string steamId);
 
     /// <summary>The user's own deliberate "Backup now": named distinctly ("…_manual_…") and never pruned by the automatic Save/Restore backup cap, so the one backup they took on purpose can't silently vanish after nine more clicks.</summary>
     string BackupSlotManually(string steamId);
+
+    /// <summary>
+    /// The backup Find the broken mod takes before it changes the install: the same player files
+    /// as BackupSlot, named "…_before_find_broken_mod_…". Only the newest 3 of this kind are kept
+    /// per slot; the automatic Save/Restore cap and the "Backup now" zips leave them alone, and
+    /// pruning them never touches another kind. Returns the zip path.
+    /// </summary>
+    string BackupSlotBeforeFindBrokenMod(string steamId);
 
     IReadOnlyList<SaveBackupInfo> ListBackups(string steamId);
 

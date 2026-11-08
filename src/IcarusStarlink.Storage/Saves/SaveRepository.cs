@@ -228,15 +228,23 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         return backupPath;
     }
 
-    public string BackupSlot(string steamId) => BackupSlotCore(steamId, manual: false);
+    public string BackupSlot(string steamId) => BackupSlotCore(steamId, steamId);
 
-    public string BackupSlotManually(string steamId) => BackupSlotCore(steamId, manual: true);
+    public string BackupSlotManually(string steamId) => BackupSlotCore(steamId, $"{steamId}{ManualMarker}");
 
-    private string BackupSlotCore(string steamId, bool manual)
+    public string BackupSlotBeforeFindBrokenMod(string steamId) => BackupSlotCore(steamId, $"{steamId}{FindBrokenModMarker}");
+
+    /// <summary>The name part of a "Backup now" zip ("{steamId}_manual_{stamp}.zip").</summary>
+    private const string ManualMarker = "_manual";
+
+    /// <summary>The name part of a Find the broken mod zip ("{steamId}_before_find_broken_mod_{stamp}.zip").</summary>
+    private const string FindBrokenModMarker = "_before_find_broken_mod";
+
+    private string BackupSlotCore(string steamId, string zipBaseName)
     {
         var slotFolder = ResolveSlot(steamId);
         Directory.CreateDirectory(backupsDirectory);
-        var zipPath = FolderBackup.MakeUniqueTimestampedPath(backupsDirectory, manual ? $"{steamId}_manual" : steamId, DateTimeOffset.Now, ".zip");
+        var zipPath = FolderBackup.MakeUniqueTimestampedPath(backupsDirectory, zipBaseName, DateTimeOffset.Now, ".zip");
 
         // Written under a temp name first, then renamed into place only once ZipFile has finished
         // writing every entry — an interruption partway through (disk full, a save file the still-
@@ -246,8 +254,16 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         ZipTopLevelFilesTo(slotFolder, zipPath);
 
         PruneBackups(steamId);
+        PruneFindBrokenModBackups(steamId);
         return zipPath;
     }
+
+    private int MaxBackupsPerSlot => BackupLimits.SaveKept(settings);
+
+    public int AutomaticBackupsKept => MaxBackupsPerSlot;
+
+    /// <summary>How many "…_before_find_broken_mod_…" zips each slot keeps (the newest ones).</summary>
+    private const int FindBrokenModBackupsKept = 3;
 
     /// <summary>
     /// Keeps a slot's backups at the cap (Settings › Maintenance › Backups to keep › Save backups,
@@ -257,17 +273,12 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
     /// original survives, the newest (cap - 1) survive, and never fewer than 1 newest (a cap of 1
     /// keeps the original and the newest).
     /// </summary>
-    private int MaxBackupsPerSlot => BackupLimits.SaveKept(settings);
-
-    public int AutomaticBackupsKept => MaxBackupsPerSlot;
-
     private void PruneBackups(string steamId)
     {
-        // Manual "Backup now" zips are exempt from the cap — see ISaveRepository.BackupSlotManually.
-        var backups = Directory.GetFiles(backupsDirectory, $"{steamId}_*.zip")
-            .Where(f => !Path.GetFileName(f).Contains("_manual_", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(File.GetLastWriteTimeUtc)
-            .ThenBy(f => f, StringComparer.OrdinalIgnoreCase)
+        // Manual "Backup now" zips are exempt from the cap — see ISaveRepository.BackupSlotManually —
+        // and Find the broken mod's zips have their own (PruneFindBrokenModBackups).
+        var backups = BackupsOldestFirst(steamId)
+            .Where(f => !IsKind(f, ManualMarker) && !IsKind(f, FindBrokenModMarker))
             .ToList();
         var newestKept = Math.Max(1, MaxBackupsPerSlot - 1);
         if (backups.Count <= newestKept + 1)
@@ -277,7 +288,27 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
 
         // Index 0 is the protected original; everything else is prunable, oldest-first.
         var prunable = backups.Skip(1).ToList();
-        foreach (var path in prunable.Take(prunable.Count - newestKept))
+        DeleteBackups(prunable.Take(prunable.Count - newestKept));
+    }
+
+    /// <summary>Keeps only the newest FindBrokenModBackupsKept of a slot's Find the broken mod zips; no other kind is touched.</summary>
+    private void PruneFindBrokenModBackups(string steamId)
+    {
+        var backups = BackupsOldestFirst(steamId).Where(f => IsKind(f, FindBrokenModMarker)).ToList();
+        DeleteBackups(backups.Take(Math.Max(0, backups.Count - FindBrokenModBackupsKept)));
+    }
+
+    private IEnumerable<string> BackupsOldestFirst(string steamId) =>
+        Directory.GetFiles(backupsDirectory, $"{steamId}_*.zip")
+            .OrderBy(File.GetLastWriteTimeUtc)
+            .ThenBy(f => f, StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsKind(string zipPath, string marker) =>
+        Path.GetFileName(zipPath).Contains(marker + "_", StringComparison.OrdinalIgnoreCase);
+
+    private static void DeleteBackups(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
         {
             try
             {
@@ -626,12 +657,6 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
     }
 
     /// <summary>
-    /// Only the slot's top-level files go into a backup — never Prospects (world saves), MapData,
-    /// Loadout or Mounts icons, none of which the editor touches. Besides keeping Restore from
-    /// rolling worlds back (see RestoreSlot), it stops every Save click from zipping hundreds of
-    /// megabytes of world data on the UI thread, ten retained copies deep.
-    /// </summary>
-    /// <summary>
     /// Zips under zipPath + ".tmp" and renames into place only once every entry is written (see
     /// BackupSlotCore). A failed zip — usually a save file the running game has locked — removes
     /// its half-written .tmp instead of leaving one behind in Backups on every failed save.
@@ -651,6 +676,12 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
         }
     }
 
+    /// <summary>
+    /// Only the slot's top-level files go into a backup — never Prospects (world saves), MapData,
+    /// Loadout or Mounts icons, none of which the editor touches. Besides keeping Restore from
+    /// rolling worlds back (see RestoreSlot), it stops every Save click from zipping hundreds of
+    /// megabytes of world data on the UI thread, ten retained copies deep.
+    /// </summary>
     private static void ZipTopLevelFiles(string slotFolder, string zipPath)
     {
         using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);

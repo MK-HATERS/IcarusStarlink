@@ -7,7 +7,7 @@ namespace IcarusStarlink.Storage.Tests.Saves;
 
 /// <summary>
 /// The save editor's data layer — the tests encode its two load-bearing contracts: every write is
-/// preceded by a full slot backup (there is no path that changes player data without capturing
+/// preceded by a backup of the slot's player files (there is no path that changes player data without capturing
 /// what was there), and fields the editor doesn't understand survive a load-edit-save round trip.
 /// Fixtures use the real files' own shapes, including Characters.json's JSON-in-JSON quirk.
 /// </summary>
@@ -604,6 +604,53 @@ public sealed class SaveRepositoryTests : IDisposable
         Assert.True(File.Exists(manual));
         Assert.Equal(10, Directory.GetFiles(_backups, $"{SteamId}_*.zip").Count(f => !f.Contains("_manual_")));
         Assert.Contains(_repository.ListBackups(SteamId), b => b.FilePath == manual);
+    }
+
+    /// <summary>
+    /// Find the broken mod used to take a "Backup now" zip of every slot on each run, and those are
+    /// never pruned, so they piled up. Its own kind keeps the newest 3 per slot and leaves the
+    /// manual zips and the automatic ones alone.
+    /// </summary>
+    [Fact]
+    public void Backups_BeforeFindBrokenMod_KeepsTheNewestThree_AndLeavesTheOtherKindsAlone()
+    {
+        var manual = _repository.BackupSlotManually(SteamId);
+        File.SetLastWriteTimeUtc(manual, DateTime.UtcNow.AddMinutes(-60));
+        var automatic = _repository.BackupSlot(SteamId);
+        File.SetLastWriteTimeUtc(automatic, DateTime.UtcNow.AddMinutes(-50));
+
+        var times = new List<DateTime>();
+        for (var i = 0; i < 5; i++)
+        {
+            var path = _repository.BackupSlotBeforeFindBrokenMod(SteamId);
+            Assert.Matches($@"^{SteamId}_before_find_broken_mod_.+\.zip$", Path.GetFileName(path));
+            var time = DateTime.UtcNow.AddMinutes(i - 40);
+            File.SetLastWriteTimeUtc(path, time);
+            times.Add(time);
+        }
+
+        var kept = Directory.GetFiles(_backups, $"{SteamId}_before_find_broken_mod_*.zip");
+        Assert.Equal(times.Skip(2), kept.Select(File.GetLastWriteTimeUtc).Order());
+        Assert.True(File.Exists(manual));
+        Assert.True(File.Exists(automatic));
+    }
+
+    /// <summary>The automatic Save/Restore cap counts only its own backups: ten saves don't push out the one taken before Find the broken mod.</summary>
+    [Fact]
+    public void Backups_AutomaticCap_NeverPrunesTheFindBrokenModBackup()
+    {
+        var beforeFinder = _repository.BackupSlotBeforeFindBrokenMod(SteamId);
+        File.SetLastWriteTimeUtc(beforeFinder, DateTime.UtcNow.AddMinutes(-30));
+
+        for (var i = 0; i < 12; i++)
+        {
+            var path = _repository.BackupSlot(SteamId);
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(i - 20));
+        }
+
+        Assert.True(File.Exists(beforeFinder));
+        Assert.Equal(10, Directory.GetFiles(_backups, $"{SteamId}_*.zip").Count(f => !f.Contains("_before_find_broken_mod_")));
+        Assert.Contains(_repository.ListBackups(SteamId), b => b.FilePath == beforeFinder && b.Kind == "before Find the broken mod");
     }
 
     [Fact]
