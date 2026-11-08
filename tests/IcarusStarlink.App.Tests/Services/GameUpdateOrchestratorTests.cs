@@ -202,6 +202,18 @@ public sealed class GameUpdateOrchestratorTests
         Assert.Contains("Icarus is running", result.Message);
     }
 
+    /// <summary>Regression: a run that built the merge but couldn't install it (Icarus running) cleared the Library's "Icarus updated" bar, though the game still had the old merge.</summary>
+    [Fact]
+    public async Task WhileIcarusRuns_TheGameUpdateIsNotMarkedHandled()
+    {
+        var result = await GameUpdateOrchestrator.RunAsync(new FakeSteps { GameRunning = true });
+
+        Assert.False(result.ReadyForUpdatedGame);
+        Assert.Contains("click Update everything again", result.Message);
+        Assert.Contains("the Library's bar stays until it's in the game", result.Message);
+        Assert.True((await GameUpdateOrchestrator.RunAsync(new FakeSteps())).ReadyForUpdatedGame);
+    }
+
     [Fact]
     public async Task AFailedBuild_NeverInstalls()
     {

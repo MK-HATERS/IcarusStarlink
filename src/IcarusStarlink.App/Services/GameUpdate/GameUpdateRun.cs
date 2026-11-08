@@ -91,6 +91,13 @@ public sealed class GameUpdateRunResult
     public bool InstallSkippedGameRunning { get; init; }
 
     public bool Installed { get; init; }
+
+    /// <summary>
+    /// The game update is handled, so the Library's "Icarus updated" bar can go: every step ran and
+    /// the new merge wasn't left out of the game because Icarus was running (the game would keep
+    /// the old merge, with whole tables from before the update).
+    /// </summary>
+    public bool ReadyForUpdatedGame => Completed && !InstallSkippedGameRunning;
 }
 
 /// <summary>
@@ -220,7 +227,7 @@ public static class GameUpdateOrchestrator
 
             if (steps.IsGameRunning())
             {
-                const string running = "Icarus is running, so the new merge was built but not installed. Close the game, then click Copy to game on Merge & Install (under Advanced actions).";
+                const string running = "Icarus is running, so the new merge was built but not installed. Close the game, then click Update everything again to install it (the Library's bar stays until it's in the game).";
                 Report(GameUpdateStepState.Skipped, running);
                 return Finished(running, installSkippedGameRunning: true);
             }

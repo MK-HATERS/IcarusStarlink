@@ -77,13 +77,14 @@ public sealed class GameUpdateCoordinator(
             }
         }
 
-        if (result.Completed && build is not null)
+        // Not when the merge couldn't go in because Icarus was running: the game still has the old one.
+        if (result.ReadyForUpdatedGame && build is not null)
         {
             library().MarkGameUpdateHandled(build);
         }
 
         activityLog.Log(result.Completed ? $"Update everything: {result.Message}" : result.Message,
-            result.Completed && !result.InstallSkippedGameRunning ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
+            result.ReadyForUpdatedGame ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
 
         await FillReviewAsync(viewModel, result.Fixed, build);
     }
