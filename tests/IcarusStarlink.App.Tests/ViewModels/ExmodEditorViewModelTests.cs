@@ -79,7 +79,7 @@ public sealed partial class ExmodEditorViewModelTests : IDisposable
         Assert.False(editor.ShowPickItemPrompt); // nothing listed to pick
     }
 
-    /// <summary>Tested in game (Animal Talents 2.0): the game can't use rows a mod adds to D_CharacterGrowth, so a new one is refused with why; its own rows can still be changed.</summary>
+    /// <summary>Tested in game: the game can't use rows a mod adds to D_CharacterGrowth, so a new one is refused with why; its own rows can still be changed.</summary>
     [Fact]
     public void AddItem_ANewRowInATableTheGameHasBuiltIn_IsRefused_ButItsOwnRowsAreFine()
     {

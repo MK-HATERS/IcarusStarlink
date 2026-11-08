@@ -147,7 +147,7 @@ public sealed class GameIconLoader(IBaseGameIconDecoder decoder)
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
-            bitmap.DecodePixelWidth = 64; // shown at 32 px at most: keeps 3,000 icons small
+            bitmap.DecodePixelWidth = 64; // shown at 52 px at most (the item header): still sharp there, and keeps 3,000 icons small
             bitmap.StreamSource = stream;
             bitmap.EndInit();
             bitmap.Freeze();

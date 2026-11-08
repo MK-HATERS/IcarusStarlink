@@ -144,12 +144,12 @@ public sealed partial class EditorFieldViewModel : ObservableObject
 
     public bool IsSetByRule => RuleTag is not null;
 
-    /// <summary>The field holds a value the rule will replace on the next Apply rules (or a Save after a rule change).</summary>
+    /// <summary>The field holds a value the rule will replace on the next Apply rules, Save after a rule change, or Refresh game data.</summary>
     public bool RuleWillOverwrite => IsSetByRule && !ScaleRules.SameValue(CurrentNode(), _ruleValue);
 
     /// <summary>What the notice under a hand-edited rule field says.</summary>
     public string? RuleOverwriteText => IsSetByRule
-        ? $"A Scale rule sets this field: Apply rules (and Save after a rule change) puts back {EditorValueText.Plain(_ruleValue)}. Leave it to the rule, or keep your value (the rule then skips this row)."
+        ? $"A Scale rule sets this field: Apply rules, a Save after a rule change, or Settings > Refresh game data puts back {EditorValueText.Plain(_ruleValue)}. Leave it to the rule, or keep your value (the rule then skips this row)."
         : null;
 
     /// <summary>Marks the field as one a rule writes (tag null clears it). <paramref name="keepMine"/> runs on "Keep my value".</summary>

@@ -16,12 +16,6 @@
         <TextBox x:Name="AuthorBox" Margin="0,4,0,16"/>
 
         <TextBlock Text="Starting point" Style="{StaticResource FieldLabelStyle}"/>
-        <!--
-        All five real templates are classic IMM's own official ones (Jimk72's own GitHub) — the
-        first two from its published Blank_Craftable_Item/Blank_Consumable_Item.EXMODZ, the other
-        three from that same tool's own bundled NewItemOptions.json ("Add Item to Mod... premade
-        templates") — each a genuinely complete, working item skeleton, not an invented one.
-        -->
         <RadioButton x:Name="BlankRadio" GroupName="Template" IsChecked="True" Margin="0,6,0,0"
                      Content="Blank — no fields yet, build it up by hand"/>
         <RadioButton x:Name="QualityOfLifeRadio" GroupName="Template" Margin="0,6,0,0"
@@ -44,8 +38,14 @@
                      Content="Map icon — for a blueprint or Lua mod"
                      ToolTip="A map and compass marker. It doesn't show up on its own: your mod's blueprint or Lua script has to look it up by its row name."/>
 
-        <!-- The five classic IMM skeletons are rarer starting points: folded away so the common
-             choices above stay short, one click to open. -->
+        <!--
+        The five classic IMM skeletons are rarer starting points: folded away so the common
+        choices above stay short, one click to open. All five are classic IMM's own official
+        templates (Jimk72's own GitHub): the first two from its published
+        Blank_Craftable_Item/Blank_Consumable_Item.EXMODZ, the other three from that same tool's
+        bundled NewItemOptions.json ("Add Item to Mod... premade templates"). Each is a complete,
+        working item skeleton, not an invented one.
+        -->
         <Expander Margin="0,12,0,16" IsExpanded="False" AutomationProperties.Name="Classic IMM templates">
             <Expander.Header>
                 <DockPanel LastChildFill="False">
