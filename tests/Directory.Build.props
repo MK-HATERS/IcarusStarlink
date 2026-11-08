@@ -1,7 +1,7 @@
 <Project>
 
-  <!-- The repo-root one too (MSBuild loads only the nearest): the reviewed NuGet audit
-       suppressions, which the test projects need as well (they reach ImageSharp through PakIO). -->
+  <!-- The repo-root one too (MSBuild loads only the nearest): the NuGet audit suppressions,
+       which the test projects need as well (they reach ImageSharp through PakIO). -->
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
   <!-- Every test project: one set of test packages, and xUnit's namespace in every file. -->

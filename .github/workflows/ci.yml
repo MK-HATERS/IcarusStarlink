@@ -12,8 +12,8 @@ on:
 permissions:
   contents: read
 
-# One run per branch at a time: a newer push to a pull request cancels the run it replaces,
-# while runs on master always finish.
+# One run per branch at a time: a newer push to a pull request cancels the run it replaces;
+# on master the running one finishes and only the newest waiting push runs after it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

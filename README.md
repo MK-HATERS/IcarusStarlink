@@ -65,10 +65,10 @@ covers opaque prebuilt-`.pak` imports too, not just EXMOD mods; proactive stalen
 flags mods whose targets a game update may have renamed or removed, with confidence-tiered
 auto-repair (always backed up first). A prebuilt `.pak` mod converts into a real, editable EXMOD
 automatically wherever it's possible to (at import, on demand via the Library's **Check ▾ › Make
-prebuilt paks editable…**, or silently after the next **Refresh game data**) — its own original `.pak` is kept behind the scenes
-so a later game update can re-derive a fresher diff instead of the conversion being frozen at
-whatever the game looked like the day it first converted; once a converted mod is hand-edited, it's
-never silently touched again.
+prebuilt paks editable…**, or silently after the next **Refresh game data**)
+— its own original `.pak` is kept behind the scenes so a later game update can re-derive a fresher
+diff instead of the conversion being frozen at whatever the game looked like the day it first
+converted; once a converted mod is hand-edited, it's never silently touched again.
 
 ### Check mods against game data
 
