@@ -8,8 +8,9 @@ public sealed record ServerPakFile(string FileName, long SizeBytes, DateTime Mod
 
 /// <summary>
 /// The mod side of a local dedicated server: its Content\Paks\mods folder and its UE4SS install.
-/// Every write here expects the server to be stopped (the caller checks) and never deletes: a pak
-/// taken off the server is MOVED into the backups folder.
+/// Every write here expects the server to be stopped (the caller checks) and never deletes a mod: a
+/// pak taken off the server is MOVED into the backups folder, and a merged pak that is replaced is
+/// kept there first (only a mod list the new build doesn't have is deleted).
 /// </summary>
 public static class ServerModFiles
 {
@@ -23,10 +24,14 @@ public static class ServerModFiles
     }
 
     /// <summary>
-    /// Copies a merged pak (and its sibling ISL-Merged.txt manifest, when present) into the server's
-    /// mods folder as <paramref name="targetFileName"/> (the source's own name when null), replacing
-    /// an older copy. The merged pak under any other of its names (MergedPakNames.All) is taken off
-    /// the server too: moved into the removed-paks folder of <paramref name="backupsFolder"/> like
+    /// Copies a merged pak (and its sibling <paramref name="manifestFileName"/> mod list) into the
+    /// server's mods folder as <paramref name="targetFileName"/> (the source's own name when null).
+    /// Each file is written through a temp file and swapped in whole, so a copy that fails part way
+    /// leaves the server's working pak as it was. With a <paramref name="backupsFolder"/>, the
+    /// server's copy being replaced (and its mod list) is kept in its removed-paks folder first,
+    /// unless it is the same file as the new one. A build without a mod list removes the server's
+    /// old one, which would otherwise be read as the new build's. The merged pak under any other of
+    /// its names (MergedPakNames.All) is taken off the server too: moved into removed-paks like
     /// RemovePak does, or deleted when no backups folder is given.
     /// </summary>
     public static void InstallPak(string sourcePakPath, string installFolder, string? manifestFileName, string? backupsFolder = null, string? targetFileName = null)
@@ -34,7 +39,20 @@ public static class ServerModFiles
         var target = DedicatedServerLayout.PakModsFolder(installFolder);
         Directory.CreateDirectory(target);
         var targetName = targetFileName ?? Path.GetFileName(sourcePakPath);
-        File.Copy(sourcePakPath, Path.Combine(target, targetName), overwrite: true);
+        var targetPak = Path.Combine(target, targetName);
+        if (backupsFolder is not null && File.Exists(targetPak) && !ServerUe4ssSync.SamePak(sourcePakPath, targetPak))
+        {
+            var stamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+            var removed = Path.Combine(backupsFolder, "removed-paks");
+            Directory.CreateDirectory(removed);
+            File.Copy(targetPak, Path.Combine(removed, $"{stamp}_{targetName}"), overwrite: true);
+            if (manifestFileName is not null && File.Exists(Path.Combine(target, manifestFileName)))
+            {
+                File.Copy(Path.Combine(target, manifestFileName), Path.Combine(removed, $"{stamp}_{manifestFileName}"), overwrite: true);
+            }
+        }
+
+        AtomicFile.Copy(sourcePakPath, targetPak);
 
         // This app's merged pak under another name: replaced by the one just copied.
         foreach (var legacy in MergedPakNames.All.Where(n => !string.Equals(n, targetName, StringComparison.OrdinalIgnoreCase)))
@@ -58,9 +76,14 @@ public static class ServerModFiles
         if (manifestFileName is not null)
         {
             var manifest = Path.Combine(Path.GetDirectoryName(sourcePakPath)!, manifestFileName);
+            var targetManifest = Path.Combine(target, manifestFileName);
             if (File.Exists(manifest))
             {
-                File.Copy(manifest, Path.Combine(target, manifestFileName), overwrite: true);
+                AtomicFile.Copy(manifest, targetManifest);
+            }
+            else if (File.Exists(targetManifest))
+            {
+                File.Delete(targetManifest);
             }
         }
     }

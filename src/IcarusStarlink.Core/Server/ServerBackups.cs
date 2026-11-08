@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.Core.Server;
 
@@ -195,22 +196,62 @@ public static class ServerBackups
                 .Select(f => new ServerBackupInfo(f.FullName, Path.GetFileNameWithoutExtension(f.Name), f.LastWriteTime, f.Length))]
             : [];
 
-    /// <summary>Backs up the current state, then extracts the zip over Saved (the server must be stopped). Returns the safety backup's path.</summary>
+    /// <summary>
+    /// Backs up the current state, then puts the zip's files over Saved (the server must be stopped).
+    /// Every entry is first extracted into a staging folder beside Saved, so a damaged zip, a full
+    /// disk or a locked file found while reading it leaves Saved as it was. Only then are the files
+    /// moved into Saved. Returns the safety backup's path; a failure throws
+    /// <see cref="ServerRestoreException"/>, which says whether Saved was already changed.
+    /// </summary>
     public static string Restore(string zipPath, string installFolder, string? savedDirSuffix, string backupsFolder)
     {
         var safety = CreateBackup(installFolder, savedDirSuffix, backupsFolder, "before-restore");
         var saved = Path.GetFullPath(DedicatedServerLayout.SavedFolder(installFolder, savedDirSuffix));
-        using var archive = ZipFile.OpenRead(zipPath);
-        foreach (var entry in archive.Entries.Where(e => e.Name.Length > 0))
+        // Beside Saved, so the moves stay on one volume; the game never reads this folder.
+        var staging = $"{saved}.restoring-{DateTime.Now.ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture)}";
+        var staged = new List<(string Staged, string Target)>();
+        try
         {
-            var target = Path.GetFullPath(Path.Combine(saved, entry.FullName));
-            if (!target.StartsWith(saved + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            try
             {
-                continue; // never write outside Saved, whatever the zip says
+                using var archive = ZipFile.OpenRead(zipPath);
+                foreach (var entry in archive.Entries.Where(e => e.Name.Length > 0))
+                {
+                    var target = Path.GetFullPath(Path.Combine(saved, entry.FullName));
+                    if (!target.StartsWith(saved + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue; // never write outside Saved, whatever the zip says
+                    }
+
+                    var stagedPath = Path.Combine(staging, Path.GetRelativePath(saved, target));
+                    Directory.CreateDirectory(Path.GetDirectoryName(stagedPath)!);
+                    entry.ExtractToFile(stagedPath, overwrite: true);
+                    staged.Add((stagedPath, target));
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new ServerRestoreException($"The backup couldn't be read: {ex.Message}", safety, savedChanged: false, ex);
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            entry.ExtractToFile(target, overwrite: true);
+            var moved = 0;
+            try
+            {
+                foreach (var (stagedPath, target) in staged)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                    File.Move(stagedPath, target, overwrite: true);
+                    moved++;
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new ServerRestoreException($"The restore stopped part way: {ex.Message}", safety, savedChanged: moved > 0, ex);
+            }
+        }
+        finally
+        {
+            Directories.TryDelete(staging);
         }
 
         return safety;
