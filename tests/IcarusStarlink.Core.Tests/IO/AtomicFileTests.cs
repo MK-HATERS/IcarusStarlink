@@ -32,18 +32,21 @@ public sealed class AtomicFileTests : IDisposable
     private string[] TempFiles() => Directory.GetFiles(_root, "*.tmp");
 
     [Fact]
-    public async Task WriteAllText_TargetHeldForAMoment_StillWrites()
+    public void WriteAllText_TargetHeldForAMoment_StillWrites()
     {
         // Regression: OneDrive or a scanner holding the previous save for a moment used to fail the
         // save, because the final move was tried only once.
         var path = Target();
         File.WriteAllText(path, "old");
         var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var release = Task.Run(async () =>
+
+        // Its own thread, so a busy thread pool can't hold up the release past the retry window.
+        var release = new Thread(() =>
         {
-            await Task.Delay(150);
+            Thread.Sleep(150);
             held.Dispose();
-        });
+        }) { IsBackground = true };
+        release.Start();
 
         try
         {
@@ -51,7 +54,7 @@ public sealed class AtomicFileTests : IDisposable
         }
         finally
         {
-            await release;
+            release.Join();
         }
 
         Assert.Equal("new", File.ReadAllText(path));
