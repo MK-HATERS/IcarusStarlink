@@ -85,14 +85,24 @@ internal sealed class FakeStarlinkNexus : IcarusStarlink.Catalog.Nexus.INexusApi
 
     public List<int> DownloadLinkFileIds { get; } = [];
 
+    /// <summary>Thrown by GetDownloadLinksAsync (a quarantined file, Nexus not answering in time).</summary>
+    public Exception? DownloadLinksError { get; init; }
+
+    /// <summary>Thrown by ValidateKeyAsync.</summary>
+    public Exception? ValidateKeyError { get; init; }
+
+    public bool IsPremium { get; init; }
+
     public Task<IcarusStarlink.Catalog.Nexus.NexusUserInfo?> ValidateKeyAsync(string apiKey, CancellationToken cancellationToken = default) =>
-        Task.FromResult<IcarusStarlink.Catalog.Nexus.NexusUserInfo?>(new(1, "someone", IsPremium: false, IsSupporter: false, "", ""));
+        ValidateKeyError is { } error ? Task.FromException<IcarusStarlink.Catalog.Nexus.NexusUserInfo?>(error)
+            : Task.FromResult<IcarusStarlink.Catalog.Nexus.NexusUserInfo?>(new(1, "someone", IsPremium, IsSupporter: false, "", ""));
 
     public Task<IReadOnlyList<IcarusStarlink.Catalog.Nexus.NexusDownloadLink>> GetDownloadLinksAsync(
         string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default)
     {
         DownloadLinkFileIds.Add(fileId);
-        return Task.FromResult<IReadOnlyList<IcarusStarlink.Catalog.Nexus.NexusDownloadLink>>([new($"https://cdn.example/{fileId}.zip", "CDN", "cdn")]);
+        return DownloadLinksError is { } error ? Task.FromException<IReadOnlyList<IcarusStarlink.Catalog.Nexus.NexusDownloadLink>>(error)
+            : Task.FromResult<IReadOnlyList<IcarusStarlink.Catalog.Nexus.NexusDownloadLink>>([new($"https://cdn.example/{fileId}.zip", "CDN", "cdn")]);
     }
 
     public Task<IReadOnlyList<IcarusStarlink.Catalog.Nexus.NexusModFile>> GetModFilesAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>

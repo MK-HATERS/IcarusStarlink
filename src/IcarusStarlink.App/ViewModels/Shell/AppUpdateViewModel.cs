@@ -43,16 +43,38 @@ public sealed partial class AppUpdateViewModel : ObservableObject
     private readonly Func<string?> _busyNow;
     private readonly bool _skipOldExe;
     private readonly Action<string> _openUrl;
+    private readonly INxmProtocolRegistrar? _nxmRegistrar;
+    private readonly IDialogService? _dialogService;
     private readonly CancellationTokenSource _cancel = new();
     private TaskCompletionSource<NxmUrl?>? _waitingForNexusLink;
     private DateTime _downloadStartedUtc;
 
+    /// <summary>The Nexus file the window waits for, and whether its page was opened yet.</summary>
+    private int _waitingForFileId;
+    private bool _nexusPageOpened;
+
+    /// <summary>Getting or downloading the Nexus file is under way (its failures count for <see cref="_nexusFailures"/>).</summary>
+    private bool _gettingNexusDownload;
+
+    /// <summary>How many runs in this window failed while getting or downloading the Nexus file.</summary>
+    private int _nexusFailures;
+
+    /// <summary>The user chose GitHub after Nexus failed twice: every later run downloads from there.</summary>
+    private bool _useGitHub;
+
     /// <summary>The window waiting for a Nexus link (App.HandleNxmUrl hands Starlink's own links here).</summary>
     public static AppUpdateViewModel? Current { get; private set; }
 
+    /// <param name="nxmRegistrar">
+    /// Tells whether a Nexus download (nxm:// link) can come back to Starlink, and makes Starlink the
+    /// handler when the user asks. Null: assume it can.
+    /// </param>
+    /// <param name="dialogService">Asks before Starlink becomes the download handler (a registry change). Null: no question (tests).</param>
     public AppUpdateViewModel(AppUpdateRelease release, IAppUpdateClient appUpdateClient, INexusApiClient nexusApiClient, string? nexusApiKey,
-        Func<string?> busyNow, bool skipOldExe, Action<string> openUrl, NxmUrl? nexusLink = null)
+        Func<string?> busyNow, bool skipOldExe, Action<string> openUrl, NxmUrl? nexusLink = null, INxmProtocolRegistrar? nxmRegistrar = null,
+        IDialogService? dialogService = null)
     {
+        _dialogService = dialogService;
         _release = release;
         _digest = release.AssetDigest;
         _appUpdateClient = appUpdateClient;
@@ -61,6 +83,7 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         _busyNow = busyNow;
         _skipOldExe = skipOldExe;
         _openUrl = openUrl;
+        _nxmRegistrar = nxmRegistrar;
         _givenNexusLink = nexusLink;
         Headline = $"Updating Icarus Starlink to v{release.Version}";
         Steps =
@@ -75,7 +98,7 @@ public sealed partial class AppUpdateViewModel : ObservableObject
 
     private readonly NxmUrl? _givenNexusLink;
 
-    private bool FromNexus => (_release.NexusFileId is not null || _givenNexusLink is not null) && _nexusApiKey is not null;
+    private bool FromNexus => !_useGitHub && (_release.NexusFileId is not null || _givenNexusLink is not null) && _nexusApiKey is not null;
 
     public ObservableCollection<AppUpdateStepRow> Steps { get; }
 
@@ -99,9 +122,33 @@ public sealed partial class AppUpdateViewModel : ObservableObject
     /// <summary>Waiting for the user to press the download button on Nexus.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanUseGitHubInstead))]
+    [NotifyPropertyChangedFor(nameof(CanOpenNexusPageAgain))]
     private bool _isWaitingForNexus;
 
-    public bool CanUseGitHubInstead => IsWaitingForNexus && _release.IsOnGitHub;
+    /// <summary>
+    /// While waiting for the Nexus download, or once getting or downloading the Nexus file has
+    /// failed twice in this window (never switched to by itself).
+    /// </summary>
+    public bool CanUseGitHubInstead => _release.IsOnGitHub && (IsWaitingForNexus || (IsStopped && OffersGitHubAfterNexusFailed));
+
+    /// <summary>Nexus failed again after Try again: GitHub is offered next to it.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanUseGitHubInstead))]
+    private bool _offersGitHubAfterNexusFailed;
+
+    /// <summary>Stopped by a failure (not the user's Cancel): the whole update can run again.</summary>
+    [ObservableProperty]
+    private bool _canRetry;
+
+    /// <summary>
+    /// Waiting for a Nexus download that can't come back here: nxm:// links go to another app, or
+    /// to nothing. The window offers to make Starlink the handler and opens Nexus only after that.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanOpenNexusPageAgain))]
+    private bool _canMakeStarlinkTheDownloadHandler;
+
+    public bool CanOpenNexusPageAgain => IsWaitingForNexus && !CanMakeStarlinkTheDownloadHandler;
 
     /// <summary>Running and still cancellable (before the hand-over).</summary>
     [ObservableProperty]
@@ -111,6 +158,7 @@ public sealed partial class AppUpdateViewModel : ObservableObject
     /// <summary>Stopped (failed or cancelled): the window can be closed.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CloseLabel))]
+    [NotifyPropertyChangedFor(nameof(CanUseGitHubInstead))]
     private bool _isStopped;
 
     public string CloseLabel => IsStopped ? "Close" : "Cancel";
@@ -126,6 +174,7 @@ public sealed partial class AppUpdateViewModel : ObservableObject
     {
         var token = _cancel.Token;
         var workFolder = "";
+        StartOver();
         try
         {
             // A zip from Nexus is only installed once it matches GitHub's checksum for the same
@@ -143,6 +192,7 @@ public sealed partial class AppUpdateViewModel : ObservableObject
                 }
             }
 
+            _gettingNexusDownload = FromNexus;
             var urls = await GetDownloadUrlsAsync(token);
             if (urls is null)
             {
@@ -156,6 +206,7 @@ public sealed partial class AppUpdateViewModel : ObservableObject
             IsProgressIndeterminate = false;
             await _appUpdateClient.DownloadAsync(urls, null, zipPath, new Progress<AppUpdateDownloadProgress>(ShowDownloadProgress), token);
             Done(AppUpdateStep.Download, $"{Megabytes(new FileInfo(zipPath).Length)} MB");
+            _gettingNexusDownload = false;
 
             Step(AppUpdateStep.Check).State = "active";
             ProgressText = "Checking the file…";
@@ -174,7 +225,7 @@ public sealed partial class AppUpdateViewModel : ObservableObject
 
                 Step(step).State = "active";
                 ProgressText = step == AppUpdateStep.Unpack ? "Unpacking…" : "Getting the updater ready…";
-            }, _busyNow, _skipOldExe);
+            }, _busyNow, _skipOldExe, token);
             if (problem is not null)
             {
                 Fail(problem);
@@ -190,9 +241,15 @@ public sealed partial class AppUpdateViewModel : ObservableObject
             Finished?.Invoke(true);
             return true;
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            Fail("Cancelled — nothing was changed.", canRetry: false);
+            return false;
+        }
         catch (OperationCanceledException)
         {
-            Fail("Cancelled — nothing was changed.");
+            // HttpClient's own timeout (a TaskCanceledException nobody asked for), not the user's Cancel.
+            Fail("Nexus or GitHub didn't answer in time. Nothing was changed: try again in a few minutes.");
             return false;
         }
         catch (Exception ex)
@@ -203,7 +260,27 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         finally
         {
             Current = null;
+            _gettingNexusDownload = false;
         }
+    }
+
+    /// <summary>Clears what an earlier run in this window left (Try again, Get it from GitHub instead).</summary>
+    private void StartOver()
+    {
+        foreach (var row in Steps)
+        {
+            row.State = "waiting";
+            row.Detail = null;
+        }
+
+        ErrorText = null;
+        ProgressText = null;
+        ProgressPercent = 0;
+        IsProgressIndeterminate = true;
+        CanRetry = false;
+        OffersGitHubAfterNexusFailed = false;
+        IsStopped = false;
+        CanCancel = true;
     }
 
     /// <summary>Where to download from: Nexus (straight for Premium, else through the page's download button) or GitHub. Null when it stopped.</summary>
@@ -213,7 +290,7 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         step.State = "active";
         if (!FromNexus)
         {
-            Done(AppUpdateStep.GetLink, "github.com/MK-HATERS/IcarusStarlink");
+            Done(AppUpdateStep.GetLink, _useGitHub ? "From GitHub instead" : "github.com/MK-HATERS/IcarusStarlink");
             return [_release.AssetBrowserDownloadUrl];
         }
 
@@ -230,9 +307,10 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         {
             premium = (await _nexusApiClient.ValidateKeyAsync(_nexusApiKey!, token))?.IsPremium == true;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
         {
-            // Can't tell: the page's own download button works for every account.
+            // Can't tell (including Nexus not answering in time): the page's own download button
+            // works for every account.
         }
 
         if (premium)
@@ -242,19 +320,25 @@ public sealed partial class AppUpdateViewModel : ObservableObject
             return urls;
         }
 
-        // Nexus gives other accounts a link only through its own download button.
-        step.Detail = "Nexus opened in your browser: press Slow download (or Mod Manager Download) there, and Starlink takes it from there.";
+        // Nexus gives other accounts a link only through its own download button, and that link
+        // reaches this window only when Starlink handles nxm:// links.
+        _waitingForFileId = fileId;
+        _nexusPageOpened = false;
+        CanMakeStarlinkTheDownloadHandler = !NexusDownloadsComeToStarlink();
+        step.Detail = CanMakeStarlinkTheDownloadHandler
+            ? "Nexus downloads on this PC don't open Starlink, so this one wouldn't reach it. Press Make Starlink the download handler, "
+                + "then press Slow download (or Mod Manager Download) on the Nexus page that opens."
+            : NexusOpenedText;
         ProgressText = "Waiting for the download from Nexus…";
         IsWaitingForNexus = true;
         Current = this;
         NxmUrl? link;
-        var opened = false;
         while (true)
         {
             var waiting = _waitingForNexusLink = new TaskCompletionSource<NxmUrl?>(TaskCreationOptions.RunContinuationsAsynchronously);
-            if (!opened)
+            if (!_nexusPageOpened && !CanMakeStarlinkTheDownloadHandler)
             {
-                opened = true;
+                _nexusPageOpened = true;
                 _openUrl(NexusAppUpdates.DownloadPageUrl(fileId));
             }
 
@@ -274,10 +358,12 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         }
 
         IsWaitingForNexus = false;
+        CanMakeStarlinkTheDownloadHandler = false;
         Current = null;
         if (link is null)
         {
             // "Get it from GitHub instead".
+            _gettingNexusDownload = false;
             Done(AppUpdateStep.GetLink, "From GitHub instead");
             return [_release.AssetBrowserDownloadUrl];
         }
@@ -305,8 +391,32 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         }
     }
 
+    /// <summary>While waiting for Nexus: take the GitHub download. Once Nexus failed twice: run the update again from GitHub.</summary>
     [RelayCommand]
-    private void UseGitHubInstead() => _waitingForNexusLink?.TrySetResult(null);
+    private async Task UseGitHubInsteadAsync()
+    {
+        if (IsWaitingForNexus)
+        {
+            _waitingForNexusLink?.TrySetResult(null);
+            return;
+        }
+
+        if (CanUseGitHubInstead)
+        {
+            _useGitHub = true;
+            await RunAsync();
+        }
+    }
+
+    /// <summary>Runs the whole update again after a failure.</summary>
+    [RelayCommand]
+    private async Task TryAgainAsync()
+    {
+        if (CanRetry)
+        {
+            await RunAsync();
+        }
+    }
 
     [RelayCommand]
     private void OpenNexusPageAgain()
@@ -314,6 +424,76 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         if (_release.NexusFileId is { } fileId)
         {
             _openUrl(NexusAppUpdates.DownloadPageUrl(fileId));
+        }
+    }
+
+    private const string NexusOpenedText =
+        "Nexus opened in your browser: press Slow download (or Mod Manager Download) there, and Starlink takes it from there.";
+
+    /// <summary>
+    /// Whether an nxm:// link from Nexus reaches a Starlink: this one, or another Starlink install,
+    /// which passes Starlink's own links on to the running one. Assumed when it can't be told.
+    /// </summary>
+    private bool NexusDownloadsComeToStarlink()
+    {
+        if (_nxmRegistrar is null)
+        {
+            return true;
+        }
+
+        try
+        {
+            return _nxmRegistrar.IsRegisteredToThisApp() || NxmHandlerCommand.IsStarlink(_nxmRegistrar.CurrentHandlerCommand());
+        }
+        catch (Exception)
+        {
+            // A registry read refused: don't hold the update back on a guess.
+            return true;
+        }
+    }
+
+    /// <summary>The user's click: Starlink takes nxm:// links (links for other games still go to the app it replaces), then Nexus opens.</summary>
+    [RelayCommand]
+    private void MakeStarlinkTheDownloadHandler()
+    {
+        if (_nxmRegistrar is null || !CanMakeStarlinkTheDownloadHandler)
+        {
+            return;
+        }
+
+        var asked = _dialogService?.Confirm(
+            "Nexus's Slow download and Mod Manager Download buttons will open Icarus Starlink for your Windows account.\n\n"
+            + "If another mod manager (for example Vortex) handles them now, Starlink passes it the links for its own games, so it keeps working. "
+            + "Unregister in Settings › Nexus gives the links back to it.\n\nContinue?",
+            "Make Starlink the download handler", Views.ThemedConfirmSeverity.Question);
+        if (asked == false)
+        {
+            return;
+        }
+
+        var step = Step(AppUpdateStep.GetLink);
+        try
+        {
+            _nxmRegistrar.Register();
+        }
+        catch (Exception ex)
+        {
+            step.Detail = $"Couldn't make Starlink the download handler: {ex.Message} Settings › Nexus has the same button.";
+            return;
+        }
+
+        if (!NexusDownloadsComeToStarlink())
+        {
+            step.Detail = "Windows didn't take the change, so Nexus downloads still don't open Starlink. Settings › Nexus has the same button.";
+            return;
+        }
+
+        CanMakeStarlinkTheDownloadHandler = false;
+        step.Detail = NexusOpenedText;
+        if (IsWaitingForNexus && !_nexusPageOpened)
+        {
+            _nexusPageOpened = true;
+            _openUrl(NexusAppUpdates.DownloadPageUrl(_waitingForFileId));
         }
     }
 
@@ -329,7 +509,7 @@ public sealed partial class AppUpdateViewModel : ObservableObject
 
         if (CanCancel)
         {
-            _cancel.Cancel();
+            Cancel();
         }
     }
 
@@ -346,8 +526,15 @@ public sealed partial class AppUpdateViewModel : ObservableObject
             return false;
         }
 
-        _cancel.Cancel();
+        Cancel();
         return false;
+    }
+
+    /// <summary>Unpacking can take a few seconds to stop: say it was heard.</summary>
+    private void Cancel()
+    {
+        ProgressText = "Cancelling…";
+        _cancel.Cancel();
     }
 
     private void ShowDownloadProgress(AppUpdateDownloadProgress progress)
@@ -377,14 +564,25 @@ public sealed partial class AppUpdateViewModel : ObservableObject
         row.Detail = detail;
     }
 
-    private void Fail(string message)
+    /// <param name="canRetry">False for the user's own Cancel: Try again is offered after any failure.</param>
+    private void Fail(string message, bool canRetry = true)
     {
         if (Steps.FirstOrDefault(s => s.State == "active") is { } active)
         {
             active.State = "failed";
         }
 
+        // Getting or using the Nexus link failed (a quarantined file, a server error): Try again
+        // first; failing again offers the GitHub download too, never switching by itself.
+        if (canRetry && _gettingNexusDownload)
+        {
+            _nexusFailures++;
+        }
+
+        CanRetry = canRetry;
+        OffersGitHubAfterNexusFailed = canRetry && _nexusFailures >= 2 && !_useGitHub;
         IsWaitingForNexus = false;
+        CanMakeStarlinkTheDownloadHandler = false;
         IsProgressIndeterminate = false;
         ProgressPercent = 0;
         ProgressText = null;

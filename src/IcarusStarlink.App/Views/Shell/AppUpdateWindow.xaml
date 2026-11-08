@@ -82,7 +82,12 @@
 
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="Open the Nexus page again" Command="{Binding OpenNexusPageAgainCommand}" Margin="0,0,8,0"
-                    Visibility="{Binding IsWaitingForNexus, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    Visibility="{Binding CanOpenNexusPageAgain, Converter={StaticResource BoolToVisibilityConverter}}"/>
+            <Button Content="Make Starlink the download handler" Command="{Binding MakeStarlinkTheDownloadHandlerCommand}" Margin="0,0,8,0"
+                    Visibility="{Binding CanMakeStarlinkTheDownloadHandler, Converter={StaticResource BoolToVisibilityConverter}}"
+                    ToolTip="Nexus downloads open Starlink from now on; links for other games still go to the app that had them"/>
+            <Button Content="Try again" Command="{Binding TryAgainCommand}" Margin="0,0,8,0"
+                    Visibility="{Binding CanRetry, Converter={StaticResource BoolToVisibilityConverter}}"/>
             <Button Content="Get it from GitHub instead" Command="{Binding UseGitHubInsteadCommand}" Margin="0,0,8,0"
                     Visibility="{Binding CanUseGitHubInstead, Converter={StaticResource BoolToVisibilityConverter}}"
                     ToolTip="The same release, from Starlink's GitHub page"/>
