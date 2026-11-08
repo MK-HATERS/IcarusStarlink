@@ -64,8 +64,8 @@ base-game parent can still show that parent's own texture/color values, not just
 covers opaque prebuilt-`.pak` imports too, not just EXMOD mods; proactive staleness detection that
 flags mods whose targets a game update may have renamed or removed, with confidence-tiered
 auto-repair (always backed up first). A prebuilt `.pak` mod converts into a real, editable EXMOD
-automatically wherever it's possible to (at import, on demand via **Convert opaque mods…**, or
-silently after the next "Update data folder") — its own original `.pak` is kept behind the scenes
+automatically wherever it's possible to (at import, on demand via the Library's **Check ▾ › Make
+prebuilt paks editable…**, or silently after the next **Refresh game data**) — its own original `.pak` is kept behind the scenes
 so a later game update can re-derive a fresher diff instead of the conversion being frozen at
 whatever the game looked like the day it first converted; once a converted mod is hand-edited, it's
 never silently touched again.
@@ -131,10 +131,16 @@ mods (Wireless Power, Lumber Yard…) have their rows read straight from the mod
 merged at low priority, so they're in the merge before the game has ever run with them; ArcFission
 Library's own runtime data pak stays and loads before the merge, so the two don't override each other.
 
+**Find the broken mod** (**More ▾** here, the Library's **Check ▾**, or a mod's right-click menu):
+something is broken in game and you don't know which mod does it? Say what's broken; Starlink backs
+up your saves, then installs part of your mods each round and asks whether it's still broken. Each
+round halves what's left (40 mods take about 7 rounds); at the end it names the mod and puts all
+your mods back.
+
 ### Weekly Changes
 
 A real, row-by-row diff of what the game's own data changed between two
-"Update data folder" runs, so you can see exactly why a mod broke after a patch instead of guessing.
+**Refresh game data** runs, so you can see exactly why a mod broke after a patch instead of guessing.
 
 ### Map
 
@@ -204,6 +210,12 @@ Hardcore are shown but never changed) — with mandatory automatic backups befor
 and hard safety gates (refuses to touch a save while the game is running, re-checked immediately
 before the write itself).
 
+**Save check** on the Overview tab finds what's wrong in a save (learned blueprints whose unlock is
+off, finished missions with their reward off, ranks above the game's maximum, and more) and fixes
+the sure ones in one click. **Clean up…** takes out talents, research, items, currencies, creatures
+and accolades the game doesn't have and no mod gives, and gives back the talent points they used;
+nothing is written until you press Save, which backs the slot up first.
+
 ### Migration & verification
 
 Import a mod list straight from a classic IMM install and match it
@@ -225,6 +237,8 @@ hard-crashing with nothing recorded or silently freezing/doing-nothing with no t
 a Basic log that's always on and capped so it never bloats (an Advanced log can be switched on
 in Settings for troubleshooting and turns itself off after 24 hours), diagnostics export (now also
 bundling app/OS version info and any crash reports alongside the regular logs), and an in-app Help page covering every feature above.
+**Backups to keep** (Settings › Maintenance) sets how many of each kind of backup are kept, and
+**Clean up backups** there shows how much space they take and frees it.
 
 ## What it doesn't (yet)
 
@@ -274,9 +288,10 @@ gathered from the feature descriptions above:
 - **The Windows `nxm://` protocol handler** (`HKEY_CURRENT_USER` only, no admin rights needed) —
   registered so "Download with Manager" on the Nexus website opens straight into this app.
 - **Network calls this app makes**: the Nexus API (only once you've entered an API key, for
-  browsing/search/downloads); GitHub (this app's own release check on every launch, the community
-  mod catalog, and — only when you click Install/Update in Settings — UnrealPak.exe and a newer
-  UE4SS loader); SteamCMD and Steam's own servers, only when you install or update a dedicated
+  browsing/search/downloads); GitHub (this app's own release check each time Starlink starts,
+  unless **Check for updates when Starlink starts** is off in Settings › Maintenance; the community
+  mod catalog; and, only when you click Install/Update in Settings, UnrealPak.exe and a newer UE4SS
+  loader); SteamCMD and Steam's own servers, only when you install or update a dedicated
   server; `api.ipify.org`, only when you press "Show my public IP" on the Server page (it answers
   with your public IP address, which is shown and not saved); and, only if you configure one, your
   own FTP server on the Server tab. Nothing else. There is no telemetry, analytics, or usage tracking of any kind anywhere in this app.
@@ -294,7 +309,8 @@ dialog first.
 ## FAQ / Troubleshooting
 
 **Where are my backups?** Automatic backups (before a save write, before a mod update, before a
-merge/install) live under this app's own `Backups` folder, next to the exe.
+merge/install) live under this app's own `Backups` folder, next to the exe. How many are kept:
+Settings › Maintenance › **Backups to keep**.
 
 **The app won't start / crashed on launch.** It writes a crash report (the full exception, your
 app/OS version, and recent activity) to the `Logs` folder next to the exe — attach that when
@@ -314,8 +330,9 @@ for a VirusTotal scan link.
 
 **How do I get started after installing?** Just run it — first launch finds your Icarus install
 through Steam (or asks you to browse to it), installs UnrealPak, and offers to extract the game's
-data. If you skipped any of that, it's all in Settings: Icarus Content folder (Auto-detect or
-Browse) → UnrealPak → Install → Update data folder. Then import mods on the Library tab. The in-app **Help** page walks through this in more detail and covers every feature.
+data. If you skipped any of that, it's all in Settings › Game & tools: under **Game folder &
+UnrealPak**, fill in the Icarus Content folder (**Auto-detect** or **Browse…**) and click **Install
+UnrealPak**, then click **Refresh game data** (in the section of that name below it). Then import mods on the Library tab. The in-app **Help** page walks through this in more detail and covers every feature.
 
 ## Support & bug reports
 
