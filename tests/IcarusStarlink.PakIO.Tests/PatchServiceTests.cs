@@ -372,6 +372,130 @@ public class PatchServiceTests : IDisposable
         }));
     }
 
+    /// <summary>
+    /// Regression: export opened the chosen file with File.Create, so a bundled mod that failed
+    /// partway truncated last week's patch at the same path and left a partial zip in its place.
+    /// </summary>
+    [Fact]
+    public async Task ExportAsync_ABundledModFails_LeavesThePreviousPatchWhole()
+    {
+        var path = Path.Combine(_dir, "patch.zip");
+        await File.WriteAllTextAsync(path, "old patch bytes");
+        var manifest = new PatchManifest { ProfileName = "Coop", Mods = [MakeEntry("Good", bundled: true), MakeEntry("Bad", bundled: true)] };
+        var bundle = PatchBundle.Of(new Dictionary<string, ExmodPackageContents>
+        {
+            ["Good"] = MakeExmod("Good"),
+            ["Bad"] = MakeExmod("bad/name"),
+        });
+
+        await Assert.ThrowsAsync<FormatException>(() => _service.ExportAsync(manifest, bundle, path));
+
+        Assert.Equal("old patch bytes", await File.ReadAllTextAsync(path));
+        Assert.Empty(Directory.GetFiles(_dir, "*.tmp"));
+    }
+
+    /// <summary>
+    /// A bundled UE4SS file named with an NTFS stream (":hidden") or a device name (CON) is refused
+    /// like any other entry the shared path guard rejects: it used to be extracted.
+    /// </summary>
+    [Theory]
+    [InlineData("BundledUe4ss/Evil/readme.txt:hidden")]
+    [InlineData("BundledUe4ss/Evil/CON")]
+    public async Task ImportAsync_BundledEntryWithAStreamOrDeviceName_IsRefused(string entryName)
+    {
+        var manifest = new PatchManifest
+        {
+            FormatVersion = 2, ProfileName = "Bad",
+            Ue4ssMods = [new PatchUe4ssEntry { Name = "Evil", Bundled = true }],
+        };
+        var path = Path.Combine(_dir, "evil.zip");
+        using (var zip = new System.IO.Compression.ZipArchive(File.Create(path), System.IO.Compression.ZipArchiveMode.Create))
+        {
+            using (var w = new StreamWriter(zip.CreateEntry("manifest.json").Open()))
+            {
+                w.Write(System.Text.Json.JsonSerializer.Serialize(manifest));
+            }
+
+            zip.CreateEntry("BundledUe4ss/Evil/main.lua").Open().Dispose();
+            using (var w = new StreamWriter(zip.CreateEntry(entryName).Open()))
+            {
+                w.Write("x");
+            }
+        }
+
+        var ex = await Record.ExceptionAsync(async () =>
+        {
+            using var result = await _service.ImportAsync(path);
+        });
+
+        var refused = Assert.IsType<FormatException>(ex);
+        Assert.Contains("outside its folder", refused.Message);
+    }
+
+    private static ExmodPackageContents ZeroFilledExmod(string fileName, int bytes) =>
+        new(
+            new ExmodPackage { Name = fileName, Author = "A", Version = "1.0", Description = "D", FileName = fileName },
+            [new ExmodAssetEntry("zeros.bin", new byte[bytes])]);
+
+    /// <summary>
+    /// Regression: each bundled EXMODZ got a fresh 1 GB budget of its own, so a patch of many small
+    /// zip-bombed mods could make import hold many GB at once. All bundled mods share one limit;
+    /// zeros compress to almost nothing, so only their read size goes over it.
+    /// </summary>
+    [Fact]
+    public async Task ImportAsync_BundledModsTogetherOverTheLimit_IsRefused()
+    {
+        var service = new PatchService(maxBundledBytes: 10_000);
+        var one = Path.Combine(_dir, "one.zip");
+        var two = Path.Combine(_dir, "two.zip");
+        await _service.ExportAsync(
+            new PatchManifest { ProfileName = "One", Mods = [MakeEntry("A", bundled: true)] },
+            PatchBundle.Of(new Dictionary<string, ExmodPackageContents> { ["A"] = ZeroFilledExmod("A", 4_000) }),
+            one);
+        await _service.ExportAsync(
+            new PatchManifest { ProfileName = "Two", Mods = [MakeEntry("A", bundled: true), MakeEntry("B", bundled: true)] },
+            PatchBundle.Of(new Dictionary<string, ExmodPackageContents> { ["A"] = ZeroFilledExmod("A", 4_000), ["B"] = ZeroFilledExmod("B", 4_000) }),
+            two);
+
+        using (var alone = await service.ImportAsync(one))
+        {
+            Assert.Single(alone.BundledMods);
+        }
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => service.ImportAsync(two));
+        Assert.Contains("maximum total size", ex.Message);
+    }
+
+    /// <summary>
+    /// Regression: a bundled ArcFission Library carried the exporter's session files (state.lua,
+    /// registry.txt…) into a friend's copy, which then started from the exporter's session. The
+    /// user's own switch core_off.txt still travels.
+    /// </summary>
+    [Fact]
+    public async Task ExportAsync_ArcFissionLibrary_LeavesItsSessionFilesOut()
+    {
+        var folder = Path.Combine(_dir, "ArcFissionLibrary");
+        Directory.CreateDirectory(Path.Combine(folder, "Scripts"));
+        foreach (var file in new[] { "Scripts/main.lua", "state.lua", "status.lua", "registry.txt", "core_queue.txt", "core_running.txt", "core_off.txt" })
+        {
+            File.WriteAllText(Path.Combine(folder, file), "x");
+        }
+
+        var manifest = new PatchManifest
+        {
+            FormatVersion = PatchManifest.CurrentFormatVersion, ProfileName = "Arc",
+            Ue4ssMods = [new PatchUe4ssEntry { Name = "ArcFissionLibrary", Bundled = true }],
+        };
+        var bundle = PatchBundle.Empty with { Ue4ssFolders = new Dictionary<string, string> { ["ArcFissionLibrary"] = folder } };
+        var path = Path.Combine(_dir, "arc.zip");
+
+        await _service.ExportAsync(manifest, bundle, path);
+
+        using var zip = System.IO.Compression.ZipFile.OpenRead(path);
+        var entries = zip.Entries.Select(e => e.FullName).Where(n => n.StartsWith("BundledUe4ss/", StringComparison.Ordinal)).Order(StringComparer.Ordinal);
+        Assert.Equal(["BundledUe4ss/ArcFissionLibrary/Scripts/main.lua", "BundledUe4ss/ArcFissionLibrary/core_off.txt"], entries);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

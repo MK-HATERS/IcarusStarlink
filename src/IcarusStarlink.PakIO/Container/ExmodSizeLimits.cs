@@ -15,7 +15,8 @@ internal static class ExmodSizeLimits
 /// shared by ExmodzArchive.Read and ExmodFolder.Read so the two size checks (and their enforcement
 /// order: per-entry before accumulating) only need to be implemented once.
 /// </summary>
-internal sealed class ExmodSizeBudget(string totalDescription)
+/// <param name="maxTotalBytes">The total cap; one budget shared by several archives (a patch's bundled mods) caps them together.</param>
+internal sealed class ExmodSizeBudget(string totalDescription, long maxTotalBytes = ExmodSizeLimits.MaxTotalAssetBytes)
 {
     private long _total;
 
@@ -37,11 +38,11 @@ internal sealed class ExmodSizeBudget(string totalDescription)
         }
 
         _total += declaredLength;
-        if (_total > ExmodSizeLimits.MaxTotalAssetBytes)
+        if (_total > maxTotalBytes)
         {
             throw new FormatException(
                 $"{totalDescription} exceeds the maximum total size " +
-                $"({ExmodSizeLimits.MaxTotalAssetBytes:N0} bytes) — refusing to read it.");
+                $"({maxTotalBytes:N0} bytes) — refusing to read it.");
         }
     }
 }

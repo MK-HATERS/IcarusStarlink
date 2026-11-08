@@ -10,7 +10,7 @@ namespace IcarusStarlink.PakIO.Patches;
 /// </summary>
 /// <param name="Exmods">Bundled EXMOD mods, by Library folder name.</param>
 /// <param name="PakFolders">Bundled pak mods, by Library folder name: the pak files to carry.</param>
-/// <param name="Ue4ssFolders">Bundled UE4SS mods, by mod name: the mod folder to carry (logs, backups and enabled.txt are left out).</param>
+/// <param name="Ue4ssFolders">Bundled UE4SS mods, by mod name: the mod folder to carry (logs, backups, enabled.txt and ArcFission Library's session files are left out).</param>
 public sealed record PatchBundle(
     IReadOnlyDictionary<string, ExmodPackageContents> Exmods,
     IReadOnlyDictionary<string, IReadOnlyList<string>> PakFolders,
@@ -32,7 +32,8 @@ public interface IPatchService
     /// containing manifest.json plus one real, standalone .EXMODZ entry per bundled EXMOD
     /// (Bundled/&lt;FolderName&gt;.EXMODZ), the pak files of each bundled pak mod
     /// (BundledPaks/&lt;FolderName&gt;/&lt;file&gt;.pak) and the files of each bundled UE4SS mod
-    /// (BundledUe4ss/&lt;Name&gt;/…).
+    /// (BundledUe4ss/&lt;Name&gt;/…). Runs off the caller's thread; a failed or cancelled export
+    /// leaves any earlier file at outputPath as it was.
     /// </summary>
     Task ExportAsync(PatchManifest manifest, PatchBundle bundle, string outputPath, CancellationToken cancellationToken = default);
 

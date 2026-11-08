@@ -1,8 +1,10 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Patches;
 using IcarusStarlink.PakIO.Container;
+using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.PakIO.Patches;
 
@@ -27,19 +29,44 @@ public sealed class PatchService : IPatchService
     /// <summary>What a bundled UE4SS mod folder leaves behind: the copy's own runtime files, not the mod.</summary>
     private static readonly string[] Ue4ssSkippedExtensions = [".log", ".bak", ".tmp", ".old", ".cache"];
 
-    public Task ExportAsync(PatchManifest manifest, PatchBundle bundle, string outputPath, CancellationToken cancellationToken = default)
+    private readonly long _maxBundledBytes;
+
+    public PatchService()
+        : this(ExmodSizeLimits.MaxTotalAssetBytes)
     {
-        var json = JsonSerializer.Serialize(manifest, JsonOptions);
+    }
 
-        if (bundle.IsEmpty)
-        {
-            File.WriteAllText(outputPath, json);
-            return Task.CompletedTask;
-        }
+    /// <param name="maxBundledBytes">How much all bundled EXMOD mods may hold together once read, so tests can use a small limit.</param>
+    internal PatchService(long maxBundledBytes) => _maxBundledBytes = maxBundledBytes;
 
-        using var fileStream = File.Create(outputPath);
-        using var archive = new ZipArchive(fileStream, ZipArchiveMode.Create);
+    /// <summary>
+    /// Runs on a worker thread (deflating every bundled mod and copying paks takes a while), and
+    /// writes through a temp file beside outputPath that replaces it only once the whole patch is
+    /// written: a failure or a cancel leaves an earlier patch at that path as it was.
+    /// </summary>
+    public Task ExportAsync(PatchManifest manifest, PatchBundle bundle, string outputPath, CancellationToken cancellationToken = default) =>
+        Task.Run(
+            () =>
+            {
+                var json = JsonSerializer.Serialize(manifest, JsonOptions);
+                if (bundle.IsEmpty)
+                {
+                    AtomicFile.WriteAllText(outputPath, json);
+                    return;
+                }
 
+                AtomicFile.Write(outputPath, temp =>
+                {
+                    // Disposed inside the callback: the zip's directory is written before the move.
+                    using var fileStream = File.Create(temp);
+                    using var archive = new ZipArchive(fileStream, ZipArchiveMode.Create);
+                    WriteZipPatch(archive, json, bundle, cancellationToken);
+                });
+            },
+            cancellationToken);
+
+    private static void WriteZipPatch(ZipArchive archive, string json, PatchBundle bundle, CancellationToken cancellationToken)
+    {
         var manifestEntry = archive.CreateEntry("manifest.json", CompressionLevel.Optimal);
         using (var entryStream = manifestEntry.Open())
         using (var writer = new StreamWriter(entryStream))
@@ -74,7 +101,7 @@ public sealed class PatchService : IPatchService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var relative = Path.GetRelativePath(folder, file);
-                if (IsUe4ssRuntimeFile(relative))
+                if (IsCopyOwnFile(folder, relative))
                 {
                     continue;
                 }
@@ -82,27 +109,51 @@ public sealed class PatchService : IPatchService
                 archive.CreateEntryFromFile(file, $"BundledUe4ss/{name}/{relative.Replace('\\', '/')}", CompressionLevel.Optimal);
             }
         }
-
-        return Task.CompletedTask;
     }
 
-    /// <summary>enabled.txt (the exporter's on/off), logs, backups and caches: the copy's, not the mod's.</summary>
-    private static bool IsUe4ssRuntimeFile(string relativePath) =>
-        string.Equals(relativePath, "enabled.txt", StringComparison.OrdinalIgnoreCase)
-        || Ue4ssSkippedExtensions.Contains(Path.GetExtension(relativePath).ToLowerInvariant());
+    /// <summary>
+    /// What ArcFission Library (and the ArcFission mods talking to it) write in its folder while the
+    /// game runs: state.lua (what the current data pak was built from), status.lua (its answer to
+    /// the mods), registry.txt (each mod's handshake this session), core_queue.txt and
+    /// core_running.txt (written each start). They describe the exporter's own session, not
+    /// settings: carried into a friend's copy they're stale there. core_off.txt is the user's own
+    /// switch and isn't one of these. Core's ServerUe4ssSync leaves the same files out of a server.
+    /// </summary>
+    private static readonly string[] ArcFissionLibrarySessionFiles = ["state.lua", "status.lua", "registry.txt", "core_queue.txt", "core_running.txt"];
 
-    public Task<PatchImportContents> ImportAsync(string patchFilePath, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// A file of this copy of the mod, not of the mod: enabled.txt (the exporter's on/off), logs,
+    /// backups and caches, and ArcFission Library's session files (in a folder whose name read as
+    /// letters and digits starts with "ArcFissionLibrary", as InstallManifestNames finds it).
+    /// </summary>
+    private static bool IsCopyOwnFile(string modFolder, string relativePath)
     {
-        using var fileStream = File.OpenRead(patchFilePath);
+        if (string.Equals(relativePath, "enabled.txt", StringComparison.OrdinalIgnoreCase)
+            || Ue4ssSkippedExtensions.Contains(Path.GetExtension(relativePath).ToLowerInvariant()))
+        {
+            return true;
+        }
 
-        var header = new byte[4];
-        var headerBytesRead = fileStream.Read(header, 0, header.Length);
-        fileStream.Position = 0;
-        var isZip = headerBytesRead >= 2 && header[0] == 0x50 && header[1] == 0x4B; // 'P' 'K'
-
-        var result = isZip ? ReadZipPatch(fileStream, cancellationToken) : ReadJsonPatch(fileStream);
-        return Task.FromResult(result);
+        var letters = new string([.. Path.GetFileName(Path.TrimEndingDirectorySeparator(modFolder)).Where(char.IsLetterOrDigit)]);
+        return letters.StartsWith("ArcFissionLibrary", StringComparison.OrdinalIgnoreCase)
+            && ArcFissionLibrarySessionFiles.Contains(relativePath, StringComparer.OrdinalIgnoreCase);
     }
+
+    /// <summary>Runs on a worker thread: a patch's bundled mods are inflated and its paks written to disk.</summary>
+    public Task<PatchImportContents> ImportAsync(string patchFilePath, CancellationToken cancellationToken = default) =>
+        Task.Run(
+            () =>
+            {
+                using var fileStream = File.OpenRead(patchFilePath);
+
+                var header = new byte[4];
+                var headerBytesRead = fileStream.Read(header, 0, header.Length);
+                fileStream.Position = 0;
+                var isZip = headerBytesRead >= 2 && header[0] == 0x50 && header[1] == 0x4B; // 'P' 'K'
+
+                return isZip ? ReadZipPatch(fileStream, cancellationToken) : ReadJsonPatch(fileStream);
+            },
+            cancellationToken);
 
     private static PatchImportContents ReadJsonPatch(Stream stream)
     {
@@ -112,13 +163,16 @@ public sealed class PatchService : IPatchService
         return new PatchImportContents(manifest, new Dictionary<string, ExmodPackageContents>());
     }
 
-    private static PatchImportContents ReadZipPatch(Stream stream, CancellationToken cancellationToken)
+    private PatchImportContents ReadZipPatch(Stream stream, CancellationToken cancellationToken)
     {
         string? extractedRoot = null;
         try
         {
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
-            var sizeBudget = new ExmodSizeBudget("Patch archive");
+            // One budget for the manifest and every bundled mod, packed and read: each bundled
+            // EXMODZ used to get a fresh 1 GB of its own, so many small zip bombs could add up to
+            // many GB held at once.
+            var sizeBudget = new ExmodSizeBudget("Patch archive", _maxBundledBytes);
 
             var manifestEntry = archive.GetEntry("manifest.json")
                 ?? throw new FormatException("Patch archive is missing manifest.json.");
@@ -132,7 +186,7 @@ public sealed class PatchService : IPatchService
                     ?? throw new FormatException($"Patch archive is missing the bundled mod '{mod.Name}' ({entryName}).");
                 var bytes = ReadEntryBytes(entry, sizeBudget, entryName);
                 using var entryContentStream = new MemoryStream(bytes, writable: false);
-                bundledMods[mod.FolderName] = ExmodzArchive.Read(entryContentStream);
+                bundledMods[mod.FolderName] = ExmodzArchive.Read(entryContentStream, sizeBudget);
             }
 
             // Paks and UE4SS folders go to disk: a pak can be hundreds of MB.
@@ -212,10 +266,16 @@ public sealed class PatchService : IPatchService
                 throw new FormatException($"Patch archive exceeds the maximum total size ({MaxExtractedBytes:N0} bytes) — refusing to read it.");
             }
 
-            var destination = Path.GetFullPath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
-            if (!destination.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            // The shared guard, not only a containment check: it also refuses an NTFS stream
+            // ("readme.txt:hidden") and a device name (CON).
+            string destination;
+            try
             {
-                throw new FormatException($"Patch archive entry '{entry.FullName}' points outside its folder — refusing to extract it.");
+                destination = AssetPathGuard.ResolveWithinDirectory(root, relative);
+            }
+            catch (FormatException ex)
+            {
+                throw new FormatException($"Patch archive entry '{entry.FullName}' points outside its folder or isn't a name Windows can use, so it wasn't extracted.", ex);
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
@@ -253,18 +313,12 @@ public sealed class PatchService : IPatchService
     private static string SafeFolderName(string name) =>
         string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)) is { Length: > 0 } s ? s : "_";
 
+    /// <summary>Best effort: a leftover temp folder isn't worth hiding the import's own error.</summary>
     private static void TryDelete(string? folder)
     {
-        try
+        if (folder is not null)
         {
-            if (folder is not null && Directory.Exists(folder))
-            {
-                Directory.Delete(folder, recursive: true);
-            }
-        }
-        catch (Exception)
-        {
-            // Best effort.
+            Directories.TryDelete(folder);
         }
     }
 

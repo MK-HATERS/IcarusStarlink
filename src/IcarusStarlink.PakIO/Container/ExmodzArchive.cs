@@ -21,7 +21,10 @@ public static class ExmodzArchive
     /// <summary>A name + declared size + a way to open its content, uniform across ZipArchiveEntry and SharpCompress's IArchiveEntry so ReadEntries only needs to be written once.</summary>
     private readonly record struct ArchiveEntryHandle(string Name, long Length, Func<Stream> Open);
 
-    public static ExmodPackageContents Read(Stream zipStream)
+    public static ExmodPackageContents Read(Stream zipStream) => Read(zipStream, new ExmodSizeBudget("Archive"));
+
+    /// <param name="sizeBudget">What this archive's contents are charged to; a caller reading several archives passes one budget to cap them together.</param>
+    internal static ExmodPackageContents Read(Stream zipStream, ExmodSizeBudget sizeBudget)
     {
         try
         {
@@ -40,7 +43,7 @@ public static class ExmodzArchive
                 .Select(e => new ArchiveEntryHandle(e.FullName.Replace('\\', '/'), e.Length, e.Open))
                 .ToList();
 
-            return ReadEntries(entries);
+            return ReadEntries(entries, sizeBudget);
         }
         catch (InvalidDataException ex)
         {
@@ -90,7 +93,7 @@ public static class ExmodzArchive
                 .Select(e => new ArchiveEntryHandle(NormalizeEntryKey(e.Key, archiveType), e.Size, e.OpenEntryStream))
                 .ToList();
 
-            return ReadEntries(entries);
+            return ReadEntries(entries, new ExmodSizeBudget("Archive"));
         }
         catch (Exception ex) when (ex is not FormatException)
         {
@@ -119,7 +122,7 @@ public static class ExmodzArchive
     /// .EXMOD entry, every asset path safe and non-duplicate, every declared size enforced exactly
     /// (not more, not fewer bytes than claimed) via ReadExactly + a trailing-byte check.
     /// </summary>
-    private static ExmodPackageContents ReadEntries(IReadOnlyList<ArchiveEntryHandle> entries)
+    private static ExmodPackageContents ReadEntries(IReadOnlyList<ArchiveEntryHandle> entries, ExmodSizeBudget sizeBudget)
     {
         var exmodEntries = entries
             .Where(e => e.Name.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase))
@@ -136,7 +139,6 @@ public static class ExmodzArchive
         }
 
         var exmodEntry = exmodEntries[0];
-        var sizeBudget = new ExmodSizeBudget("Archive");
 
         // The .EXMOD entry is just as untrusted as the asset entries below it — see
         // ArchiveEntryReader's own doc comment for why a plain unbounded ReadToEnd() isn't used.
