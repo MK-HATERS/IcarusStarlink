@@ -97,9 +97,9 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// data) and opaque/prebuilt .pak entries (LibraryEntry.IsOpaquePak, no .EXMOD — unpacked and
     /// folded into the same merged pak instead, see RebuildService). Both live in one list since
     /// both end up in the same output; LoadQueuedPackagesAsync is what splits them back apart for
-    /// RebuildService's own two-parameter signature. Mods reach this queue from Library's own
-    /// multi-select + "Add to merge queue" action (AddToQueueByFolderNames) — this page has no
-    /// Library browsing pane of its own.
+    /// RebuildService's own two-parameter signature. Mods reach this queue from the Library's On
+    /// tick, for one mod or a multi-selection (AddToQueueByFolderNames) — this page has no Library
+    /// browsing pane of its own.
     /// </summary>
     public ObservableCollection<LibraryEntry> Queue { get; } = [];
 
@@ -219,7 +219,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
 
         // Any queue change clears the conflict status line and saves the working state. The
         // conflict/validation recompute is debounced (_recomputeDebounceTimer, above) rather than
-        // kicked off directly here: a multi-select "Add to merge queue" or a fast drag-reorder fires
+        // kicked off directly here: ticking On for a multi-selection in the Library or a fast drag-reorder fires
         // this handler many times in a row. The cheap, synchronous resets below still happen on
         // every single mutation, so status text never lingers stale even mid-burst.
         Queue.CollectionChanged += (_, _) =>

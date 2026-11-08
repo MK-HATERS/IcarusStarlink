@@ -174,6 +174,35 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
     }
 
     /// <summary>
+    /// Loads a classic IMM mod list into a profile of its own (made when it doesn't exist, used
+    /// again on a later run), so the profile in use and its list are left as they are. A later run
+    /// replaces that profile's list, keeping the one from before as a backup point.
+    /// </summary>
+    internal void LoadModListIntoOwnProfile(string listPath, string profileName)
+    {
+        if (RefuseWhileRebuilding())
+        {
+            return;
+        }
+
+        // Anything changed but not yet saved goes into the profile in use before it's left.
+        SaveWorkingState();
+        var existing = ProfileNames.FirstOrDefault(n => string.Equals(n, profileName, StringComparison.OrdinalIgnoreCase));
+        if (existing is null)
+        {
+            _profileStore.Save(new Profile { Name = profileName });
+            ReloadProfileNames();
+            existing = ProfileNames.FirstOrDefault(n => string.Equals(n, profileName, StringComparison.OrdinalIgnoreCase)) ?? profileName;
+        }
+
+        SelectedProfileName = existing;
+        var loaded = LoadModListFromFile(listPath);
+        StatusMessage = loaded
+            ? $"Loaded the classic IMM list into profile '{existing}' (your other profiles weren't changed). {StatusMessage}"
+            : $"Profile '{existing}': {StatusMessage}";
+    }
+
+    /// <summary>
     /// Loads a classic-IMM merge list (LastMergedMods.txt / IMM_Merged_Mod.txt — or this app's own
     /// ISL-Merged.txt, same format) and rebuilds the queue from it, in the list's own order (merge
     /// priority). REPLACES the current queue, matching classic IMM's own "Load Merge list"
@@ -187,16 +216,26 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
     /// the queue as it was. Settings repeats StatusMessage after its own line, so it names where
     /// things are rather than "below".
     ///
-    /// Public and called only by Settings' own classic-IMM migration (which finishes the job it
-    /// starts: bringing the mods over is only half a migration — the user's actual merge list, in
-    /// its real order, is the other half) — this page no longer has its own separate file-dialog
-    /// entry point for it (removed as a redundant-looking near-duplicate of the Settings flow).
+    /// Used by Settings' own classic-IMM migration, through LoadModListIntoOwnProfile (which picks
+    /// the profile first): bringing the mods over is only half a migration — the user's actual
+    /// merge list, in its real order, is the other half. This page has no file-dialog entry point
+    /// of its own for it.
     /// </summary>
-    public void LoadModListFromFile(string modListPath)
+    /// <returns>True when the list replaced the queue.</returns>
+    public bool LoadModListFromFile(string modListPath)
     {
         if (RefuseWhileRebuilding())
         {
-            return;
+            return false;
+        }
+
+        var profile = SelectedProfileName ?? "Default";
+        if (IsUnloadable(profile))
+        {
+            // Its backup step would save the list shown (another profile's) into it first.
+            StatusMessage = $"'{profile}' couldn't be loaded, so the list shown isn't its own and the list wasn't loaded into it. Fix or delete its file first, or pick another profile.";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
+            return false;
         }
 
         try
@@ -205,7 +244,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             if (names.Count == 0)
             {
                 StatusMessage = "That file has no mod names in it.";
-                return;
+                return false;
             }
 
             var result = ModListMatcher.Match(names, _libraryRepository.GetAll());
@@ -229,10 +268,9 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
                     : "Nothing on that list can be ticked (only packs Merge & Install built), so the merge list was left as it was.")
                     + " They're listed under Warnings on Merge & Install.";
                 _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
-                return;
+                return false;
             }
 
-            var profile = SelectedProfileName ?? "Default";
             var keptBefore = "";
             if (Queue.Count > 0)
             {
@@ -244,7 +282,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
                 {
                     StatusMessage = $"Couldn't back up the list of profile '{profile}' first ({ex.Message}), so it wasn't replaced.";
                     _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
-                    return;
+                    return false;
                 }
 
                 keptBefore = $" The list profile '{profile}' had before is kept: Profile ▾ › Restore profile backup brings it back.";
@@ -262,6 +300,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
                 + keptBefore;
             _activityLog.Log($"Imported IMM mod list — {result.Matched.Count} of {names.Count} matched.",
                 result.Unmatched.Count == 0 ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
+            return true;
         }
         catch (Exception ex)
         {
@@ -269,6 +308,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             // status message rather than crashing the app.
             StatusMessage = $"Couldn't import the list: {ex.Message}";
             _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
+            return false;
         }
     }
 
@@ -296,7 +336,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
     /// <summary>
     /// Set while an import adds the patch's mods to the Library (off the UI thread, across awaits):
-    /// a second import is refused meanwhile.
+    /// a second import is refused meanwhile, and so is a build.
     /// </summary>
     private bool _isImportingPatch;
 
@@ -716,14 +756,15 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
     }
 
     /// <summary>
-    /// Whether a Library copy under the patch mod's folder name is the same mod. A copy the player
-    /// renamed shows the rename as its Name, not the name the mod declares, so for it the author
-    /// alone decides (the folder name already matched).
+    /// Whether a Library copy under the patch mod's folder name is the same mod, by the name the
+    /// mod declares and its author. A copy the player renamed shows the rename as its Name, so the
+    /// declared name is used; a renamed pak mod has none, so for it the author alone decides (the
+    /// folder name already matched).
     /// </summary>
     private static bool IsSameNameAndAuthor(LibraryEntry entry, PatchModEntry mod) =>
-        entry.DisplayNameOverride is null
-            ? CatalogKey.Normalize(entry.Name, entry.Author) == CatalogKey.Normalize(mod.Name, mod.Author)
-            : CatalogKey.Normalize("", entry.Author) == CatalogKey.Normalize("", mod.Author);
+        entry.DisplayNameOverride is not null && entry.DeclaredName is null
+            ? CatalogKey.Normalize("", entry.Author) == CatalogKey.Normalize("", mod.Author)
+            : CatalogKey.Normalize(entry.DeclaredName ?? entry.Name, entry.Author) == CatalogKey.Normalize(mod.Name, mod.Author);
 
     /// <summary>The patch mod's name (for the summary) when another Library mod already has the folder name its copy would take, else null.</summary>
     private string? BesideAnother(PatchModEntry mod, string folderName) =>

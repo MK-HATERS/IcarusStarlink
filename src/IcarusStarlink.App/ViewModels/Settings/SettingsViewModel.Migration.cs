@@ -40,7 +40,10 @@ public sealed partial class SettingsViewModel
             : $"Careful: that folder has no Extracted_Mods + {ImmExtractedMods.FileName} in it, so it may not be a classic IMM install.";
     }
 
-    private const string ImmFolderPickerTitle = "Select your classic IMM folder (the one containing Extracted_Mods)";
+    /// <summary>The Merge &amp; Install profile Migrate from IMM puts the classic list in (made on the first run, used again after).</summary>
+    private const string ClassicImmProfileName = "Classic IMM";
+
+    private const string ImmFolderPickerTitle ="Select your classic IMM folder (the one containing Extracted_Mods)";
 
     public ObservableCollection<string> MigrationResults { get; } = [];
 
@@ -114,8 +117,9 @@ public sealed partial class SettingsViewModel
             // so a user who migrates before ever opening Merge & Install would have no instance
             // listening, and the queue would silently stay empty (found live).
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            // Into a profile of its own, so the profiles the player made in Starlink stay as they are.
             var mergeInstall = _mergeInstallViewModel();
-            mergeInstall.LoadModListFromFile(listPath);
+            mergeInstall.LoadModListIntoOwnProfile(listPath, ClassicImmProfileName);
 
             var linked = new List<string>();
             if (result.LinkedToDatabaseCount > 0)
@@ -154,7 +158,7 @@ public sealed partial class SettingsViewModel
                 + (problems.Count > 0 ? $" — {string.Join(", ", problems)}; see the list below." : ".")
                 // Merge & Install's own line for the list: queued, refused while a build runs, no
                 // names in it, or couldn't be read. It used to say "queued" whatever happened.
-                + (mergeInstall.StatusMessage is { Length: > 0 } mergeListStatus ? $" Merge list: {mergeListStatus}" : "")
+                + (mergeInstall.StatusMessage is { Length: > 0 } mergeListStatus ? $" Merge list (profile '{ClassicImmProfileName}'): {mergeListStatus}" : "")
                 + (result.FailedCatalogSources.Count > 0
                     ? $" ({string.Join(" and ", result.FailedCatalogSources)} unavailable — some mods may have missed a database link; try migrating again.)"
                     : "");

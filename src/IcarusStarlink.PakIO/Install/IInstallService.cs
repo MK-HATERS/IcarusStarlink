@@ -38,12 +38,11 @@ public interface IInstallService
     /// <summary>
     /// Puts the newest merged pak backup (and the ISL-Merged.txt backup made with it) back into
     /// Content\Paks\mods, after backing up what's installed now, so it can be undone the same way.
-    /// Returns what was restored, or null when there's no backup to restore. stagedPakFileName
-    /// isn't used: the installed name is worked out from the game folder
-    /// (InstallManifestNames.InstalledMergedPakFileName).
+    /// Returns what was restored, or null when there's no backup to restore. The installed name is
+    /// worked out from the game folder (InstallManifestNames.InstalledMergedPakFileName).
     /// </summary>
     Task<PreviousInstall?> RestorePreviousInstallAsync(
-        string stagedPakFileName, string icarusContentPath, string backupDirectory,
+        string icarusContentPath, string backupDirectory,
         CancellationToken cancellationToken = default);
 
     /// <summary>Reads this app's own manifest back from the real game folder — mod names from the pak's ISL-Merged.txt — for the "installed vs this list" comparison. Empty (never throws) if the manifest, or the game folder itself, doesn't exist yet.</summary>
@@ -52,15 +51,14 @@ public interface IInstallService
     /// <summary>
     /// Deletes the real installed pak (and its sibling manifest, if present) from
     /// Content\Paks\mods — a standalone uninstall, independent of Install. Backs up whatever it
-    /// removes first, the same backups InstallAsync makes, so it can be undone. stagedPakFileName
-    /// isn't used: the installed name is worked out from the game folder
-    /// (InstallManifestNames.InstalledMergedPakFileName), and the merged pak under every name it
-    /// has had (AllMergedPakFileNames) is removed too. No staged file needs to exist on disk for
-    /// this to run, unlike InstallAsync. Returns false (not an error) if nothing this app
-    /// recognizes was installed there to begin with. backUpWhatsThere false: as InstallAsync's
+    /// removes first, the same backups InstallAsync makes, so it can be undone. The installed name
+    /// is worked out from the game folder (InstallManifestNames.InstalledMergedPakFileName), and
+    /// the merged pak under every name it has had (AllMergedPakFileNames) is removed too. No
+    /// staged file is needed, unlike InstallAsync. Returns false (not an error) if nothing this
+    /// app recognizes was installed there to begin with. backUpWhatsThere false: as InstallAsync's
     /// (a later Find the broken mod round removes a round pak without backing it up).
     /// </summary>
     Task<bool> RemoveInstalledPakAsync(
-        string stagedPakFileName, string icarusContentPath, string backupDirectory,
+        string icarusContentPath, string backupDirectory,
         CancellationToken cancellationToken = default, bool backUpWhatsThere = true);
 }

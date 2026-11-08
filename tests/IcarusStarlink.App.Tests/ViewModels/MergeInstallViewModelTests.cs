@@ -2874,10 +2874,14 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         /// <summary>Per pak path, the changes ComputePrebuiltPakFieldChangesAsync reports for it (none by default).</summary>
         public Dictionary<string, IReadOnlyList<FieldChange>> PrebuiltPakChanges { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Runs at the start of ComputePrebuiltPakFieldChangesAsync with the token it was handed (a test presses Cancel here).</summary>
+        public Action<CancellationToken>? DuringPrebuiltPakDiff { get; set; }
+
         public Task<IReadOnlyList<(string PakName, IReadOnlyList<FieldChange> Changes)>> ComputePrebuiltPakFieldChangesAsync(
             IReadOnlyList<string> prebuiltPakFilePaths, string dataFolder, string unrealPakExePath, MergeReport report,
             CancellationToken cancellationToken = default)
         {
+            DuringPrebuiltPakDiff?.Invoke(cancellationToken);
             Interlocked.Increment(ref _prebuiltPakDiffCount);
             return Task.FromResult<IReadOnlyList<(string PakName, IReadOnlyList<FieldChange> Changes)>>(
                 [.. prebuiltPakFilePaths
@@ -2929,7 +2933,7 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         public Task<PreviousInstall?> FindPreviousInstallAsync(string backupDirectory, CancellationToken cancellationToken = default) =>
             Task.FromResult(Previous);
 
-        public Task<PreviousInstall?> RestorePreviousInstallAsync(string stagedPakFileName, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default)
+        public Task<PreviousInstall?> RestorePreviousInstallAsync(string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default)
         {
             RestoreCallCount++;
             return Task.FromResult(Previous);
@@ -2940,7 +2944,7 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         public Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default) =>
             Task.FromResult(new InstalledState(InstalledModNames));
 
-        public Task<bool> RemoveInstalledPakAsync(string stagedPakFileName, string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default, bool backUpWhatsThere = true)
+        public Task<bool> RemoveInstalledPakAsync(string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default, bool backUpWhatsThere = true)
         {
             RemoveCallCount++;
             BackUps.Add(backUpWhatsThere);

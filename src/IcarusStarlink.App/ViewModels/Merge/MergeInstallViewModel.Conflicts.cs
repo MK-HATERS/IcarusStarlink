@@ -159,7 +159,8 @@ public sealed partial class MergeInstallViewModel
     /// <summary>Bumped with every clear of _prebuiltPakChangesCache for new game data (under _packageCacheLock).</summary>
     private int _prebuiltPakChangesGeneration;
 
-    private async Task<IReadOnlyList<FieldChange>> GetPrebuiltPakChangesAsync(string pakPath, string unrealPakExePath)
+    /// <summary>A prebuilt pak's changes, from the cache or unpacked and diffed now; a build's Cancel stops the unpack.</summary>
+    private async Task<IReadOnlyList<FieldChange>> GetPrebuiltPakChangesAsync(string pakPath, string unrealPakExePath, CancellationToken cancellationToken = default)
     {
         var file = new FileInfo(pakPath);
         var stamp = (file.Exists ? file.Length : -1, file.Exists ? file.LastWriteTimeUtc : DateTime.MinValue);
@@ -174,7 +175,7 @@ public sealed partial class MergeInstallViewModel
             generation = _prebuiltPakChangesGeneration;
         }
 
-        var results = await _rebuildService.ComputePrebuiltPakFieldChangesAsync([pakPath], _dataFolder, unrealPakExePath, new MergeReport());
+        var results = await _rebuildService.ComputePrebuiltPakFieldChangesAsync([pakPath], _dataFolder, unrealPakExePath, new MergeReport(), cancellationToken);
         IReadOnlyList<FieldChange> changes = results.Count > 0 ? results[0].Changes : [];
         lock (_packageCacheLock)
         {
@@ -205,7 +206,7 @@ public sealed partial class MergeInstallViewModel
     /// disagree on one field's value" (see NewItemNameCollision's own doc comment), surfaced through
     /// the same picker rather than a parallel mechanism.
     /// </summary>
-    private async Task<QueueConflicts> FindQueueConflictsAsync(BuildSnapshot snapshot, LoadedQueue loaded)
+    private async Task<QueueConflicts> FindQueueConflictsAsync(BuildSnapshot snapshot, LoadedQueue loaded, CancellationToken cancellationToken = default)
     {
         var classifier = new DefaultSemanticClassifier();
         var unrealPak = snapshot.UnrealPakExePath;
@@ -244,7 +245,7 @@ public sealed partial class MergeInstallViewModel
                     break;
                 case MergeParticipantKind.Pak:
                     var pakPath = loaded.PrebuiltPakFilePaths[participant.Index];
-                    var pakChanges = await GetPrebuiltPakChangesAsync(pakPath, unrealPak);
+                    var pakChanges = await GetPrebuiltPakChangesAsync(pakPath, unrealPak, cancellationToken);
                     if (pakChanges.Count > 0)
                     {
                         var pakName = Path.GetFileNameWithoutExtension(pakPath);
@@ -438,14 +439,14 @@ public sealed partial class MergeInstallViewModel
     /// a conflict (the value isn't changed differently any more, or that mod doesn't change it).
     /// </summary>
     private async Task<(IReadOnlyDictionary<(string CurrentFile, string ItemName, string FieldName), int>? Picks, int Unmatched)> ResolveWinnerPicksAsync(
-        BuildSnapshot snapshot, LoadedQueue loaded)
+        BuildSnapshot snapshot, LoadedQueue loaded, CancellationToken cancellationToken = default)
     {
         if (snapshot.Winners.Count == 0)
         {
             return (null, 0);
         }
 
-        var found = await FindQueueConflictsAsync(snapshot, loaded);
+        var found = await FindQueueConflictsAsync(snapshot, loaded, cancellationToken);
         var picks = new Dictionary<(string CurrentFile, string ItemName, string FieldName), int>(FieldChangeKeyComparer.Instance);
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var conflict in found.Conflicts)

@@ -152,7 +152,7 @@ public sealed class InstallService(ISettingsService? settings = null) : IInstall
     }, cancellationToken);
 
     public Task<bool> RemoveInstalledPakAsync(
-        string stagedPakFileName, string icarusContentPath, string backupDirectory,
+        string icarusContentPath, string backupDirectory,
         CancellationToken cancellationToken = default, bool backUpWhatsThere = true) => Task.Run(() =>
     {
         var modsDirectory = Path.Combine(icarusContentPath, "Paks", "mods");
@@ -204,7 +204,7 @@ public sealed class InstallService(ISettingsService? settings = null) : IInstall
         Task.Run(() => BackupCleanup.FindNewestMergedPakBackup(backupDirectory), cancellationToken);
 
     public Task<PreviousInstall?> RestorePreviousInstallAsync(
-        string stagedPakFileName, string icarusContentPath, string backupDirectory,
+        string icarusContentPath, string backupDirectory,
         CancellationToken cancellationToken = default) => Task.Run(() =>
     {
         // Chosen before anything below is backed up, or the copy of what's installed now would be

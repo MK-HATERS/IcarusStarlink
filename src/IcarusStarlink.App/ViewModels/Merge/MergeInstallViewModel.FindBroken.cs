@@ -38,9 +38,12 @@ public sealed partial class MergeInstallViewModel
     private bool FinderSkipsInstallQuestion(int otherFilesToClear, int oldArcFissionCopies) =>
         (_finderOnly is not null || _finderRestoring) && otherFilesToClear == 0 && oldArcFissionCopies == 0;
 
-    /// <summary>More ▾ › Find the broken mod: opens the finder (FindBrokenModLauncher listens).</summary>
+    /// <summary>
+    /// More ▾ › Find the broken mod: opens the finder (FindBrokenModLauncher listens on the app-wide
+    /// messenger, which is this page's messenger in the app).
+    /// </summary>
     [RelayCommand]
-    private void FindBrokenMod() => WeakReferenceMessenger.Default.Send(new OpenFindBrokenModMessage());
+    private void FindBrokenMod() => _messenger.Send(new OpenFindBrokenModMessage());
 
     /// <summary>The queued mods a build would use (no greyed missing rows, no Starlink-built packs), in queue order.</summary>
     internal IReadOnlyList<LibraryEntry> FinderQueue() => [.. Queue.Where(IsBuildable)];
@@ -209,7 +212,7 @@ public sealed partial class MergeInstallViewModel
         IsInstalling = true;
         try
         {
-            await _installService.RemoveInstalledPakAsync(Path.GetFileName(_outputPakPath), content, _backupDirectory, backUpWhatsThere: _finderBacksUp);
+            await _installService.RemoveInstalledPakAsync(content, _backupDirectory, backUpWhatsThere: _finderBacksUp);
             SetHasExistingInstall(false);
             await RefreshInstalledModNamesAsync();
             return null;

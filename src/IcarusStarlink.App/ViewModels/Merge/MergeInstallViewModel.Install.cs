@@ -837,7 +837,7 @@ public sealed partial class MergeInstallViewModel
         try
         {
             var removed = await _installService.RemoveInstalledPakAsync(
-                Path.GetFileName(_outputPakPath), _settingsService.Current.IcarusContentPath!, _backupDirectory);
+                _settingsService.Current.IcarusContentPath!, _backupDirectory);
 
             InstallStatusMessage = removed
                 ? "Removed from Icarus — backed up first."
@@ -900,7 +900,7 @@ public sealed partial class MergeInstallViewModel
 
             InstallStatusMessage = "Restoring…";
             var restored = await _installService.RestorePreviousInstallAsync(
-                Path.GetFileName(_outputPakPath), _settingsService.Current.IcarusContentPath!, _backupDirectory);
+                _settingsService.Current.IcarusContentPath!, _backupDirectory);
             if (restored is null)
             {
                 InstallStatusMessage = "There's no earlier install backed up to restore.";

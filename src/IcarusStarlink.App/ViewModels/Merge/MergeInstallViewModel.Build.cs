@@ -113,6 +113,13 @@ public sealed partial class MergeInstallViewModel
             return false;
         }
 
+        // Import patch adds its mods to the Library across awaits: a build now would use only some of them.
+        if (_isImportingPatch)
+        {
+            StatusMessage = "Import patch is still adding mods to your Library — wait for it to finish, then build.";
+            return false;
+        }
+
         if (!Queue.Any(IsBuildable) && !BuildGameplayOptionsFromUi().IsAnyActive)
         {
             StatusMessage = Queue.Count > 0
@@ -241,7 +248,7 @@ public sealed partial class MergeInstallViewModel
                 RebuildProgressPercent = p.PercentComplete;
             });
 
-            var (picks, unmatchedPicks) = await ResolveWinnerPicksAsync(snapshot, loaded);
+            var (picks, unmatchedPicks) = await ResolveWinnerPicksAsync(snapshot, loaded, cancel);
             cancel.ThrowIfCancellationRequested();
             // A Find the broken mod round leaves mods out, so a winner whose partner is out can't match.
             if (unmatchedPicks > 0 && _finderOnly is null)

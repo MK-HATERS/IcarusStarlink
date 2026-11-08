@@ -294,7 +294,7 @@ public class InstallServiceTests : IDisposable
     [Fact]
     public async Task RemoveInstalledPakAsync_NothingInstalled_ReturnsFalseAndDoesNothing()
     {
-        var removed = await _service.RemoveInstalledPakAsync("zz_zz_ISL-Merged_9999_P.pak", _fakeContentPath, _backupDirectory);
+        var removed = await _service.RemoveInstalledPakAsync(_fakeContentPath, _backupDirectory);
 
         Assert.False(removed);
         Assert.False(Directory.Exists(_backupDirectory));
@@ -305,7 +305,7 @@ public class InstallServiceTests : IDisposable
     {
         await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
 
-        var removed = await _service.RemoveInstalledPakAsync("zz_zz_ISL-Merged_9999_P.pak", _fakeContentPath, _backupDirectory);
+        var removed = await _service.RemoveInstalledPakAsync(_fakeContentPath, _backupDirectory);
 
         Assert.True(removed);
         Assert.False(File.Exists(TargetPakPath));
@@ -322,7 +322,7 @@ public class InstallServiceTests : IDisposable
         var legacyPakPath = Path.Combine(modsDirectory, "zz_zz_ISL-Merged_9999_P.pak");
         await File.WriteAllTextAsync(legacyPakPath, "old merged pak");
 
-        var removed = await _service.RemoveInstalledPakAsync("zz_zz_ISL-Merged_9999_P.pak", _fakeContentPath, _backupDirectory);
+        var removed = await _service.RemoveInstalledPakAsync(_fakeContentPath, _backupDirectory);
 
         Assert.True(removed);
         Assert.False(File.Exists(legacyPakPath));
@@ -353,18 +353,6 @@ public class InstallServiceTests : IDisposable
         Assert.Contains("ISL-Merged_9999_P_20260104-100000.pak", pakBackups);
         Assert.Contains("zz_zz_ISL-Merged_9999_P_20260105-100000.pak", pakBackups);
         Assert.Equal(3, Directory.GetFiles(_backupDirectory, "*.txt").Length);
-    }
-
-    [Fact]
-    public async Task RemoveInstalledPakAsync_NeedsNoStagedPakOnDisk()
-    {
-        await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
-        File.Delete(_stagedPakPath);
-
-        var removed = await _service.RemoveInstalledPakAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
-
-        Assert.True(removed);
-        Assert.False(File.Exists(TargetPakPath));
     }
 
     [Fact]
@@ -454,7 +442,7 @@ public class InstallServiceTests : IDisposable
         await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
         await Task.Delay(1100);
 
-        var restored = await _service.RestorePreviousInstallAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory);
+        var restored = await _service.RestorePreviousInstallAsync(_fakeContentPath, _backupDirectory);
 
         Assert.NotNull(restored);
         Assert.NotNull(restored.ManifestBackupPath);
@@ -462,7 +450,7 @@ public class InstallServiceTests : IDisposable
         Assert.Equal(["Mod A"], (await _service.GetInstalledStateAsync(_fakeContentPath)).ModNames);
 
         // Again: the copy of v2 made just now is the newest backup, so it comes back.
-        await _service.RestorePreviousInstallAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory);
+        await _service.RestorePreviousInstallAsync(_fakeContentPath, _backupDirectory);
         Assert.Equal("staged pak v2 bytes", await File.ReadAllTextAsync(TargetPakPath));
         Assert.Equal(["Mod B"], (await _service.GetInstalledStateAsync(_fakeContentPath)).ModNames);
     }
@@ -534,7 +522,7 @@ public class InstallServiceTests : IDisposable
         await File.WriteAllTextAsync(_stagedPakPath, "staged pak v2 bytes");
         await service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
 
-        var restored = await service.RestorePreviousInstallAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory);
+        var restored = await service.RestorePreviousInstallAsync(_fakeContentPath, _backupDirectory);
 
         Assert.NotNull(restored);
         Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(TargetPakPath));
@@ -570,7 +558,7 @@ public class InstallServiceTests : IDisposable
         await File.WriteAllTextAsync(TargetManifestPath, "Includes the following mods:\nRound");
         await File.WriteAllTextAsync(Path.Combine(modsDirectory, "zz_zz_ISL-Merged_9999_P.pak"), "old merged pak");
 
-        Assert.True(await _service.RemoveInstalledPakAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory, backUpWhatsThere: false));
+        Assert.True(await _service.RemoveInstalledPakAsync(_fakeContentPath, _backupDirectory, backUpWhatsThere: false));
 
         Assert.False(File.Exists(TargetPakPath));
         Assert.False(File.Exists(TargetManifestPath));
@@ -600,7 +588,7 @@ public class InstallServiceTests : IDisposable
             await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory, backUpWhatsThere: false);
         }
 
-        await _service.RemoveInstalledPakAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory, backUpWhatsThere: false);
+        await _service.RemoveInstalledPakAsync(_fakeContentPath, _backupDirectory, backUpWhatsThere: false);
         await File.WriteAllTextAsync(_stagedPakPath, "put back pak");
         await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory, backUpWhatsThere: false);
 
@@ -614,7 +602,7 @@ public class InstallServiceTests : IDisposable
     [Fact]
     public async Task RestorePreviousInstallAsync_NoBackup_ReturnsNullAndTouchesNothing()
     {
-        Assert.Null(await _service.RestorePreviousInstallAsync(Path.GetFileName(_stagedPakPath), _fakeContentPath, _backupDirectory));
+        Assert.Null(await _service.RestorePreviousInstallAsync(_fakeContentPath, _backupDirectory));
         Assert.False(File.Exists(TargetPakPath));
     }
 

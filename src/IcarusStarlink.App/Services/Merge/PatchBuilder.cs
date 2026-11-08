@@ -154,10 +154,12 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
         }
 
         var list = Ue4ssModStart.ReadList(modsFolder);
+        // UE4SS's own mods: the known built-ins plus what the installed build's mods.json names.
+        var framework = Ue4ssFrameworkMods.In(modsFolder);
         return [.. Directory.GetDirectories(modsFolder)
             .Select(Path.GetFileName)
             .OfType<string>()
-            .Where(n => !Ue4ssServerFiles.FrameworkMods.Contains(n) && Ue4ssModStart.IsMod(modsFolder, n) && Ue4ssModStart.Starts(modsFolder, n, list))
+            .Where(n => !framework.Contains(n) &&Ue4ssModStart.IsMod(modsFolder, n) && Ue4ssModStart.Starts(modsFolder, n, list))
             .Order(StringComparer.OrdinalIgnoreCase)
             .Select(n => new Ue4ssModSource(n, Path.Combine(modsFolder, n)))];
     }

@@ -42,11 +42,15 @@ public sealed partial class MergeInstallViewModel
         }
         else
         {
-            // A pak built elsewhere: matched by the names its ISL-Merged.txt lists.
+            // A pak built elsewhere: matched by the names its ISL-Merged.txt lists (an EXMOD's
+            // declared name, which a rename in the Library doesn't change).
             var opaqueByPak = library.Where(e => e.IsOpaquePak && e.PakFileNames.Count > 0 && e.MergedPackModNames is null).ToList();
             foreach (var name in LastInstalledModNames)
             {
-                var entry = library.FirstOrDefault(e => !e.IsOpaquePak && (string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase) || string.Equals(e.FolderName, name, StringComparison.OrdinalIgnoreCase)))
+                var entry = library.FirstOrDefault(e => !e.IsOpaquePak
+                        && (string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(e.FolderName, name, StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(e.DeclaredName, name, StringComparison.OrdinalIgnoreCase)))
                     ?? opaqueByPak.FirstOrDefault(e => e.PakFileNames.Any(p => string.Equals(Path.GetFileNameWithoutExtension(p), name, StringComparison.OrdinalIgnoreCase)));
                 if (entry is not null && !restored.Contains(entry))
                 {
@@ -230,9 +234,8 @@ public sealed partial class MergeInstallViewModel
     }
 
     /// <summary>
-    /// Called from Library's own "Add to merge queue" action (Ctrl/Shift-click multi-select +
-    /// right-click, or the toolbar button once 2+ rows are selected) — the only way mods reach this
-    /// queue, since this page has no Library browsing pane of its own. Each
+    /// Called when a mod is ticked On in the Library (one row, or a multi-selection) — the only way
+    /// mods reach this queue, since this page has no Library browsing pane of its own. Each
     /// folder name is looked up fresh via the repository rather than requiring Library to hold onto
     /// a LibraryEntry reference of its own.
     /// </summary>
@@ -384,12 +387,7 @@ public sealed partial class MergeInstallViewModel
 
         try
         {
-            // Write the list as it is now first (an auto-save may still be pending), then save it
-            // again so the backup made by that second save is this list.
-            var current = CurrentWorkingProfile(profile);
-            _profileStore.SaveWithoutBackup(current);
-            _profileStore.Save(current);
-            RefreshCanRestoreProfileBackup();
+            KeepListAsBackupPoint(profile);
         }
         catch (Exception ex)
         {

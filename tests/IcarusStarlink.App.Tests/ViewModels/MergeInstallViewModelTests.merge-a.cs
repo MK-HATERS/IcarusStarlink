@@ -437,6 +437,27 @@ public sealed partial class MergeInstallViewModelTests
         Assert.Equal(["BetterBackpacks"], vm.Queue.Select(e => e.FolderName));
     }
 
+    /// <summary>A pak built elsewhere lists a renamed mod by the name the mod declares: with no build record, Restore queue from game skipped it.</summary>
+    [Fact]
+    public async Task RestoreQueueFromGame_ARenamedModInAPakBuiltElsewhere_IsTickedByItsDeclaredName()
+    {
+        var (library, entry) = RenamedBetterBackpacks();
+        (entry.FolderName, entry.DeclaredName) = ("BB_Folder", "Better Backpacks");
+        library.FolderPaths["BB_Folder"] = library.FolderPaths["BetterBackpacks"];
+        var settings = new FakeSettingsService();
+        var (contentPath, modsFolder) = MakeGameContent();
+        settings.Current.IcarusContentPath = contentPath;
+        var install = new FakeInstallService { InstalledModNames = ["Better Backpacks"] };
+        var vm = CreateViewModel(libraryRepository: library, installService: install, settingsService: settings);
+        File.WriteAllBytes(Path.Combine(modsFolder, MergedPakNames.PlainName), [1, 2, 3]);
+
+        await vm.RefreshInstalledModNamesAsync();
+
+        Assert.Empty(vm.InstalledModFolderNames);
+        Assert.Equal(1, vm.RestoreQueueFromGame());
+        Assert.Equal(["BB_Folder"], vm.Queue.Select(e => e.FolderName));
+    }
+
     // ---------------------------------------------------------------------------------------
     // Profile rename
     // ---------------------------------------------------------------------------------------
