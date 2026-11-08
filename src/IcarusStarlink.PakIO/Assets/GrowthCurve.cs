@@ -98,9 +98,7 @@ public sealed record GrowthCurve(IReadOnlyList<GrowthCurveKey> Keys, bool Linear
             return 0;
         }
 
-        var xp = level > Last.Time && SlopeAfter > 0
-            ? Last.Value + (level - Last.Time) * SlopeAfter
-            : Evaluate(level);
+        var xp = Evaluate(level);
         // A float key a hair over the whole number would round past it: take the lower one when it still reaches the level.
         var lower = (long)Math.Ceiling(xp - 1e-3);
         return LevelFor(lower, int.MaxValue) >= level ? lower : (long)Math.Ceiling(xp);

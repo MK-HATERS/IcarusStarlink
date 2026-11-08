@@ -106,8 +106,7 @@ public sealed class CueUassetMaterialDecoder : IUassetMaterialDecoder
     /// The actual fallback decision + retry, split out from TryDecodeMaterial so it's directly
     /// testable with a fake IBaseGameContentProvider and a hand-built UassetMaterialParams/path —
     /// unlike everything upstream of it in TryDecodeMaterial, neither input here needs a real
-    /// CUE4Parse object or a binary .uasset fixture (see this project's own top-level report on
-    /// why no such fixture exists in-repo).
+    /// CUE4Parse object or a binary .uasset fixture (no such fixture is in the repo).
     ///
     /// Trigger, precisely: localResult has zero Textures AND zero Colors (the two params
     /// GetParams(CMaterialParams2, AllLayersNoRef) can leave empty — see this class's own top doc

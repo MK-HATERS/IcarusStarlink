@@ -5,9 +5,8 @@ namespace IcarusStarlink.PakIO.Assets;
 /// (Content\Paks\pakchunk*-WindowsNoEditor.pak — 33 files, ~44GB, confirmed unencrypted: a real
 /// DefaultFileProvider mount needs zero AES key), distinct from CueAssetProviderLocator (which
 /// only ever indexes ONE mod's own loose folder or extracted opaque-pak cache, never the base
-/// game). Exists for exactly one reason today: a modded material's Parent can point at a
-/// base-game material CueAssetProviderLocator's mod-only provider has no way to reach — see
-/// CueUassetMaterialDecoder's own doc comment for the fallback this makes possible.
+/// game). Used wherever Starlink needs the game's own files: a modded material's parent, item
+/// icons, the risk checks on replaced blueprints, Repoint checks, maps and growth curves.
 ///
 /// TryLoadExport mirrors CueAssetProviderLocator.TryLoadExport's own shape (a relative asset
 /// path in, a resolved export of type T out) so a caller that already knows that pattern doesn't

@@ -28,9 +28,8 @@ namespace IcarusStarlink.PakIO.Assets;
 ///     (Ogg Vorbis in particular commonly needs a separate codec pack most machines don't have) —
 ///     always treated as unsupported here rather than risking a silent, soundless MediaElement with
 ///     no clear reason why. Most of Icarus's own real sound content is very likely "OGG" (the usual
-///     UE4 desktop-platform default for a USoundWave that isn't using Wwise), which is exactly why
-///     this scope limitation is worth a human's real live test against real extracted sound assets
-///     — see this project's own top-level report on that.
+///     UE4 desktop-platform default for a USoundWave that isn't using Wwise), so most of the
+///     game's own sounds show as not previewable here.
 /// </summary>
 public sealed class CueUassetSoundDecoder : IUassetSoundDecoder
 {

@@ -4,13 +4,9 @@ using CUE4Parse.UE4.Versions;
 namespace IcarusStarlink.PakIO.Assets;
 
 /// <summary>
-/// Shared by CueUassetTextureDecoder/CueUassetStaticMeshDecoder — both need the identical "index
-/// this mod folder fresh, find the one package matching a relative path, pull out its export of a
-/// given type" sequence, previously duplicated line-for-line in each decoder with two real bugs:
-/// the DefaultFileProvider was never disposed (it implements IDisposable — a `using var` here
-/// makes that a compiler-enforced guarantee, not a comment to remember), and the path match was a
-/// raw substring EndsWith with no path-boundary check, so a shorter selected path could resolve to
-/// a longer, unrelated file that merely shares the same trailing path segment.
+/// Shared by the decoders: index this mod folder, find the one package matching a relative path
+/// (a path-boundary match, so a shorter path can't resolve to a longer unrelated file), and pull
+/// out its export of a type. The provider is disposed after each use (`using var`).
 /// </summary>
 internal static class CueAssetProviderLocator
 {
