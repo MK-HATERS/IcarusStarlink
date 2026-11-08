@@ -38,7 +38,7 @@ public static partial class ModHealthChecker
             foreach (var item in ExmodFileItem.CombineByName(row.FileItems))
             {
                 var gameLinks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                CollectLinks(index.Row(row.CurrentFile, item.Name), gameLinks);
+                RowLinks.CollectRowNames(index.Row(row.CurrentFile, item.Name), gameLinks);
                 foreach (var (field, value) in item.Fields)
                 {
                     foreach (var (path, link, rowName, table) in Links(value, defaults?[field], field))
@@ -138,7 +138,7 @@ public static partial class ModHealthChecker
         {
             foreach (var value in item.Fields.Values)
             {
-                CollectLinks(value, used);
+                RowLinks.CollectRowNames(value, used);
             }
         }
 
@@ -152,7 +152,7 @@ public static partial class ModHealthChecker
                 candidates.RemoveAll(c => ReferenceEquals(c.Item, item));
                 foreach (var value in item.Fields.Values)
                 {
-                    CollectLinks(value, used);
+                    RowLinks.CollectRowNames(value, used);
                 }
 
                 changed = true;

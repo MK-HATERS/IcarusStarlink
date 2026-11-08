@@ -495,7 +495,7 @@ public static partial class ModHealthChecker
 
                 foreach (var value in item.Fields.Values)
                 {
-                    CollectLinks(value, linked);
+                    RowLinks.CollectRowNames(value, linked);
                 }
             }
         }
@@ -503,32 +503,6 @@ public static partial class ModHealthChecker
         var names = newRowTables.Where(kv => kv.Value > 1).Select(kv => kv.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         names.UnionWith(linked);
         return names;
-    }
-
-    private static void CollectLinks(JsonNode? node, HashSet<string> names)
-    {
-        switch (node)
-        {
-            case JsonObject o:
-                if (o["RowName"] is JsonValue row && row.TryGetValue<string>(out var name))
-                {
-                    names.Add(name);
-                }
-
-                foreach (var (_, child) in o)
-                {
-                    CollectLinks(child, names);
-                }
-
-                break;
-            case JsonArray a:
-                foreach (var child in a)
-                {
-                    CollectLinks(child, names);
-                }
-
-                break;
-        }
     }
 
     /// <summary>

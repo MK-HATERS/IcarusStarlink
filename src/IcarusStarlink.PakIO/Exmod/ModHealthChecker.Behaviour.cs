@@ -158,7 +158,7 @@ public static partial class ModHealthChecker
         {
             if (value is JsonObject item)
             {
-                items[name] = (item["Durable"], LinkedRow(item["Deployable"]) is not null || LinkedRow(item["Buildable"]) is not null);
+                items[name] = (item["Durable"], RowLinks.LinkedRow(item["Deployable"]) is not null || RowLinks.LinkedRow(item["Buildable"]) is not null);
             }
         }
 
@@ -167,20 +167,15 @@ public static partial class ModHealthChecker
         {
             var gameRow = game.Row(ItemsStaticFile, item.Name);
             JsonNode? Field(string name) => item.Fields.TryGetValue(name, out var mine) ? mine : gameRow?[name];
-            items[item.Name] = (Field("Durable"), LinkedRow(Field("Deployable")) is not null || LinkedRow(Field("Buildable")) is not null);
+            items[item.Name] = (Field("Durable"), RowLinks.LinkedRow(Field("Deployable")) is not null || RowLinks.LinkedRow(Field("Buildable")) is not null);
         }
 
-        return items.Values.Where(i => i.Placed).Select(i => LinkedRow(i.Durable)).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return items.Values.Where(i => i.Placed).Select(i => RowLinks.LinkedRow(i.Durable)).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>The item is placed in the world: it has a Deployable row (the mod's link, else the game's).</summary>
     private static bool IsPlacedItem(ExmodFileItem item, JsonObject? gameRow) =>
-        LinkedRow(item.Fields.TryGetValue("Deployable", out var mine) ? mine : gameRow?["Deployable"]) is not null;
-
-    /// <summary>The row a link names, or null for none ("None" in any case, not a link).</summary>
-    private static string? LinkedRow(JsonNode? value) =>
-        (value as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var name) && name.Length > 0
-            && !string.Equals(name, "None", StringComparison.OrdinalIgnoreCase) ? name : null;
+        RowLinks.LinkedRow(item.Fields.TryGetValue("Deployable", out var mine) ? mine : gameRow?["Deployable"]) is not null;
 
     /// <summary>The mod's item templates by the item they make (ItemStaticData), each template's own name.</summary>
     private static Dictionary<string, List<string>> TemplatesByItem(IEnumerable<ExmodFileRow> rows)
@@ -190,7 +185,7 @@ public static partial class ModHealthChecker
         {
             foreach (var template in row.FileItems)
             {
-                var item = LinkedRow(template.Fields.GetValueOrDefault("ItemStaticData")) ?? template.Name;
+                var item = RowLinks.LinkedRow(template.Fields.GetValueOrDefault("ItemStaticData")) ?? template.Name;
                 if (!templates.TryGetValue(item, out var list))
                 {
                     templates[item] = list = [];
@@ -214,7 +209,7 @@ public static partial class ModHealthChecker
             {
                 foreach (var value in item.Fields.Values)
                 {
-                    CollectLinks(value, names);
+                    RowLinks.CollectRowNames(value, names);
                 }
             }
         }
