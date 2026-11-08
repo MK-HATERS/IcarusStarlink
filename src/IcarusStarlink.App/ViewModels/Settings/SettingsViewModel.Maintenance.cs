@@ -418,16 +418,16 @@ public sealed partial class SettingsViewModel
         RunUpdateWindow(release, nexusLink: null);
     }
 
-    /// <summary>
-    /// The update window: download (Nexus or GitHub), check, unpack, hand over, with progress and
-    /// Cancel. Closes Starlink once the updater has it.
-    /// </summary>
     /// <summary>The update window's view model: it can offer to make Starlink the download handler, and asks before it does.</summary>
     internal AppUpdateViewModel CreateAppUpdateViewModel(AppUpdateRelease release, NxmUrl? nexusLink) =>
         new(release, _appUpdateClient, _nexusApiClient, _credentialStore.Read(CredentialTargets.NexusApiKey),
             DescribeBackgroundWork, _settingsService.Current.ExeRenameDone, url => UrlOpener.TryOpen(url), nexusLink,
             nxmRegistrar: _nxmProtocolRegistrar, dialogService: _dialogService);
 
+    /// <summary>
+    /// The update window: download (Nexus or GitHub), check, unpack, hand over, with progress and
+    /// Cancel. Closes Starlink once the updater has it.
+    /// </summary>
     private void RunUpdateWindow(AppUpdateRelease release, NxmUrl? nexusLink)
     {
         IsInstallingAppUpdate = true;
