@@ -105,7 +105,167 @@ public sealed class ModHealthCheckerTests : IDisposable
 
         Assert.False(report.HasIssues);
         Assert.Equal(2, report.AuthorChangeCount);
-        Assert.Equal(2, ModHealthChecker.Check(package, _data, fromPrebuiltPak: true).Count(ModIssueKind.OldCopy));
+    }
+
+    /// <summary>
+    /// laanp-WorkshopFree makes workshop items free by emptying their cost lists, in its prebuilt pak
+    /// too. An old game version seldom had an empty list where today's game has entries, so an
+    /// emptied list in a pak is the author's change (it used to be dropped as an old copy, so the
+    /// pak made nothing free). A deleted field and a shortened list stay old copies there.
+    /// </summary>
+    [Fact]
+    public void InAPrebuiltPak_AnEmptiedList_IsTheAuthorsChange_SinceFreeMakingModsEmptyCostLists_ButADeletedFieldIsAnOldCopy()
+    {
+        var package = Mod(
+            (Recipes, "Bread_Recipe", "RecipeSets", new JsonArray()),
+            (Recipes, "Bread_Recipe", "RequiredMillijoules", null),
+            (Items, "Cheese", "Manual_Tags", Tags()));
+
+        var report = ModHealthChecker.Check(package, _data, fromPrebuiltPak: true);
+
+        var old = Assert.Single(report.Issues, i => i.Kind == ModIssueKind.OldCopy);
+        Assert.Equal("RequiredMillijoules", old.FieldName);
+        Assert.Equal(2, report.AuthorChangeCount);
+
+        ModHealthChecker.ApplySure(package, report);
+        var recipe = package.Rows.Single(r => r.CurrentFile == Recipes).FileItems.Single();
+        Assert.Equal("[]", recipe.Fields["RecipeSets"]!.ToJsonString());
+        Assert.False(recipe.Fields.ContainsKey("RequiredMillijoules"));
+    }
+
+    /// <summary>
+    /// laanp-WorkshopFree empties ResearchCost and ReplicationCost on 339 workshop rows. In a
+    /// hand-made mod that's the author's change on every row, not 339 signs of a table copied from
+    /// an older game: it used to be judged a wholesale copy, and Fix sure problems took every
+    /// emptied list out again (an emptied list inside an object and a deleted field the same).
+    /// </summary>
+    [Fact]
+    public void InAHandMadeMod_EmptyingOneListOnManyRows_IsTheAuthorsChange_NotAWholesaleCopy()
+    {
+        var recipes = new JsonArray();
+        for (var i = 0; i < 30; i++)
+        {
+            recipes.Add(new JsonObject { ["Name"] = $"R_{i}", ["RecipeSets"] = new JsonArray { Link("Kitchen_Bench") } });
+        }
+
+        Write("Crafting/D_ProcessorRecipes.json", recipes);
+        var emptied = Mod([.. Enumerable.Range(0, 30).Select(i => (Recipes, $"R_{i}", "RecipeSets", (JsonNode?)new JsonArray()))]);
+        var emptiedInObject = Mod([.. Enumerable.Range(0, 30).Select(i => (Items, $"Copied_{i}", "Manual_Tags", (JsonNode?)Tags()))]);
+        var deleted = Mod([.. Enumerable.Range(0, 30).Select(i => (Items, $"Copied_{i}", "Weight", (JsonNode?)null))]);
+
+        foreach (var package in new[] { emptied, emptiedInObject, deleted })
+        {
+            var report = ModHealthChecker.Check(package, _data);
+
+            Assert.Equal(0, report.Count(ModIssueKind.OldCopy));
+            Assert.Equal(0, report.SureProblemCount);
+            Assert.Equal(30, report.AuthorChangeCount);
+            Assert.Equal(0, ModHealthChecker.ApplySure(package, report));
+        }
+    }
+
+    /// <summary>
+    /// A hand-made mod's table that still looks copied from an older game (most rows carry a
+    /// shortened tag list): its shape-only findings are listed with "Use the game's" chosen, but
+    /// never made by themselves, since taking one tag off 30 rows looks just like an old copy.
+    /// They used to be made by Fix sure problems. A prebuilt pak's stay automatic.
+    /// </summary>
+    [Fact]
+    public void InAHandMadeMod_ACopiedTablesShapeOnlyFindings_AreListedWithTheGamesChosen_ButNeverMadeByThemselves()
+    {
+        var changes = Enumerable.Range(0, 30).Select(i => (Items, $"Copied_{i}", "Manual_Tags", (JsonNode?)Tags("A"))).ToList();
+        changes.Add((Items, "Copied_0", "Weight", null));
+
+        var report = ModHealthChecker.Check(Mod([.. changes]), _data);
+
+        var old = report.Issues.Where(i => i.Kind == ModIssueKind.OldCopy).ToList();
+        Assert.Equal(31, old.Count);
+        Assert.All(old, i =>
+        {
+            Assert.False(i.IsSure);
+            Assert.Equal(ModIssueFix.UseGame, i.DefaultFix);
+        });
+        Assert.Equal(0, ModHealthChecker.ApplySure(Mod([.. changes]), report));
+
+        var prebuilt = Mod([.. changes]);
+        Assert.Equal(31, ModHealthChecker.ApplySure(prebuilt, ModHealthChecker.Check(prebuilt, _data, fromPrebuiltPak: true)));
+    }
+
+    /// <summary>
+    /// A "revert the nerf" mod puts 25+ rows of one table back to the game's old values, which is
+    /// what a copied table looks like too. Its old values are listed and kept unless you choose,
+    /// as in any other hand-made table; they used to be put back to the game's by Fix sure problems.
+    /// </summary>
+    [Fact]
+    public void InAHandMadeMod_ACopiedTablesValuesTheGameHadBefore_AreOnlyListed_AndKept()
+    {
+        var changes = Enumerable.Range(0, 30).Select(i => (Items, $"Copied_{i}", "Manual_Tags", (JsonNode?)Tags("A"))).ToList();
+        changes.Add((Items, "Copied_0", "Weight", 3));
+        var history = new GameValueHistory([new FieldChange(Items, "Copied_0", "Weight", JsonValue.Create(3), JsonValue.Create(10), ValueSemantic.Scalar)]);
+
+        var report = ModHealthChecker.Check(Mod([.. changes]), _data, gameHistory: history);
+
+        var reverted = Assert.Single(report.Issues, i => i.FieldName == "Weight");
+        Assert.Equal(ModIssueKind.OldCopy, reverted.Kind);
+        Assert.False(reverted.IsSure);
+        Assert.Equal(ModIssueFix.KeepMod, reverted.DefaultFix);
+    }
+
+    private const string Armour = "Traits-D_Armour.json";
+    private const string StatA = "(Value=\"A_+\")";
+    private const string StatB = "(Value=\"B_+\")";
+
+    private void WriteArmour() =>
+        Write("Traits/D_Armour.json", new JsonArray { new JsonObject { ["Name"] = "Armour_X", ["ArmourStats"] = new JsonObject { [StatA] = 5, [StatB] = 10 } } });
+
+    /// <summary>
+    /// The merge replaces a whole object field, so an armour map without one of the game's stats
+    /// takes that stat away in game. A hand-made mod leaving keys out is the author's change; it
+    /// used to be called "same as the game", and its "Take it out" brought the stat back.
+    /// </summary>
+    [Fact]
+    public void InAHandMadeMod_AnObjectMissingSomeOfTheGamesKeys_IsTheAuthorsChange_NotSameAsTheGame()
+    {
+        WriteArmour();
+        var fewer = Mod((Armour, "Armour_X", "ArmourStats", new JsonObject { [StatA] = 5 }));
+        var none = Mod((Armour, "Armour_X", "ArmourStats", new JsonObject()));
+
+        foreach (var package in new[] { fewer, none })
+        {
+            var report = ModHealthChecker.Check(package, _data);
+
+            Assert.DoesNotContain(report.Issues, i => i.FieldName == "ArmourStats");
+            Assert.Equal(1, report.AuthorChangeCount);
+        }
+    }
+
+    /// <summary>The player's starting stats merge one stat at a time: a stat the mod leaves out keeps the game's value, so listing fewer stats changes nothing.</summary>
+    [Fact]
+    public void StartingStatsListingFewerStats_AreStillSameAsTheGame_SinceTheyMergeStatByStat()
+    {
+        Write("Stats/D_CharacterStartingStats.json", new JsonArray { new JsonObject { ["Name"] = "Base_Stats", ["StatsGranted"] = new JsonObject { [StatA] = 1, [StatB] = 2 } } });
+        var package = Mod(("Stats-D_CharacterStartingStats.json", "Base_Stats", "StatsGranted", new JsonObject { [StatA] = 1 }));
+
+        var issue = Assert.Single(ModHealthChecker.Check(package, _data).Issues);
+
+        Assert.Equal(ModIssueKind.SameAsGame, issue.Kind);
+    }
+
+    /// <summary>A prebuilt pak ships whole rows: an object missing a key the game has is the old game version's, and the fix leaves the game's value.</summary>
+    [Fact]
+    public void InAPrebuiltPak_AnObjectMissingAKeyTheGameHas_IsASureOldCopy()
+    {
+        WriteArmour();
+        var package = Mod((Armour, "Armour_X", "ArmourStats", new JsonObject { [StatA] = 5 }));
+
+        var report = ModHealthChecker.Check(package, _data, fromPrebuiltPak: true);
+
+        var issue = Assert.Single(report.Issues);
+        Assert.Equal(ModIssueKind.OldCopy, issue.Kind);
+        Assert.True(issue.IsSure);
+        Assert.Contains("added 1 entry", issue.Why);
+        Assert.Equal(1, ModHealthChecker.ApplySure(package, report));
+        Assert.DoesNotContain(package.Rows, r => r.CurrentFile == Armour);
     }
 
     /// <summary>The game ignores case in row names: "wood_floor" is the game's Wood_Floor, never a missing row to rename.</summary>

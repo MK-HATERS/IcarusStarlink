@@ -5,7 +5,15 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// <summary>Comparing one mod value with the game's: the verdict (equal, older, mixed, changed), merging lists, and list differences.</summary>
 public static partial class ModHealthChecker
 {
-    private static Verdict Judge(JsonNode? mod, JsonNode? game)
+    /// <summary>
+    /// How the mod's value relates to the game's. A list missing some of the game's entries is
+    /// Older. An object missing some of the game's keys is the merge taking those keys away (it
+    /// replaces the whole field): the author's change in a hand-made mod, and an old copy's shape
+    /// (the game added the keys since) only when <paramref name="leftOutKeysAreOld"/> (a prebuilt
+    /// pak's whole rows).
+    /// </summary>
+    /// <param name="onlyModsKeys">The field merges entry by entry (StatEntries), so a key the mod leaves out keeps the game's value: only the mod's own keys are compared.</param>
+    private static Verdict Judge(JsonNode? mod, JsonNode? game, bool leftOutKeysAreOld = false, bool onlyModsKeys = false)
     {
         if (JsonNode.DeepEquals(mod, game))
         {
@@ -29,7 +37,20 @@ public static partial class ModHealthChecker
 
         if (mod is JsonObject modObject && game is JsonObject gameObject)
         {
-            var verdicts = modObject.Select(kv => gameObject.ContainsKey(kv.Key) ? Judge(kv.Value, gameObject[kv.Key]) : Verdict.Changed).ToList();
+            var leftOut = !onlyModsKeys && gameObject.Any(kv => !modObject.ContainsKey(kv.Key));
+            if (leftOut && !leftOutKeysAreOld)
+            {
+                // A hand-made mod leaving a key out takes it away in game: the author's change.
+                return Verdict.Changed;
+            }
+
+            var verdicts = modObject.Select(kv => gameObject.ContainsKey(kv.Key) ? Judge(kv.Value, gameObject[kv.Key], leftOutKeysAreOld) : Verdict.Changed).ToList();
+            if (leftOut)
+            {
+                // A prebuilt pak's whole row: the game added the keys since.
+                verdicts.Add(Verdict.Older);
+            }
+
             var older = verdicts.Contains(Verdict.Older);
             var changed = verdicts.Contains(Verdict.Changed);
             if (verdicts.Contains(Verdict.Mixed) || (older && changed))
@@ -43,6 +64,21 @@ public static partial class ModHealthChecker
 
         return Verdict.Changed;
     }
+
+    /// <summary>
+    /// Every difference is a list the mod emptied ([] where the game has entries), at any depth: the
+    /// author's edit (an emptied cost list is how "everything free" works), not a sign the value was
+    /// copied from an older game, which seldom had an empty list where today's game has entries.
+    /// An object leaving out keys the game has differs in more than lists.
+    /// </summary>
+    private static bool IsOnlyEmptiedLists(JsonNode? mod, JsonNode? game) => (mod, game) switch
+    {
+        (JsonArray { Count: 0 }, JsonArray { Count: > 0 }) => true,
+        (JsonObject m, JsonObject g) => g.All(kv => m.ContainsKey(kv.Key))
+            && m.Any(kv => !JsonNode.DeepEquals(kv.Value, g[kv.Key]))
+            && m.All(kv => g.TryGetPropertyValue(kv.Key, out var gv) && (JsonNode.DeepEquals(kv.Value, gv) || IsOnlyEmptiedLists(kv.Value, gv))),
+        _ => false,
+    };
 
     private static bool HasOnlyListDifferences(JsonObject mod, JsonObject game) =>
         mod.All(kv => game.ContainsKey(kv.Key) && (JsonNode.DeepEquals(kv.Value, game[kv.Key])
@@ -144,7 +180,8 @@ public static partial class ModHealthChecker
 
         if (mod is JsonObject mo && game is JsonObject go)
         {
-            var total = (Added: 0, Missing: 0);
+            // Keys the game has and the mod leaves out count as missing entries too.
+            var total = (Added: 0, Missing: go.Count(kv => !mo.ContainsKey(kv.Key)));
             foreach (var (key, value) in mo.Where(kv => go.ContainsKey(kv.Key)))
             {
                 var (a, b) = TotalListDifference(value, go[key]);

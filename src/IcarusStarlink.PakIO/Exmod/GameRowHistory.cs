@@ -48,6 +48,16 @@ public sealed class GameRowHistory
     /// <summary>A version's label ("Week 251", "16 Oct 2026").</summary>
     public string LabelOf(int version) => _versions[Math.Clamp(version, 0, Math.Max(0, _versions.Count - 1))];
 
+    /// <summary>Days between two versions' dates; null when either has no date (or no such version).</summary>
+    public int? DaysBetween(int earlier, int later) =>
+        DateOf(earlier) is { } from && DateOf(later) is { } to ? to.DayNumber - from.DayNumber : null;
+
+    private DateOnly? DateOf(int version) =>
+        version >= 0 && version < _dates.Count
+        && DateOnly.TryParseExact(_dates[version], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day)
+            ? day
+            : null;
+
     /// <summary>The user's own part, next to the app's Data folder (in its Cache).</summary>
     public static string LocalFileFor(string dataFolder) =>
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(dataFolder).TrimEnd(Path.DirectorySeparatorChar)) ?? dataFolder, "Cache", "game_row_history_local.json");

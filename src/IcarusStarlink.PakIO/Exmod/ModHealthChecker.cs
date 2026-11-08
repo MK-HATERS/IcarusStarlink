@@ -15,13 +15,24 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// Without the old game version there is no true three-way merge, so the rules use what an old
 /// copy looks like: a list that is the game's list minus some entries (the game only added since),
 /// an object whose differences are all such lists, a field the mod deletes that the game has, and
-/// a value the game's own change history (the weekly reports) shows it had before an update.
+/// a value the game's own change history (the weekly reports) shows it had before an update. In a
+/// prebuilt pak, which ships whole rows, an object missing keys the game has is an old copy too;
+/// in a hand-made mod that's the author taking those keys away (the merge replaces the whole field).
+/// A list emptied where the game has entries is the author's change in either ("everything free"
+/// mods empty cost lists); in a hand-made mod it's listed only in a table copied wholesale.
 /// </summary>
 public static partial class ModHealthChecker
 {
-    /// <summary>A table where the mod changes at least this many rows, and at least this share of them carry an old copy, was copied wholesale.</summary>
+    /// <summary>
+    /// A table where the mod changes at least this many rows, and at least this share of them carry
+    /// an old copy, was copied wholesale. In a hand-made mod an emptied list or a deleted field
+    /// doesn't count as an old copy here: "make everything free" empties one list on every row.
+    /// </summary>
     private const int WholesaleCopyMinRows = 25;
     private const double WholesaleCopyOldShare = 0.6;
+
+    /// <summary>Longest time between two game versions for a name swap there to count as one update's rename (one update's gap runs up to 17 days).</summary>
+    private const int MaxRenameGapDays = 21;
 
     private enum Verdict
     {
@@ -36,11 +47,12 @@ public static partial class ModHealthChecker
     /// <param name="assetIssues">What the mod's cooked files use that the game doesn't have (AssetReferenceIssues.From), listed with the rest.</param>
     /// <param name="loggedMismatches">What the game's (or server's) last Icarus.log said about built-in tables: shown as proof with rows added there.</param>
     /// <param name="fromPrebuiltPak">
-    /// The mod was converted from a prebuilt pak, which ships whole tables: a shorter list or a
-    /// missing field there is the old game version's, not a choice. In a hand-made mod, which
-    /// lists only what its author changed, the same shape is deliberate (an emptied fuel list is
-    /// how "torches need no fuel" works), so it only counts as old in a table the mod copied
-    /// wholesale.
+    /// The mod was converted from a prebuilt pak, which ships whole tables: a shorter list, a
+    /// missing field or an object missing keys there is the old game version's, not a choice, and
+    /// is fixed by itself (an emptied list stays the author's). In a hand-made mod, which lists
+    /// only what its author changed, the same shape is deliberate (an emptied fuel list is how
+    /// "torches need no fuel" works), so it's only listed, never fixed by itself, and only in a
+    /// table the mod copied wholesale; old values the game's history knows are listed but kept.
     /// </param>
     public static ModHealthReport Check(
         ExmodPackage package,
@@ -86,6 +98,10 @@ public static partial class ModHealthChecker
             var tableIssues = new List<ModIssue>();
             var changedOnRow = new List<(ExmodFileItem Item, string Field, JsonNode? Value, JsonNode Game)>();
             var rowsWithOld = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Rows whose old values say the table was copied; in a hand-made mod an emptied list or
+            // a deleted field is the author's edit, so it never counts here.
+            var rowsWithCopyEvidence = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var rowsWithMixed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var rowsTouched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -118,6 +134,11 @@ public static partial class ModHealthChecker
                         if (hasField && gameValue is not null)
                         {
                             rowsWithOld.Add(item.Name);
+                            if (fromPrebuiltPak)
+                            {
+                                rowsWithCopyEvidence.Add(item.Name);
+                            }
+
                             oldByShape.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, null, gameValue?.DeepClone(), null, null,
                                 ModIssueFix.UseGame, IsSure: true, "Deletes this, but the game has it now: it was added after the mod was made."));
                         }
@@ -139,19 +160,38 @@ public static partial class ModHealthChecker
                     if (history.WasOldValue(row.CurrentFile, item.Name, field, value) && !JsonNode.DeepEquals(value, gameValue))
                     {
                         rowsWithOld.Add(item.Name);
+                        rowsWithCopyEvidence.Add(item.Name);
                         oldByHistory.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
                             ModIssueFix.UseGame, IsSure: true, "The game changed this in a recent update; the mod still has the value from before."));
                         continue;
                     }
 
-                    switch (Judge(value, gameValue))
+                    switch (Judge(value, gameValue, leftOutKeysAreOld: fromPrebuiltPak, onlyModsKeys: StatEntries.IsPerEntry(row.CurrentFile, field)))
                     {
                         case Verdict.Equal:
                             tableIssues.Add(new(ModIssueKind.SameAsGame, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
                                 ModIssueFix.UseGame, IsSure: true, "The mod sets this to exactly what the game already has, so it changes nothing. Taking it out is only tidying; the game's value stays either way."));
                             break;
+                        case Verdict.Older when IsOnlyEmptiedLists(value, gameValue):
+                            if (fromPrebuiltPak)
+                            {
+                                // Old game versions seldom had an empty list where today's game has
+                                // entries; "make it free" paks empty them on purpose.
+                                authorChanges++;
+                            }
+                            else
+                            {
+                                // A hand-made mod's own edit unless the table turns out to be copied
+                                // (decided below); never itself a sign that it was.
+                                rowsWithOld.Add(item.Name);
+                                oldByShape.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
+                                    ModIssueFix.UseGame, IsSure: true, OlderWhy(value, gameValue)));
+                            }
+
+                            break;
                         case Verdict.Older:
                             rowsWithOld.Add(item.Name);
+                            rowsWithCopyEvidence.Add(item.Name);
                             oldByShape.Add(new(ModIssueKind.OldCopy, row.CurrentFile, item.Name, field, value.DeepClone(), gameValue?.DeepClone(), null, null,
                                 ModIssueFix.UseGame, IsSure: true, OlderWhy(value, gameValue)));
                             break;
@@ -181,6 +221,7 @@ public static partial class ModHealthChecker
                                 {
                                     // A link to a row the game used to have is what an old copy looks like.
                                     rowsWithOld.Add(item.Name);
+                                    rowsWithCopyEvidence.Add(item.Name);
                                 }
                             }
                             else
@@ -195,24 +236,40 @@ public static partial class ModHealthChecker
             // A table copied wholesale from an older game: its few remaining "changes" on rows that
             // are otherwise old copies are almost certainly old values too, not the author's idea.
             // Measured in rows: most rows the mod touches here carry an old copy somewhere.
-            var wholesale = rowsTouched.Count >= WholesaleCopyMinRows && rowsWithOld.Union(rowsWithMixed, StringComparer.OrdinalIgnoreCase).Count() >= WholesaleCopyOldShare * rowsTouched.Count;
+            var wholesale = rowsTouched.Count >= WholesaleCopyMinRows
+                && rowsWithCopyEvidence.Union(rowsWithMixed, StringComparer.OrdinalIgnoreCase).Count() >= WholesaleCopyOldShare * rowsTouched.Count;
             if (wholesale)
             {
                 wholesaleFiles.Add(row.CurrentFile);
             }
 
-            if (fromPrebuiltPak || wholesale)
+            if (fromPrebuiltPak)
             {
                 tableIssues.AddRange(oldByShape);
                 tableIssues.AddRange(oldByHistory);
             }
             else
             {
-                // A hand-made mod's own edit: an author emptying a list or deleting a field meant it.
-                authorChanges += oldByShape.Count;
+                if (wholesale)
+                {
+                    // Shape can't tell an old copy from an author's edit in a hand-made mod (taking
+                    // one tag off 30 rows looks just like one): listed with the game's value
+                    // chosen, never made by itself.
+                    tableIssues.AddRange(oldByShape.Select(i => i with
+                    {
+                        IsSure = false,
+                        Why = i.Why + $" Most of the {rowsTouched.Count} rows this mod changes here look copied from an older game, but this may be the author's own edit, so it isn't fixed by itself.",
+                    }));
+                }
+                else
+                {
+                    // A hand-made mod's own edit: an author emptying a list or deleting a field meant it.
+                    authorChanges += oldByShape.Count;
+                }
 
-                // An old value is listed but kept unless you choose otherwise: putting a value back
-                // the game changed can be the whole point of a hand-made mod.
+                // An old value is listed but kept unless you choose otherwise, in a copied table too:
+                // putting values back the game changed can be the whole point of a hand-made mod
+                // (a "revert the nerf" mod reverting 25 rows looks just like a copy).
                 tableIssues.AddRange(oldByHistory.Select(i => i with
                 {
                     IsSure = false,
@@ -319,10 +376,13 @@ public static partial class ModHealthChecker
             }
 
             // The game's own history settles it: the old name gone in the very update the new one
-            // arrived is a rename; both there at once is two different rows.
+            // arrived is a rename; both there at once is two different rows. Two versions months
+            // apart (a gap in the history, or months without Refresh game data) span several
+            // updates, so a swap there proves nothing; nor does a version with no date.
             var newName = suggestion.SuggestedItemName;
             var hasNew = hadIt is not null ? rowHistory!.Find(stale.CurrentFile, newName) : null;
-            var renamedInOneUpdate = hadIt is not null && hasNew is not null && hasNew.First == hadIt.Last + 1;
+            var renamedInOneUpdate = hadIt is not null && hasNew is not null && hasNew.First == hadIt.Last + 1
+                && rowHistory!.DaysBetween(hadIt.Last, hasNew.First) is <= MaxRenameGapDays;
             var bothAtOnce = hadIt is not null && hasNew is not null && hasNew.First <= hadIt.Last;
             // Made by itself only when the history proves the rename and the names match closely too;
             // a similar name alone is a guess, made only when you confirm it.

@@ -179,6 +179,43 @@ public sealed class GameRowHistoryTests : IDisposable
         Assert.Contains("renamed this row to 'Pickaxe_Steel' in the update after", renamed.Why);
     }
 
+    /// <summary>
+    /// The shipped history has gaps of months between two versions (Week 160 to Week 189), and so
+    /// does a user who goes months without Refresh game data. A row gone and a close name new across
+    /// such a gap may be several updates' work, so the rename is only offered; it used to be made by
+    /// Fix sure problems. Across one normal update's gap it stays proven and chosen.
+    /// </summary>
+    [Fact]
+    public void ARowRenamedAcrossAMonthsLongGap_IsOnlySuggested()
+    {
+        var monthsLater = RenameAcrossGap("months", new DateTimeOffset(2099, 8, 20, 0, 0, 0, TimeSpan.Zero));
+        Assert.False(monthsLater.IsSure);
+        Assert.Equal(ModIssueFix.KeepMod, monthsLater.DefaultFix);
+        Assert.Contains("may have been renamed", monthsLater.Why);
+
+        var weekLater = RenameAcrossGap("week", new DateTimeOffset(2099, 2, 8, 0, 0, 0, TimeSpan.Zero));
+        Assert.True(weekLater.IsSure);
+        Assert.Equal(ModIssueFix.RenameRow, weekLater.DefaultFix);
+    }
+
+    /// <summary>Pickaxe_Stel in a game version on 1 Feb 2099, Pickaxe_Steel in the next one on <paramref name="second"/>; the mod edits Pickaxe_Stel's Weight.</summary>
+    private ModIssue RenameAcrossGap(string folder, DateTimeOffset second)
+    {
+        var data = Path.Combine(_root, folder, "Data");
+        var table = Path.Combine(data, "Items", "D_ItemsStatic.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(table)!);
+        var local = GameRowHistory.LocalFileFor(data);
+        File.WriteAllText(table, """{"Rows":[{"Name":"Pickaxe_Stel","Weight":5},{"Name":"Wood_Floor"}]}""");
+        GameRowHistory.Record(data, local, new DateTimeOffset(2099, 2, 1, 0, 0, 0, TimeSpan.Zero));
+        File.WriteAllText(table, """{"Rows":[{"Name":"Pickaxe_Steel","Weight":5},{"Name":"Wood_Floor"}]}""");
+        GameRowHistory.Record(data, local, second);
+        var package = Package(("Items-D_ItemsStatic.json", "Pickaxe_Stel", 5));
+
+        var issue = Assert.Single(ModHealthChecker.Check(package, data, rowHistory: GameRowHistory.Load(local)).Issues, i => i.Kind == ModIssueKind.MissingRow);
+        Assert.Equal("Pickaxe_Steel", issue.SuggestedRow);
+        return issue;
+    }
+
     /// <summary>A similar name that only appeared a few updates later isn't a proven rename: offered, never made by itself.</summary>
     [Fact]
     public void ARowRemovedLongBeforeASimilarNameAppeared_IsNotASureRename()
