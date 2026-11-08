@@ -3,6 +3,7 @@ using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Services;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Library;
@@ -224,16 +225,27 @@ public sealed partial class LocalServerViewModel
         RefreshMods();
     }
 
-    /// <summary>Each of the patch's UE4SS mods onto the server: the game's copy (CopyToServer keeps the server's own files), else the bundled one; then the patch's settings into the server's copy.</summary>
+    /// <summary>
+    /// Each of the patch's UE4SS mods onto the server: the game's copy (CopyToServer keeps the
+    /// server's own files and on/off), else the patch's own copy; then the patch's settings into
+    /// the server's copy. The patch's own copies are code from whoever made the patch (Lua, and a
+    /// DLL for a C++ mod) that runs with the host's rights when the server starts, so the host is
+    /// asked first, as the game side asks before it turns them on.
+    /// </summary>
     private async Task<List<string>> PutPatchUe4ssOnServerAsync(DedicatedServerProfile p, PatchImportContents contents)
     {
         var lines = new List<string>();
         var put = new List<string>();
+        var keptOff = new List<string>();
+        var declined = new List<string>();
         var missing = new List<string>();
         var settingsWritten = 0;
         var gameMods = GameModsFolder();
         var serverMods = DedicatedServerLayout.Ue4ssModsFolder(p.InstallFolder);
         var backups = ServerBackupsFolder(p);
+        bool InGame(string name) => gameMods is not null && Directory.Exists(Path.Combine(gameMods, name));
+
+        var refused = AskAboutPatchUe4ssMods(p, contents, serverMods, InGame);
         BeginBackupWork(p);
         try
         {
@@ -244,20 +256,32 @@ public sealed partial class LocalServerViewModel
                 var target = Path.Combine(serverMods, name);
                 try
                 {
-                    if (gameMods is not null && Directory.Exists(Path.Combine(gameMods, name)))
+                    if (InGame(name))
                     {
-                        await OffUiThread(() => ServerUe4ssSync.CopyToServer(gameMods, name, p.InstallFolder, backups));
-                        put.Add(name);
+                        await OffUiThread(() => ServerUe4ssSync.CopyToServer(gameMods!, name, p.InstallFolder, backups));
+                        // CopyToServer keeps a server copy that was off as off: said so, not "put on".
+                        (Ue4ssModStart.Starts(serverMods, name, Ue4ssModStart.ReadList(serverMods)) ? put : keptOff).Add(name);
                     }
                     else if (contents.BundledUe4ssFolders.TryGetValue(name, out var bundled))
                     {
+                        if (refused.Contains(name))
+                        {
+                            declined.Add(name);
+                            continue;
+                        }
+
                         if (!Directory.Exists(target))
                         {
                             await OffUiThread(() => Directories.Copy(bundled, target));
                         }
 
-                        ServerUe4ssSync.SetEnabled(p.InstallFolder, name, true);
-                        put.Add(name);
+                        // A mod the patch has off is put on the server but not switched on.
+                        if (mod.Enabled)
+                        {
+                            ServerUe4ssSync.SetEnabled(p.InstallFolder, name, true);
+                        }
+
+                        (Ue4ssModStart.Starts(serverMods, name, Ue4ssModStart.ReadList(serverMods)) ? put : keptOff).Add(name);
                     }
                     else if (!Directory.Exists(target))
                     {
@@ -268,7 +292,8 @@ public sealed partial class LocalServerViewModel
                     foreach (var config in mod.Configs)
                     {
                         var relative = config.Path.Replace('/', Path.DirectorySeparatorChar);
-                        if (relative.Contains("..", StringComparison.Ordinal) || Path.IsPathRooted(relative))
+                        // Only settings, never code: the same check the game side makes (the patch reader already filtered them).
+                        if (!PatchConfigSafety.IsSafe(config) || relative.Contains("..", StringComparison.Ordinal) || Path.IsPathRooted(relative))
                         {
                             continue;
                         }
@@ -293,6 +318,16 @@ public sealed partial class LocalServerViewModel
             lines.Insert(0, $"{put.Count} UE4SS mod(s) put on the server ({string.Join(", ", put)})");
         }
 
+        if (keptOff.Count > 0)
+        {
+            lines.Add($"{string.Join(", ", keptOff)} kept off on the server (it was off there, or the patch has it off)");
+        }
+
+        if (declined.Count > 0)
+        {
+            lines.Add($"left the patch's own copies of {string.Join(", ", declined)} off the server (you said no)");
+        }
+
         if (settingsWritten > 0)
         {
             lines.Add("the patch's settings written into the server's copies (the old files are in its backups folder)");
@@ -304,6 +339,61 @@ public sealed partial class LocalServerViewModel
         }
 
         return lines;
+    }
+
+    /// <summary>
+    /// Asks once before the patch's own UE4SS mods (the ones the game doesn't have) go on the
+    /// server: those it would copy there, and those already there but off that it would turn on.
+    /// Returns the names the host said no to (empty on yes, or when there is nothing to ask).
+    /// </summary>
+    private HashSet<string> AskAboutPatchUe4ssMods(DedicatedServerProfile p, PatchImportContents contents, string serverMods, Func<string, bool> inGame)
+    {
+        var lines = new List<string>();
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var list = Ue4ssModStart.ReadList(serverMods);
+        foreach (var mod in contents.Manifest.Ue4ssMods)
+        {
+            if (inGame(mod.Name) || !contents.BundledUe4ssFolders.TryGetValue(mod.Name, out var bundled))
+            {
+                continue;
+            }
+
+            string where;
+            if (!Directory.Exists(Path.Combine(serverMods, mod.Name)))
+            {
+                where = " (new on the server)";
+            }
+            else if (mod.Enabled && !Ue4ssModStart.Starts(serverMods, mod.Name, list))
+            {
+                where = " (on the server, now off)";
+            }
+            else
+            {
+                continue;
+            }
+
+            // The file Ue4ssModStart.IsMod looks for: a C++ mod's native code.
+            var dll = File.Exists(Path.Combine(bundled, "dlls", "main.dll")) ? " — includes a DLL (native code)" : "";
+            lines.Add($"• {mod.Name}{where}{dll}");
+            names.Add(mod.Name);
+        }
+
+        if (names.Count == 0)
+        {
+            return names;
+        }
+
+        var yes = _dialogService.Confirm(
+            $"The patch '{contents.Manifest.ProfileName}' carries UE4SS mods your game doesn't have:\n\n{string.Join("\n", lines)}\n\n"
+            + $"Put them on '{p.Name}' and turn them on? They run on the server with your Windows account's rights when it starts. "
+            + "Only say yes to a patch from someone you trust.",
+            "UE4SS mods from a patch", ThemedConfirmSeverity.Warning);
+        if (yes)
+        {
+            names.Clear();
+        }
+
+        return names;
     }
 
     /// <summary>A patch against this game and this server, one row per mod: in the patch, installed here, installed there; UE4SS mods on/off and whether their settings match the patch's.</summary>
