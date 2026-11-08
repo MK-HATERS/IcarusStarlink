@@ -47,7 +47,16 @@ public sealed class PrebuiltPakImporter(
         }
         // Keeps the original pak around (see IPrebuiltPakSourceStore's own doc comment) so a later
         // game update can re-derive a fresher diff instead of this conversion being frozen forever.
-        sourceStore.Save(entry.FolderName, pakFilePath);
+        // Best-effort: the mod is already in the Library, so a failed copy must not fail the import
+        // (a retry would add a second copy of the mod).
+        try
+        {
+            sourceStore.Save(entry.FolderName, pakFilePath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            report.AddWarning($"Couldn't keep a copy of the original '{pakName}.pak' ({ex.Message}), so this mod won't be re-made from it after a game update.");
+        }
         entry.ImportWarnings = [.. report.Warnings];
         return entry;
     }

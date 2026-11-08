@@ -119,6 +119,35 @@ public class PrebuiltPakImporterTests : IDisposable
             []),
         hasAuthorDeclaredMetadata);
 
+    /// <summary>A source store whose copy always fails, like a full drive or a pak antivirus still holds.</summary>
+    private sealed class FailingSourceStore : IPrebuiltPakSourceStore
+    {
+        public void Save(string folderName, string pakFilePath) => throw new IOException("There is not enough space on the disk.");
+
+        public string? TryGetPath(string folderName) => null;
+
+        public void Delete(string folderName)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Regression: when the copy of the original pak failed after the converted mod was already in
+    /// the Library, the import threw and Downloads said "Import failed", yet the mod was there and a
+    /// retry added a second copy. The mod is kept and the missing copy is a warning on it.
+    /// </summary>
+    [Fact]
+    public async Task ImportAsync_SourceCopyFails_KeepsTheModAndWarns()
+    {
+        using var repo = CreateRepository();
+        var importer = new PrebuiltPakImporter(new FakeConverter(BuildConvertedPackage()), repo, repo, new FailingSourceStore());
+
+        var entry = await importer.ImportAsync(_pakFilePath, "SomeDataFolder", "SomeUnrealPak.exe");
+
+        Assert.Contains(entry.ImportWarnings, w => w.Contains("Couldn't keep a copy", StringComparison.Ordinal));
+        Assert.Equal(entry.FolderName, Assert.Single(repo.GetAll()).FolderName);
+    }
+
     [Fact]
     public async Task ImportAsync_ConversionSucceeds_RegistersARealEditableEntry()
     {
