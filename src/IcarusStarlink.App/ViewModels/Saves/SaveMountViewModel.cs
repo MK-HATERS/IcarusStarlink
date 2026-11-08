@@ -343,11 +343,17 @@ public sealed partial class SaveMountViewModel : DirtyRow
     /// Writes the list's Name/Level into the mount's own Node and, when the inside can be edited,
     /// the blob too: its name always follows the list's (they drifted apart before), plus any
     /// inside edit. A non-numeric Level box keeps the original value rather than corrupting the save.
+    /// Name and level are written only when changed, so a value the list couldn't read (a level of
+    /// 12.5, no name at all) stays as the game wrote it.
     /// </summary>
     public void ApplyToNode()
     {
-        Node["MountName"] = Name;
-        if (SaveNumberRules.TryParseCount(LevelText, out var level))
+        if (Name != _originalName)
+        {
+            Node["MountName"] = Name;
+        }
+
+        if (SaveNumberRules.TryParseCount(LevelText, out var level) && level != _originalLevel)
         {
             Node["MountLevel"] = level;
         }

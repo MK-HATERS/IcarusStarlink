@@ -128,7 +128,13 @@ public sealed partial class SavesViewModel
         var newArray = new JsonArray();
         foreach (var mount in Mounts)
         {
-            mount.ApplyToNode();
+            // Only an edited mount: applying every one wrote a level it couldn't read (12.5) as 0
+            // and a missing name as "" whenever any mount was edited or deleted.
+            if (mount.IsDirty)
+            {
+                mount.ApplyToNode();
+            }
+
             newArray.Add(mount.Node.DeepClone());
         }
 
