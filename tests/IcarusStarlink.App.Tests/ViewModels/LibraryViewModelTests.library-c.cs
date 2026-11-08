@@ -490,6 +490,23 @@ public sealed partial class LibraryViewModelTests
         Assert.DoesNotContain("up to date", vm.UpdateCheckStatusMessage);
     }
 
+    /// <summary>Regression: a Database mod missing from a catalog that only partly loaded was counted as up to date.</summary>
+    [Fact]
+    public async Task CheckForUpdates_DatabaseModMissingFromAFailedCatalog_SaysItCouldNotBeChecked()
+    {
+        var harness = new TestHarness();
+        harness.Jimk72Client.Fail = true;
+        harness.AddMod("ModA", source: "Database", catalogEntryId: "cat-jimk72");
+        var vm = harness.Build();
+        await vm.Downloads.GetOrFetchCatalogAsync();
+        Assert.NotEmpty(vm.Downloads.LastFailedCatalogSources);
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        Assert.Contains("Couldn't check 1 mod(s)", vm.UpdateCheckStatusMessage);
+        Assert.DoesNotContain("up to date", vm.UpdateCheckStatusMessage);
+    }
+
     /// <summary>Regression: a Nexus version written "v1.0" read "(vv1.0)" in the "Your build" question.</summary>
     [Fact]
     public async Task ReplaceOwnBuild_NexusVersionWrittenWithAV_AsksWithoutADoubleV()

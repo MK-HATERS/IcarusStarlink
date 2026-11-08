@@ -1007,6 +1007,8 @@ public sealed partial class LibraryViewModel
                         catalogVersionByKey[CatalogKey.Normalize(catalogEntry.Name, catalogEntry.Author)] = catalogEntry.Version;
                     }
 
+                    // A source that couldn't be reached may be the one listing a mod that wasn't found.
+                    var catalogPartlyLoaded = Downloads.LastFailedCatalogSources.Count > 0;
                     foreach (var item in databaseItems)
                     {
                         var catalogVersion = item.CatalogEntryId is not null && catalogVersionById.TryGetValue(item.CatalogEntryId, out var byId)
@@ -1014,6 +1016,11 @@ public sealed partial class LibraryViewModel
                             : catalogVersionByKey.GetValueOrDefault(CatalogKey.Normalize(item.Name, item.Author));
                         if (catalogVersion is null)
                         {
+                            if (catalogPartlyLoaded)
+                            {
+                                failedCount++;
+                            }
+
                             continue;
                         }
 

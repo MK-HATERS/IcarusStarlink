@@ -2857,7 +2857,12 @@ public sealed partial class LibraryViewModelTests
     private sealed class FakeJimk72Client : IJimk72CatalogClient
     {
         public IReadOnlyList<CatalogEntry> Result { get; set; } = [];
-        public Task<IReadOnlyList<CatalogEntry>> FetchAsync(CancellationToken cancellationToken = default) => Task.FromResult(Result);
+
+        /// <summary>When set, every fetch fails (the source can't be reached).</summary>
+        public bool Fail { get; set; }
+
+        public Task<IReadOnlyList<CatalogEntry>> FetchAsync(CancellationToken cancellationToken = default) =>
+            Fail ? throw new HttpRequestException("Jimk72 is down") : Task.FromResult(Result);
     }
 
     private sealed class FakeGitHubRepoDateClient : IGitHubRepoDateClient
