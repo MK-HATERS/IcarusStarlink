@@ -56,7 +56,9 @@ public interface IUnrealPakService
     /// there. Files land relative to the pak's own mount point; readers of a prebuilt pak go
     /// through PakExtraction.ExtractUnderGameContentAsync, which restages them under Content.
     /// Returns the number of files extracted. Throws on failure, same convention as the other
-    /// methods here.
+    /// methods here. Before anything is unpacked, every file name in the pak is read with -List and
+    /// checked: UnsafePakException when one would land outside outputDirectory, when the list
+    /// can't be read safely, or when the pak would unpack to more than 8 GB or than the drive has free.
     ///
     /// filter (optional, defaults to null): passed straight through as UnrealPak.exe's own
     /// -Filter=&lt;value&gt; argument to the real -Extract invocation when non-null — confirmed live

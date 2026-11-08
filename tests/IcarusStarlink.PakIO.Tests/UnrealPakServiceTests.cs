@@ -31,10 +31,18 @@ public class UnrealPakServiceTests : IDisposable
         public string? LastFileName { get; private set; }
         public IReadOnlyList<string>? LastArguments { get; private set; }
 
+        /// <summary>SynchronizationContext.Current when UnrealPak was started.</summary>
+        public SynchronizationContext? ContextAtRun { get; private set; }
+
+        /// <summary>Runs inside the fake UnrealPak with its arguments, before it writes anything.</summary>
+        public Action<IReadOnlyList<string>>? DuringRun { get; set; }
+
         public Task<ProcessRunResult> RunAsync(string fileName, IReadOnlyList<string> arguments, CancellationToken cancellationToken = default)
         {
             LastFileName = fileName;
             LastArguments = arguments;
+            ContextAtRun = SynchronizationContext.Current;
+            DuringRun?.Invoke(arguments);
 
             // Stands in for what a real UnrealPak.exe -Extract run does to its target directory
             // (the 3rd argument — a temp directory UnrealPakService itself picks, not necessarily
@@ -165,6 +173,44 @@ public class UnrealPakServiceTests : IDisposable
         Assert.True(File.Exists(lockedFile));
         Assert.False(File.Exists(Path.Combine(_outputDirectory, "Crafting", "D_New.json")));
         Assert.Empty(Directory.GetDirectories(Path.GetDirectoryName(Path.GetFullPath(_outputDirectory))!, ".DataExtract_*"));
+    }
+
+    /// <summary>
+    /// Every caller is a UI command; diffing the old and new Data folders and swapping them used to
+    /// run on the UI thread once UnrealPak finished, freezing the window for seconds.
+    /// </summary>
+    [Fact]
+    public async Task ExtractDataPakAsync_RunsOffTheCallersThread()
+    {
+        var runner = Runner(new ProcessRunResult(0, "", ""), ("Crafting/D_ProcessorRecipes.json", "{}"));
+        var service = new UnrealPakService(runner);
+        var marker = new MarkerSynchronizationContext();
+
+        await marker.Run(() => service.ExtractDataPakAsync(_unrealPakExePath, _contentPath, _outputDirectory, previousUpdateAt: null));
+
+        Assert.NotSame(marker, runner.ContextAtRun);
+    }
+
+    /// <summary>
+    /// Regression: a refresh killed partway (Task Manager, a power cut) left its hidden
+    /// ".DataExtract_&lt;guid&gt;" folder next to Data for good; only ".DataExtract_old_*" was swept.
+    /// </summary>
+    [Fact]
+    public async Task ExtractDataPakAsync_LeftoverExtractionFromAnInterruptedRun_IsSwept()
+    {
+        var leftover = Path.Combine(_tempDir, ".DataExtract_0123456789abcdef0123456789abcdef");
+        Directory.CreateDirectory(Path.Combine(leftover, "Traits"));
+        File.WriteAllText(Path.Combine(leftover, "Traits", "D_Half.json"), "{}");
+        var runner = Runner(new ProcessRunResult(0, "", ""), ("Traits/D_Fuel.json", "{}"));
+        var currentRunExistedDuringRun = false;
+        runner.DuringRun = arguments => currentRunExistedDuringRun = Directory.Exists(arguments[2]);
+        var service = new UnrealPakService(runner);
+
+        var result = await service.ExtractDataPakAsync(_unrealPakExePath, _contentPath, _outputDirectory, previousUpdateAt: null);
+
+        Assert.False(Directory.Exists(leftover));
+        Assert.True(currentRunExistedDuringRun, "the sweep must skip this run's own extraction folder");
+        Assert.Equal(1, result.ExtractedFileCount);
     }
 
     /// <summary>ProcessRunner joins stdout with CRLF; the summary capture must stop at the '\r' or TrimEnd('.') never fires and a stray CR rides into the rebuild report.</summary>
@@ -400,7 +446,7 @@ public class UnrealPakServiceTests : IDisposable
         LogPakFile: Display: "Rada_CheatMenu/BP/BP_CheatMenuDummy.uasset" offset: 0, size: 9662 bytes, sha1: 3FE5A7055CEC10EA2198733BFF5C3C7BC4663A71, compression: Zlib.
         LogPakFile: Display: "Rada_CheatMenu/E_CheatCategory.uasset" offset: 14978, size: 922 bytes, sha1: 828E50FFA55669064C48DA8CC19B8DECAEC9BF27, compression: None.
         LogPakFile: Display: "UI/Components/UMG_RevisionNumber.uexp" offset: 585314, size: 881 bytes, sha1: 42FD3B56E56771A4BD99C420AAAF0EEB91585F98, compression: Zlib.
-        LogPakFile: Display: 291 files (567550 bytes), (0 filtered bytes).
+        LogPakFile: Display: 3 files (11465 bytes), (0 filtered bytes).
         LogPakFile: Display: Unreal pak executed in 0.005162 seconds
         """;
 
@@ -474,13 +520,173 @@ public class UnrealPakServiceTests : IDisposable
         LogPakFile: Display: Unreal pak executed in 0.179808 seconds
         """;
 
-    [Fact]
-    public async Task ExtractPakAsync_RealisticOutput_ReturnsExtractedFileCountFromExtractedLines()
+    /// <summary>Answers -List with a listing and -Extract with an extract log, and records every argument list.</summary>
+    private sealed class ScriptedProcessRunner(string listOutput, ProcessRunResult? extractResult = null) : IProcessRunner
+    {
+        public string? LastFileName { get; private set; }
+        public List<IReadOnlyList<string>> Calls { get; } = [];
+
+        public Task<ProcessRunResult> RunAsync(string fileName, IReadOnlyList<string> arguments, CancellationToken cancellationToken = default)
+        {
+            LastFileName = fileName;
+            Calls.Add([.. arguments]);
+            return Task.FromResult(arguments.Contains("-List")
+                ? new ProcessRunResult(0, listOutput, "")
+                : extractResult ?? new ProcessRunResult(0, RealisticExtractOutput, ""));
+        }
+    }
+
+    /// <summary>-List output in UnrealPak 4.27's shape (CRLF lines, as ProcessRunner joins them) for these entry names.</summary>
+    private static string Listing(params string[] entryNames) => string.Join("\r\n",
+    [
+        "LogInit: Display: Loading text-based GConfig....",
+        "LogPakFile: Display: Mount point ../../../Icarus/Content/",
+        .. entryNames.Select(name => $"LogPakFile: Display: \"{name}\" offset: 0, size: 4 bytes, sha1: 3FE5A7055CEC10EA2198733BFF5C3C7BC4663A71, compression: None."),
+        $"LogPakFile: Display: {entryNames.Length} files ({entryNames.Length * 4} bytes), (0 filtered bytes).",
+        "LogPakFile: Display: Unreal pak executed in 0.005162 seconds",
+    ]);
+
+    private static readonly string SafeListing = Listing("Rada_CheatMenu/BP/BP_CheatMenuDummy.uasset", "UI/Components/UMG_RevisionNumber.uexp");
+
+    private string WriteTestPak()
     {
         var pakPath = Path.Combine(_tempDir, "Test_P.pak");
         File.WriteAllText(pakPath, "fake pak bytes");
+        return pakPath;
+    }
+
+    /// <summary>
+    /// UnrealPak -Extract writes each entry to "&lt;folder&gt;/&lt;entry name&gt;" and the names come from
+    /// the pak's own index. A crafted pak used to be unpacked with no check, so an entry named
+    /// "../../../../Roaming/…/Startup/x.cmd" landed in the Startup folder. Now nothing is unpacked.
+    /// </summary>
+    [Theory]
+    [InlineData("../../../../Roaming/Microsoft/Windows/Start Menu/Programs/Startup/x.cmd")]
+    [InlineData("C:/x.txt")]
+    [InlineData("a/../../b.txt")]
+    [InlineData("CON.txt")]
+    [InlineData("x.txt:ads")]
+    public async Task ExtractPakAsync_ListedEntryWouldLandOutsideTheFolder_RefusesBeforeExtracting(string entryName)
+    {
+        var pakPath = WriteTestPak();
+        var runner = new ScriptedProcessRunner(Listing(entryName));
+        var service = new UnrealPakService(runner);
+
+        var ex = await Assert.ThrowsAsync<UnsafePakException>(() =>
+            service.ExtractPakAsync(_unrealPakExePath, pakPath, Path.Combine(_tempDir, "Extracted")));
+
+        Assert.Contains("Test_P.pak", ex.Message);
+        Assert.DoesNotContain(runner.Calls, c => c.Contains("-Extract"));
+        Assert.False(Directory.Exists(Path.Combine(_tempDir, "Extracted")));
+    }
+
+    /// <summary>A listing Starlink can't check line by line (a name that breaks its line, a count that doesn't add up, no summary) is refused too.</summary>
+    [Theory]
+    [InlineData("LogPakFile: Display: \"a\"b.uasset\" offset: 0, size: 4 bytes, sha1: 00, compression: None.\r\nLogPakFile: Display: 1 files (4 bytes), (0 filtered bytes).")]
+    [InlineData("LogPakFile: Display: \"a.uasset\" offset: 0, size: 4 bytes, sha1: 00, compression: None.\r\nLogPakFile: Display: 2 files (8 bytes), (0 filtered bytes).")]
+    [InlineData("LogPakFile: Display: \"a.uasset\" offset: 0, size: 4 bytes, sha1: 00, compression: None.\r\nLogPakFile: Display: Unreal pak executed in 0.01 seconds")]
+    public async Task ExtractPakAsync_ListingStarlinkCantCheck_RefusesBeforeExtracting(string listOutput)
+    {
+        var pakPath = WriteTestPak();
+        var runner = new ScriptedProcessRunner(listOutput);
+        var service = new UnrealPakService(runner);
+
+        await Assert.ThrowsAsync<UnsafePakException>(() =>
+            service.ExtractPakAsync(_unrealPakExePath, pakPath, Path.Combine(_tempDir, "Extracted")));
+
+        Assert.DoesNotContain(runner.Calls, c => c.Contains("-Extract"));
+    }
+
+    [Fact]
+    public async Task ExtractPakAsync_SafeListing_ListsThenExtracts()
+    {
+        var pakPath = WriteTestPak();
         var outputDirectory = Path.Combine(_tempDir, "Extracted");
-        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(0, RealisticExtractOutput, "")));
+        var runner = new ScriptedProcessRunner(SafeListing);
+        var service = new UnrealPakService(runner);
+
+        var count = await service.ExtractPakAsync(_unrealPakExePath, pakPath, outputDirectory);
+
+        Assert.Equal(2, runner.Calls.Count);
+        Assert.Equal([pakPath, "-List"], runner.Calls[0]);
+        Assert.Equal([pakPath, "-Extract", outputDirectory], runner.Calls[1]);
+        Assert.Equal(2, count);
+    }
+
+    /// <summary>
+    /// -List shows only stored sizes, so a pak whose index declares huge unpacked sizes used to be
+    /// unpacked until the drive was full. Over 8 GB it's refused before anything is written.
+    /// </summary>
+    [Fact]
+    public async Task ExtractPakAsync_WouldUnpackToMoreThan8GB_RefusesBeforeExtracting()
+    {
+        var pakPath = WriteTestPak();
+        var runner = new ScriptedProcessRunner(SafeListing);
+        var service = new UnrealPakService(runner) { UnpackedSizeReader = _ => 9_000_000_000, FreeSpaceReader = _ => 500_000_000_000 };
+
+        var ex = await Assert.ThrowsAsync<UnsafePakException>(() =>
+            service.ExtractPakAsync(_unrealPakExePath, pakPath, Path.Combine(_tempDir, "Extracted")));
+
+        Assert.Contains("'Test_P.pak' would unpack to 9 GB", ex.Message);
+        Assert.DoesNotContain(runner.Calls, c => c.Contains("-Extract"));
+    }
+
+    [Fact]
+    public async Task ExtractPakAsync_WouldLeaveLessThan1GBFree_RefusesBeforeExtracting()
+    {
+        var pakPath = WriteTestPak();
+        var runner = new ScriptedProcessRunner(SafeListing);
+        var service = new UnrealPakService(runner) { UnpackedSizeReader = _ => 2_000_000_000, FreeSpaceReader = _ => 2_500_000_000 };
+
+        var ex = await Assert.ThrowsAsync<UnsafePakException>(() =>
+            service.ExtractPakAsync(_unrealPakExePath, pakPath, Path.Combine(_tempDir, "Extracted")));
+
+        Assert.Contains("Free up some space", ex.Message);
+        Assert.DoesNotContain(runner.Calls, c => c.Contains("-Extract"));
+    }
+
+    /// <summary>When CUE4Parse can't read the pak's index the size check is skipped: UnrealPak then fails on such a pak by itself.</summary>
+    [Fact]
+    public async Task ExtractPakAsync_PakIndexUnreadable_SkipsTheSizeCheck()
+    {
+        var pakPath = WriteTestPak();
+        var runner = new ScriptedProcessRunner(SafeListing);
+        var service = new UnrealPakService(runner) { FreeSpaceReader = _ => 0 };
+
+        Assert.Null(UnrealPakService.TryReadUnpackedSize(pakPath));
+        await service.ExtractPakAsync(_unrealPakExePath, pakPath, Path.Combine(_tempDir, "Extracted"));
+
+        Assert.Contains(runner.Calls, c => c.Contains("-Extract"));
+    }
+
+    /// <summary>
+    /// UnrealPak logs everything to stdout, so a failed unpack used to put its whole log (dozens of
+    /// lines) into the Merge status line, without the pak's name or what to do.
+    /// </summary>
+    [Fact]
+    public async Task ExtractPakAsync_UnrealPakFailsWithALongLog_ShowsAShortReasonNamingThePak()
+    {
+        var pakPath = WriteTestPak();
+        var longLog = string.Join("\r\n", Enumerable.Range(1, 40).Select(i => $"LogInit: Display: Loading config line {i}....")
+            .Append("LogPakFile: Error: Corrupt pak index"));
+        var runner = new ScriptedProcessRunner(SafeListing, new ProcessRunResult(1, longLog, ""));
+        var service = new UnrealPakService(runner);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ExtractPakAsync(_unrealPakExePath, pakPath, Path.Combine(_tempDir, "Extracted")));
+
+        Assert.Contains("Test_P.pak", ex.Message);
+        Assert.Contains("Corrupt pak index", ex.Message);
+        Assert.DoesNotContain("LogInit", ex.Message);
+        Assert.True(ex.Message.Length < 500, ex.Message);
+    }
+
+    [Fact]
+    public async Task ExtractPakAsync_RealisticOutput_ReturnsExtractedFileCountFromExtractedLines()
+    {
+        var pakPath = WriteTestPak();
+        var outputDirectory = Path.Combine(_tempDir, "Extracted");
+        var service = new UnrealPakService(new ScriptedProcessRunner(SafeListing, new ProcessRunResult(0, RealisticExtractOutput, "")));
 
         var count = await service.ExtractPakAsync(_unrealPakExePath, pakPath, outputDirectory);
 
@@ -491,25 +697,23 @@ public class UnrealPakServiceTests : IDisposable
     [Fact]
     public async Task ExtractPakAsync_PassesPakPathAndExtractFlagAndOutputDirectory()
     {
-        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
-        File.WriteAllText(pakPath, "fake pak bytes");
+        var pakPath = WriteTestPak();
         var outputDirectory = Path.Combine(_tempDir, "Extracted");
-        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "", ""));
+        var runner = new ScriptedProcessRunner(SafeListing);
         var service = new UnrealPakService(runner);
 
         await service.ExtractPakAsync(_unrealPakExePath, pakPath, outputDirectory);
 
         Assert.Equal(_unrealPakExePath, runner.LastFileName);
-        Assert.Equal([pakPath, "-Extract", outputDirectory], runner.LastArguments);
+        Assert.Equal([pakPath, "-Extract", outputDirectory], runner.Calls[^1]);
     }
 
     [Fact]
     public async Task ExtractPakAsync_OutputDirectoryDoesNotExist_IsCreated()
     {
-        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
-        File.WriteAllText(pakPath, "fake pak bytes");
+        var pakPath = WriteTestPak();
         var outputDirectory = Path.Combine(_tempDir, "Extracted");
-        var service = new UnrealPakService(new CapturingProcessRunner(new ProcessRunResult(0, "", "")));
+        var service = new UnrealPakService(new ScriptedProcessRunner(SafeListing));
 
         await service.ExtractPakAsync(_unrealPakExePath, pakPath, outputDirectory);
 
@@ -542,17 +746,16 @@ public class UnrealPakServiceTests : IDisposable
     {
         // Confirmed live against the real bundled UnrealPak.exe: -Filter=<value> on -Extract
         // restricts extraction to just the matching entry/entries instead of the whole pak.
-        var pakPath = Path.Combine(_tempDir, "Test_P.pak");
-        File.WriteAllText(pakPath, "fake pak bytes");
+        var pakPath = WriteTestPak();
         var outputDirectory = Path.Combine(_tempDir, "Extracted");
-        var runner = new CapturingProcessRunner(new ProcessRunResult(0, "", ""));
+        var runner = new ScriptedProcessRunner(SafeListing);
         var service = new UnrealPakService(runner);
 
         await service.ExtractPakAsync(_unrealPakExePath, pakPath, outputDirectory, filter: "AI/D_AIDescriptors.*");
 
         Assert.Equal(
             [pakPath, "-Extract", outputDirectory, "-Filter=AI/D_AIDescriptors.*"],
-            runner.LastArguments);
+            runner.Calls[^1]);
     }
 
     public void Dispose()
