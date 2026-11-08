@@ -8,6 +8,7 @@ using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Navigation;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Server;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
@@ -20,6 +21,8 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IServiceProvider _serviceProvider;
     private readonly IThemeService _themeService;
     private readonly ISettingsService _settingsService;
+    private readonly BrokenModSearchStore? _findBrokenModSearch;
+    private readonly IActivityLog? _activityLog;
 
     public ObservableCollection<NavItem> NavItems { get; }
 
@@ -66,7 +69,8 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// The left navigation folded to a strip of icons: every item keeps its
-    /// icon and its name as a tooltip, so it still says what's what. Remembered in AppSettings.NavCollapsed.
+    /// icon and its name and shortcut as a tooltip ("Library (Ctrl+3)"), so it still says what's
+    /// what. Remembered in AppSettings.NavCollapsed.
     /// </summary>
     public bool IsNavCollapsed
     {
@@ -87,12 +91,15 @@ public sealed partial class MainViewModel : ObservableObject
     private void ToggleNav() => IsNavCollapsed = !IsNavCollapsed;
 
     public MainViewModel(IServiceProvider serviceProvider, IThemeService themeService, ISettingsService settingsService, ActivityPanelViewModel activityPanel,
-        IGameProcessChecker? gameProcess = null, Func<DateTime>? clock = null, Action<string>? openUrl = null, Func<bool>? focusGame = null)
+        IGameProcessChecker? gameProcess = null, Func<DateTime>? clock = null, Func<string, Exception?>? openUrl = null, Func<bool>? focusGame = null,
+        BrokenModSearchStore? findBrokenModSearch = null, IActivityLog? activityLog = null)
     {
         _serviceProvider = serviceProvider;
         _themeService = themeService;
         _settingsService = settingsService;
         ActivityPanel = activityPanel;
+        _findBrokenModSearch = findBrokenModSearch;
+        _activityLog = activityLog;
         UseGameSeams(gameProcess, clock, openUrl, focusGame);
 
         // Matches the real app's top-level nav: Profiles lives inside Merge & Install (a
@@ -104,7 +111,7 @@ public sealed partial class MainViewModel : ObservableObject
         // straight into Library's own list once it finishes, so a separate "Downloads" page just
         // duplicated the same job).
         // Grouped by what the user is doing: finding mods, working on their own, the game itself, then the app.
-        NavItems =
+        NavItems = [.. WithShortcuts(
         [
             // Nexus and the IMM Database together — everywhere mods can be found ("nexus" and
             // "imm-database" hand-offs land on its tabs).
@@ -124,7 +131,7 @@ public sealed partial class MainViewModel : ObservableObject
             new NavItem("weekly-changes", "Weekly Changes", typeof(WeeklyChangesViewModel), "Game"),
             new NavItem("settings", "Settings", typeof(SettingsViewModel)),
             new NavItem("help", "Help", typeof(HelpViewModel)),
-        ];
+        ])];
 
         _currentThemeName = settingsService.Current.ThemeName;
 
@@ -206,18 +213,99 @@ public sealed partial class MainViewModel : ObservableObject
 
     private bool CanOpenGameFolders() => !string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath);
 
+    private const string GameFolderMissing = "The game folder Starlink has isn't there any more: set it again in Settings › Game & tools.";
+
+    /// <summary>
+    /// The game's UE4SS mods folder, or the UE4SS folder when Mods isn't there. Without UE4SS in the
+    /// game neither exists: the bell says so instead of the click doing nothing.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanOpenGameFolders))]
-    private void OpenUe4ssFolder() => UrlOpener.TryOpen(Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath!));
+    private void OpenUe4ssFolder()
+    {
+        string mods, loader;
+        try
+        {
+            mods = Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath!);
+            loader = Ue4ssGamePaths.ResolveLoaderFolder(_settingsService.Current.IcarusContentPath!);
+        }
+        catch (ArgumentException)
+        {
+            // A game folder with no parent (a drive root): there's no game install beside it.
+            Warn(GameFolderMissing);
+            return;
+        }
+
+        var folder = Directory.Exists(mods) ? mods : Directory.Exists(loader) ? loader : null;
+        if (folder is null)
+        {
+            Warn("UE4SS isn't installed in the game yet: Settings › UE4SS installs it.");
+            return;
+        }
+
+        OpenFolder(folder);
+    }
 
     /// <summary>The real game install root (Icarus\Icarus, a sibling of Content) — same TrimEnd/GetDirectoryName Ue4ssGamePaths itself already uses to derive it, since IcarusContentPath is the only path this app actually keeps.</summary>
     [RelayCommand(CanExecute = nameof(CanOpenGameFolders))]
     private void OpenGameFolder()
     {
         var trimmed = _settingsService.Current.IcarusContentPath!.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (Path.GetDirectoryName(trimmed) is { } gameRoot)
+        if (Path.GetDirectoryName(trimmed) is not { } gameRoot || !Directory.Exists(gameRoot))
         {
-            UrlOpener.TryOpen(gameRoot);
+            Warn(GameFolderMissing);
+            return;
         }
+
+        OpenFolder(gameRoot);
+    }
+
+    /// <summary>Opens a folder in Explorer; when Windows refuses, the bell says why.</summary>
+    private void OpenFolder(string path)
+    {
+        if (_open(path) is { } error)
+        {
+            Warn($"Couldn't open {path}: {error.Message}");
+        }
+    }
+
+    /// <summary>A warning in the bell (it pops up as a toast too).</summary>
+    private void Warn(string message) => _activityLog?.Log(message, ActivityEntryKind.Warning);
+
+    /// <summary>
+    /// A Find the broken mod search has put a round's mods in the game: Icarus started now would load
+    /// without the player's other mods until Starlink puts them back. A search that hasn't installed
+    /// a round yet doesn't count (the game still has the player's own install).
+    /// </summary>
+    public bool FindBrokenModHasSomeModsOut()
+    {
+        try
+        {
+            return _findBrokenModSearch?.Load()?.Installed is not null;
+        }
+        catch (Exception)
+        {
+            // Best-effort: closing must never fail over this.
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The question asked before the main window closes, or null when nothing is at stake.
+    /// <paramref name="unsaved"/> and <paramref name="running"/> are AppBusyCheck's answers.
+    /// </summary>
+    public static string? CloseQuestion(string? unsaved, string? running, bool findBrokenModHasSomeModsOut)
+    {
+        if (unsaved is null && running is null && !findBrokenModHasSomeModsOut)
+        {
+            return null;
+        }
+
+        return "Close Starlink anyway?"
+            + (unsaved is null ? "" : $"\n\nNot saved yet: {unsaved}.")
+            + (running is null ? "" : $"\n\nStill running: {running}; closing now stops it partway.")
+            + (findBrokenModHasSomeModsOut
+                ? "\n\nFind the broken mod has only some of your mods in the game: Icarus would start without the others. Next time Starlink starts, it offers to put them back."
+                : "");
     }
 
     /// <summary>
@@ -360,4 +448,29 @@ public sealed partial class MainViewModel : ObservableObject
         SelectedNavItem = item;
         return true;
     }
+
+    /// <summary>Ctrl+, : the Settings page, wherever it sits in the menu. False when there's none.</summary>
+    public bool GoToSettings()
+    {
+        if (NavItems.FirstOrDefault(i => i.Id == "settings") is not { } settings)
+        {
+            return false;
+        }
+
+        SelectedNavItem = settings;
+        return true;
+    }
+
+    /// <summary>The keys that open each page, as the folded menu's tooltips show them: Ctrl+0 Help, Ctrl+, Settings, Ctrl+1 … Ctrl+9 the first nine by place.</summary>
+    private static IEnumerable<NavItem> WithShortcuts(IReadOnlyList<NavItem> items) =>
+        items.Select((item, index) => item with
+        {
+            Shortcut = item.Id switch
+            {
+                "help" => "Ctrl+0",
+                "settings" => "Ctrl+,",
+                _ when index < 9 => $"Ctrl+{index + 1}",
+                _ => "",
+            },
+        });
 }

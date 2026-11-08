@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
@@ -14,8 +15,18 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// CanExecute refresh aren't exercised here.
 /// </summary>
 [Collection(MessengerCollection.Name)]
-public class MainViewModelTests
+public class MainViewModelTests : IDisposable
 {
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root))
+        {
+            Directory.Delete(_root, recursive: true);
+        }
+    }
+
     private static MainViewModel Build(string? icarusContentPath, IServiceProvider? services = null)
     {
         var settings = new AppSettings { IcarusContentPath = icarusContentPath };
@@ -24,6 +35,13 @@ public class MainViewModelTests
             new ActivityPanelViewModel(new FakeActivityLog()));
         return vm;
     }
+
+    /// <summary>A view model whose folder and link opening is recorded (and fails with <paramref name="openFails"/>), and whose warnings land in <paramref name="log"/>.</summary>
+    private static MainViewModel BuildWithSeams(string? icarusContentPath, List<string> opened, FakeActivityLog log,
+        Exception? openFails = null, IGameProcessChecker? game = null, BrokenModSearchStore? findBrokenModSearch = null) =>
+        new(new FakeServiceProvider(), new FakeThemeService(), new FakeSettingsService(new AppSettings { IcarusContentPath = icarusContentPath }),
+            new ActivityPanelViewModel(new FakeActivityLog()), game ?? new FakeGameProcess(), () => DateTime.UtcNow,
+            url => { opened.Add(url); return openFails; }, () => true, findBrokenModSearch, log);
 
     /// <summary>
     /// A real bug: the first "Find in Database" of a session opened the Nexus tab — the Database
@@ -196,7 +214,7 @@ public class MainViewModelTests
         var opened = new List<string>();
         var focused = 0;
         var vm = new MainViewModel(new FakeServiceProvider(), new FakeThemeService(), new FakeSettingsService(new AppSettings()),
-            new ActivityPanelViewModel(new FakeActivityLog()), game, () => now, opened.Add, () => { focused++; return true; });
+            new ActivityPanelViewModel(new FakeActivityLog()), game, () => now, url => { opened.Add(url); return null; }, () => { focused++; return true; });
         try
         {
             Assert.Equal("Play", vm.PlayButtonText);
@@ -240,7 +258,7 @@ public class MainViewModelTests
         var now = new DateTime(2026, 10, 30, 12, 0, 0, DateTimeKind.Utc);
         var opened = new List<string>();
         var vm = new MainViewModel(new FakeServiceProvider(), new FakeThemeService(), new FakeSettingsService(new AppSettings()),
-            new ActivityPanelViewModel(new FakeActivityLog()), game, () => now, opened.Add, () => true);
+            new ActivityPanelViewModel(new FakeActivityLog()), game, () => now, url => { opened.Add(url); return null; }, () => true);
         try
         {
             vm.LaunchGameCommand.Execute(null);
@@ -274,7 +292,7 @@ public class MainViewModelTests
     public async Task GameWatch_StartedOffTheWindowThread_TicksOnTheWindowsDispatcher()
     {
         var vm = new MainViewModel(new FakeServiceProvider(), new FakeThemeService(), new FakeSettingsService(new AppSettings()),
-            new ActivityPanelViewModel(new FakeActivityLog()), new FakeGameProcess(), () => DateTime.UtcNow, _ => { }, () => true);
+            new ActivityPanelViewModel(new FakeActivityLog()), new FakeGameProcess(), () => DateTime.UtcNow, _ => null, () => true);
         try
         {
             var window = System.Windows.Threading.Dispatcher.CurrentDispatcher;
@@ -289,6 +307,247 @@ public class MainViewModelTests
             WeakReferenceMessenger.Default.UnregisterAll(vm);
         }
     }
+
+    /// <summary>
+    /// Regression: when Windows couldn't hand steam://run to Steam, the error was dropped and the
+    /// button sat on Starting… for 2 minutes with no word.
+    /// </summary>
+    [Fact]
+    public void Play_SteamCantBeAsked_StaysOnPlayAndWarns()
+    {
+        var opened = new List<string>();
+        var log = new FakeActivityLog();
+        var vm = BuildWithSeams(null, opened, log, openFails: new System.ComponentModel.Win32Exception(1155));
+        try
+        {
+            vm.LaunchGameCommand.Execute(null);
+
+            Assert.Equal(["steam://run/1149460"], opened);
+            Assert.Equal(GamePlayState.Ready, vm.GamePlayState);
+            Assert.Contains("Steam", Assert.Single(log.Warnings));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>
+    /// Regression: for up to 3 seconds after Icarus closed or crashed the button still said
+    /// Running, and a click only tried to bring the (gone) game forward: nothing started.
+    /// </summary>
+    [Fact]
+    public void Play_RunningButTheGameClosed_StartsItAgain()
+    {
+        var game = new FakeGameProcess { Running = true };
+        var opened = new List<string>();
+        var vm = BuildWithSeams(null, opened, new FakeActivityLog(), game: game);
+        try
+        {
+            vm.ApplyGameRunning(true);
+            game.Running = false; // closed before the next watch tick
+
+            vm.LaunchGameCommand.Execute(null);
+
+            Assert.Equal(["steam://run/1149460"], opened);
+            Assert.Equal(GamePlayState.Starting, vm.GamePlayState);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Regression: with no UE4SS in the game, the header's UE4SS button did nothing and said nothing.</summary>
+    [Fact]
+    public void OpenUe4ssFolder_Ue4ssNotInstalled_SaysSoAndOpensNothing()
+    {
+        var content = Directory.CreateDirectory(Path.Combine(_root, "Icarus", "Content")).FullName;
+        var opened = new List<string>();
+        var log = new FakeActivityLog();
+        var vm = BuildWithSeams(content, opened, log);
+        try
+        {
+            vm.OpenUe4ssFolderCommand.Execute(null);
+
+            Assert.Empty(opened);
+            Assert.Contains("UE4SS isn't installed", Assert.Single(log.Warnings));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    [Fact]
+    public void OpenUe4ssFolder_Installed_OpensItsModsFolder()
+    {
+        var content = Directory.CreateDirectory(Path.Combine(_root, "Icarus", "Content")).FullName;
+        var mods = Directory.CreateDirectory(Path.Combine(_root, "Icarus", "Binaries", "Win64", "ue4ss", "Mods")).FullName;
+        var opened = new List<string>();
+        var log = new FakeActivityLog();
+        var vm = BuildWithSeams(content, opened, log);
+        try
+        {
+            vm.OpenUe4ssFolderCommand.Execute(null);
+
+            Assert.Equal([mods], opened);
+            Assert.Empty(log.Warnings);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Regression: a game folder set to a drive root (no parent folder) threw out of the command, which closes Starlink.</summary>
+    [Fact]
+    public void OpenUe4ssFolder_GameFolderIsADriveRoot_SaysSoInsteadOfThrowing()
+    {
+        var opened = new List<string>();
+        var log = new FakeActivityLog();
+        var vm = BuildWithSeams(@"C:\", opened, log);
+        try
+        {
+            vm.OpenUe4ssFolderCommand.Execute(null);
+
+            Assert.Empty(opened);
+            Assert.Contains("Settings", Assert.Single(log.Warnings));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Regression: after the game was moved or uninstalled, the header's Game button did nothing and said nothing.</summary>
+    [Fact]
+    public void OpenGameFolder_FolderGone_SaysSo()
+    {
+        var opened = new List<string>();
+        var log = new FakeActivityLog();
+        var vm = BuildWithSeams(Path.Combine(_root, "Gone", "Icarus", "Content"), opened, log);
+        try
+        {
+            vm.OpenGameFolderCommand.Execute(null);
+
+            Assert.Empty(opened);
+            Assert.Contains("isn't there any more", Assert.Single(log.Warnings));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Windows refusing to open the folder is said, with its reason, instead of dropped.</summary>
+    [Fact]
+    public void OpenGameFolder_WindowsCantOpenIt_SaysWhy()
+    {
+        var content = Directory.CreateDirectory(Path.Combine(_root, "Icarus", "Content")).FullName;
+        var opened = new List<string>();
+        var log = new FakeActivityLog();
+        var vm = BuildWithSeams(content, opened, log, openFails: new InvalidOperationException("Access is denied."));
+        try
+        {
+            vm.OpenGameFolderCommand.Execute(null);
+
+            Assert.Equal([Path.Combine(_root, "Icarus")], opened);
+            Assert.Contains("Access is denied.", Assert.Single(log.Warnings));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Settings is the tenth page, past Ctrl+1…9, and Ctrl+0 is Help: Ctrl+, opens it.</summary>
+    [Fact]
+    public void GoToSettings_OpensTheSettingsPage()
+    {
+        var vm = Build(@"C:\fake\Icarus\Content");
+        try
+        {
+            Assert.True(vm.GoToSettings());
+            Assert.Equal("settings", vm.SelectedNavItem?.Id);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>The folded menu's tooltips say each page's shortcut: Ctrl+1…9 by place, Ctrl+0 Help, Ctrl+, Settings.</summary>
+    [Fact]
+    public void NavItems_EachSaysItsShortcut()
+    {
+        var vm = Build(@"C:\fake\Icarus\Content");
+        try
+        {
+            for (var i = 0; i < 9; i++)
+            {
+                Assert.Equal($"Ctrl+{i + 1}", vm.NavItems[i].Shortcut);
+            }
+
+            Assert.Equal("Ctrl+0", vm.NavItems.First(i => i.Id == "help").Shortcut);
+            Assert.Equal("Ctrl+,", vm.NavItems.First(i => i.Id == "settings").Shortcut);
+            Assert.Equal("Library (Ctrl+3)", vm.NavItems.First(i => i.Id == "library").TitleWithShortcut);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>
+    /// Closing Starlink while Find the broken mod has a round in the game used to ask nothing: Icarus,
+    /// started from Steam, then loaded without the other mods. Now it asks first.
+    /// </summary>
+    [Fact]
+    public void Closing_WhileFindTheBrokenModHasSomeModsOut_AsksFirst()
+    {
+        var store = new BrokenModSearchStore(Path.Combine(_root, "find_broken_mod.json"));
+        var vm = BuildWithSeams(null, [], new FakeActivityLog(), findBrokenModSearch: store);
+        try
+        {
+            Assert.False(vm.FindBrokenModHasSomeModsOut()); // no search
+
+            store.Save(new BrokenModSearchRecord { OriginalQueue = ["A", "B"] });
+            Assert.False(vm.FindBrokenModHasSomeModsOut()); // started, but the game still has every mod
+
+            store.Save(new BrokenModSearchRecord { OriginalQueue = ["A", "B"], Installed = ["A"] });
+            Assert.True(vm.FindBrokenModHasSomeModsOut());
+
+            var question = MainViewModel.CloseQuestion(unsaved: null, running: null, findBrokenModHasSomeModsOut: true);
+            Assert.NotNull(question);
+            Assert.Contains("Find the broken mod", question);
+            Assert.Contains("only some of your mods", question);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    [Fact]
+    public void CloseQuestion_NothingAtStake_AsksNothing_AndListsEachReasonOtherwise()
+    {
+        Assert.Null(MainViewModel.CloseQuestion(null, null, findBrokenModHasSomeModsOut: false));
+
+        var question = MainViewModel.CloseQuestion("the mod editor", "a download", findBrokenModHasSomeModsOut: true);
+        Assert.Contains("Not saved yet: the mod editor.", question);
+        Assert.Contains("Still running: a download", question);
+        Assert.Contains("Find the broken mod", question);
+    }
+
+    /// <summary>
+    /// The close question for Find the broken mod is left out while WPF shuts Starlink down
+    /// (Windows signing out, the updater taking over), when a Cancel can't keep it open. That
+    /// check reads WPF's own shutdown flag: this fails if a WPF update renames it.
+    /// </summary>
+    [Fact]
+    public void TheCloseQuestion_CanTellWhenStarlinkIsBeingShutDown() =>
+        Assert.True(MainWindow.CanSeeAppShutdown);
 
     private sealed class FakeGameProcess : IGameProcessChecker
     {
@@ -313,8 +572,9 @@ public class MainViewModelTests
     private sealed class FakeActivityLog : IActivityLog
     {
         public ObservableCollection<ActivityEntry> Entries { get; } = [];
-        public void Log(string message, ActivityEntryKind kind = ActivityEntryKind.Info)
-        {
-        }
+        public void Log(string message, ActivityEntryKind kind = ActivityEntryKind.Info) =>
+            Entries.Insert(0, new ActivityEntry(message, kind, DateTimeOffset.UtcNow));
+
+        public IReadOnlyList<string> Warnings => [.. Entries.Where(e => e.Kind == ActivityEntryKind.Warning).Select(e => e.Message)];
     }
 }

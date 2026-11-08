@@ -29,7 +29,7 @@ public sealed partial class MainViewModel
 
     private IGameProcessChecker? _gameProcess;
     private Func<DateTime> _clock = () => DateTime.UtcNow;
-    private Action<string> _openUrl = url => UrlOpener.TryOpen(url);
+    private Func<string, Exception?> _open = UrlOpener.TryOpen;
     private Func<bool> _focusGame = GameWindow.TryBringToFront;
     private DateTime _startingSince;
     private DispatcherTimer? _gameWatch;
@@ -56,18 +56,19 @@ public sealed partial class MainViewModel
         _ => "Start Icarus through Steam",
     };
 
-    private void UseGameSeams(IGameProcessChecker? gameProcess, Func<DateTime>? clock, Action<string>? openUrl, Func<bool>? focusGame)
+    private void UseGameSeams(IGameProcessChecker? gameProcess, Func<DateTime>? clock, Func<string, Exception?>? open, Func<bool>? focusGame)
     {
         _gameProcess = gameProcess;
         _clock = clock ?? _clock;
-        _openUrl = openUrl ?? _openUrl;
+        _open = open ?? _open;
         _focusGame = focusGame ?? _focusGame;
     }
 
     /// <summary>
     /// Steam's own URI launch, not the exe directly: it respects the launch options and overlay set in
     /// Steam, the same as Play in the Steam library. 1149460 is Icarus's App ID. Never asks Steam
-    /// twice: a click while Starting… does nothing, a click while Running brings the game forward.
+    /// twice: a click while Starting… does nothing, a click while the game runs brings it forward.
+    /// When Windows can't hand the link to Steam, the button stays on Play and the bell says why.
     /// </summary>
     [RelayCommand]
     private void LaunchGame()
@@ -77,14 +78,21 @@ public sealed partial class MainViewModel
             return;
         }
 
-        if (GamePlayState == GamePlayState.Running || IsGameProcessRunning())
+        // Asked again even when the button says Running: the game may have closed since the last watch tick.
+        if (IsGameProcessRunning())
         {
             GamePlayState = GamePlayState.Running;
             _focusGame();
             return;
         }
 
-        _openUrl("steam://run/1149460");
+        if (_open("steam://run/1149460") is { } error)
+        {
+            GamePlayState = GamePlayState.Ready;
+            Warn($"Couldn't ask Steam to start Icarus: {error.Message} Start it from Steam, or check that Steam is installed.");
+            return;
+        }
+
         _startingSince = _clock();
         GamePlayState = GamePlayState.Starting;
     }

@@ -28,15 +28,16 @@ public partial class MainWindow : Window
             SaveBounds();
 
             // Unsaved edits and running work (a merge, a download) used to vanish with the window,
-            // with no question asked; every page answers AppBusyCheck for its own.
+            // with no question asked; every page answers AppBusyCheck for its own. A Find the broken
+            // mod search with a round in the game is asked about too, but only when the player
+            // closes the window: when Windows or the updater shuts Starlink down a Cancel can't
+            // keep it open, and the next start offers to put the mods back anyway.
             var unsaved = IcarusStarlink.App.Services.AppBusyCheck.DescribeUnsaved();
             var running = IcarusStarlink.App.Services.AppBusyCheck.DescribeRunning();
-            if ((unsaved is not null || running is not null)
-                && !serviceProvider.GetRequiredService<IcarusStarlink.App.Services.IDialogService>().Confirm(
-                    "Close Starlink anyway?"
-                    + (unsaved is null ? "" : $"\n\nNot saved yet: {unsaved}.")
-                    + (running is null ? "" : $"\n\nStill running: {running}; closing now stops it partway."),
-                    "Unsaved changes", IcarusStarlink.App.Views.ThemedConfirmSeverity.Warning))
+            var findBrokenModHasSomeModsOut = !IsAppShuttingDown() && viewModel.FindBrokenModHasSomeModsOut();
+            if (MainViewModel.CloseQuestion(unsaved, running, findBrokenModHasSomeModsOut) is { } question
+                && !serviceProvider.GetRequiredService<IcarusStarlink.App.Services.IDialogService>().ConfirmWithWords(
+                    question, "Close Starlink?", IcarusStarlink.App.Views.ThemedConfirmSeverity.Warning, "Close anyway", "Cancel"))
             {
                 e.Cancel = true;
                 return;
@@ -51,9 +52,9 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Page shortcuts: Ctrl+1 … Ctrl+9 go to the menu's pages in order (Ctrl+0 the tenth), Ctrl+F
-    /// to the page's own search or filter box (PageSearch). Windows opened from a page (the mod
-    /// editor and others) keep their own shortcuts; these are the main window's only.
+    /// Page shortcuts: Ctrl+1 … Ctrl+9 go to the menu's pages in order, Ctrl+0 to Help, Ctrl+, to
+    /// Settings, Ctrl+F to the page's own search or filter box (PageSearch). Windows opened from a
+    /// page (the mod editor and others) keep their own shortcuts; these are the main window's only.
     /// </summary>
     protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
     {
@@ -68,6 +69,12 @@ public partial class MainWindow : Window
                 return;
             }
 
+            if (key == System.Windows.Input.Key.OemComma && viewModel.GoToSettings())
+            {
+                e.Handled = true;
+                return;
+            }
+
             if (PageNumber(key) is { } number && viewModel.GoToPageNumber(number))
             {
                 e.Handled = true;
@@ -78,7 +85,7 @@ public partial class MainWindow : Window
         base.OnPreviewKeyDown(e);
     }
 
-    /// <summary>1–9 from the number row or the keypad; 0 is the tenth page.</summary>
+    /// <summary>1–9 from the number row or the keypad; 0 is Help (GoToPageNumber's 10).</summary>
     private static int? PageNumber(System.Windows.Input.Key key) => key switch
     {
         >= System.Windows.Input.Key.D1 and <= System.Windows.Input.Key.D9 => key - System.Windows.Input.Key.D1 + 1,
@@ -86,6 +93,30 @@ public partial class MainWindow : Window
         System.Windows.Input.Key.D0 or System.Windows.Input.Key.NumPad0 => 10,
         _ => null,
     };
+
+    /// <summary>
+    /// WPF's own "Application.Shutdown has started" flag. It isn't public, and App.IsClosing turns
+    /// true only after the windows have closed, so it's the one sign, inside Closing, that WPF is
+    /// closing every window itself (the updater, Windows signing out) and will ignore a Cancel.
+    /// </summary>
+    private static readonly System.Reflection.PropertyInfo? WpfShuttingDown =
+        typeof(Application).GetProperty("IsShuttingDown", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+    /// <summary>The flag above is there to read (a test checks it, so a WPF update that renames it is noticed).</summary>
+    internal static bool CanSeeAppShutdown => WpfShuttingDown?.PropertyType == typeof(bool) && WpfShuttingDown.GetMethod is not null;
+
+    /// <summary>Starlink is being shut down rather than closed by the player. Never throws.</summary>
+    private static bool IsAppShuttingDown()
+    {
+        try
+        {
+            return App.IsClosing || WpfShuttingDown?.GetValue(null) is true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
 
     /// <summary>The Merge &amp; Install page's state, or null while the app is starting or shutting down.</summary>
     private MergeInstallViewModel? TryGetMergeInstall()

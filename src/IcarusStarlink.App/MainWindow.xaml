@@ -197,7 +197,7 @@
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding OpenUe4ssFolderCommand}" Style="{StaticResource HeaderLinkButtonStyle}"
-                            ToolTip="Open the game's UE4SS folder: its Lua mods. Greyed out: set the game folder in Settings first."
+                            ToolTip="Open the game's UE4SS mods folder (says so if UE4SS isn't installed yet). Greyed out: set the game folder in Settings first."
                             ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="Open UE4SS folder">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="{StaticResource IconFolderCode}" Stroke="#4A90D9" Style="{StaticResource HeaderLinkIconStyle}"/>
@@ -311,7 +311,7 @@
                             </StackPanel>
                             <DataTemplate.Triggers>
                                 <DataTrigger Binding="{Binding DataContext.IsNavCollapsed, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
-                                    <Setter TargetName="NavItemPanel" Property="ToolTip" Value="{Binding Title}"/>
+                                    <Setter TargetName="NavItemPanel" Property="ToolTip" Value="{Binding TitleWithShortcut}"/>
                                 </DataTrigger>
                                 <!-- Each nav item gets its own fixed, distinct brand color, not a
                                      theme-reactive DynamicResource — same precedent as the

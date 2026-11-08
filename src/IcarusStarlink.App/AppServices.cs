@@ -183,6 +183,9 @@ internal static class AppServices
                 folderName, sp.GetRequiredService<ILibraryRepository>(), Path.Combine(appDataDirectory, "Data"),
                 sp.GetRequiredService<GameDataIndexCache>()));
 
+        // The saved Find the broken mod search: the finder writes it, and closing the main window
+        // asks first while it has only some of the player's mods in the game.
+        services.AddSingleton(new BrokenModSearchStore(Path.Combine(appDataDirectory, "find_broken_mod.json")));
         services.AddSingleton<MainViewModel>();
         services.AddSingleton(sp => new LibraryViewModel(
             sp.GetRequiredService<ILibraryRepository>(),
@@ -443,7 +446,7 @@ internal static class AppServices
                 sp.GetRequiredService<ISaveRepository>(),
                 sp.GetRequiredService<IGameProcessChecker>(),
                 Path.Combine(appDataDirectory, "Cache", "save_backups", "Worlds")),
-            Store = new BrokenModSearchStore(Path.Combine(appDataDirectory, "find_broken_mod.json")),
+            Store = sp.GetRequiredService<BrokenModSearchStore>(),
             Dialogs = sp.GetRequiredService<IDialogService>(),
             ReadCandidates = () => sp.GetRequiredService<MergeInstallViewModel>().ReadFinderCandidatesAsync(),
             GameIndex = () => sp.GetRequiredService<MergeInstallViewModel>().FinderGameIndex() is { } index && index.HasAnyTable() ? index : null,
