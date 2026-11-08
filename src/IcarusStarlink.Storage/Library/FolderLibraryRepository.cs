@@ -232,18 +232,18 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     /// <summary>
     /// "New mod…" — a blank EXMOD (zero Rows) so the editor has something to open
     /// straight into and build up, rather than reading from an existing folder/zip the way every
-    /// other Import does. name.Replace(' ', '_') derives the EXMOD's own FileName, matching the
-    /// convention real EXMOD authors already use — ExmodFolder.Write's own validation (via
-    /// ExmodPackageWriteGuard) rejects anything that isn't actually a safe simple filename, same
-    /// as every other write path.
+    /// other Import does. The EXMOD's FileName (and the folder name) is the typed name with spaces
+    /// as _, the convention real EXMOD authors use, and every character a file name can't hold
+    /// (: / ? * and the like) as _ too; the mod's Name keeps the name as typed.
     /// </summary>
     public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank)
     {
-        var fileName = name.Replace(' ', '_');
+        var fileName = SanitizeFolderNameCandidate(name.Replace(' ', '_'));
         var folderName = MakeUniqueFolderName(fileName);
         var targetFolder = Path.Combine(_extractedModsDirectory, folderName);
 
         var package = ModTemplateContent.Create(template, name, author);
+        package.FileName = fileName;
         var meta = new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow, MadeInStarlink = true };
         WriteNewModFolder(targetFolder, () =>
         {
@@ -487,7 +487,22 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         }
 
         // Exact timestamped-name match, never a "{folderName}_*" glob — see FolderBackup.IsTimestampedBackupOf.
-        return FolderBackup.EnumerateFolderBackups(_modBackupsDirectory, folderName).FirstOrDefault();
+        // A backup with no .EXMOD and no .pak stopped partway (disk full); restoring it would swap a
+        // whole mod for an unreadable folder, so it never counts as one.
+        return FolderBackup.EnumerateFolderBackups(_modBackupsDirectory, folderName).FirstOrDefault(HoldsAModFile);
+    }
+
+    private static bool HoldsAModFile(string folder)
+    {
+        try
+        {
+            var (hasExmod, pakPaths) = ClassifyModFolder([.. Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories)]);
+            return hasExmod || pakPaths.Count > 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     public string? ReadMetaSnapshot(string folderName) =>
@@ -605,29 +620,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         {
             try
             {
-                var folderName = Path.GetFileName(folder);
-                var meta = _metaStore.Load(folderName);
-                // One walk of the folder, reused for both the classify check and (if it turns out
-                // to be an EXMOD mod) the actual package read — ReadPackageOnly's own single-arg
-                // overload would otherwise re-walk the exact same folder a second time.
-                var files = Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).ToList();
-                var (hasExmod, pakPaths) = ClassifyModFolder(files);
-
-                if (hasExmod)
-                {
-                    var package = ExmodFolder.ReadPackageOnly(folder, files);
-                    scanned.Add((ToEntry(folderName, package, meta), BuildSearchableContent(package)));
-                }
-                else
-                {
-                    if (pakPaths.Count == 0)
-                    {
-                        throw new FormatException($"No .EXMOD or .pak file found under '{folder}'.");
-                    }
-
-                    var entry = ToOpaquePakEntry(folderName, pakPaths, meta);
-                    scanned.Add((entry, entry.Name));
-                }
+                scanned.Add(ReadModFolder(folder, Path.GetFileName(folder)));
             }
             catch (Exception ex) when (ex is FormatException or JsonException or IOException or UnauthorizedAccessException)
             {
@@ -645,6 +638,75 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         _cachedEntries = [.. scanned.Select(t => t.Entry)];
         UnreadableFolders = unreadable;
         _searchIndex.Rebuild(scanned);
+    }
+
+    /// <summary>One mod folder's entry and search words; throws FormatException, JsonException, IOException or UnauthorizedAccessException when it can't be read.</summary>
+    private (LibraryEntry Entry, string SearchableContent) ReadModFolder(string folder, string folderName)
+    {
+        var meta = _metaStore.Load(folderName);
+        // One walk of the folder, reused for both the classify check and (if it turns out
+        // to be an EXMOD mod) the actual package read — ReadPackageOnly's own single-arg
+        // overload would otherwise re-walk the exact same folder a second time.
+        var files = Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).ToList();
+        var (hasExmod, pakPaths) = ClassifyModFolder(files);
+
+        if (hasExmod)
+        {
+            var package = ExmodFolder.ReadPackageOnly(folder, files);
+            return (ToEntry(folderName, package, meta), BuildSearchableContent(package));
+        }
+
+        if (pakPaths.Count == 0)
+        {
+            throw new FormatException($"No .EXMOD or .pak file found under '{folder}'.");
+        }
+
+        var entry = ToOpaquePakEntry(folderName, pakPaths, meta);
+        return (entry, entry.Name);
+    }
+
+    /// <summary>
+    /// See ILibraryRepository.RefreshEntry. Only this folder is read; every other cached entry
+    /// stays as it is. A folder that can't be read now leaves the list and is named in
+    /// UnreadableFolders, the same as a full rescan would do.
+    /// </summary>
+    public void RefreshEntry(string folderName)
+    {
+        AssetPathGuard.EnsureSimpleFileName(folderName);
+        var known = _cachedEntries.Find(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+        var name = known?.FolderName ?? folderName;
+        var folder = Path.Combine(_extractedModsDirectory, name);
+
+        (LibraryEntry Entry, string SearchableContent)? read = null;
+        var unreadable = false;
+        if (Directory.Exists(folder))
+        {
+            try
+            {
+                read = ReadModFolder(folder, name);
+            }
+            catch (Exception ex) when (ex is FormatException or JsonException or IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Couldn't read '{Folder}' again after it changed", folder);
+                unreadable = true;
+            }
+        }
+
+        var others = _cachedEntries.Where(e => !ReferenceEquals(e, known));
+        _cachedEntries = read is { } fresh
+            ? known is null
+                ? [.. others, fresh.Entry]
+                : [.. _cachedEntries.Select(e => ReferenceEquals(e, known) ? fresh.Entry : e)]
+            : [.. others];
+        UnreadableFolders = unreadable
+            ? [.. UnreadableFolders.Where(f => !string.Equals(f, name, StringComparison.OrdinalIgnoreCase)), name]
+            : [.. UnreadableFolders.Where(f => !string.Equals(f, name, StringComparison.OrdinalIgnoreCase))];
+
+        _searchIndex.Remove(name);
+        if (read is { } indexed)
+        {
+            _searchIndex.Insert(indexed.Entry, indexed.SearchableContent);
+        }
     }
 
     /// <summary>See ILibraryRepository — recomputed by every RescanAll (construction, Refresh, restore, rename), so it always reflects the same scan the cached entries came from.</summary>

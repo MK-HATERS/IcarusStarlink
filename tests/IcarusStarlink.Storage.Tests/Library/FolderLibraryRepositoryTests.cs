@@ -1,3 +1,4 @@
+using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.Storage.Library;
@@ -1394,6 +1395,95 @@ public class FolderLibraryRepositoryTests : IDisposable
         // A real point-in-time restore, not a merge — a file added after the backup was taken
         // shouldn't survive, since the whole point is undoing everything since that snapshot.
         Assert.False(File.Exists(strayFile));
+    }
+
+    /// <summary>
+    /// Regression: a backup that stopped partway (disk full) left a newer folder with no .EXMOD and
+    /// no .pak, and Restore latest backup swapped the whole mod for it, so the mod dropped out as unreadable.
+    /// </summary>
+    [Fact]
+    public void RestoreLatestModBackup_NewestBackupHasNoModFile_UsesTheLastWholeOne()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        var whole = repo.BackupMod(folderName);
+        var partial = Path.Combine(_backupsDir, $"{folderName}_29991231-235959");
+        Directory.CreateDirectory(partial);
+        File.WriteAllText(Path.Combine(partial, "readme.md"), "copied before the disk filled up");
+
+        Assert.Equal(whole, repo.TryGetLatestModBackupPath(folderName));
+        Assert.True(repo.RestoreLatestModBackup(folderName));
+        Assert.Equal("Faster Processors", Assert.Single(repo.GetAll()).Name);
+        Assert.Empty(repo.UnreadableFolders);
+    }
+
+    /// <summary>Regression: a partial backup was the only one, so Restore latest backup replaced the whole mod with it.</summary>
+    [Fact]
+    public void RestoreLatestModBackup_OnlyBackupHasNoModFile_ReturnsFalseAndLeavesTheModUntouched()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        Directory.CreateDirectory(Path.Combine(_backupsDir, $"{folderName}_20260101-120000"));
+
+        Assert.False(repo.HasModBackup(folderName));
+        Assert.False(repo.RestoreLatestModBackup(folderName));
+        Assert.True(File.Exists(Path.Combine(repo.GetFolderPath(folderName), "readme.md")));
+        Assert.Single(repo.GetAll());
+    }
+
+    /// <summary>Regression: "New mod" with a name holding ':' (or / ? * and the like) failed, because the name became the folder and file name as it was.</summary>
+    [Fact]
+    public void CreateBlankMod_NameWithCharactersAFileNameCantHold_MakesAReadableModThatKeepsTheName()
+    {
+        using var repo = CreateRepository();
+
+        var entry = repo.CreateBlankMod("Stacks: x10", "Me");
+
+        Assert.Equal("Stacks: x10", entry.Name);
+        Assert.DoesNotContain(':', entry.FolderName);
+        using var reopened = CreateRepository();
+        Assert.Equal("Stacks: x10", Assert.Single(reopened.GetAll()).Name);
+        Assert.Empty(reopened.UnreadableFolders);
+    }
+
+    /// <summary>
+    /// Regression: the search only learned a mod's rows and items when it was imported or on a full
+    /// rescan, so items saved into a mod afterwards weren't found until a restart.
+    /// </summary>
+    [Fact]
+    public void RefreshEntry_AfterRowsAreWrittenIntoAMod_SearchFindsTheirItems()
+    {
+        using var repo = CreateRepository();
+        var other = repo.CreateBlankMod("Other Mod", "Me");
+        var entry = repo.CreateBlankMod("Faster Processors", "Me");
+        Assert.Empty(repo.Search("SmelterRecipe"));
+        ExmodFolder.Write(repo.GetFolderPath(entry.FolderName), BuildFixture(entry.FileName, "Faster Processors v2"));
+
+        ILibraryRepository library = repo;
+        library.RefreshEntry(entry.FolderName);
+
+        Assert.Equal([entry.FolderName], repo.Search("SmelterRecipe").Select(e => e.FolderName));
+        Assert.Contains(repo.GetAll(), e => e.FolderName == entry.FolderName && e.Name == "Faster Processors v2");
+        // Only that one mod is read again: the others keep their cached entries.
+        Assert.Same(other, repo.GetAll().Single(e => e.FolderName == other.FolderName));
+        Assert.Equal(2, repo.GetAll().Count);
+    }
+
+    /// <summary>A mod whose folder is gone leaves the list and the search when it is refreshed.</summary>
+    [Fact]
+    public void RefreshEntry_FolderGone_DropsTheMod()
+    {
+        using var repo = CreateRepository();
+        var entry = repo.CreateBlankMod("Gone Mod", "Me");
+        Directory.Delete(repo.GetFolderPath(entry.FolderName), recursive: true);
+
+        ILibraryRepository library = repo;
+        library.RefreshEntry(entry.FolderName);
+
+        Assert.Empty(repo.GetAll());
+        Assert.Empty(repo.Search("Gone"));
     }
 
     public void Dispose()

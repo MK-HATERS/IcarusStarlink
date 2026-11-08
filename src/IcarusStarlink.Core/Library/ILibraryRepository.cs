@@ -46,6 +46,13 @@ public interface ILibraryRepository
     /// <summary>Re-scans Extracted_Mods from disk — for mods added/edited outside the app while it was running.</summary>
     void Refresh();
 
+    /// <summary>
+    /// Reads one mod's folder again after something wrote into it (an editor save, a fix), so its
+    /// entry and its search words (rows, items, fields) match what is on disk; a folder that is gone
+    /// leaves the list. The default re-scans everything, for repositories that don't cache.
+    /// </summary>
+    void RefreshEntry(string folderName) => Refresh();
+
     /// <summary>All or nothing: a mod with a file held open is left whole and listed, and the error goes on.</summary>
     void Delete(string folderName);
 
