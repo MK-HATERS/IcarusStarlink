@@ -55,6 +55,14 @@ public sealed partial class SavesViewModel
 
     public string UnusedFlagsSummary => OnSummary(UnusedFlags);
 
+    /// <summary>
+    /// The Advanced section's note. It mixes account flags with the selected character's own, and
+    /// the character is picked on the Characters tab, so the note names who they belong to.
+    /// </summary>
+    public string AdvancedFlagsNote => SelectedCharacter is { } character
+        ? $"Markers the game sets itself (level boosts claimed, refunds done, story steps), pop-ups already seen, and {character.Name}'s own flags (pick another character on the Characters tab). Talent-granted flags follow their talent and can't be switched here."
+        : "Markers the game sets itself (level boosts claimed, refunds done, story steps) and pop-ups already seen. Talent-granted flags follow their talent and can't be switched here.";
+
     private static string OnSummary(IReadOnlyCollection<SaveFlagViewModel> flags) => $"{flags.Count(f => f.IsUnlocked)} of {flags.Count} on";
 
     private void NotifyFlagSummaries()
@@ -63,6 +71,7 @@ public sealed partial class SavesViewModel
         OnPropertyChanged(nameof(TalentPointFlagsSummary));
         OnPropertyChanged(nameof(AdvancedFlagsSummary));
         OnPropertyChanged(nameof(UnusedFlagsSummary));
+        OnPropertyChanged(nameof(AdvancedFlagsNote));
     }
 
     [ObservableProperty]

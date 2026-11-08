@@ -11,12 +11,6 @@ namespace IcarusStarlink.App.Tests.Views;
 /// </summary>
 public sealed class XamlStringFormatTests
 {
-    /// <summary>Known ones in pages outside the shell, left for their own reviews; take a file off once it's fixed.</summary>
-    private static readonly HashSet<string> KnownElsewhere = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "SavesOverviewTab.xaml",
-    };
-
     private static readonly Regex StringFormatOnObjectProperty = new(
         @"\b(ToolTip|Content|Header)=""\{Binding [^""]*StringFormat", RegexOptions.Compiled);
 
@@ -26,7 +20,6 @@ public sealed class XamlStringFormatTests
         var appFolder = Path.Combine(RepoRoot(), "src", "IcarusStarlink.App");
         var found = Directory.EnumerateFiles(appFolder, "*.xaml", SearchOption.AllDirectories)
             .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
-            .Where(path => !KnownElsewhere.Contains(Path.GetFileName(path)))
             .SelectMany(path => File.ReadLines(path).Select((line, index) => (path, line, index)))
             .Where(entry => StringFormatOnObjectProperty.IsMatch(entry.line))
             .Select(entry => $"{Path.GetRelativePath(appFolder, entry.path)}:{entry.index + 1}")

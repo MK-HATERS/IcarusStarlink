@@ -81,13 +81,32 @@ public sealed partial class SavesViewModel
         }
     }
 
-    partial void OnSelectedCharacterChanged(SaveCharacterViewModel? value)
+    partial void OnSelectedCharacterChanged(SaveCharacterViewModel? oldValue, SaveCharacterViewModel? newValue)
     {
+        // The Level box's error is about the XP it would set: once the XP box is edited it no longer applies.
+        if (oldValue is not null)
+        {
+            oldValue.PropertyChanged -= OnSelectedCharacterPropertyChanged;
+        }
+
+        if (newValue is not null)
+        {
+            newValue.PropertyChanged += OnSelectedCharacterPropertyChanged;
+        }
+
         RefreshFlagFilter();
         RefreshTalentFilter();
         LevelError = null;
         OnPropertyChanged(nameof(SelectedLevelText));
         OnPropertyChanged(nameof(CanSetLevel));
+    }
+
+    private void OnSelectedCharacterPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SaveCharacterViewModel.XpText))
+        {
+            LevelError = null;
+        }
     }
 
     /// <summary>Click a card to edit that character — Overview card → Characters tab with that character selected.</summary>

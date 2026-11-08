@@ -85,7 +85,7 @@
                     </DockPanel>
                 </Expander.Header>
             <StackPanel>
-                <TextBlock Text="Markers the game sets itself (level boosts claimed, refunds done, story steps), pop-ups already seen, and this character's flags. Talent-granted flags follow their talent and can't be switched here." Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                <TextBlock Text="{Binding AdvancedFlagsNote}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
                 <ItemsControl ItemsSource="{Binding AdvancedFlags}" ItemTemplate="{StaticResource UnlockRowTemplate}"/>
             </StackPanel>
             </Expander>

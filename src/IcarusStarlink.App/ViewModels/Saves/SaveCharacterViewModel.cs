@@ -48,7 +48,14 @@ public sealed partial class SaveCharacterViewModel : ObservableObject, IDirtyTra
 
     /// <summary>"Talents by 477, Solo by 15": trees with more ranks than the installed budget (set by SavesViewModel); null when none.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(OverBudgetToolTip))]
     private string? _overBudget;
+
+    /// <summary>The Overview's OVER BUDGET badge tooltip, built here: a ToolTip binding ignores StringFormat.</summary>
+    public string? OverBudgetToolTip => OverBudget is { } over ? $"More ranks than points: {over}. The game keeps them; see the Talents tab." : null;
+
+    /// <summary>The XP as last read or saved (MarkClean moves it): what the Level box puts back when the character's own level is typed again.</summary>
+    internal long SavedXp => _originalXp;
 
     /// <summary>Raw Customization_* hash fields — see SaveCosmeticFieldViewModel's own doc comment for why these aren't name-mapped.</summary>
     public ObservableCollection<SaveCosmeticFieldViewModel> Cosmetics { get; } = [];

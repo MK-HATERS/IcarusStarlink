@@ -152,6 +152,7 @@
                                             <TextBlock Text="Level" Style="{StaticResource FieldLabelStyle}"/>
                                             <TextBox Text="{Binding SelectedLevelText, UpdateSourceTrigger=PropertyChanged, Delay=700}" Width="120" HorizontalAlignment="Left"
                                                      FontFamily="Consolas" Margin="0,4,0,2" AutomationProperties.Name="Level"
+                                                     Style="{StaticResource SaveNumberBoxStyle}" Tag="{Binding HasLevelError}"
                                                      AutomationProperties.HelpText="{Binding LevelError}"
                                                      ToolTip="Type a level: the XP box gets just enough XP for it. Higher = more talent and blueprint points."/>
                                             <TextBlock Text="{Binding LevelError}" Style="{StaticResource SaveNumberErrorTextStyle}" Margin="0,0,0,4"/>

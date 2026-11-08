@@ -224,6 +224,14 @@ public sealed partial class SavesViewModel
         }
         catch (Exception ex)
         {
+            // A newer load overtook this one: its failure says nothing about the newer load, which
+            // may already be on screen (marking it failed made Save say "Nothing changed." over
+            // real edits). Skips the tail too, like the stale return above.
+            if (!ReferenceEquals(SelectedSlot, slotBeingLoaded) || loadGeneration != _slotLoadGeneration)
+            {
+                return;
+            }
+
             // A load that threw partway left a half-populated but fully SAVEABLE state: Save rebuilt Profile.json's Talents/UnlockedFlags from the (empty)
             // collections and wiped the account's research. Nothing from a failed load is writable.
             // Only Profile.json itself (or its file stamps) gets here now; every other section

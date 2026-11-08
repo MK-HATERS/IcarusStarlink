@@ -644,4 +644,204 @@ public sealed partial class SavesViewModelTests
             WeakReferenceMessenger.Default.UnregisterAll(vm);
         }
     }
+
+    /// <summary>
+    /// Regression: typing another level and then the character's own level back set the XP to that
+    /// level's start (4,034,000), so Save lost the character's progress into the level; and the
+    /// Level box's error stayed after the XP box was put right.
+    /// </summary>
+    [Fact]
+    public async Task LevelSetBack_PutsTheCharactersOwnXpBack()
+    {
+        static IcarusStarlink.PakIO.Assets.GrowthCurveKey Key(float t, float v) => new(t, v, false, false, 0, 0);
+        var growth = new IcarusStarlink.PakIO.Assets.PlayerGrowth(
+            1000, 60, false,
+            new([Key(0, 0), Key(51, 4_034_000), Key(52, 4_200_000)], false, true),
+            new([Key(0, 0), Key(50, 75), Key(60, 90)], false, false),
+            null, null, []);
+        var character = MakeCharacter("Alpha", 0);
+        character["XP"] = 4_100_000L;
+        var repository = new FakeSaveRepository { Characters = [character], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = new SavesViewModel(repository, new FakeActivityLog(),
+            new SaveGameNames(Path.Combine(Path.GetTempPath(), $"IcarusStarlinkTests_NoGameData_{Guid.NewGuid():N}")),
+            new FakeDialogService(confirmResult: true), new FakeGameProcessChecker(false), new FakeBaseGameIconDecoder(),
+            readPlayerGrowth: () => growth);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForPlayerGrowthAsync();
+            var alpha = Assert.Single(vm.Characters);
+            vm.SelectedCharacter = alpha;
+            Assert.Equal("51", vm.SelectedLevelText);
+
+            vm.SelectedLevelText = "60";
+            Assert.NotEqual("4100000", alpha.XpText);
+            vm.SelectedLevelText = "51";
+
+            Assert.Equal("4100000", alpha.XpText);
+            Assert.False(alpha.IsDirty);
+
+            vm.SelectedLevelText = "ten";
+            Assert.NotNull(vm.LevelError);
+            Assert.True(vm.HasLevelError);
+            alpha.XpText = "4200000";
+
+            Assert.Null(vm.LevelError);
+            Assert.False(vm.HasLevelError);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>
+    /// Regression: a load that a newer one had already overtaken still ran its failure path when its
+    /// own read failed, marking the newer, good load as failed: Save said "Nothing changed." over
+    /// real edits and switching slot never asked about them.
+    /// </summary>
+    [Fact]
+    public async Task OvertakenLoadThatFails_DoesNotSpoilTheNewerLoad()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = CreateViewModel(repository);
+        using var enteredFirst = new ManualResetEventSlim();
+        using var releaseFirst = new ManualResetEventSlim();
+        using var releaseSecond = new ManualResetEventSlim();
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            repository.ProfileLoadHook = call =>
+            {
+                if (call == 1)
+                {
+                    enteredFirst.Set();
+                    releaseFirst.Wait(TimeSpan.FromSeconds(30));
+                    throw new IOException("held by Steam");
+                }
+
+                releaseSecond.Wait(TimeSpan.FromSeconds(30));
+                return repository.Profile;
+            };
+
+            vm.ReloadCommand.Execute(null);
+            var first = vm.WaitForPendingSlotLoadAsync();
+            Assert.True(enteredFirst.Wait(TimeSpan.FromSeconds(10)));
+            vm.ReloadCommand.Execute(null);
+            var second = vm.WaitForPendingSlotLoadAsync();
+            releaseSecond.Set();
+            await second;
+            releaseFirst.Set();
+            await first;
+
+            vm.Characters.Single().Name = "Edited";
+
+            Assert.True(vm.HasUnsavedChanges);
+            Assert.DoesNotContain("Couldn't read this save", vm.StatusMessage ?? "");
+        }
+        finally
+        {
+            releaseFirst.Set();
+            releaseSecond.Set();
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>
+    /// Regression: with every multiplier back at 1x, Make the mod took "Starlink Player Points" out
+    /// of the Library without asking, even when it was turned on in Merge &amp; Install.
+    /// </summary>
+    [Fact]
+    public async Task PointsAllBackToTheGames_AsksBeforeTakingTheModOutOfTheLibrary()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_Points", Guid.NewGuid().ToString("N"));
+        _tempFoldersToCleanUp.Add(root);
+        using var library = new IcarusStarlink.Storage.Library.FolderLibraryRepository(
+            Path.Combine(root, "Extracted_Mods"), Path.Combine(root, "Library_Meta"), Path.Combine(root, "Backups"),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<IcarusStarlink.Storage.Library.FolderLibraryRepository>.Instance);
+        library.CreateBlankMod(PlayerPointsMod.DisplayName, "Icarus Starlink");
+        static IcarusStarlink.PakIO.Assets.GrowthCurveKey Key(float t, float v) => new(t, v, false, false, 0, 0);
+        var talents = new IcarusStarlink.PakIO.Assets.GrowthCurve([Key(0, 0), Key(50, 75)], false, false);
+        var growth = new IcarusStarlink.PakIO.Assets.PlayerGrowth(
+            1000, 60, false, null, talents, null, null, [],
+            GameCurves: new Dictionary<string, IcarusStarlink.PakIO.Assets.GrowthCurve> { ["TalentPointsPerLevel"] = talents });
+        var dialog = new FakeDialogService(false, false, true);
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0)], Profile = MakeProfile(nextChrSlot: 1) };
+        var vm = new SavesViewModel(repository, new FakeActivityLog(),
+            new SaveGameNames(Path.Combine(Path.GetTempPath(), $"IcarusStarlinkTests_NoGameData_{Guid.NewGuid():N}")),
+            dialog, new FakeGameProcessChecker(false), new FakeBaseGameIconDecoder(),
+            readPlayerGrowth: () => growth, pointsMod: new PlayerPointsMod(library, new NoGameContent()));
+        async Task MakeTheMod()
+        {
+            vm.MakePointsModCommand.Execute(null);
+            if (vm.MakePointsModCommand is CommunityToolkit.Mvvm.Input.IAsyncRelayCommand { ExecutionTask: { } running })
+            {
+                await running;
+            }
+        }
+
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            await vm.WaitForPlayerGrowthAsync();
+            Assert.Equal(1, Assert.Single(vm.PointsEditors).Multiplier);
+
+            await MakeTheMod();
+
+            Assert.Equal(1, dialog.ConfirmCallCount);
+            Assert.Contains("Merge & Install", dialog.LastConfirmMessage);
+            Assert.Contains(library.GetAll(), e => e.FileName == PlayerPointsMod.FileName);
+            Assert.NotNull(vm.PointsModFolder);
+
+            await MakeTheMod();
+
+            Assert.Equal(2, dialog.ConfirmCallCount);
+            Assert.DoesNotContain(library.GetAll(), e => e.FileName == PlayerPointsMod.FileName);
+            Assert.Null(vm.PointsModFolder);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    private sealed class NoGameContent : IcarusStarlink.PakIO.Assets.IBaseGameContentProvider
+    {
+        public T? TryLoadExport<T>(string assetPath) where T : class => null;
+
+        public TResult? TryLoadExportAndProject<T, TResult>(string assetPath, Func<T, TResult> project) where T : class where TResult : class => null;
+    }
+
+    /// <summary>The Unlocks tab's Advanced section mixes account flags with one character's own: it now names that character.</summary>
+    [Fact]
+    public async Task AdvancedFlagsNote_NamesTheCharacterWhoseFlagsItShows()
+    {
+        var repository = new FakeSaveRepository { Characters = [MakeCharacter("Alpha", 0), MakeCharacter("Beta", 1)], Profile = MakeProfile(nextChrSlot: 2) };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var alpha = vm.Characters.Single(c => c.Name == "Alpha");
+            vm.SelectedCharacter = vm.Characters.Single(c => c.Name == "Beta");
+            Assert.Contains("Beta's own flags", vm.AdvancedFlagsNote);
+            var raised = new List<string?>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            vm.SelectedCharacter = alpha;
+            Assert.Contains("Alpha's own flags", vm.AdvancedFlagsNote);
+            Assert.Contains(nameof(SavesViewModel.AdvancedFlagsNote), raised);
+
+            raised.Clear();
+            alpha.Name = "Ann";
+            Assert.Contains("Ann's own flags", vm.AdvancedFlagsNote);
+            Assert.Contains(nameof(SavesViewModel.AdvancedFlagsNote), raised);
+
+            vm.SelectedCharacter = null;
+            Assert.DoesNotContain("own flags", vm.AdvancedFlagsNote);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
 }

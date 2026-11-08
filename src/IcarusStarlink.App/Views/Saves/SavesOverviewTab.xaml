@@ -39,7 +39,7 @@
                                         </Border>
                                         <Border Margin="6,0,0,0" CornerRadius="8" Padding="6,1" VerticalAlignment="Center" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1"
                                                 Visibility="{Binding OverBudget, Converter={StaticResource NullToVisibilityConverter}}"
-                                                ToolTip="{Binding OverBudget, StringFormat='More ranks than points: {0}. The game keeps them; see the Talents tab.'}">
+                                                ToolTip="{Binding OverBudgetToolTip}">
                                             <TextBlock Text="OVER BUDGET" FontSize="10" FontFamily="Consolas" Foreground="{DynamicResource AccentBrush}"/>
                                         </Border>
                                     </StackPanel>

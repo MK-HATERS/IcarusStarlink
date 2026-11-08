@@ -251,6 +251,8 @@ public sealed partial class SavesViewModelTests : IDisposable
             var alpha = Assert.Single(vm.Characters);
             Assert.Equal((Label: "Talents", Used: 100, Available: 76), vm.BudgetOf(alpha)!.Single()); // level 51: 75 + 1.5, rounded down
             Assert.Equal("Talents by 24", alpha.OverBudget);
+            // The Overview badge's tooltip: a ToolTip binding ignores StringFormat, so it read only "Talents by 24".
+            Assert.Equal("More ranks than points: Talents by 24. The game keeps them; see the Talents tab.", alpha.OverBudgetToolTip);
             vm.SelectedCharacter = alpha;
             Assert.StartsWith("Over budget: Talents by 24.", vm.OverBudgetNote);
             Assert.Contains("Talents 100 used / 76 available (24 over)", vm.TalentRanksSummary);
@@ -2417,9 +2419,28 @@ public sealed partial class SavesViewModelTests : IDisposable
         /// <summary>When set, LoadProfile throws it (an unreadable Profile.json: the whole slot fails to load).</summary>
         public Exception? ProfileLoadError { get; set; }
 
+        /// <summary>When set, LoadProfile returns ProfileLoadHook(n), n counting the LoadProfile calls since the hook was set (from 1).</summary>
+        public Func<int, JsonObject>? ProfileLoadHook
+        {
+            get => _profileLoadHook;
+            set
+            {
+                _profileLoadHook = value;
+                _profileLoadCalls = 0;
+            }
+        }
+
+        private Func<int, JsonObject>? _profileLoadHook;
+        private int _profileLoadCalls;
+
         public JsonObject LoadProfile(string steamId)
         {
             LoadGate?.Wait();
+            if (_profileLoadHook is { } hook)
+            {
+                return hook(Interlocked.Increment(ref _profileLoadCalls));
+            }
+
             return ProfileLoadError is { } error ? throw error : Profile;
         }
 
@@ -2560,9 +2581,12 @@ public sealed partial class SavesViewModelTests : IDisposable
     {
         public int ConfirmCallCount { get; private set; }
 
+        public string? LastConfirmMessage { get; private set; }
+
         public bool Confirm(string message, string title, ThemedConfirmSeverity severity)
         {
             ConfirmCallCount++;
+            LastConfirmMessage = message;
             return answers.Length == 0 ? confirmResult : answers[Math.Min(ConfirmCallCount - 1, answers.Length - 1)];
         }
 
