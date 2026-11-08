@@ -768,9 +768,12 @@ tool for:
 - **[Nexus Mods](https://www.nexusmods.com/icarus)** — the platform and the real API this app's
   Nexus integration talks to.
 - **[CUE4Parse](https://github.com/FabianFG/CUE4Parse)** — the Unreal Engine asset-parsing library
-  underneath this app's own data extraction, diffing, and asset-preview features. The de facto
-  standard UE asset library in the modding/datamining community; this app builds on it, doesn't
-  fork or modify it.
+  this app reads cooked game and mod files with (asset previews, the Map, growth curves, blueprint
+  compare). The de facto standard UE asset library in the modding/datamining community; this app
+  builds on it, doesn't fork or modify it.
+- **[UE4SS](https://github.com/UE4SS-RE/RE-UE4SS)** (RE-UE4SS) — the Lua scripting loader that
+  ships inside this app and is installed into the game when you ask. MIT licence, Copyright (c)
+  2022 Narknon.
 - **Every third-party open-source library this app is built on** — see
   [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md) for the full list with licenses.
 
