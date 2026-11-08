@@ -256,6 +256,29 @@ public sealed class ModReplacementServiceTests : IDisposable
     }
 
     /// <summary>
+    /// Regression: a staged copy left beside a mod that is on was deleted with no backup before the
+    /// replace started, so nothing could bring it back. It is backed up under Backups\UE4SS\Staged
+    /// when the game copy is taken out, like Disable does.
+    /// </summary>
+    [Fact]
+    public async Task Replace_EnabledUe4ssModWithAStagedLeftover_BacksTheLeftoverUp()
+    {
+        _settings.Current.IcarusContentPath = Path.Combine(_root, "Game", "Icarus", "Content");
+        var gameMods = Ue4ssGamePaths.ResolveModsFolder(_settings.Current.IcarusContentPath);
+        Directory.CreateDirectory(Path.Combine(gameMods, "MiniMapa", "Scripts"));
+        File.WriteAllText(Path.Combine(gameMods, "MiniMapa", "Scripts", "main.lua"), "old");
+        StageUe4ss("MiniMapa", ("Scripts/main.lua", "leftover"));
+
+        var result = await Service().ReplaceAsync(
+            new ModReplacementRequest("Minimap", [], ["MiniMapa"]),
+            InstallUe4ss("MiniMapa", ("Scripts/main.lua", "new")));
+
+        Assert.True(result.Succeeded, result.Message);
+        var backup = Assert.Single(FolderBackup.EnumerateFolderBackups(Path.Combine(_root, "Backups", "UE4SS", "Staged"), "MiniMapa"));
+        Assert.Equal("leftover", File.ReadAllText(Path.Combine(backup, "Scripts", "main.lua")));
+    }
+
+    /// <summary>
     /// Activating a new Nexus version of a UE4SS mod replaced the player's
     /// config.lua with the shipped one. The update keeps the installed config (and names the new
     /// settings it lacks); the shipped defaults file is the new version's.

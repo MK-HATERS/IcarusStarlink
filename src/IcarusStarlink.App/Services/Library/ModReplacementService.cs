@@ -1,5 +1,6 @@
 using System.IO;
 using IcarusStarlink.App.Views;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Settings;
@@ -347,7 +348,8 @@ public sealed class ModReplacementService(
             }
             else
             {
-                TryDeleteDirectory(scratch);
+                // Scratch space in %TEMP%; a locked leftover isn't worth reporting.
+                Directories.TryDelete(scratch);
             }
         }
     }
@@ -704,21 +706,6 @@ public sealed class ModReplacementService(
         else if (entry.NexusModId is { } nexusModId)
         {
             library.LinkToNexus(entry.FolderName, nexusModId);
-        }
-    }
-
-    private static void TryDeleteDirectory(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path))
-            {
-                Directory.Delete(path, recursive: true);
-            }
-        }
-        catch (Exception)
-        {
-            // Scratch space in %TEMP%; a locked leftover isn't worth reporting.
         }
     }
 }
