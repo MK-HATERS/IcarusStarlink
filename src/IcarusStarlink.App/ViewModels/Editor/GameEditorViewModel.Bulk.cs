@@ -92,8 +92,17 @@ public sealed partial class GameEditorViewModel
     private bool _suspendPending;
     private bool _ticking;
 
-    /// <summary>Item name → what was typed over its preview row, for the value picked now.</summary>
-    private readonly Dictionary<string, string> _bulkOverrides = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Item name → what was typed over its preview row, for the value picked now, with the values
+    /// that row held: typed numbers are read by position, so they only fit a row of the same values.
+    /// </summary>
+    private readonly Dictionary<string, (string Text, IReadOnlyList<GameItemFieldViewModel> Fields)> _bulkOverrides = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The value the typed-over rows were typed for: only picking another one throws them away.</summary>
+    private BulkFieldKey? _overridesFor;
+
+    /// <summary>Set while the value list is rebuilt: it empties under the selection, which isn't a pick.</summary>
+    private bool _refreshingBulkFields;
 
     /// <summary>What the last bulk edit changed, to take it back out.</summary>
     private sealed record BulkUndo(List<(GameItemFieldViewModel Field, string Text)> Values, List<(GameItemSectionViewModel Card, bool OwnCopy)> Copies, List<string> Items);
@@ -166,7 +175,18 @@ public sealed partial class GameEditorViewModel
 
     partial void OnSelectedBulkFieldChanged(BulkFieldChoice? value)
     {
-        _bulkOverrides.Clear(); // typed for the value picked before
+        if (value is null && _refreshingBulkFields)
+        {
+            return;
+        }
+
+        // The same value with a new item count (a tick changed) isn't another pick: what was typed over stays.
+        if (value?.Key != _overridesFor)
+        {
+            _bulkOverrides.Clear(); // typed for the value picked before
+        }
+
+        _overridesFor = value?.Key;
         RefreshBulkPreview();
     }
 
@@ -331,10 +351,18 @@ public sealed partial class GameEditorViewModel
             }
         }
 
-        BulkFields.Clear();
-        foreach (var (key, (label, items)) in found.OrderByDescending(f => f.Value.Items.Count).ThenBy(f => f.Value.Label, StringComparer.OrdinalIgnoreCase))
+        _refreshingBulkFields = true;
+        try
         {
-            BulkFields.Add(new BulkFieldChoice(key, label, items.Count));
+            BulkFields.Clear();
+            foreach (var (key, (label, items)) in found.OrderByDescending(f => f.Value.Items.Count).ThenBy(f => f.Value.Label, StringComparer.OrdinalIgnoreCase))
+            {
+                BulkFields.Add(new BulkFieldChoice(key, label, items.Count));
+            }
+        }
+        finally
+        {
+            _refreshingBulkFields = false;
         }
 
         var again = BulkFields.FirstOrDefault(f => f.Key == keep) ?? BulkFields.FirstOrDefault();
@@ -374,9 +402,20 @@ public sealed partial class GameEditorViewModel
         }
 
         var shared = 0;
+        var leftOut = 0;
+        var doubling = SelectedBulkOperation.Operation != BulkOperation.Set && choice.Key.Path == "MaxStack";
         foreach (var item in _allItems.Where(i => i.IsTicked))
         {
             var matches = NumberFields(item.Name).Where(m => m.Key == choice.Key).ToList();
+
+            // An item that only inherits the table's stack size of 1 is a tool, weapon or armour piece:
+            // multiplied or added to, it would stack (ScaleRules leaves these out the same way). Set still sets it.
+            if (doubling && matches.Count > 0 && matches.All(m => m.Field.Field.Inherited && !m.Field.IsTyped))
+            {
+                leftOut++;
+                continue;
+            }
+
             var fields = new List<GameItemFieldViewModel>();
             var computed = new List<string>();
             foreach (var (_, field, _) in matches)
@@ -397,13 +436,30 @@ public sealed partial class GameEditorViewModel
 
             var isShared = matches.Any(m => fields.Contains(m.Field) && m.Card.IsShared && !m.Card.Section.IsOwnCopy);
             shared += isShared ? 1 : 0;
-            BulkRows.Add(new EditorBulkRow(item, fields, computed, isShared, _bulkOverrides.GetValueOrDefault(item.Name), RememberTyped));
+            // What was typed over this row fits only the same values (another number or How can change which ones).
+            string? typed = null;
+            if (_bulkOverrides.TryGetValue(item.Name, out var over))
+            {
+                if (over.Fields.SequenceEqual(fields))
+                {
+                    typed = over.Text;
+                }
+                else
+                {
+                    _bulkOverrides.Remove(item.Name);
+                }
+            }
+
+            BulkRows.Add(new EditorBulkRow(item, fields, computed, isShared, typed, RememberTyped));
         }
 
         var values = BulkRows.Sum(r => r.Fields.Count);
         BulkSummary = BulkRows.Count == 0
-            ? "Nothing would change: every ticked item already has that value."
-            : $"{BulkRows.Count:N0} item{(BulkRows.Count == 1 ? "" : "s")} change{(BulkRows.Count == 1 ? "s" : "")} ({values:N0} value{(values == 1 ? "" : "s")}). Untick any to leave out.";
+            ? leftOut > 0
+                ? "None of the ticked items stacks yet: they use the game's stack size of 1 (tools, weapons, armour). Use Set to give them one on purpose."
+                : "Nothing would change: every ticked item already has that value."
+            : $"{BulkRows.Count:N0} item{(BulkRows.Count == 1 ? "" : "s")} change{(BulkRows.Count == 1 ? "s" : "")} ({values:N0} value{(values == 1 ? "" : "s")}). Untick any to leave out."
+                + (leftOut > 0 ? $" {leftOut:N0} item(s) that don't stack were left out (they use the game's stack size of 1); Set changes them too." : "");
         BulkSharedText = shared == 0 ? null
             : $"{shared:N0} of them use a row other items share (like the basic decay row, used by hundreds of items).";
     }
@@ -413,7 +469,7 @@ public sealed partial class GameEditorViewModel
     {
         if (row.IsEdited)
         {
-            _bulkOverrides[row.Item.Name] = row.NewText;
+            _bulkOverrides[row.Item.Name] = (row.NewText, row.Fields);
         }
         else
         {
@@ -458,8 +514,9 @@ public sealed partial class GameEditorViewModel
                     card.OwnCopy = BulkOwnCopy;
                 }
 
-                // Now an item with changes like any other: it waits in Your changes.
-                if (_bulkCards.Remove(row.Item.Name, out var built))
+                // Now an item with changes like any other: it waits in Your changes. Only the preview's own cards
+                // move; a shown or waiting item already has its cards, and an older preview's would replace them.
+                if (_bulkCards.Remove(row.Item.Name, out var built) && ReferenceEquals(built, cards))
                 {
                     _drafts[row.Item.Name] = built;
                 }
