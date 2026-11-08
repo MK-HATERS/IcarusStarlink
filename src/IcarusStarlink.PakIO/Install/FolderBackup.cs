@@ -21,12 +21,19 @@ public static class FolderBackup
     internal const string PartialMarker = ".partial-";
 
     /// <summary>
+    /// A Library mod backup's label sits beside it as "{backup folder}.label.json" (why it was kept,
+    /// which version). BackupCleanup removes a label whose backup folder is gone.
+    /// </summary>
+    public const string LabelSuffix = ".label.json";
+
+    /// <summary>
     /// Copies sourceFolder into backupBaseDirectory under a timestamped name, then prunes older
     /// backups of the same folder name beyond MaxBackups. No-op if sourceFolder doesn't exist. A
     /// copy that fails throws and leaves no backup behind; a stale backup that can't be pruned
     /// doesn't throw.
     /// </summary>
-    public static void BackupFolder(string sourceFolder, string backupBaseDirectory)
+    /// <param name="keepBackup">A backup the trim leaves in place even when it is beyond MaxBackups (the one about to be put back); the next backup's trim counts it as usual.</param>
+    public static void BackupFolder(string sourceFolder, string backupBaseDirectory, string? keepBackup = null)
     {
         if (!Directory.Exists(sourceFolder))
         {
@@ -51,7 +58,7 @@ public static class FolderBackup
             throw;
         }
 
-        PruneOldFolderBackups(backupBaseDirectory, name);
+        PruneOldFolderBackups(backupBaseDirectory, name, keepBackup);
     }
 
     /// <summary>Copies sourceFile into backupDirectory under a timestamped name, then prunes older backups of the same base name beyond maxBackups (MaxBackups if not specified). No-op if sourceFile doesn't exist. Returns the backup path, or null if there was nothing to back up. A failed copy throws; a stale backup that can't be pruned doesn't.</summary>
@@ -184,11 +191,13 @@ public static class FolderBackup
     /// one old backup held open (FModel) or read-only must not turn it into a failed backup that
     /// stops an install or a save. What's left goes on the next backup's trim or Clean up backups.
     /// </summary>
-    private static void PruneOldFolderBackups(string backupDirectory, string name)
+    private static void PruneOldFolderBackups(string backupDirectory, string name, string? keepBackup)
     {
         var backups = EnumerateFolderBackups(backupDirectory, name);
+        var keep = keepBackup is null ? null : Path.GetFullPath(keepBackup).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        foreach (var stale in backups.Skip(MaxBackups))
+        foreach (var stale in backups.Skip(MaxBackups)
+            .Where(b => keep is null || !string.Equals(Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), keep, StringComparison.OrdinalIgnoreCase)))
         {
             Directories.TryDelete(stale);
         }

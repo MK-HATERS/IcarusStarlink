@@ -1614,6 +1614,64 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.Empty(library.ListModBackups(folderName));
     }
 
+    /// <summary>
+    /// The chosen backup is read where it is, never renamed for the restore: under a ".partial-"
+    /// name a crash, or Clean up backups (which deletes old partial folders), could lose it. A file
+    /// held open inside it blocks any rename of its folder, so the restore only works without one.
+    /// </summary>
+    [Fact]
+    public void RestoreModBackup_TheChosenBackupIsNeverRenamed_AndSurvivesCleanUp()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        var exmodPath = Directory.GetFiles(repo.GetFolderPath(folderName), "*.EXMOD", SearchOption.AllDirectories).Single();
+        ILibraryRepository library = repo;
+        File.WriteAllText(exmodPath, "old");
+        var chosen = library.BackupMod(folderName, "Old one");
+        Directory.SetLastWriteTimeUtc(chosen, DateTime.UtcNow.AddHours(-2));
+        File.WriteAllText(exmodPath, "new");
+        var heldFile = Directory.GetFiles(chosen, "*.EXMOD", SearchOption.AllDirectories).Single();
+
+        using (new FileStream(heldFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Assert.True(library.RestoreModBackup(folderName, chosen));
+            Assert.Empty(Directory.GetDirectories(_backupsDir, "*.partial-*"));
+        }
+
+        IcarusStarlink.PakIO.Install.BackupCleanup.CleanUp(_backupsDir);
+
+        Assert.Equal("old", File.ReadAllText(exmodPath));
+        Assert.Contains(library.ListModBackups(folderName), b => b.Reason == "Old one");
+    }
+
+    /// <summary>Putting back a copy of an older Nexus file brings back its file id, so the update check offers the newer one again.</summary>
+    [Fact]
+    public void RestoreModBackup_OfAnOlderNexusFile_PutsThatFileIdBack()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        string folderName;
+        using (var repo = CreateRepository())
+        {
+            folderName = repo.Import(_sourceDir).FolderName;
+            ILibraryRepository library = repo;
+            repo.SetNexusFile(folderName, 77, "1.0");
+            var older = library.BackupMod(folderName, "Before an update");
+            repo.SetNexusFile(folderName, 88, "2.0");
+
+            Assert.True(library.RestoreModBackup(folderName, older));
+
+            var entry = repo.GetAll().Single();
+            Assert.Equal(77, entry.NexusFileId);
+            Assert.Equal("1.0", entry.NexusFileVersion);
+        }
+
+        using (var repo = CreateRepository())
+        {
+            Assert.Equal(77, repo.GetAll().Single().NexusFileId);
+        }
+    }
+
     [Fact]
     public void SetKeptVersion_IsReadBackByANewRepository_AndNullTurnsItOff()
     {

@@ -475,24 +475,20 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     /// labels whose backup is gone are removed here too; a label is only ever read by its own
     /// backup's exact name, so one left behind can't attach to another backup.
     /// </summary>
-    public string BackupMod(string folderName, string? reason) => BackupMod(folderName, reason, removeOrphanedLabels: true);
+    public string BackupMod(string folderName, string? reason) => BackupMod(folderName, reason, keepBackup: null);
 
-    /// <param name="removeOrphanedLabels">False while RestoreModBackup holds a backup under another name: its label would look orphaned.</param>
-    private string BackupMod(string folderName, string? reason, bool removeOrphanedLabels)
+    /// <param name="keepBackup">A backup the keep-5 trim leaves alone this time (the one RestoreModBackup is about to put back).</param>
+    private string BackupMod(string folderName, string? reason, string? keepBackup)
     {
         var folder = ResolveFolder(folderName);
-        FolderBackup.BackupFolder(folder, _modBackupsDirectory);
+        FolderBackup.BackupFolder(folder, _modBackupsDirectory, keepBackup);
         var backupPath = FindLatestModBackupPath(folderName)!;
         WriteBackupLabel(folderName, backupPath, reason);
-        if (removeOrphanedLabels)
-        {
-            RemoveOrphanedBackupLabels(folderName);
-        }
-
+        RemoveOrphanedBackupLabels(folderName);
         return backupPath;
     }
 
-    private const string BackupLabelSuffix = ".label.json";
+    private const string BackupLabelSuffix = FolderBackup.LabelSuffix;
 
     private static string BackupLabelPath(string backupPath) =>
         backupPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + BackupLabelSuffix;
@@ -571,13 +567,18 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     }
 
     /// <summary>
-    /// Puts back an older backup. The chosen backup is renamed out of the way first (a cheap move in
-    /// the same folder), so the backup of the current copy taken next can't trim it when the history
-    /// is full, then copied into place and renamed back. A copy that fails puts the current copy
-    /// back from the backup just taken.
+    /// Puts back an older backup. The current copy is backed up first, with a trim that leaves the
+    /// chosen backup in place even when the history is full, then the chosen backup is copied from
+    /// where it is: it is never renamed, so a crash or Clean up backups can't lose it. A copy that fails puts the current copy back from the backup just taken. The
+    /// Nexus file the backup's label names comes back with it, so the update check sees the older file.
     /// </summary>
     public bool RestoreModBackup(string folderName, string backupPath)
     {
+        if (!AssetPathGuard.IsSimpleFileName(folderName))
+        {
+            return false;
+        }
+
         var chosen = ListModBackups(folderName).FirstOrDefault(b => string.Equals(
             Path.GetFullPath(b.Path).TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(backupPath).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase));
         if (chosen is null)
@@ -585,47 +586,37 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             return false;
         }
 
+        var label = ReadBackupLabel(chosen.Path);
         var folder = Path.Combine(_extractedModsDirectory, folderName);
-        var held = chosen.Path + ".partial-" + Guid.NewGuid().ToString("N");
-        Directory.Move(chosen.Path, held);
+        string? currentBackup = null;
+        if (Directory.Exists(folder))
+        {
+            currentBackup = BackupMod(folderName, ModBackupReasons.BeforeRestore, keepBackup: chosen.Path);
+        }
+
         try
         {
-            string? currentBackup = null;
             if (Directory.Exists(folder))
             {
-                currentBackup = BackupMod(folderName, ModBackupReasons.BeforeRestore, removeOrphanedLabels: false);
+                Directory.Delete(folder, recursive: true);
             }
 
-            try
-            {
-                if (Directory.Exists(folder))
-                {
-                    Directory.Delete(folder, recursive: true);
-                }
-
-                FolderBackup.CopyDirectory(held, folder);
-            }
-            catch when (currentBackup is not null)
-            {
-                Directories.TryDelete(folder);
-                FolderBackup.CopyDirectory(currentBackup, folder);
-                RescanAll();
-                throw;
-            }
+            FolderBackup.CopyDirectory(chosen.Path, folder);
         }
-        finally
+        catch when (currentBackup is not null)
         {
-            if (!Directory.Exists(chosen.Path))
-            {
-                try
-                {
-                    Directory.Move(held, chosen.Path);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    _logger.LogWarning(ex, "Couldn't rename backup {Held} back to {Backup}", held, chosen.Path);
-                }
-            }
+            Directories.TryDelete(folder);
+            FolderBackup.CopyDirectory(currentBackup, folder);
+            RescanAll();
+            throw;
+        }
+
+        if (label?.NexusFileId is { } fileId)
+        {
+            var meta = LoadMetaForWrite(folderName);
+            meta.NexusFileId = fileId;
+            meta.NexusFileVersion = label.NexusFileVersion;
+            _metaStore.Save(folderName, meta);
         }
 
         ClearFixedMarkIfBackupIsOlder(folderName, chosen.Path);

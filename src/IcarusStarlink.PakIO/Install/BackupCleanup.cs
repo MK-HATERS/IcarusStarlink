@@ -123,6 +123,8 @@ public static class BackupCleanup
                     failed++;
                 }
             }
+
+            RemoveOrphanedLabels(directory);
         }
 
         return new BackupCleanupResult(deleted, freed, failed);
@@ -153,6 +155,30 @@ public static class BackupCleanup
         }
 
         return abandoned;
+    }
+
+    /// <summary>
+    /// Labels (FolderBackup.LabelSuffix) whose backup folder is gone, whether this clean up or an
+    /// earlier trim removed it. A few bytes each, and only ever read by their own backup's name.
+    /// </summary>
+    private static void RemoveOrphanedLabels(string directory)
+    {
+        try
+        {
+            foreach (var label in Directory.GetFiles(directory, "*" + FolderBackup.LabelSuffix))
+            {
+                var backupName = Path.GetFileName(label)[..^FolderBackup.LabelSuffix.Length];
+                if (TimestampSuffix.Match(backupName) is { Success: true } match && !match.Groups["ext"].Success
+                    && !Directory.Exists(Path.Combine(directory, backupName)))
+                {
+                    File.Delete(label);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Left for the next clean up.
+        }
     }
 
     /// <summary>

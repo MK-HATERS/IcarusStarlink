@@ -109,7 +109,7 @@ public sealed partial class LibraryViewModel
             name,
             () => ListBackupsSafely(folderName),
             backup => RestoreVersionAsync(folderName, name, backup),
-            backup => CompareWithBackupAsync(name, backup.Path, folderName)));
+            backup => CompareWithBackupAsync(name, backup.Path, folderName, "a kept copy")));
     }
 
     private IReadOnlyList<ModBackupInfo> ListBackupsSafely(string folderName)

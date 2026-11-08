@@ -513,6 +513,26 @@ public sealed class ModFixViewModelTests : IDisposable
         Assert.Equal(50, ExmodFolder.ReadPackageOnly(_library.GetFolderPath(folder)).Rows[0].FileItems[0].Fields["Weight"]!.GetValue<int>());
     }
 
+    /// <summary>Versions… › Put this version back on the copy kept before a fix, with a newer backup since: that fix's choices go with it.</summary>
+    [Fact]
+    public void RestoreBackup_AChosenOlderBackup_PutsBackTheChoicesFromBeforeThatFix()
+    {
+        var folder = TidyMod();
+        var issues = Service.Check(folder).Issues;
+        var tags = issues.Single(i => i.FieldName == "Manual_Tags");
+        var weight = issues.Single(i => i.FieldName == "Weight");
+        Assert.Equal(0, Service.Apply(folder, [(tags, ModIssueFix.KeepMod)]));
+        Assert.Equal(1, Service.Apply(folder, [(weight, ModIssueFix.UseGame)]));
+        var beforeFix = Service.LatestBackupPath(folder)!;
+        ((ILibraryRepository)_library).BackupMod(folder, ModBackupReasons.MadeByYou);
+        Assert.NotEqual(beforeFix, Service.LatestBackupPath(folder));
+
+        Assert.True(Service.RestoreBackup(folder, beforeFix));
+
+        Assert.Equal(1, Service.RememberedCount(folder));
+        Assert.Equal(50, ExmodFolder.ReadPackageOnly(_library.GetFolderPath(folder)).Rows[0].FileItems[0].Fields["Weight"]!.GetValue<int>());
+    }
+
     /// <summary>A fix (backed up), then a mod editor save on top of it: Wood_Floor's Weight 77.</summary>
     private void FixThenSaveInTheModEditor()
     {

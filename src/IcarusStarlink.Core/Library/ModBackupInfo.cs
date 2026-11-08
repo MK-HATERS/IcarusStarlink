@@ -3,7 +3,7 @@ namespace IcarusStarlink.Core.Library;
 /// <summary>
 /// One kept copy of a Library mod (a folder under Mod_Backups), for the mod's version history.
 /// Reason, Version and NexusFileId come from the label written beside the backup; they are null
-/// for a backup made before labels existed, or when the label couldn't be written.
+/// when the backup has no label file.
 /// </summary>
 public sealed record ModBackupInfo(
     string Path,

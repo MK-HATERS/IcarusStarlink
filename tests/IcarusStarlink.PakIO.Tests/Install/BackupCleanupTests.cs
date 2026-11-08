@@ -30,6 +30,26 @@ public class BackupCleanupTests : IDisposable
 
     private IEnumerable<string> RootFileNames() => Directory.GetFiles(_backups).Select(Path.GetFileName)!;
 
+    /// <summary>A Library backup's label goes once its backup folder is gone; a label with its backup, or any other file, stays.</summary>
+    [Fact]
+    public void CleanUp_RemovesALabelWhoseBackupFolderIsGone()
+    {
+        for (var day = 1; day <= 3; day++)
+        {
+            WriteFolder($"Mod_2026100{day}-120000");
+            WriteFile($"Mod_2026100{day}-120000.label.json");
+        }
+
+        WriteFile("Gone_20261001-120000.label.json");
+        WriteFile("notes.label.json");
+
+        BackupCleanup.CleanUp(_backups, keepPerSet: 2);
+
+        Assert.Equal(
+            ["Mod_20261002-120000.label.json", "Mod_20261003-120000.label.json", "notes.label.json"],
+            RootFileNames().Order(StringComparer.Ordinal));
+    }
+
     [Fact]
     public void PruneMergedPakBackups_CountsCurrentAndLegacyNamesTogether_KeepsNewestThree()
     {

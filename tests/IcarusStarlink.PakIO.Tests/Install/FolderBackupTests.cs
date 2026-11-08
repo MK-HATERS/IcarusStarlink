@@ -183,4 +183,34 @@ public class FolderBackupTests
             Directory.Delete(directory, recursive: true);
         }
     }
+
+    /// <summary>The backup a restore is about to put back stays even when it is the oldest of a full history.</summary>
+    [Fact]
+    public void BackupFolder_WithAKeepBackup_DoesNotTrimThatOne()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(directory, "Mod");
+        var backups = Path.Combine(directory, "Backups");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(Path.Combine(source, "a.txt"), "new");
+        for (var day = 1; day <= 5; day++)
+        {
+            var old = Path.Combine(backups, $"Mod_2026100{day}-120000");
+            Directory.CreateDirectory(old);
+            File.WriteAllText(Path.Combine(old, "a.txt"), "old");
+        }
+
+        var oldest = Path.Combine(backups, "Mod_20261001-120000");
+        try
+        {
+            FolderBackup.BackupFolder(source, backups, keepBackup: oldest);
+
+            Assert.True(Directory.Exists(oldest));
+            Assert.Equal(6, FolderBackup.EnumerateFolderBackups(backups, "Mod").Count);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }

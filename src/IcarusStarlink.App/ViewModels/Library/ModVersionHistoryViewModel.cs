@@ -118,7 +118,7 @@ public sealed class ModVersionEntryViewModel(ModBackupInfo info)
         ? when.ToLocalTime().ToString("d MMM yyyy, HH:mm", CultureInfo.CurrentCulture)
         : "Unknown time";
 
-    /// <summary>Why it was kept; a backup from before Starlink wrote reasons says just "Backup".</summary>
+    /// <summary>Why it was kept; "Backup" when the backup has no label file or no reason in it.</summary>
     public string ReasonText => Info.Reason ?? "Backup";
 
     /// <summary>"v1.2", or empty when the mod had no version.</summary>

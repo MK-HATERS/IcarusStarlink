@@ -629,9 +629,10 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>Opens the comparison of one kept copy of the mod (a backup folder) with the copy in the Library now.</summary>
-    private async Task CompareWithBackupAsync(string modName, string previousVersionPath, string currentFolderName)
+    /// <param name="keptCopyText">What the status line calls the kept copy: "its previous version", or "a kept copy" from Versions….</param>
+    private async Task CompareWithBackupAsync(string modName, string previousVersionPath, string currentFolderName, string keptCopyText = "its previous version")
     {
-        StatusMessage = $"Comparing '{modName}' against its previous version…";
+        StatusMessage = $"Comparing '{modName}' with {keptCopyText}…";
         try
         {
             var result = await _modVersionComparer.CompareAsync(
@@ -644,7 +645,7 @@ public sealed partial class LibraryViewModel
             window.Show();
 
             StatusMessage = result.IsIdentical
-                ? $"'{modName}' is identical to its previous version."
+                ? $"'{modName}' is the same as {keptCopyText}."
                 : $"Showing what changed in '{modName}'.";
         }
         catch (Exception ex)
