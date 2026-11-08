@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.PakIO.Tests.Exmod;
@@ -145,6 +146,118 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.Equal("D_RecipeSets", sets[0]!["DataTableName"]!.GetValue<string>());
         Assert.Equal("Kitchen stove  (Kitchen_Stove)", GameItemCatalog.LinkChoices(_game, "D_RecipeSets").Single(c => c.Name == "Kitchen_Stove").Display);
         Assert.Equal(("None", "(nothing)"), GameItemCatalog.LinkChoices(_game, "D_RecipeSets")[0]);
+
+        // Regression: the card's title kept naming the game's bench after the mod moved the recipe.
+        Assert.Equal("Recipe · Crafting bench", Section(mod, "Food_Bread", "Recipe:Bread").Title);
+    }
+
+    /// <summary>
+    /// Regression: a link the target mod wrote as plain text ("Decayable": "x") or with a number for
+    /// its row ({"RowName": 5}) threw while the Editor page described an item, which closed the app.
+    /// A wrong-typed link reads as no link: the item is shown with the game's values.
+    /// </summary>
+    [Fact]
+    public void AWrongTypedLinkInTheMod_IsNoLink_InsteadOfAnError()
+    {
+        ExmodPackage ModWith(string file, string row, string field, string json)
+        {
+            var mod = EmptyMod();
+            mod.Rows.Insert(0, new ExmodFileRow { CurrentFile = file, FileItems = [new ExmodFileItem { Name = row, Fields = { [field] = JsonNode.Parse(json) } }] });
+            return mod;
+        }
+
+        var plainText = ModWith("Items-D_ItemsStatic.json", "Food_Bread", "Decayable", "\"x\"");
+        var suit = GameItemEditor.Describe(_game, plainText, "Envirosuit");
+        Assert.NotNull(suit);
+        Assert.Equal(1, suit.Sections.Single(s => s.Key == "Decayable").SharedBy); // the bread no longer counts as a user
+
+        var numberRow = ModWith("Items-D_ItemsStatic.json", "Food_Bread", "Decayable", """{"RowName":5}""");
+        var bread = GameItemEditor.Describe(_game, numberRow, "Food_Bread");
+        Assert.NotNull(bread);
+        Assert.DoesNotContain(bread.Sections, s => s.Key == "Decayable");
+
+        var plainBuff = ModWith("Traits-D_Consumable.json", "Food_Bread", "Modifier", "\"x\"");
+        Assert.DoesNotContain(GameItemEditor.Describe(_game, plainBuff, "Food_Bread")!.Sections, s => s.Key == GameItemEditor.BuffSection);
+    }
+
+    /// <summary>
+    /// A bulk save shares one lookup across every Apply to the same mod: it must write exactly what
+    /// fresh lookups do. After the suit's own copy the bread is the decay row's only user, so the
+    /// bread's change edits that row itself; a lookup still counting two users would copy it again.
+    /// </summary>
+    [Fact]
+    public void ASharedLookup_AcrossApplies_WritesWhatFreshOnesDo()
+    {
+        var decay = Field(Section(null, "Envirosuit", "Decayable"), "Decay time (seconds)").Path;
+        var own = new HashSet<string> { "Decayable" };
+
+        var shared = EmptyMod();
+        var lookup = new GameItemLookup(_game, shared);
+        GameItemEditor.Apply(_game, shared, "Envirosuit", [new("Decayable", decay, JsonValue.Create(600))], own, lookup);
+        GameItemEditor.Apply(_game, shared, "Food_Bread", [new("Decayable", decay, JsonValue.Create(700))], own, lookup);
+
+        var fresh = EmptyMod();
+        GameItemEditor.Apply(_game, fresh, "Envirosuit", [new("Decayable", decay, JsonValue.Create(600))], own);
+        GameItemEditor.Apply(_game, fresh, "Food_Bread", [new("Decayable", decay, JsonValue.Create(700))], own);
+
+        Assert.Equal(ExmodJson.Serialize(fresh), ExmodJson.Serialize(shared));
+        Assert.Equal(700, Item(shared, "Traits-D_Decayable.json", "Decay_General")!.Fields["DecayTime"]!.GetValue<int>());
+        Assert.Null(Item(shared, "Traits-D_Decayable.json", "Decay_General_Food_Bread"));
+
+        var ex = Assert.Throws<ArgumentException>(() => GameItemEditor.Apply(_game, EmptyMod(), "Envirosuit", [new("Decayable", decay, JsonValue.Create(600))], own, lookup));
+        Assert.Contains("another mod", ex.Message);
+    }
+
+    /// <summary>A mod whose "Lighter" Scale rule halves every item's weight: the suit's Weight is 50 (the game's 100 × 0.5).</summary>
+    private ExmodPackage ModWithAWeightRule()
+    {
+        var mod = EmptyMod();
+        ScaleRules.ApplyToPackage(mod, [new ScaleRule { Label = "Lighter", CurrentFile = "Traits-D_Itemable.json", Field = "Weight", Value = 0.5 }], _root, new MergeReport(), _game);
+        Assert.Equal(50, Item(mod, "Traits-D_Itemable.json", "Item_Envirosuit")!.Fields["Weight"]!.GetValue<long>());
+        return mod;
+    }
+
+    /// <summary>Regression: a value typed on the Editor page for a field a Scale rule writes was put back to the rule's value the next time the rules were applied (every Refresh game data).</summary>
+    [Fact]
+    public void Apply_AValueARuleWrites_StaysWhenTheRulesAreRebuilt()
+    {
+        var mod = ModWithAWeightRule();
+        var itemable = Section(mod, "Envirosuit", "Itemable");
+
+        GameItemEditor.Apply(_game, mod, "Envirosuit", [new(itemable.Key, Field(itemable, "Weight").Path, JsonValue.Create(30))], new HashSet<string>());
+        ScaleRules.ApplyToPackage(mod, mod.ScaleRules, _root, new MergeReport(), _game);
+
+        Assert.True(ScaleRules.TryReadNumber(Item(mod, "Traits-D_Itemable.json", "Item_Envirosuit")!.Fields["Weight"], out var weight));
+        Assert.Equal(30, weight);
+        Assert.Contains("Item_Envirosuit", mod.ScaleRules.Single().ExceptRows, StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(25, Item(mod, "Traits-D_Itemable.json", "Item_Bread")!.Fields["Weight"]!.GetValue<long>()); // the rule still covers the rest
+    }
+
+    /// <summary>Typing exactly what the rule writes leaves the rule in charge of the row.</summary>
+    [Fact]
+    public void Apply_TheValueTheRuleWrites_AddsNoException()
+    {
+        var mod = ModWithAWeightRule();
+        var itemable = Section(mod, "Envirosuit", "Itemable");
+
+        GameItemEditor.Apply(_game, mod, "Envirosuit", [new(itemable.Key, Field(itemable, "Weight").Path, JsonValue.Create(50))], new HashSet<string>());
+
+        Assert.Empty(mod.ScaleRules.Single().ExceptRows);
+    }
+
+    /// <summary>Regression: "back to the game's value" on a field a Scale rule writes took the field out, and the next rules rebuild wrote the rule's value again.</summary>
+    [Fact]
+    public void Apply_BackToTheGamesValue_OnAFieldARuleWrites_StaysTheGames()
+    {
+        var mod = ModWithAWeightRule();
+        var itemable = Section(mod, "Envirosuit", "Itemable");
+
+        GameItemEditor.Apply(_game, mod, "Envirosuit", [new(itemable.Key, Field(itemable, "Weight").Path, null)], new HashSet<string>());
+        ScaleRules.ApplyToPackage(mod, mod.ScaleRules, _root, new MergeReport(), _game);
+
+        Assert.Null(Item(mod, "Traits-D_Itemable.json", "Item_Envirosuit"));
+        Assert.Contains("Item_Envirosuit", mod.ScaleRules.Single().ExceptRows, StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(100, Field(Section(mod, "Envirosuit", "Itemable"), "Weight").CurrentValue!.GetValue<int>());
     }
 
     /// <summary>A bulk edit shares one lookup across items (812 deployables: 14.5 s → 90 ms): it must describe every item exactly as a fresh one does.</summary>
@@ -539,6 +652,33 @@ public sealed class GameItemEditorTests : IDisposable
         var inputs = (JsonArray)Item(mod, "Crafting-D_ProcessorRecipes.json", "Bread")!.Fields["Inputs"]!;
         Assert.Equal(1, inputs[1]!["Count"]!.GetValue<int>());
         Assert.Equal(9, inputs[0]!["Count"]!.GetValue<int>());
+    }
+
+    /// <summary>
+    /// Regression: "back to the game's" on the amount of an ingredient only the mod adds took out just
+    /// its amount, leaving an ingredient with no amount that the page hid and the game still got.
+    /// The game has no such ingredient, so it goes; a change to a later ingredient in the same save
+    /// still lands on that ingredient.
+    /// </summary>
+    [Fact]
+    public void ResettingAnIngredientOnlyTheModAdds_TakesItOut()
+    {
+        var mod = EmptyMod();
+        mod.Rows.Insert(0, new ExmodFileRow { CurrentFile = "Crafting-D_ProcessorRecipes.json", FileItems = [new ExmodFileItem { Name = "Bread", Fields =
+        {
+            ["Inputs"] = JsonNode.Parse("""[{"Element":{"RowName":"Fiber","DataTableName":"D_ItemsStatic"},"Count":9},{"Element":{"RowName":"Dough_Bread","DataTableName":"D_ItemsStatic"},"Count":5}]"""),
+        } }] });
+        var recipe = Section(mod, "Food_Bread", $"{GameItemEditor.RecipeSection}:Bread");
+
+        GameItemEditor.Apply(_game, mod, "Food_Bread",
+        [
+            new(recipe.Key, Field(recipe, "Needs Fiber").Path, null),
+            new(recipe.Key, Field(recipe, "Needs Dough bread").Path, JsonValue.Create(7)),
+        ], new HashSet<string>());
+
+        var input = Assert.Single((JsonArray)Item(mod, "Crafting-D_ProcessorRecipes.json", "Bread")!.Fields["Inputs"]!);
+        Assert.Equal("Dough_Bread", input!["Element"]!["RowName"]!.GetValue<string>());
+        Assert.Equal(7, input["Count"]!.GetValue<int>());
     }
 
     /// <summary>Real data: Item_Purification_Pill's description has "\r\n" line breaks, which used to come out as "rn".</summary>

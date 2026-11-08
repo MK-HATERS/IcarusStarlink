@@ -137,7 +137,7 @@ public static class GameItemCatalog
             var title = table switch
             {
                 "D_RecipeSets" => BenchName(game, name),
-                "D_ItemTemplate" => ItemTitle(game, RowNameOf(node?["ItemStaticData"]) ?? name),
+                "D_ItemTemplate" => ItemTitle(game, RowLinks.LinkedRow(node?["ItemStaticData"]) ?? name),
                 "D_ItemsStatic" => ItemTitle(game, name),
                 _ => null,
             };
@@ -148,7 +148,7 @@ public static class GameItemCatalog
     }
 
     private static string? ItemTitle(GameTableIndex game, string itemName) =>
-        RowNameOf(game.Row(ItemsStatic, itemName)?["Itemable"]) is { } itemable ? Text(game.Row(ItemableFile, itemable)?["DisplayName"]) : null;
+        RowLinks.LinkedRow(game.Row(ItemsStatic, itemName)?["Itemable"]) is { } itemable ? Text(game.Row(ItemableFile, itemable)?["DisplayName"]) : null;
 
     /// <summary>Every D_ItemsStatic item, sorted by row name, with what the list and its filters need.</summary>
     public static IReadOnlyList<GameItemInfo> List(GameTableIndex game)
@@ -163,9 +163,9 @@ public static class GameItemCatalog
             }
 
             IReadOnlyList<string> benches = node["RecipeSets"] is JsonArray sets
-                ? [.. sets.Select(s => RowNameOf(s)).OfType<string>()]
+                ? [.. sets.Select(s => RowLinks.LinkedRow(s)).OfType<string>()]
                 : [];
-            foreach (var product in outputs.Select(o => RowNameOf(o?["Element"])).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
+            foreach (var product in outputs.Select(o => RowLinks.LinkedRow(o?["Element"])).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 if (!recipesByProduct.TryGetValue(product, out var list))
                 {
@@ -179,7 +179,7 @@ public static class GameItemCatalog
         var workshopByProduct = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (workshop, node) in game.Rows(WorkshopItems) ?? [])
         {
-            if (RowNameOf(node?["Item"]) is { } product)
+            if (RowLinks.LinkedRow(node?["Item"]) is { } product)
             {
                 workshopByProduct.TryAdd(product, workshop);
             }
@@ -209,7 +209,7 @@ public static class GameItemCatalog
             JsonObject? itemable = null;
             foreach (var (field, value) in row)
             {
-                if (RowNameOf(value) is not { } link || FileOf(field) is not { } file)
+                if (RowLinks.LinkedRow(value) is not { } link || FileOf(field) is not { } file)
                 {
                     continue;
                 }
@@ -221,7 +221,7 @@ public static class GameItemCatalog
                     itemable = game.Row(file, link);
                 }
                 else if (field.Equals("Consumable", StringComparison.OrdinalIgnoreCase)
-                    && RowNameOf(game.Row(file, link)?["Modifier"]?["Modifier"]) is { } buff)
+                    && RowLinks.LinkedRow((game.Row(file, link)?["Modifier"] as JsonObject)?["Modifier"]) is { } buff)
                 {
                     rows.Add(new GameRowRef(ModifierStates, buff)); // the Editor's "Its buff" card
                 }
@@ -230,7 +230,7 @@ public static class GameItemCatalog
                     // The Editor's "Storage" cards: the D_InventoryInfo rows the inventory row lists.
                     foreach (var storage in storages.OfType<JsonObject>())
                     {
-                        if (RowNameOf(storage) is { } info && game.CurrentFileFor(storage["DataTableName"]?.GetValue<string>() ?? "D_InventoryInfo") is { } infoFile)
+                        if (RowLinks.LinkedRow(storage) is { } info && game.CurrentFileFor(RowLinks.StringOf(storage["DataTableName"]) ?? "D_InventoryInfo") is { } infoFile)
                         {
                             rows.Add(new GameRowRef(infoFile, info));
                         }
@@ -289,9 +289,6 @@ public static class GameItemCatalog
 
         return changed;
     }
-
-    private static string? RowNameOf(JsonNode? link) =>
-        (link as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var s) && s is { Length: > 0 } and not "None" ? s : null;
 
     private static string? Text(JsonNode? node) =>
         node is JsonValue v && v.TryGetValue<string>(out var s) ? NsLocText.TextOf(s) : null;

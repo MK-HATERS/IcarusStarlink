@@ -6,8 +6,9 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// What GameItemEditor.Describe asks about the whole game for one item: how many items share a
 /// row, how many get a buff, which recipes make it, its workshop row. Each was a scan of a whole
 /// table per item (about 18 ms an item; 812 deployables took 14.5 s for a bulk edit); here each
-/// table is indexed once, on first use, for this game data with this mod applied. Only valid
-/// while the mod is unchanged: Apply builds a new one after each change it makes.
+/// table is indexed once, on first use, for this game data with this mod applied. The counts read
+/// the mod as it was when first asked: GameItemEditor.Apply calls ModChanged after a change of its
+/// own moves what they read, so one lookup can serve every Apply of a save to the same mod.
 /// </summary>
 public sealed class GameItemLookup(GameTableIndex game, ExmodPackage? mod)
 {
@@ -22,10 +23,41 @@ public sealed class GameItemLookup(GameTableIndex game, ExmodPackage? mod)
     private Dictionary<string, List<string>>? _recipesByProduct;
     private Dictionary<string, int>? _recipeOrder;
     private Dictionary<string, string>? _workshopByProduct;
+    private ScaleOwnership? _ruleOwnership;
+    private bool _ruleOwnershipBuilt;
 
     public GameTableIndex Game { get; } = game;
 
     public ExmodPackage? Mod { get; } = mod;
+
+    /// <summary>What the mod's enabled Scale rules write (ScaleRules.Ownership of Mod.ScaleRules; rule numbers are positions in that list); null when it has none. Built on first use.</summary>
+    internal ScaleOwnership? RuleOwnership
+    {
+        get
+        {
+            if (!_ruleOwnershipBuilt)
+            {
+                _ruleOwnershipBuilt = true;
+                _ruleOwnership = Mod is { } m && m.ScaleRules.Any(r => r.Enabled) ? ScaleRules.Ownership(m.ScaleRules, Game.DataFolder, Game) : null;
+            }
+
+            return _ruleOwnership;
+        }
+    }
+
+    /// <summary>
+    /// Forgets the counts that read the mod (users of a row, buffs, storages), after a change to the
+    /// mod that moves them. What only reads the game (recipes, workshop rows) and the rule ownership
+    /// stay: own copies don't change what the rules write, and a rule exception only takes out a row
+    /// already handled.
+    /// </summary>
+    internal void ModChanged()
+    {
+        _usersByField.Clear();
+        _buffByConsumable.Clear();
+        _buffUsers = null;
+        _infoUsers = null;
+    }
 
     /// <summary>How many items (with the mod's changes) link to this row through this D_ItemsStatic field.</summary>
     public int UsersOf(string field, string rowName)
@@ -74,7 +106,7 @@ public sealed class GameItemLookup(GameTableIndex game, ExmodPackage? mod)
             var infosByRow = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             foreach (var row in EffectiveLinks("Inventory"))
             {
-                if (row is null or "None")
+                if (row is null || RowLinks.IsNone(row))
                 {
                     continue;
                 }
@@ -82,7 +114,7 @@ public sealed class GameItemLookup(GameTableIndex game, ExmodPackage? mod)
                 if (!infosByRow.TryGetValue(row, out var infos))
                 {
                     infosByRow[row] = infos = [.. ((GameItemEditor.EffectiveRow(Game, Mod, inventoryFile, row)?["Inventories"] as JsonArray) ?? [])
-                        .Select(e => RowNameOf(e)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)];
+                        .Select(e => RowLinks.RowNameOf(e)).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase)];
                 }
 
                 foreach (var used in infos)
@@ -100,7 +132,7 @@ public sealed class GameItemLookup(GameTableIndex game, ExmodPackage? mod)
     {
         if (!_buffByConsumable.TryGetValue(consumableRow, out var buff))
         {
-            buff = GameItemEditor.EffectiveRow(Game, Mod, consumableFile, consumableRow)?["Modifier"]?["Modifier"]?["RowName"]?.GetValue<string>() is { } b && b != "None" ? b : null;
+            buff = RowLinks.LinkedRow((GameItemEditor.EffectiveRow(Game, Mod, consumableFile, consumableRow)?["Modifier"] as JsonObject)?["Modifier"]);
             _buffByConsumable[consumableRow] = buff;
         }
 
@@ -122,7 +154,7 @@ public sealed class GameItemLookup(GameTableIndex game, ExmodPackage? mod)
                     continue;
                 }
 
-                foreach (var product in outputs.Select(o => RowNameOf(o?["Element"])).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
+                foreach (var product in outputs.Select(o => RowLinks.RowNameOf((o as JsonObject)?["Element"])).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     if (!_recipesByProduct.TryGetValue(product, out var list))
                     {
@@ -145,7 +177,7 @@ public sealed class GameItemLookup(GameTableIndex game, ExmodPackage? mod)
             _workshopByProduct = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (workshop, node) in Game.Rows(WorkshopItems) ?? [])
             {
-                if (RowNameOf(node?["Item"]) is { } product)
+                if (RowLinks.RowNameOf((node as JsonObject)?["Item"]) is { } product)
                 {
                     _workshopByProduct.TryAdd(product, workshop);
                 }
@@ -170,13 +202,13 @@ public sealed class GameItemLookup(GameTableIndex game, ExmodPackage? mod)
         {
             if (item.Fields.TryGetValue(field, out var link))
             {
-                overrides[item.Name] = link?["RowName"]?.GetValue<string>();
+                overrides[item.Name] = RowLinks.RowNameOf(link);
             }
         }
 
         foreach (var (name, node) in Game.Rows(ItemsStatic) ?? [])
         {
-            yield return overrides.Remove(name, out var overridden) ? overridden : node?[field]?["RowName"]?.GetValue<string>();
+            yield return overrides.Remove(name, out var overridden) ? overridden : RowLinks.RowNameOf((node as JsonObject)?[field]);
         }
 
         foreach (var remaining in overrides.Values)
@@ -184,7 +216,4 @@ public sealed class GameItemLookup(GameTableIndex game, ExmodPackage? mod)
             yield return remaining;
         }
     }
-
-    private static string? RowNameOf(JsonNode? link) =>
-        (link as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
 }

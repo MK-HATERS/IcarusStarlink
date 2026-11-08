@@ -122,7 +122,7 @@ public sealed class GameTableIndex(string dataFolder)
                 _templatesByItem = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
                 foreach (var (template, value) in Rows(ItemTemplateFile) ?? [])
                 {
-                    var item = (value?["ItemStaticData"] as JsonObject)?["RowName"] is JsonValue v && v.TryGetValue<string>(out var s) && s is { Length: > 0 } and not "None" ? s : template;
+                    var item = RowLinks.LinkedRow((value as JsonObject)?["ItemStaticData"]) ?? template;
                     if (!_templatesByItem.TryGetValue(item, out var list))
                     {
                         list = [];

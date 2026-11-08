@@ -166,7 +166,8 @@ public static partial class GameItemEditor
 
         foreach (var (field, value) in effectiveStatic)
         {
-            if (value is not JsonObject link || link["RowName"]?.GetValue<string>() is not { } rowName || rowName == "None"
+            // A link the mod wrote as plain text or with a number for its row reads as no link.
+            if (RowLinks.LinkedRow(value) is not { } rowName
                 || game.LinkTarget(ItemsStatic, field) is not { } table || game.CurrentFileFor(table) is not { } file)
             {
                 continue;
@@ -175,7 +176,7 @@ public static partial class GameItemEditor
             // A row the game has is "the game's" (even one the mod re-pointed the item to), shared by
             // every item linking to it; a row only the mod has is this item's own copy, and its game
             // values come from the row it was copied from.
-            var gameRowName = game.GameRowName(file, rowName) ?? gameStatic[field]?["RowName"]?.GetValue<string>() ?? rowName;
+            var gameRowName = game.GameRowName(file, rowName) ?? RowLinks.RowNameOf(gameStatic[field]) ?? rowName;
             var shared = game.HasRow(file, rowName) ? lookup.UsersOf(field, rowName) : 1;
             var section = BuildSection(game, mod, field, SectionTitles.GetValueOrDefault(field, Humanize(field)), file, rowName, gameRowName, Math.Max(shared, 1));
 
@@ -218,10 +219,12 @@ public static partial class GameItemEditor
         var recipes = lookup.RecipesMaking(products);
         for (var i = 0; i < recipes.Count; i++)
         {
-            var recipeRow = game.Row(Recipes, recipes[i]);
-            var bench = recipeRow?["RecipeSets"] is JsonArray { Count: > 0 } sets ? sets[0]?["RowName"]?.GetValue<string>() : null;
+            // The title reads the recipe as the mod has it, like the card's fields: a mod that moves
+            // the recipe to another bench gets that bench in the title.
+            var recipeRow = Effective(game, mod, Recipes, recipes[i]);
+            var bench = recipeRow?["RecipeSets"] is JsonArray { Count: > 0 } sets ? RowLinks.RowNameOf(sets[0]) : null;
             // Butchering a carcass is one recipe making several things: its ingredients are all of theirs.
-            var others = (recipeRow?["Outputs"] as JsonArray)?.Count(o => !Makes(o?["Element"])) ?? 0;
+            var others = (recipeRow?["Outputs"] as JsonArray)?.Count(o => !Makes((o as JsonObject)?["Element"])) ?? 0;
             var title = (recipes.Count > 1 ? $"Recipe {i + 1} of {recipes.Count}" : "Recipe") + (bench is null ? "" : $" · {Humanize(bench)}")
                 + (others > 0 ? $" · also makes {others} other thing{(others == 1 ? "" : "s")}" : "");
             sections.Add(BuildSection(game, mod, $"{RecipeSection}:{recipes[i]}", title, Recipes, recipes[i], recipes[i], 1));
@@ -232,41 +235,61 @@ public static partial class GameItemEditor
             sections.Add(BuildSection(game, mod, WorkshopSection, "Workshop price", WorkshopItems, workshop, workshop, 1));
         }
 
-        var itemable = effectiveStatic["Itemable"]?["RowName"]?.GetValue<string>();
-        var displayName = itemable is null ? null : NsLocText.TextOf((Effective(game, mod, ItemableFile, itemable) ?? game.Row(ItemableFile, itemable))?["DisplayName"]?.GetValue<string>());
+        var itemable = RowLinks.LinkedRow(effectiveStatic["Itemable"]);
+        var displayName = itemable is null ? null : NsLocText.TextOf(RowLinks.StringOf((Effective(game, mod, ItemableFile, itemable) ?? game.Row(ItemableFile, itemable))?["DisplayName"]));
         return new GameItemView(itemName, displayName, [.. sections.Where(s => s.Fields.Count > 0 || s.StatGroups.Count > 0)], kept);
     }
 
     /// <summary>
     /// Writes the changes into the mod. Sections in <paramref name="ownCopySections"/> that are shared
     /// with other items get the item's own copy first ("Decay_General_Envirosuit"), and the item is
-    /// re-pointed at it, so only this item changes. Returns one line per change written.
+    /// re-pointed at it, so only this item changes. A value saved on a row a Scale rule of the mod
+    /// covers stays: the rule skips that row from then on (see KeepRuleSetValues). Returns one line
+    /// per change written.
     /// </summary>
-    public static IReadOnlyList<string> Apply(GameTableIndex game, ExmodPackage mod, string itemName, IReadOnlyList<GameItemChange> changes, IReadOnlySet<string> ownCopySections)
+    /// <param name="lookup">Shared by every Apply of one save to the same mod (a bulk edit): its indexes are built once, and Apply refreshes the counts its own changes affect. Null builds one for this call.</param>
+    public static IReadOnlyList<string> Apply(
+        GameTableIndex game, ExmodPackage mod, string itemName, IReadOnlyList<GameItemChange> changes, IReadOnlySet<string> ownCopySections, GameItemLookup? lookup = null)
     {
-        var view = Describe(game, mod, itemName) ?? throw new ArgumentException($"'{itemName}' isn't an item in the game data.");
+        if (lookup is not null && (!ReferenceEquals(lookup.Game, game) || !ReferenceEquals(lookup.Mod, mod)))
+        {
+            throw new ArgumentException("This lookup was built for other game data or another mod.");
+        }
+
+        lookup ??= new GameItemLookup(game, mod);
+        var view = Describe(game, mod, itemName, lookup) ?? throw new ArgumentException($"'{itemName}' isn't an item in the game data.");
         var lines = new List<string>();
+        var written = new List<(string File, string Row, string Top)>();
         foreach (var group in changes.GroupBy(c => c.SectionKey))
         {
             var section = view.Sections.FirstOrDefault(s => s.Key == group.Key) ?? throw new ArgumentException($"'{itemName}' has no '{group.Key}' section.");
             var rowName = section.RowName;
             if (ownCopySections.Contains(section.Key) && section.SharedBy > 1 && !section.IsOwnCopy)
             {
-                rowName = section.Key == BuffSection ? GiveBuffOwnCopy(game, mod, itemName, section, lines)
-                    : section.Key.StartsWith(StorageSection + ":", StringComparison.Ordinal) ? GiveStorageOwnCopy(game, mod, itemName, section, lines)
-                    : GiveOwnCopy(game, mod, itemName, section.Key, section.CurrentFile, section.RowName, section.GameRowName, section.SharedBy, lines);
+                rowName = section.Key == BuffSection ? GiveBuffOwnCopy(game, mod, lookup, itemName, section, lines, written)
+                    : section.Key.StartsWith(StorageSection + ":", StringComparison.Ordinal) ? GiveStorageOwnCopy(game, mod, lookup, itemName, section, lines, written)
+                    : GiveOwnCopy(game, mod, itemName, section.Key, section.CurrentFile, section.RowName, section.GameRowName, section.SharedBy, lines, written);
 
                 // The item now links to other rows (the buff's copy also gives it its own consumable
                 // row): sections still to come must be read again, or their changes go to the old,
                 // shared row.
-                view = Describe(game, mod, itemName) ?? view;
+                lookup.ModChanged();
+                view = Describe(game, mod, itemName, lookup) ?? view;
             }
 
-            foreach (var change in group)
+            // Taking out a list entry the game doesn't have shortens the list: those go last, highest
+            // index first, so no other change's index moves.
+            foreach (var change in group.OrderBy(c => IsEntryReset(c) ? 1 : 0).ThenByDescending(c => IsEntryReset(c) ? (int)c.Path.Steps[0] : 0))
             {
                 var field = section.Fields.FirstOrDefault(f => f.Path.Key == change.Path.Key);
                 var before = field?.CurrentValue;
                 SetValue(game, mod, section.CurrentFile, rowName, section.GameRowName, change.Path, change.Value);
+                written.Add((section.CurrentFile, rowName, change.Path.Top));
+                if (MovesCounts(section.CurrentFile, change.Path.Top))
+                {
+                    lookup.ModChanged();
+                }
+
                 if (change.Path.Steps.Count == 0 && change.Value is JsonArray list)
                 {
                     lines.Add($"{section.Table} › {rowName} · {FieldText(change.Path.Top, isNumber: false).Label}: now {list.Count} entr{(list.Count == 1 ? "y" : "ies")}");
@@ -278,7 +301,58 @@ public static partial class GameItemEditor
             }
         }
 
+        KeepRuleSetValues(game, mod, lookup, written);
         return lines;
+    }
+
+    /// <summary>"Back to the game's" on one entry of a list (an ingredient's amount).</summary>
+    private static bool IsEntryReset(GameItemChange change) => change.Value is null && change.Path.Steps.Count == 2 && change.Path.Steps[0] is int;
+
+    /// <summary>A field GameItemLookup's counts read: an item's links, the buff a consumable gives, the storages an inventory lists.</summary>
+    private static bool MovesCounts(string file, string top)
+    {
+        var table = GameTableIndex.TableNameOf(file);
+        return string.Equals(file, ItemsStatic, StringComparison.OrdinalIgnoreCase)
+            || (table.Equals("D_Consumable", StringComparison.OrdinalIgnoreCase) && top.Equals("Modifier", StringComparison.OrdinalIgnoreCase))
+            || (table.Equals("D_Inventory", StringComparison.OrdinalIgnoreCase) && top.Equals("Inventories", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// A value saved here on a row a Scale rule covers stays: every rule writing that field gets the
+    /// row on its "except these rows" list (what Keep my value does in the mod editor), so applying
+    /// the rules again (Save, Apply, Refresh game data) leaves it. A field put back to the game's
+    /// value counts too: the mod then leaves it out, and the rule skipping the row keeps the game's.
+    /// Saving exactly what the rule writes leaves the rule in charge.
+    /// </summary>
+    private static void KeepRuleSetValues(GameTableIndex game, ExmodPackage mod, GameItemLookup lookup, List<(string File, string Row, string Top)> written)
+    {
+        if (written.Count == 0 || lookup.RuleOwnership is not { } ownership)
+        {
+            return;
+        }
+
+        foreach (var (file, row, top) in written.Distinct())
+        {
+            // Rules write only the game's rows (an own copy is the mod's).
+            if (!game.HasRow(file, row) || !ownership.TryGet(file, row, top, out var rules, out var ruleValue))
+            {
+                continue;
+            }
+
+            var now = FindItem(mod, file, row) is { } item && item.Fields.TryGetValue(top, out var held)
+                ? held
+                : game.Row(file, row)?[top] ?? game.Defaults(file)?[top];
+            if (ScaleRules.SameValue(now, ruleValue))
+            {
+                continue;
+            }
+
+            var name = game.GameRowName(file, row) ?? row;
+            foreach (var i in rules.Where(i => i < mod.ScaleRules.Count && !mod.ScaleRules[i].Excepts(name)))
+            {
+                mod.ScaleRules[i].ExceptRows.Add(name);
+            }
+        }
     }
 
     /// <summary>A field in plain words: "MaxStack" → ("Stack size", "How many fit in one slot…"). Shared with the mod editor's Fields view.</summary>
@@ -382,7 +456,7 @@ public static partial class GameItemEditor
                         }
 
                         var amountKey = entry.ContainsKey("Count") ? "Count" : entry.ContainsKey("Amount") ? "Amount" : null;
-                        var what = (entry["Element"] ?? entry["Meta"] ?? entry["Item"])?["RowName"]?.GetValue<string>();
+                        var what = Identity(entry);
                         if (amountKey is null || what is null || !IsNumber(entry[amountKey]))
                         {
                             continue;
@@ -415,8 +489,8 @@ public static partial class GameItemEditor
     }
 
     private static string? ItemDisplayName(GameTableIndex game, string itemName) =>
-        game.Row(ItemsStatic, itemName)?["Itemable"]?["RowName"]?.GetValue<string>() is { } itemable
-            ? NsLocText.TextOf(game.Row(ItemableFile, itemable)?["DisplayName"]?.GetValue<string>())
+        RowLinks.RowNameOf(game.Row(ItemsStatic, itemName)?["Itemable"]) is { } itemable
+            ? NsLocText.TextOf(RowLinks.StringOf(game.Row(ItemableFile, itemable)?["DisplayName"]))
             : null;
 
     /// <summary>The row as the game has it with the mod's fields on top; the mod's own row when the game has none (an own copy); null when neither has it.</summary>
@@ -452,24 +526,19 @@ public static partial class GameItemEditor
             return existing;
         }
 
-        var row = mod.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, file, StringComparison.OrdinalIgnoreCase));
-        if (row is null)
-        {
-            row = new ExmodFileRow { CurrentFile = file };
-            var end = mod.Rows.FindIndex(r => ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile));
-            mod.Rows.Insert(end < 0 ? mod.Rows.Count : end, row);
-        }
-
         var item = new ExmodFileItem { Name = rowName };
-        row.FileItems.Add(item);
+        mod.GetOrAddRow(file).FileItems.Add(item);
         return item;
     }
 
     /// <summary>Copies a shared row under the item's name and points the item at it (its D_ItemsStatic link). Returns the copy's name.</summary>
-    private static string GiveOwnCopy(GameTableIndex game, ExmodPackage mod, string itemName, string linkField, string file, string sourceRow, string gameRowName, int sharedBy, List<string> lines)
+    private static string GiveOwnCopy(
+        GameTableIndex game, ExmodPackage mod, string itemName, string linkField, string file, string sourceRow, string gameRowName, int sharedBy,
+        List<string> lines, List<(string File, string Row, string Top)> written)
     {
         var copyName = CopyRow(game, mod, file, sourceRow, gameRowName, itemName);
         GetOrAddItem(mod, ItemsStatic, itemName).Fields[linkField] = new JsonObject { ["RowName"] = copyName };
+        written.Add((ItemsStatic, itemName, linkField));
         lines.Add($"{GameTableIndex.TableNameOf(file)} › {copyName}: {itemName}'s own copy of {gameRowName} (shared by {sharedBy:N0} items), so only it changes");
         return copyName;
     }
@@ -478,22 +547,23 @@ public static partial class GameItemEditor
     /// The buff hangs off the item's consumable row, which other foods often share (Raw_Food: 16
     /// items): that row gets the item's own copy first, so re-pointing the buff changes only this item.
     /// </summary>
-    private static string GiveBuffOwnCopy(GameTableIndex game, ExmodPackage mod, string itemName, EditableSection buff, List<string> lines)
+    private static string GiveBuffOwnCopy(
+        GameTableIndex game, ExmodPackage mod, GameItemLookup lookup, string itemName, EditableSection buff, List<string> lines, List<(string File, string Row, string Top)> written)
     {
         var copyName = CopyRow(game, mod, ModifierStates, buff.RowName, buff.GameRowName, itemName);
         lines.Add($"{buff.Table} › {copyName}: {itemName}'s own copy of the buff {buff.GameRowName} (shared by {buff.SharedBy:N0} items)");
 
         var consumableFile = game.CurrentFileFor("D_Consumable") ?? "Traits-D_Consumable.json";
         var consumable = LinkOf(game, mod, itemName, "Consumable") ?? throw new ArgumentException($"'{itemName}' has no consumable row to carry the buff.");
-        if (game.HasRow(consumableFile, consumable) && CountUsers(game, mod, "Consumable", consumable) > 1)
+        if (game.HasRow(consumableFile, consumable) && lookup.UsersOf("Consumable", consumable) is var users and > 1)
         {
-            consumable = GiveOwnCopy(game, mod, itemName, "Consumable", consumableFile, consumable, game.GameRowName(consumableFile, consumable)!,
-                CountUsers(game, mod, "Consumable", consumable), lines);
+            consumable = GiveOwnCopy(game, mod, itemName, "Consumable", consumableFile, consumable, game.GameRowName(consumableFile, consumable)!, users, lines, written);
         }
 
-        var modifier = (JsonObject?)(Effective(game, mod, consumableFile, consumable)?["Modifier"]?.DeepClone()) ?? [];
+        var modifier = ((Effective(game, mod, consumableFile, consumable)?["Modifier"] as JsonObject)?.DeepClone() as JsonObject) ?? [];
         modifier["Modifier"] = new JsonObject { ["RowName"] = copyName };
         GetOrAddItem(mod, consumableFile, consumable).Fields["Modifier"] = modifier;
+        written.Add((consumableFile, consumable, "Modifier"));
         return copyName;
     }
 
@@ -513,16 +583,16 @@ public static partial class GameItemEditor
         var gameList = game.Row(inventoryFile, gameInventoryRow)?["Inventories"] as JsonArray;
         for (var i = 0; i < list.Count; i++)
         {
-            if (list[i] is not JsonObject entry || entry["RowName"]?.GetValue<string>() is not { } info || info == "None"
-                || game.CurrentFileFor(entry["DataTableName"]?.GetValue<string>() ?? "D_InventoryInfo") is not { } infoFile)
+            if (list[i] is not JsonObject entry || RowLinks.LinkedRow(entry) is not { } info
+                || game.CurrentFileFor(RowLinks.StringOf(entry["DataTableName"]) ?? "D_InventoryInfo") is not { } infoFile)
             {
                 continue;
             }
 
             // A row only the mod has is the item's own copy: its game values come from the row it copied.
-            var gameInfo = game.GameRowName(infoFile, info) ?? (gameList?.ElementAtOrDefault(i) as JsonObject)?["RowName"]?.GetValue<string>() ?? info;
+            var gameInfo = game.GameRowName(infoFile, info) ?? RowLinks.RowNameOf(gameList?.ElementAtOrDefault(i)) ?? info;
             var shared = game.HasRow(infoFile, info) ? lookup.InventoryInfoUsers(inventoryFile, info) : 1;
-            var id = (Effective(game, mod, infoFile, info) ?? game.Row(infoFile, gameInfo))?["InventoryID"]?["Value"]?.GetValue<string>();
+            var id = RowLinks.StringOf(((Effective(game, mod, infoFile, info) ?? game.Row(infoFile, gameInfo))?["InventoryID"] as JsonObject)?["Value"]);
             var title = list.Count == 1 ? "Storage" : $"Storage · {(id is { Length: > 0 } ? Humanize(id) : (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture))}";
             var section = BuildSection(game, mod, $"{StorageSection}:{i}", title, infoFile, info, gameInfo, Math.Max(shared, 1));
             if (section.Fields.Count > 0)
@@ -538,19 +608,20 @@ public static partial class GameItemEditor
     /// A storage shared with other items: copies its D_InventoryInfo row for the item, gives the item
     /// its own inventory row too when that's shared, and points the item's inventory at the copy.
     /// </summary>
-    private static string GiveStorageOwnCopy(GameTableIndex game, ExmodPackage mod, string itemName, EditableSection storage, List<string> lines)
+    private static string GiveStorageOwnCopy(
+        GameTableIndex game, ExmodPackage mod, GameItemLookup lookup, string itemName, EditableSection storage, List<string> lines, List<(string File, string Row, string Top)> written)
     {
         var copyName = CopyRow(game, mod, storage.CurrentFile, storage.RowName, storage.GameRowName, itemName);
         lines.Add($"{storage.Table} › {copyName}: {itemName}'s own copy of the storage {storage.GameRowName} (shared by {storage.SharedBy:N0} items)");
 
         var inventoryFile = game.CurrentFileFor("D_Inventory") ?? "Traits-D_Inventory.json";
         var inventory = LinkOf(game, mod, itemName, InventoryField) ?? throw new ArgumentException($"'{itemName}' has no inventory row to carry the storage.");
-        if (game.HasRow(inventoryFile, inventory) && CountUsers(game, mod, InventoryField, inventory) is var users and > 1)
+        if (game.HasRow(inventoryFile, inventory) && lookup.UsersOf(InventoryField, inventory) is var users and > 1)
         {
-            inventory = GiveOwnCopy(game, mod, itemName, InventoryField, inventoryFile, inventory, game.GameRowName(inventoryFile, inventory)!, users, lines);
+            inventory = GiveOwnCopy(game, mod, itemName, InventoryField, inventoryFile, inventory, game.GameRowName(inventoryFile, inventory)!, users, lines, written);
         }
 
-        var list = (JsonArray?)Effective(game, mod, inventoryFile, inventory)?["Inventories"]?.DeepClone() ?? [];
+        var list = ((Effective(game, mod, inventoryFile, inventory)?["Inventories"] as JsonArray)?.DeepClone() as JsonArray) ?? [];
         var index = int.Parse(storage.Key[(StorageSection.Length + 1)..], System.Globalization.CultureInfo.InvariantCulture);
         if (list.ElementAtOrDefault(index) is JsonObject entry)
         {
@@ -558,6 +629,7 @@ public static partial class GameItemEditor
         }
 
         GetOrAddItem(mod, inventoryFile, inventory).Fields["Inventories"] = list;
+        written.Add((inventoryFile, inventory, "Inventories"));
         return copyName;
     }
 
@@ -589,14 +661,11 @@ public static partial class GameItemEditor
 
     /// <summary>The row an item's field links to, with the mod's changes; null for "None".</summary>
     private static string? LinkOf(GameTableIndex game, ExmodPackage? mod, string itemName, string field) =>
-        Effective(game, mod, ItemsStatic, itemName)?[field]?["RowName"]?.GetValue<string>() is { } row && row != "None" ? row : null;
-
-    /// <summary>How many items (with the mod's changes) link to this row.</summary>
-    private static int CountUsers(GameTableIndex game, ExmodPackage? mod, string field, string rowName) => new GameItemLookup(game, mod).UsersOf(field, rowName);
+        RowLinks.LinkedRow(Effective(game, mod, ItemsStatic, itemName)?[field]);
 
     /// <summary>The buff a consumable row gives (with the mod's changes); null for none.</summary>
     private static string? BuffOf(GameTableIndex game, ExmodPackage? mod, string consumableFile, string consumableRow) =>
-        Effective(game, mod, consumableFile, consumableRow)?["Modifier"]?["Modifier"]?["RowName"]?.GetValue<string>() is { } buff && buff != "None" ? buff : null;
+        RowLinks.LinkedRow((Effective(game, mod, consumableFile, consumableRow)?["Modifier"] as JsonObject)?["Modifier"]);
 
     /// <summary>The entry of a list (a recipe's ingredients, a workshop item's costs) for the same thing as <paramref name="entry"/>, else the one at the same position.</summary>
     private static JsonNode? SameEntry(JsonArray? list, JsonObject entry, int index)
@@ -606,7 +675,7 @@ public static partial class GameItemEditor
             ?? (what is null ? list?.ElementAtOrDefault(index) : null);
     }
 
-    private static string? Identity(JsonObject entry) => (entry["Element"] ?? entry["Meta"] ?? entry["Item"])?["RowName"]?.GetValue<string>();
+    private static string? Identity(JsonObject entry) => RowLinks.RowNameOf(entry["Element"] ?? entry["Meta"] ?? entry["Item"]);
 
     private static void SetValue(GameTableIndex game, ExmodPackage mod, string file, string rowName, string gameRowName, EditPath path, JsonNode? value)
     {
@@ -619,6 +688,13 @@ public static partial class GameItemEditor
         if (path.Steps.Count == 0)
         {
             top = value is null ? gameTop?.DeepClone() : Encode(top ?? gameTop, value);
+        }
+        else if (value is null && path.Steps is [int entryIndex, string] && top is JsonArray entries
+            && entries.ElementAtOrDefault(entryIndex) is JsonObject modEntry && SameEntry(gameTop as JsonArray, modEntry, entryIndex) is null)
+        {
+            // An entry the game doesn't have (an ingredient only the mod adds): back to the game's
+            // means it goes, not an entry left with no amount.
+            entries.RemoveAt(entryIndex);
         }
         else
         {
@@ -708,7 +784,7 @@ public static partial class GameItemEditor
 
     /// <summary>The table a link points into: its own DataTableName, else the table default's.</summary>
     private static string? LinkTableOf(JsonObject link, JsonNode? fallback) =>
-        link["DataTableName"]?.GetValue<string>() ?? (fallback as JsonObject)?["DataTableName"]?.GetValue<string>();
+        RowLinks.StringOf(link["DataTableName"]) ?? RowLinks.StringOf((fallback as JsonObject)?["DataTableName"]);
 
     private static string Show(JsonNode? value) =>
         value is JsonValue v && v.TryGetValue<string>(out var s) ? (NsLocText.TextOf(s) ?? s) : value?.ToJsonString() ?? "(none)";
