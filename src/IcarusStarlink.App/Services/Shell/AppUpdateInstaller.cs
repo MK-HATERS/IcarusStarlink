@@ -13,7 +13,8 @@ public enum AppUpdateStep { GetLink, Download, Check, Unpack, Handover }
 /// The file work of the in-app update once the zip is downloaded and checked (AppUpdateViewModel
 /// does those): unpacks it, finds the app in it, stages the updater outside the install folder and
 /// starts it. The caller then closes the app; the updater waits for that, copies the new build over
-/// the install WITHOUT deleting anything (user data is safe by construction — see UpdateApplier),
+/// the install WITHOUT deleting user data (it is safe by construction; only the old build's own
+/// leftover program files are removed — see UpdateApplier),
 /// and relaunches it.
 /// </summary>
 public static class AppUpdateInstaller

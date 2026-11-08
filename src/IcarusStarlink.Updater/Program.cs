@@ -4,7 +4,8 @@ using IcarusStarlink.Updater;
 // Icarus Starlink's in-place updater. Started by the main app (AppUpdateInstaller) from a TEMP copy
 // of itself (so its own file in the install directory can be replaced too), with the main app
 // exiting right after. Waits for the app to exit, copies the new build's files over the install
-// directory (never deleting anything — see UpdateApplier), then relaunches the app.
+// directory (never deleting user data, only the old build's leftover program files — see
+// UpdateApplier), then relaunches the app.
 //
 // usage: IcarusStarlink.Updater.exe <mainProcessId> <installDir> <newFilesDir> <relaunchExe> [--skip <rootFileName>]...
 

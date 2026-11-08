@@ -5,9 +5,10 @@ namespace IcarusStarlink.Updater;
 /// Deliberately NEVER deletes user data — Extracted_Mods, Profiles, Library_Meta, Cache,
 /// Pending_Downloads, Backups, settings.json, custom_skin.json, Logs, … are safe by construction
 /// rather than by a preserve-list that would go stale every time the app grows a new data folder:
-/// nothing inside any subfolder is ever touched, and at the install root only files matching
-/// StaleRootFilePatterns (unambiguously the app's own program files — the exact set Uninstall.bat
-/// already treats as app-owned) are removed, and only once the new build has fully landed. That
+/// nothing inside any subfolder is ever deleted (the old layout's runtimes\ folder is the one
+/// exception, by exact name), and at the install root only files matching StaleRootFilePatterns
+/// (unambiguously the app's own program files — the exact set Uninstall.bat already treats as
+/// app-owned) are removed, and only once the new build has fully landed. That
 /// exception exists for the single-file packaging change (see IcarusStarlink.App.csproj): an
 /// install upgrading from the old 336-file layout would otherwise keep ~320 dead runtime DLLs
 /// forever — inert, but exactly the clutter that change exists to get rid of.
@@ -81,10 +82,10 @@ public static class UpdateApplier
                 var destinationPath = Path.Combine(installDirectory, relativePath);
                 Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
 
-                // Nothing to preserve for a file the new build adds that the install doesn't have
-                // yet — rollback never deletes it either (see the class doc comment: this never
-                // deletes anything), it's just left in place, same as any other file the new build
-                // ships that an older version didn't.
+                // Nothing to back up for a file the new build adds that the install doesn't have
+                // yet. Rollback doesn't delete it: it's left in place, inert, like any other file a
+                // newer build ships that an older version didn't. (The only deletes in Apply are
+                // RemoveStaleRootFiles, after the whole copy has landed.)
                 if (File.Exists(destinationPath))
                 {
                     var backupPath = Path.Combine(backupDirectory, relativePath);
