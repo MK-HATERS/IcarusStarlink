@@ -410,6 +410,18 @@ public sealed partial class MergeInstallViewModel
         return (picks.Count > 0 ? picks : null, unmatched);
     }
 
+    /// <summary>Whether the profile or the buildable queue is no longer the one a check was made for.</summary>
+    private bool ReviewIsStale(string? profile, BuildSnapshot snapshot) =>
+        !string.Equals(SelectedProfileName, profile, StringComparison.OrdinalIgnoreCase)
+        || !TakeSnapshot().Queue.Select(e => e.FolderName).SequenceEqual(snapshot.Queue.Select(e => e.FolderName), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Shows the check window; the winners to save (by name), or null when it closed without saving. Tests swap in an answer.</summary>
+    internal Func<MergeConflictsViewModel, IReadOnlyDictionary<string, string>?> ShowMergeReview { get; set; } = review =>
+    {
+        var window = new MergeConflictsWindow(review) { Owner = Application.Current.MainWindow };
+        return window.ShowDialog() == true ? window.ResultWinners : null;
+    };
+
     /// <summary>
     /// The page's one Review: checks the queue afresh and opens the check window, with conflicts
     /// (pick a winner per value, or leave it on Default: usually the mod lower in the queue, but a
@@ -428,6 +440,10 @@ public sealed partial class MergeInstallViewModel
             return;
         }
 
+        // The profile and queue this check is for: nothing is locked while it reads the mods, so a
+        // profile switch or a queue edit meanwhile makes its result someone else's.
+        var profile = SelectedProfileName;
+        var countVersion = ++_conflictCountVersion;
         try
         {
             var found = await FindQueueConflictsAsync(snapshot, await LoadQueuedPackagesAsync(snapshot.Queue));
@@ -436,6 +452,12 @@ public sealed partial class MergeInstallViewModel
             // and superseding any background check still running.
             var version = ++_checkVersion;
             var (between, perMod, reports) = await FindQueueChecksAsync();
+            if (ReviewIsStale(profile, snapshot))
+            {
+                ConflictStatusMessage = "The profile or the list changed while checking: click Check the merge again.";
+                return;
+            }
+
             if (version == _checkVersion)
             {
                 BetweenModsFindings = between;
@@ -448,7 +470,11 @@ public sealed partial class MergeInstallViewModel
             // The window and the bar count from the same tally (the window's own), so they agree.
             var shownWinners = ToDisplayWinners(snapshot.Winners, found);
             var reviewViewModel = new MergeConflictsViewModel(conflicts, newItemCollisions, shownWinners, between, perMod);
-            ApplyConflicts(found);
+            // Unless a newer recount (an option changed meanwhile) already set the bar.
+            if (countVersion == _conflictCountVersion)
+            {
+                ApplyConflicts(found);
+            }
 
             if (conflicts.Count == 0 && newItemCollisions.Count == 0 && between.Count == 0 && perMod.Count == 0)
             {
@@ -462,10 +488,16 @@ public sealed partial class MergeInstallViewModel
                 _activityLog.Log($"{conflicts.Count} conflict(s){collisionNote} found among {modNames.Count} queued mod(s).", ActivityEntryKind.Warning);
             }
 
-            var window = new MergeConflictsWindow(reviewViewModel) { Owner = Application.Current.MainWindow };
-            if (window.ShowDialog() == true)
+            if (ShowMergeReview(reviewViewModel) is { } resultWinners)
             {
-                _winners = FromDisplayWinners(window.ResultWinners!, snapshot.Winners, shownWinners, found);
+                // The window is modal, but a Library tick can still change the queue behind it.
+                if (ReviewIsStale(profile, snapshot))
+                {
+                    ConflictStatusMessage = "The profile or the list changed: nothing was saved. Click Check the merge again.";
+                    return;
+                }
+
+                _winners = FromDisplayWinners(resultWinners, snapshot.Winners, shownWinners, found);
                 OnPropertyChanged(nameof(SavedWinnerCount));
                 SaveWinnersToProfile();
                 var pickedNow = reviewViewModel.PickedCount;

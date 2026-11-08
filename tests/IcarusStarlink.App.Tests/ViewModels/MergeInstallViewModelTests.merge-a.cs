@@ -486,4 +486,61 @@ public sealed partial class MergeInstallViewModelTests
         Assert.Equal(0, rebuild.RebuildCallCount);
         Assert.StartsWith("Nothing is ticked, so there's nothing to build.", question);
     }
+
+    // ---------------------------------------------------------------------------------------
+    // Check the merge while the profile changes
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Switching profile while Check the merge reads the mods used to open the window with the old
+    /// profile's conflicts, and Save picks then wrote the old profile's winners into the new one,
+    /// dropping the new profile's own picks.
+    /// </summary>
+    [Fact]
+    public async Task CheckTheMerge_ProfileSwitchedWhileChecking_SavesNothingIntoTheNewProfile()
+    {
+        var (library, settings) = TwoConflictingMods();
+        var rebuild = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables() };
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Solo", MergeQueueFolderNames = ["ModA", "ModB"], ConflictWinners = new() { [CraftTimeWinnerKey] = "ModA" } });
+        store.Save(new Profile
+        {
+            Name = "Coop",
+            MergeQueueFolderNames = ["ModA", "ModB"],
+            ConflictWinners = new() { [CraftTimeWinnerKey] = "ModB", ["Other|Row|Field"] = "ModB" },
+        });
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, profileStore: store, settingsService: settings);
+        vm.SelectedProfileName = "Solo";
+
+        // Every read of a mod folder off this thread waits until the profile has been switched, so
+        // the check can't finish first (this thread's own reads, if any, go through).
+        using var gate = new ManualResetEventSlim(false);
+        var testThread = Environment.CurrentManagedThreadId;
+        var held = 0;
+        library.BeforeGetFolderPath = _ =>
+        {
+            if (Environment.CurrentManagedThreadId != testThread)
+            {
+                Interlocked.Exchange(ref held, 1);
+                gate.Wait(TimeSpan.FromSeconds(10));
+            }
+        };
+        var shown = false;
+        vm.ShowMergeReview = review =>
+        {
+            shown = true;
+            return review.BuildWinners();
+        };
+
+        var task = vm.ReviewMergeCommand.ExecuteAsync(null);
+        Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref held) == 1, 5000));
+        vm.SelectedProfileName = "Coop";
+        gate.Set();
+        await task;
+
+        Assert.False(shown);
+        Assert.Equal("ModB", store.Load("Coop").ConflictWinners["Other|Row|Field"]);
+        Assert.Equal("ModB", store.Load("Coop").ConflictWinners[CraftTimeWinnerKey]);
+        Assert.Contains("changed while checking", vm.ConflictStatusMessage);
+    }
 }
