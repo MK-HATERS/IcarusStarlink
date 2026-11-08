@@ -319,7 +319,7 @@
             <Button Content="−" Padding="8,0" Command="{Binding RankDownCommand}" AutomationProperties.Name="Rank down"/>
             <TextBlock Text="{Binding RankDisplay}" MinWidth="48" TextAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas"/>
             <Button Content="+" Padding="8,0" Command="{Binding RankUpCommand}" IsEnabled="{Binding CanRankUp}" AutomationProperties.Name="Rank up"
-                    ToolTip="One rank higher. Greyed out: already at the highest rank this talent has." ToolTipService.ShowOnDisabled="True"/>
+                    ToolTip="One rank higher. Greyed out: it's at its highest rank, or (a mount's talent) it can't be added yet." ToolTipService.ShowOnDisabled="True"/>
         </StackPanel>
     </DataTemplate>
 

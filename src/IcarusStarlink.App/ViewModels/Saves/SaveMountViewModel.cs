@@ -47,7 +47,7 @@ public sealed partial class SaveMountViewModel : DirtyRow
     private string _name;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(TalentSummary), nameof(OverBudget), nameof(ExperienceDisplay))]
+    [NotifyPropertyChangedFor(nameof(TalentSummary), nameof(OverBudget), nameof(ExperienceDisplay), nameof(LevelNote))]
     private string _levelText;
 
     /// <summary>
@@ -86,8 +86,19 @@ public sealed partial class SaveMountViewModel : DirtyRow
         {
             try
             {
-                Blob = MountBlob.TryRead([.. data.Select(n => (byte)(int)n!)], out var why);
-                InsideRefusal = why;
+                if (data.Count > MaxBlobBytes)
+                {
+                    InsideRefusal = "its data is far bigger than a mount's";
+                }
+                else if (ToBytes(data) is { } bytes)
+                {
+                    Blob = MountBlob.TryRead(bytes, out var why);
+                    InsideRefusal = why;
+                }
+                else
+                {
+                    InsideRefusal = "its data holds a value that isn't a byte";
+                }
             }
             catch (Exception)
             {
@@ -108,11 +119,36 @@ public sealed partial class SaveMountViewModel : DirtyRow
         }
     }
 
+    /// <summary>Real blobs are 8-10 KB; a much bigger one is refused before it's read.</summary>
+    private const int MaxBlobBytes = 1_048_576;
+
+    /// <summary>
+    /// The blob's bytes; null when a value isn't a whole number from 0 to 255. A cast used to wrap
+    /// 300 to 44, and the write-back check then passed on the wrapped bytes, so Save wrote bytes
+    /// the save never had.
+    /// </summary>
+    private static byte[]? ToBytes(JsonArray data)
+    {
+        var bytes = new byte[data.Count];
+        for (var i = 0; i < data.Count; i++)
+        {
+            if (data[i] is not JsonValue value || value.GetValueKind() != System.Text.Json.JsonValueKind.Number
+                || !value.TryGetValue<int>(out var b) || b is < 0 or > 255)
+            {
+                return null;
+            }
+
+            bytes[i] = (byte)b;
+        }
+
+        return bytes;
+    }
+
     // --- Inside editing (filled in by SavesViewModel once the game's tables are known) ---
 
     /// <summary>Its growth row as installed: XP per level, talent points per level, level cap.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(TalentSummary), nameof(OverBudget), nameof(ExperienceDisplay), nameof(GrowthNote))]
+    [NotifyPropertyChangedFor(nameof(TalentSummary), nameof(OverBudget), nameof(ExperienceDisplay), nameof(GrowthNote), nameof(LevelNote))]
     private MountGrowth? _growth;
 
     public ObservableCollection<MountGeneViewModel> Genes { get; } = [];
@@ -219,7 +255,7 @@ public sealed partial class SaveMountViewModel : DirtyRow
 
                     MarkInsideDirty();
                     return true;
-                }, info.Tree, treeInfo?.Order ?? int.MaxValue, info.Description, names.TalentIconPaths.GetValueOrDefault(row)));
+                }, info.Tree, treeInfo?.Order ?? int.MaxValue, info.Description, names.TalentIconPaths.GetValueOrDefault(row), blob.CanAddTalent));
         }
 
         // The summary counts the new rank: the blob callback above runs before the row takes it.
@@ -259,6 +295,23 @@ public sealed partial class SaveMountViewModel : DirtyRow
 
     /// <summary>"3,890,000 XP" once the level is set from a curve.</summary>
     public string? ExperienceDisplay => Blob?.Experience is { } xp ? $"{xp:N0} XP" : null;
+
+    /// <summary>Why no talent can be added to this mount (its saved data has no talent entry to copy); null when one can.</summary>
+    public string? TalentsNote => Blob is { CanAddTalent: false }
+        ? "This mount's saved data has no talents to copy a new one from, so talents can't be added here: learn one in game first."
+        : null;
+
+    /// <summary>
+    /// A new level whose experience can't be set to match (no growth table read, or more than the
+    /// save can hold): the list takes the level, but the game may put it back from the experience.
+    /// </summary>
+    public string? LevelNote => CanEditInside && Level is { } level && level != _originalLevel
+        ? Growth?.Growth?.Experience is not { } xpCurve
+            ? "Its experience can't be matched to this level (its growth table wasn't read), so the game may put the level back."
+            : ExperienceFor(xpCurve, level) is null
+                ? "Its experience can't be matched to this level (more than a mount can hold), so the game may put the level back."
+                : null
+        : null;
 
     public string? GrowthNote => Growth?.Growth is { } g
         ? $"Growth: {Growth.GrowthRow} (levels up to {g.MaxLevel:N0}){(g.CurvesFromMods.Count > 0 ? ", from an installed mod" : "")}."
@@ -304,16 +357,23 @@ public sealed partial class SaveMountViewModel : DirtyRow
             return;
         }
 
-        if (Growth?.Growth?.Experience is { } xpCurve)
+        // Without a curve, or past what the blob's number holds, the experience stays (LevelNote says so).
+        if (Growth?.Growth?.Experience is { } xpCurve && ExperienceFor(xpCurve, level) is { } target && blob.Experience != target)
         {
-            var max = Growth.Growth.MaxLevel > 0 ? Growth.Growth.MaxLevel : int.MaxValue;
-            var target = (int)Math.Ceiling(xpCurve.Evaluate(Math.Min(level, max)));
-            if (blob.Experience != target)
-            {
-                blob.Experience = target;
-            }
+            blob.Experience = target;
         }
     }
+
+    /// <summary>The least experience that reaches the level (capped at the growth's highest), as for characters; null when it doesn't fit the blob's int.</summary>
+    private int? ExperienceFor(GrowthCurve xpCurve, int level)
+    {
+        var max = Growth?.Growth is { MaxLevel: > 0 } growth ? growth.MaxLevel : int.MaxValue;
+        var xp = xpCurve.XpFor(Math.Min(level, max));
+        return xp <= int.MaxValue ? (int)xp : null;
+    }
+
+    /// <summary>The save check's name fix was made: Save writes the list's name into the blob, so the names no longer differ.</summary>
+    public bool NameSyncPending => _syncNamePending;
 
     /// <summary>Save writes the list's name into the game's own copy too (the save check's fix for names that drifted apart).</summary>
     public void SyncNameOnSave()
@@ -397,6 +457,7 @@ public sealed partial class SaveMountViewModel : DirtyRow
         }
 
         _insideDirty = false;
+        OnPropertyChanged(nameof(LevelNote));
     }
 }
 
@@ -422,8 +483,9 @@ public sealed partial class MountGeneViewModel(string row, string title, int val
 /// <summary>One talent of a mount's trees, with its rank (0 = not learned). Every rank change goes through the mount's blob (setRank), which can refuse.</summary>
 /// <param name="tree">Its tree's name ("Wolf"), shown beside it in the list.</param>
 /// <param name="treeRow">Its D_Talents tree row ("Creature_Wolf"), for the tree view's layout.</param>
+/// <param name="canAdd">The mount's blob can take a talent it doesn't have yet (MountBlob.CanAddTalent).</param>
 public sealed partial class MountTalentViewModel(string row, string displayName, string tree, int maxRank, bool isDefaultUnlocked, int rank, Func<int, bool> setRank,
-    string treeRow = "", int treeOrder = int.MaxValue, string description = "", string? iconPath = null) : ObservableObject, ITreeTalent
+    string treeRow = "", int treeOrder = int.MaxValue, string description = "", string? iconPath = null, bool canAdd = true) : ObservableObject, ITreeTalent
 {
     private int _originalRank = rank;
 
@@ -472,8 +534,17 @@ public sealed partial class MountTalentViewModel(string row, string displayName,
 
     public bool IsDirty => Rank != _originalRank;
 
-    /// <summary>Below its highest rank (or no cap known): the shared rank stepper greys + out otherwise.</summary>
-    public bool CanRankUp => MaxRank == 0 || Rank < MaxRank;
+    /// <summary>
+    /// Below its highest rank (or no cap known), and either learned already or addable to the
+    /// mount's data: the shared rank stepper greys + out otherwise.
+    /// </summary>
+    public bool CanRankUp => (MaxRank == 0 || Rank < MaxRank) && (Rank > 0 || canAdd);
+
+    /// <summary>A mount's talent has no research cost; the tree's tooltip leaves the line out.</summary>
+    public string? Cost => null;
+
+    /// <summary>A mount's talent needs no DLC pack; the tree's tooltip leaves the line out.</summary>
+    public string? PackNote => null;
 
     /// <summary>Through the blob: a rank it refuses stays as it was.</summary>
     int ITreeTalent.Rank

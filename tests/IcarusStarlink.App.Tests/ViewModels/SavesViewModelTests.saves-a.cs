@@ -1,8 +1,10 @@
+using System.Collections.Specialized;
 using System.IO;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.Core.Saves;
 using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
@@ -404,6 +406,238 @@ public sealed partial class SavesViewModelTests
             Assert.Equal(2, saved.Count);
             Assert.Equal("12.5", saved[0]!["MountLevel"]!.ToJsonString());
             Assert.False(saved[1]!.AsObject().ContainsKey("MountName"));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>
+    /// Regression: a mount's picture name from Mounts.json went straight into a file path, so a
+    /// full path (or a network one, which freezes the page while Windows tries the host) was looked
+    /// up wherever it pointed instead of in the slot's Mounts folder.
+    /// </summary>
+    [Fact]
+    public async Task MountPictureNameThatIsAPath_IsNeverLookedUp()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_Outside", Guid.NewGuid().ToString("N"));
+        _tempFoldersToCleanUp.Add(outside);
+        Directory.CreateDirectory(outside);
+        File.WriteAllBytes(Path.Combine(outside, "pic.exr"), [1]);
+        var rex = MakeMount("Rex", 3, "Wolf");
+        rex["MountIconName"] = Path.Combine(outside, "pic");
+        var bob = MakeMount("Bob", 4, "Wolf");
+        bob["MountIconName"] = @"..\..\pic";
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 0), Mounts = MakeMountsRoot(rex, bob) };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+
+            Assert.Contains(vm.CheckFindings, f => f.Area == "Mounts" && f.Message.StartsWith("Rex", StringComparison.Ordinal) && f.Message.Contains("isn't a plain file name"));
+            Assert.Contains(vm.CheckFindings, f => f.Area == "Mounts" && f.Message.StartsWith("Bob", StringComparison.Ordinal) && f.Message.Contains("isn't a plain file name"));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>
+    /// Regression: PlayerData was listed once, when the page was made. A folder that couldn't be
+    /// read then (or a first game run after Starlink opened) stayed "no saves" until restart, and
+    /// neither showing the page again nor Reload looked again.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PlayerDataUnreadableAtFirst_IsListedOnceItCanBeRead(bool throughReload)
+    {
+        var repository = new FakeSaveRepository
+        {
+            ListSlotsError = new IOException("not yet"),
+            Profile = MakeProfile(nextChrSlot: 1),
+            Characters = [MakeCharacter("Alpha", 0)],
+        };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            Assert.Empty(vm.Slots);
+
+            repository.ListSlotsError = null;
+            if (throughReload)
+            {
+                vm.ReloadCommand.Execute(null);
+            }
+            else
+            {
+                vm.OnPageShown();
+            }
+
+            await vm.WaitForPendingSlotLoadAsync();
+
+            Assert.Single(vm.Slots);
+            Assert.NotNull(vm.SelectedSlot);
+            Assert.Single(vm.Characters);
+            Assert.DoesNotContain("Couldn't read the game's PlayerData folder", vm.StatusMessage ?? "");
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    [Fact]
+    public async Task SlotAddedLater_IsListed_AndTheSelectionStays()
+    {
+        var first = new SaveSlot(SteamId, $@"C:\fake\PlayerData\{SteamId}", "Tester");
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 0), SlotList = [first] };
+        var dialogs = new FakeDialogService(confirmResult: true);
+        var vm = CreateViewModel(repository, dialogs);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var confirmsBefore = dialogs.ConfirmCallCount;
+            var earlier = new SaveSlot("76561198000000000", @"C:\fake\PlayerData\76561198000000000", "Other");
+            repository.SlotList = [earlier, first];
+
+            vm.OnPageShown();
+            await vm.WaitForPendingSlotLoadAsync();
+
+            Assert.Equal([earlier, first], vm.Slots);
+            Assert.Equal(first, vm.SelectedSlot);
+            Assert.Equal(confirmsBefore, dialogs.ConfirmCallCount);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>
+    /// Regression: the save check's "Use X for both" only took effect at Save, so its warning stayed
+    /// (and stayed in Fix all) after the click; and two mounts with the same name shared one row
+    /// whose fix reached only the first of them.
+    /// </summary>
+    [Fact]
+    public async Task MountNameFix_ClearsItsFinding_AndReachesEachMount()
+    {
+        static JsonObject Buddy(string blobName) => new()
+        {
+            ["MountName"] = "Buddy",
+            ["MountLevel"] = 3,
+            ["MountType"] = "Wolf",
+            ["RecorderBlob"] = new JsonObject { ["BinaryData"] = MountBlobFixture.Blob(blobName, 10) },
+        };
+
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 0), Mounts = MakeMountsRoot(Buddy("Old1"), Buddy("Old2")) };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            const string fix = "Use \"Buddy\" for both";
+            Assert.Equal(2, vm.CheckFindings.Count(f => f.FixLabel == fix));
+
+            vm.FixAllFindingsCommand.Execute(null);
+            Assert.DoesNotContain(vm.CheckFindings, f => f.FixLabel == fix);
+
+            vm.SaveChangesCommand.Execute(null);
+            var saved = repository.LastSavedMounts!["SavedMounts"]!.AsArray();
+            Assert.Equal(2, saved.Count);
+            foreach (var mount in saved)
+            {
+                var bytes = mount!["RecorderBlob"]!["BinaryData"]!.AsArray().Select(b => (byte)b!.GetValue<int>()).ToArray();
+                Assert.Equal("Buddy", MountBlob.TryRead(bytes, out var why)?.Name ?? why);
+            }
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Regression: each search keystroke cleared the mount list, the list dropped its selection, and the mount pane closed.</summary>
+    [Fact]
+    public async Task MountSearch_KeepsTheSelectedMount()
+    {
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 0), Mounts = MakeMountsRoot(MakeMount("Rex", 3, "Wolf"), MakeMount("Bob", 4, "Wolf")) };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var rex = vm.Mounts.Single(m => m.Name == "Rex");
+            // What the ListBox does: a cleared source drops its selection.
+            vm.FilteredMounts.CollectionChanged += (_, e) =>
+            {
+                if (e.Action == NotifyCollectionChangedAction.Reset)
+                {
+                    vm.SelectedMount = null;
+                }
+            };
+            vm.SelectedMount = rex;
+
+            vm.MountSearchText = "R";
+
+            Assert.Same(rex, vm.SelectedMount);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    [Fact]
+    public async Task DeletingTheSelectedMount_SelectsAnother()
+    {
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 0), Mounts = MakeMountsRoot(MakeMount("Rex", 3, "Wolf"), MakeMount("Bob", 4, "Wolf")) };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var rex = vm.Mounts.Single(m => m.Name == "Rex");
+            vm.SelectedMount = rex;
+            vm.FilteredMounts.CollectionChanged += (_, e) =>
+            {
+                if (e.Action == NotifyCollectionChangedAction.Remove && e.OldItems!.Contains(vm.SelectedMount))
+                {
+                    vm.SelectedMount = null;
+                }
+            };
+
+            vm.DeleteMountCommand.Execute(rex);
+
+            Assert.Same(vm.Mounts.Single(m => m.Name == "Bob"), vm.SelectedMount);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Regression: the list dropped the deleted character's selection before the "select the first remaining" step looked, so none stayed selected.</summary>
+    [Fact]
+    public async Task DeletingTheSelectedCharacter_SelectsAnother()
+    {
+        var repository = new FakeSaveRepository { Profile = MakeProfile(nextChrSlot: 2), Characters = [MakeCharacter("Alpha", 0), MakeCharacter("Beta", 1)] };
+        var vm = CreateViewModel(repository);
+        try
+        {
+            await vm.WaitForPendingSlotLoadAsync();
+            var alpha = vm.Characters.Single(c => c.Name == "Alpha");
+            vm.SelectedCharacter = alpha;
+            vm.Characters.CollectionChanged += (_, e) =>
+            {
+                if (e.Action == NotifyCollectionChangedAction.Remove && e.OldItems!.Contains(vm.SelectedCharacter))
+                {
+                    vm.SelectedCharacter = null;
+                }
+            };
+
+            vm.DeleteCharacterCommand.Execute(alpha);
+
+            Assert.Same(vm.Characters.Single(c => c.Name == "Beta"), vm.SelectedCharacter);
         }
         finally
         {

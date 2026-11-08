@@ -1,4 +1,6 @@
+using System.IO;
 using System.Text.Json.Nodes;
+using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
@@ -77,54 +79,28 @@ public class SaveMountViewModelTests
         Assert.Same(garbage, node["RecorderBlob"]!["BinaryData"]);
     }
 
-    /// <summary>A RecorderBlob of tagged properties: the mount's own name and its experience, then None and a 0.</summary>
-    private static JsonArray Blob(string name, int experience)
-    {
-        using var stream = new System.IO.MemoryStream();
-        using var writer = new System.IO.BinaryWriter(stream);
-        void FString(string s)
-        {
-            writer.Write(s.Length + 1);
-            writer.Write(System.Text.Encoding.ASCII.GetBytes(s));
-            writer.Write((byte)0);
-        }
+    private static IcarusStarlink.PakIO.Assets.MountGrowth GrowthOf100XpALevel(string? archetype = null) => GrowthWithXp(5000, archetype);
 
-        FString("MountName");
-        FString("StrProperty");
-        writer.Write(4 + name.Length + 1);
-        writer.Write(0);
-        writer.Write((byte)0);
-        FString(name);
-
-        FString("Experience");
-        FString("IntProperty");
-        writer.Write(4);
-        writer.Write(0);
-        writer.Write((byte)0);
-        writer.Write(experience);
-
-        FString("None");
-        writer.Write(0);
-        writer.Flush();
-        return new JsonArray([.. stream.ToArray().Select(b => (JsonNode)JsonValue.Create((int)b))]);
-    }
-
-    private static IcarusStarlink.PakIO.Assets.MountGrowth GrowthOf100XpALevel()
+    /// <summary>Levels 0 to 50, XP rising evenly to <paramref name="xpAt50"/>.</summary>
+    private static IcarusStarlink.PakIO.Assets.MountGrowth GrowthWithXp(float xpAt50, string? archetype = null)
     {
         var xp = new IcarusStarlink.PakIO.Assets.GrowthCurve(
-            [new(0, 0, false, false, 0, 0), new(50, 5000, false, false, 0, 0)], LinearBefore: false, LinearAfter: false);
-        return new IcarusStarlink.PakIO.Assets.MountGrowth("AI_Mounts", null, 3,
+            [new(0, 0, false, false, 0, 0), new(50, xpAt50, false, false, 0, 0)], LinearBefore: false, LinearAfter: false);
+        return new IcarusStarlink.PakIO.Assets.MountGrowth("AI_Mounts", archetype, 3,
             new IcarusStarlink.PakIO.Assets.PlayerGrowth(50, 50, false, xp, null, null, null, []));
     }
 
-    private static SaveMountViewModel MakeWithBlob(int level, int experience, Action? onDirtyChanged = null)
+    private static SaveMountViewModel MakeWithBlob(int level, int experience, Action? onDirtyChanged = null) =>
+        MakeWithData(level, MountBlobFixture.Blob("Rex", experience), onDirtyChanged);
+
+    private static SaveMountViewModel MakeWithData(int level, JsonArray data, Action? onDirtyChanged = null)
     {
         var node = new JsonObject
         {
             ["MountName"] = "Rex",
             ["MountLevel"] = level,
             ["MountType"] = "Moa",
-            ["RecorderBlob"] = new JsonObject { ["BinaryData"] = Blob("Rex", experience) },
+            ["RecorderBlob"] = new JsonObject { ["BinaryData"] = data },
         };
         return new SaveMountViewModel(node, "Rex", level, "Moa", null, onDirtyChanged ?? (() => { }));
     }
@@ -175,5 +151,104 @@ public class SaveMountViewModelTests
         Assert.Equal(523, vm.Blob!.Experience);
         Assert.True(raised >= 4);
         Assert.True(pageCalls >= 4);
+    }
+
+    /// <summary>
+    /// Regression: a blob value outside 0-255 (300, -1) was cast to a byte and wrapped (300 to 44),
+    /// the write-back check then compared the wrapped bytes with themselves and passed, and a later
+    /// Save wrote bytes the save never had.
+    /// </summary>
+    [Fact]
+    public void BlobByteOutOfRange_IsRefused()
+    {
+        var data = MountBlobFixture.Blob("Rex", 523);
+        data[0] = data[0]!.GetValue<int>() + 256;
+
+        var vm = MakeWithData(5, data);
+
+        Assert.False(vm.CanEditInside);
+        Assert.Contains("byte", vm.InsideRefusal);
+    }
+
+    [Fact]
+    public void BlobFarBiggerThanAMounts_IsRefusedWithoutReadingIt()
+    {
+        var data = MountBlobFixture.Blob("Rex", 523);
+        for (var i = data.Count; i <= 1_048_576; i++)
+        {
+            data.Add(0);
+        }
+
+        var vm = MakeWithData(5, data);
+
+        Assert.False(vm.CanEditInside);
+        Assert.Contains("far bigger", vm.InsideRefusal);
+    }
+
+    /// <summary>
+    /// Regression: a mount whose saved data has no talent entries can't be given a talent (a new
+    /// one is a copy of an existing entry), yet its + stayed enabled and every click silently did nothing.
+    /// </summary>
+    [Fact]
+    public void MountWithNoTalentEntries_SaysSo_AndOffersNoRankUp()
+    {
+        var data = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests_MountTalents", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(data, "Talents"));
+        try
+        {
+            File.WriteAllText(Path.Combine(data, "Talents", "D_TalentArchetypes.json"), """{ "Rows": [ { "Name": "Creature_Wolf" } ] }""");
+            File.WriteAllText(Path.Combine(data, "Talents", "D_TalentTrees.json"), """
+                { "Rows": [ { "Name": "Wolf_Tree", "Archetype": { "RowName": "Creature_Wolf" } } ] }
+                """);
+            File.WriteAllText(Path.Combine(data, "Talents", "D_Talents.json"), """
+                { "Rows": [ { "Name": "Wolf_Health", "TalentTree": { "RowName": "Wolf_Tree" }, "Rewards": [ {}, {} ] } ] }
+                """);
+            var vm = MakeWithBlob(5, 523);
+
+            vm.SetGameData(new SaveGameNames(data), GrowthOf100XpALevel("Creature_Wolf"));
+
+            var talent = Assert.Single(vm.TalentRows);
+            Assert.False(talent.CanRankUp);
+            Assert.NotNull(vm.TalentsNote);
+        }
+        finally
+        {
+            Directory.Delete(data, true);
+        }
+    }
+
+    /// <summary>
+    /// Regression: with no growth table read, a new level was written to the list while the
+    /// mount's experience stayed as it was, so the game puts the level back, and nothing said so.
+    /// </summary>
+    [Fact]
+    public void NewLevelWithoutAGrowthCurve_SaysTheGameMayPutItBack()
+    {
+        var vm = MakeWithBlob(5, 523);
+
+        vm.LevelText = "20";
+        Assert.NotNull(vm.LevelNote);
+        Assert.Equal(523, vm.Blob!.Experience);
+
+        vm.LevelText = "5";
+        Assert.Null(vm.LevelNote);
+
+        vm.LevelText = "20";
+        vm.Growth = GrowthOf100XpALevel();
+        Assert.Null(vm.LevelNote);
+        Assert.Equal(2000, vm.Blob.Experience);
+    }
+
+    /// <summary>Regression: a level whose experience is past what the save's number holds wrote int.MaxValue (or a wrapped value) into the blob.</summary>
+    [Fact]
+    public void LevelWhoseExperienceDoesntFit_LeavesTheExperience_AndSaysSo()
+    {
+        var vm = MakeWithBlob(5, 523);
+        vm.Growth = GrowthWithXp(5e10f);
+
+        vm.LevelText = "20";
+
+        Assert.Equal(523, vm.Blob!.Experience);
+        Assert.NotNull(vm.LevelNote);
     }
 }

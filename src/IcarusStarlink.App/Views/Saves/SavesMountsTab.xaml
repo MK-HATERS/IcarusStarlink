@@ -81,6 +81,8 @@
                                   ToolTip="Which look (colours and pattern) of its species it has, counting from 0"/>
                     </StackPanel>
                 </WrapPanel>
+                <TextBlock Text="{Binding LevelNote}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,4" Foreground="{DynamicResource AccentBrush}"
+                           Visibility="{Binding LevelNote, Converter={StaticResource NullToVisibilityConverter}}"/>
                 <TextBlock Text="{Binding GrowthNote}" FontSize="11.5" Foreground="{DynamicResource FaintForegroundBrush}" TextWrapping="Wrap"
                            Visibility="{Binding GrowthNote, Converter={StaticResource NullToVisibilityConverter}}"/>
                 <TextBlock FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="{DynamicResource AccentBrush}"
@@ -120,6 +122,8 @@
                                      IsChecked="{Binding DataContext.MountTalentsAsList, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                      AutomationProperties.Name="Show the mount's talents as a list" ToolTip="Every talent as a row"/>
                     </DockPanel>
+                    <TextBlock Text="{Binding TalentsNote}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                               Visibility="{Binding TalentsNote, Converter={StaticResource NullToVisibilityConverter}}"/>
                     <Border BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1" CornerRadius="6" Padding="10,4" Margin="0,4,0,4"
                             Visibility="{Binding OverBudget, Converter={StaticResource NullToVisibilityConverter}}">
                         <TextBlock Text="{Binding OverBudget}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource AccentBrush}"/>

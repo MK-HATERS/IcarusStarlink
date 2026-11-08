@@ -37,7 +37,17 @@ public sealed class MountBlob
     {
         _original = original;
         _properties = properties;
+        // The first talent entry is what SetTalentRank copies for a talent the mount doesn't have yet.
+        CanAddTalent = (Tag(properties, "Talents")?.Property as ArrayProperty)?.Value?.OfType<StructProperty>().FirstOrDefault() is { Value: PropertiesStruct first }
+            && Tag(first.Properties, "TalentRowName")?.Property is StrProperty
+            && Tag(first.Properties, "TalentRank")?.Property is IntProperty;
     }
+
+    /// <summary>
+    /// A talent the mount doesn't have yet can be added: its saved data has a talent entry to copy.
+    /// False for a mount whose blob has no Talents, or an empty one.
+    /// </summary>
+    public bool CanAddTalent { get; }
 
     /// <summary>Null (with why) when the blob can't be read, or doesn't write back exactly as it was.</summary>
     public static MountBlob? TryRead(byte[] data, out string? why)

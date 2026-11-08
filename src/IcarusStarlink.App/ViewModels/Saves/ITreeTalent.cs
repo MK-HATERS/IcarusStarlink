@@ -7,7 +7,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// <summary>
 /// A row the tree view (TalentTreeViewModel) can draw: a character's talent, workshop research or
 /// a mission (SaveTalentViewModel), or a mount's talent (MountTalentViewModel). The node template
-/// binds these by name too (RankDisplay, Description, Cost, PackNote, Model, IsDirty).
+/// also binds RankDisplay, Description and Model by name.
 /// </summary>
 public interface ITreeTalent : INotifyPropertyChanged
 {
@@ -37,6 +37,12 @@ public interface ITreeTalent : INotifyPropertyChanged
 
     /// <summary>Changed since the last load or save.</summary>
     bool IsDirty { get; }
+
+    /// <summary>Its research cost ("40 Tech"), on the node's tooltip; null hides the line.</summary>
+    string? Cost { get; }
+
+    /// <summary>The DLC pack it needs, on the node's tooltip; null hides the line.</summary>
+    string? PackNote { get; }
 
     string? IconPath { get; }
 

@@ -1,5 +1,6 @@
 using System.IO;
 using IcarusStarlink.App.Services;
+using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -21,7 +22,7 @@ public sealed record SaveCheckFinding(SaveCheckSeverity Severity, string Area, s
 {
     public bool CanFix => Fix is not null;
 
-    /// <summary>The character a finding is about (null for the account): two characters with the same name are still two.</summary>
+    /// <summary>The character or mount a finding is about (null for the account): two with the same name are still two.</summary>
     public object? Owner { get; init; }
 
     /// <summary>A DLC / Supporters Edition note: in Fix all only with its switch on.</summary>
@@ -301,18 +302,30 @@ public static class SaveChecker
         };
 
         // --- Mounts (from the list itself; what's inside each mount comes with the mount editor) ---
+        // Each finding names its mount: two mounts called the same had one row whose fix reached only the first.
+        void AddForMount(SaveMountViewModel mount, SaveCheckFinding finding) => findings.Add(finding with { Owner = mount });
+
         var mountTypes = names.MountTypeRowNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var mount in page.Mounts)
         {
             if (mountTypes.Count > 0 && !mountTypes.Contains(mount.TypeRowName))
             {
-                findings.Add(new(SaveCheckSeverity.Warning, "Mounts", $"{mount.Name}: the game has no mount type {mount.TypeRowName} (from a mod, or removed)."));
+                AddForMount(mount, new(SaveCheckSeverity.Warning, "Mounts", $"{mount.Name}: the game has no mount type {mount.TypeRowName} (from a mod, or removed)."));
             }
 
-            if (slotFolder is not null && SaveJson.String(mount.Node["MountIconName"]) is { Length: > 0 } icon
-                && !File.Exists(Path.Combine(slotFolder, "Mounts", icon + ".exr")))
+            if (slotFolder is not null && SaveJson.String(mount.Node["MountIconName"]) is { Length: > 0 } icon)
             {
-                findings.Add(new(SaveCheckSeverity.Note, "Mounts", $"{mount.Name} has no portrait picture; the game makes a new one."));
+                // The name comes from the save: a path in it (a full one, a network one, "..\") is
+                // never looked up. Real names are plain numbers ("275334").
+                if (!AssetPathGuard.IsSimpleFileName(icon + ".exr"))
+                {
+                    AddForMount(mount, new(SaveCheckSeverity.Note, "Mounts",
+                        $"{mount.Name}: the save's picture name for it isn't a plain file name (edited by hand?), so it wasn't looked up. The game makes a new portrait if it needs one."));
+                }
+                else if (!File.Exists(Path.Combine(slotFolder, "Mounts", icon + ".exr")))
+                {
+                    AddForMount(mount, new(SaveCheckSeverity.Note, "Mounts", $"{mount.Name} has no portrait picture; the game makes a new one."));
+                }
             }
         }
 
@@ -320,16 +333,17 @@ public static class SaveChecker
         {
             if (mount.InsideRefusal is { } why)
             {
-                findings.Add(new(SaveCheckSeverity.Note, "Mounts", $"{mount.Name}: only its name and level in the list can be edited, because {why}."));
+                AddForMount(mount, new(SaveCheckSeverity.Note, "Mounts", $"{mount.Name}: only its name and level in the list can be edited, because {why}."));
             }
             else if (mount.OverBudget is not null)
             {
-                findings.Add(new(SaveCheckSeverity.Note, "Mounts", $"{mount.Name}: {mount.TalentSummary}. The game keeps the ranks, but nothing more can be bought until under."));
+                AddForMount(mount, new(SaveCheckSeverity.Note, "Mounts", $"{mount.Name}: {mount.TalentSummary}. The game keeps the ranks, but nothing more can be bought until under."));
             }
 
-            if (mount.Blob?.Name is { } blobName && blobName != mount.Name)
+            // Once its fix was made the names agree at Save: the blob's copy only changes then.
+            if (mount.Blob?.Name is { } blobName && blobName != mount.Name && !mount.NameSyncPending)
             {
-                findings.Add(new(SaveCheckSeverity.Warning, "Mounts",
+                AddForMount(mount, new(SaveCheckSeverity.Warning, "Mounts",
                     $"{mount.Name}: the game's own copy of its name is \"{blobName}\" (the two drifted apart; the game may show either).",
                     $"Use \"{mount.Name}\" for both", mount.SyncNameOnSave));
             }
@@ -355,7 +369,7 @@ public static class SaveChecker
         }
 
         // One row per fix: 14 talents needing the same unlock used to give 14 "Turn on X" rows.
-        // Per character, not per name: two characters called the same had one row whose fix
+        // Per character or mount, not per name: two called the same had one row whose fix
         // only reached the first of them.
         var merged = findings
             .GroupBy(f => f.FixLabel is null ? (object)f : (f.Severity, f.Area, f.FixLabel, f.Owner))
