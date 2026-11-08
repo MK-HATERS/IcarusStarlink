@@ -297,6 +297,53 @@ public sealed partial class LibraryViewModelTests
         Assert.Equal("ModB", Assert.Single(harness.Repository.DeleteCalls));
     }
 
+    /// <summary>Undo on the delete notice brings the mods back, and ticks for Merge &amp; Install only the ones that were ticked.</summary>
+    [Fact]
+    public async Task UndoDelete_AfterDeleteAll_BringsTheModsBack_AndTicksOnlyTheOnesThatWereTicked()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("ModA", notes: "keep me");
+        harness.AddMod("ModB");
+        var vm = harness.Build();
+        vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA").IsEnabled = true;
+
+        vm.DeleteAllCommand.Execute(null);
+        Assert.Equal(0, vm.ModCount);
+        Assert.True(vm.CanUndoDelete);
+
+        await vm.UndoDeleteCommand.ExecuteAsync(null);
+
+        Assert.Equal(["ModA", "ModB"], harness.Repository.RestoreDeletedModCalls.Order(StringComparer.Ordinal));
+        var items = vm.RootItems.OfType<LibraryItemViewModel>().ToList();
+        Assert.Equal(2, items.Count);
+        Assert.True(items.Single(i => i.FolderName == "ModA").IsEnabled);
+        Assert.False(items.Single(i => i.FolderName == "ModB").IsEnabled);
+        Assert.Equal("keep me", items.Single(i => i.FolderName == "ModA").Notes);
+        Assert.Contains("Brought back 2 mods", vm.StatusMessage);
+        Assert.False(vm.CanUndoDelete);
+    }
+
+    /// <summary>Undo belongs to the delete notice: once another message replaces it, or it is closed, the button goes.</summary>
+    [Fact]
+    public void UndoDelete_GoesWhenTheNoticeIsClosedOrReplaced()
+    {
+        var harness = new TestHarness { DialogService = new FakeDialogService(confirmResult: true) };
+        harness.AddMod("ModA");
+        harness.AddMod("ModB");
+        var vm = harness.Build();
+
+        vm.DeleteOneItemCommand.Execute(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModA"));
+        Assert.True(vm.CanUndoDelete);
+        Assert.True(vm.UndoDeleteCommand.CanExecute(null));
+        vm.DismissNoticeCommand.Execute(null);
+        Assert.False(vm.CanUndoDelete);
+
+        vm.DeleteOneItemCommand.Execute(vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "ModB"));
+        Assert.True(vm.CanUndoDelete);
+        vm.StatusMessage = "Something else happened.";
+        Assert.False(vm.CanUndoDelete);
+    }
+
     [Fact]
     public void DeleteItemCommand_Declined_LeavesRepositoryAndBothCachesUntouched()
     {
@@ -2401,7 +2448,25 @@ public sealed partial class LibraryViewModelTests
             if (entry is not null)
             {
                 _entries.Remove(entry);
+                _deleted[folderName] = entry;
             }
+        }
+
+        private readonly Dictionary<string, LibraryEntry> _deleted = new(StringComparer.OrdinalIgnoreCase);
+
+        public List<string> RestoreDeletedModCalls { get; } = [];
+
+        /// <summary>Like the real one: the deleted entry comes back whole (its Library info was kept with the backup).</summary>
+        public string? RestoreDeletedMod(string folderName, string backupPath)
+        {
+            RestoreDeletedModCalls.Add(folderName);
+            if (!_deleted.Remove(folderName, out var entry))
+            {
+                return null;
+            }
+
+            _entries.Add(entry);
+            return entry.FolderName;
         }
 
         public void UpdateMetadata(string folderName, bool isPinned, bool isFavorite, string notes)

@@ -139,6 +139,15 @@ public interface ILibraryRepository
     }
 
     /// <summary>
+    /// Undo of a Delete: puts the mod back from the backup its Delete took (BackupMod with
+    /// ModBackupReasons.BeforeDelete), with the Library info that backup's label kept. Lands under
+    /// folderName, or a free name when another mod has taken it since. Returns the folder name it
+    /// landed under, or null when backupPath isn't a whole backup of folderName. The default does
+    /// nothing, for repositories that keep no backups.
+    /// </summary>
+    string? RestoreDeletedMod(string folderName, string backupPath) => null;
+
+    /// <summary>
     /// Creates a genuinely new mod under a fresh Extracted_Mods folder — for the "New mod…" action,
     /// which doesn't read from an existing folder/zip the way every other Import does. name becomes
     /// both the display Name and (sanitized) the EXMOD's own FileName/folder name; author is

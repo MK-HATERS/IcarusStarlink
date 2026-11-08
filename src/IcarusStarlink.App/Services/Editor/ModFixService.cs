@@ -411,6 +411,30 @@ public sealed class ModFixService(
         }
     }
 
+    /// <summary>This mod's remembered choices as saved (null when it has none): kept with a delete's backup, so Undo can put them back.</summary>
+    public string? ReadChoices(string folderName)
+    {
+        lock (_gate)
+        {
+            return DecisionsPath(folderName) is { } path && File.Exists(path) ? File.ReadAllText(path) : null;
+        }
+    }
+
+    /// <summary>Puts back what ReadChoices gave, for a mod brought back by Undo (under its old name or a new one).</summary>
+    public void PutChoices(string folderName, string choicesJson)
+    {
+        lock (_gate)
+        {
+            if (DecisionsPath(folderName) is not { } path)
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            IcarusStarlink.Core.IO.AtomicFile.WriteAllText(path, choicesJson);
+        }
+    }
+
     /// <summary>The mod's remembered choices as they were when its newest fix backup was taken (Backup: that backup's folder name; ChoicesJson: null when there were none).</summary>
     private sealed record ChoicesBeforeBackup(string Backup, string? ChoicesJson);
 

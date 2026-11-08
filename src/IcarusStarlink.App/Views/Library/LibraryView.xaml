@@ -1371,6 +1371,12 @@
                         Command="{Binding DismissNoticeCommand}" ToolTip="Close" AutomationProperties.Name="Close message">
                     <Path Data="M6,6 L18,18 M18,6 L6,18" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="9" Height="9" Stretch="Uniform"/>
                 </Button>
+                <!-- Only on a delete's own notice: puts the deleted mods back. -->
+                <Button DockPanel.Dock="Right" Content="Undo" Padding="10,2" Margin="10,0,0,0" VerticalAlignment="Center"
+                        Command="{Binding UndoDeleteCommand}"
+                        Visibility="{Binding CanUndoDelete, Converter={StaticResource BoolToVisibilityConverter}}"
+                        ToolTip="Put the deleted mod back, with its notes, Nexus link and source"
+                        AutomationProperties.Name="Undo delete"/>
                 <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" FontSize="12.5" VerticalAlignment="Center">
                     <TextBlock.Style>
                         <Style TargetType="TextBlock">

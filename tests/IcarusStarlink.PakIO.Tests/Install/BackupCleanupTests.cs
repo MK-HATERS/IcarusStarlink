@@ -50,6 +50,27 @@ public class BackupCleanupTests : IDisposable
             RootFileNames().Order(StringComparer.Ordinal));
     }
 
+    /// <summary>A deleted mod's source pak and fix choices, kept beside its backup for Undo, go with the backup, and are never taken for backups of their own.</summary>
+    [Fact]
+    public void CleanUp_RemovesADeletedModsSourcePakAndChoicesOnceTheirBackupIsGone()
+    {
+        for (var day = 1; day <= 3; day++)
+        {
+            WriteFolder($"Mod_2026100{day}-120000");
+            WriteFile($"Mod_2026100{day}-120000{FolderBackup.SourcePakSuffix}");
+            WriteFile($"Mod_2026100{day}-120000{FolderBackup.FixChoicesSuffix}");
+        }
+
+        BackupCleanup.CleanUp(_backups, keepPerSet: 2);
+
+        Assert.Equal(
+            [
+                $"Mod_20261002-120000{FolderBackup.FixChoicesSuffix}", $"Mod_20261002-120000{FolderBackup.SourcePakSuffix}",
+                $"Mod_20261003-120000{FolderBackup.FixChoicesSuffix}", $"Mod_20261003-120000{FolderBackup.SourcePakSuffix}",
+            ],
+            RootFileNames().Order(StringComparer.Ordinal));
+    }
+
     [Fact]
     public void PruneMergedPakBackups_CountsCurrentAndLegacyNamesTogether_KeepsNewestThree()
     {

@@ -22,6 +22,9 @@ public static class ModBackupReasons
     public const string BeforeRestore = "Before putting back an older version";
 
     public const string BeforeFix = "Before a fix";
+
+    /// <summary>The backup Library's Delete takes: its label also keeps the mod's Library info, so Undo can bring the mod back whole.</summary>
+    public const string BeforeDelete = "Before a delete";
 }
 
 /// <summary>The label file kept beside a mod backup ("&lt;backup folder&gt;.label.json").</summary>
@@ -34,4 +37,7 @@ public sealed class ModBackupLabel
     public int? NexusFileId { get; set; }
 
     public string? NexusFileVersion { get; set; }
+
+    /// <summary>The mod's Library info (notes, Nexus link, source, pin, rename, marks) as ReadMetaSnapshot gives it; kept only on a delete's backup.</summary>
+    public string? LibraryInfo { get; set; }
 }

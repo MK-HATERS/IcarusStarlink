@@ -1426,6 +1426,89 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.Equal("my notes", entryAfterFix.Notes);
     }
 
+    /// <summary>Undo of a Delete: the backup's label kept the Library info, so notes, the Nexus link (update checks) and the made-in-Starlink mark come back with the folder.</summary>
+    [Fact]
+    public void RestoreDeletedMod_BringsBackNotesNexusLinkAndMadeInStarlink()
+    {
+        using var repo = CreateRepository();
+        var folderName = repo.CreateBlankMod("My Mod", "Me").FolderName;
+        repo.LinkToNexus(folderName, 4242);
+        repo.UpdateMetadata(folderName, isPinned: true, isFavorite: false, notes: "keep this");
+
+        var backup = repo.BackupMod(folderName, ModBackupReasons.BeforeDelete);
+        repo.Delete(folderName);
+        Assert.Empty(repo.GetAll());
+
+        Assert.Equal(folderName, repo.RestoreDeletedMod(folderName, backup));
+
+        var entry = Assert.Single(repo.GetAll());
+        Assert.Equal("keep this", entry.Notes);
+        Assert.Equal(4242, entry.NexusModId);
+        Assert.Equal("Nexus", entry.Source);
+        Assert.True(entry.MadeInStarlink);
+        Assert.True(entry.IsPinned);
+        Assert.True(Directory.Exists(Path.Combine(_extractedModsDir, folderName)));
+    }
+
+    /// <summary>A mod imported since the delete took the folder name: the deleted one comes back beside it, and the new one is left alone.</summary>
+    [Fact]
+    public void RestoreDeletedMod_NameTakenSince_LandsUnderAFreeName()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        repo.UpdateMetadata(folderName, isPinned: false, isFavorite: false, notes: "old one");
+        var backup = repo.BackupMod(folderName, ModBackupReasons.BeforeDelete);
+        repo.Delete(folderName);
+        Assert.Equal(folderName, repo.Import(_sourceDir).FolderName);
+
+        var restored = repo.RestoreDeletedMod(folderName, backup);
+
+        Assert.NotNull(restored);
+        Assert.NotEqual(folderName, restored);
+        Assert.Equal(2, repo.GetAll().Count);
+        Assert.Equal("old one", repo.GetAll().Single(e => e.FolderName == restored).Notes);
+        Assert.Equal("", repo.GetAll().Single(e => e.FolderName == folderName).Notes);
+    }
+
+    /// <summary>Only a backup of that mod in the Backups folder: anything else is refused.</summary>
+    [Fact]
+    public void RestoreDeletedMod_NotABackupOfThatMod_ReturnsNull()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        var backup = repo.BackupMod(folderName, ModBackupReasons.BeforeDelete);
+        repo.Delete(folderName);
+
+        Assert.Null(repo.RestoreDeletedMod("SomeOtherMod", backup));
+        Assert.Null(repo.RestoreDeletedMod(folderName, _sourceDir));
+        Assert.Empty(repo.GetAll());
+    }
+
+    /// <summary>What a delete keeps beside its backup (the source pak, the fix choices) goes once the backup itself is trimmed away, like its label.</summary>
+    [Fact]
+    public void BackupMod_RemovesTheSidecarsOfABackupThatIsGone()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        // An older backup the trim already took away; its sidecars were left.
+        var old = Path.Combine(_backupsDir, folderName + "_20200101-000000");
+        Directory.CreateDirectory(_backupsDir);
+        foreach (var suffix in IcarusStarlink.PakIO.Install.FolderBackup.SidecarSuffixes)
+        {
+            File.WriteAllText(old + suffix, "x");
+        }
+
+        repo.BackupMod(folderName);
+
+        foreach (var suffix in IcarusStarlink.PakIO.Install.FolderBackup.SidecarSuffixes)
+        {
+            Assert.False(File.Exists(old + suffix), suffix);
+        }
+    }
+
     [Fact]
     public void RestoreLatestModBackup_NoBackupYet_ReturnsFalseAndLeavesTheModUntouched()
     {

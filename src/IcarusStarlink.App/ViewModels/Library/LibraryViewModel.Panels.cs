@@ -248,6 +248,8 @@ public sealed partial class LibraryViewModel
             return;
         }
 
+        // A delete offers its Undo after its own notice is up; any later notice takes it away.
+        WithdrawUndo();
         Notice = message;
         IsNoticeWarning = _nextNoticeIsWarning || LooksLikeAProblem(message);
         _nextNoticeIsWarning = false;
@@ -287,6 +289,7 @@ public sealed partial class LibraryViewModel
     /// </summary>
     private void HideNotice()
     {
+        WithdrawUndo();
         Notice = null;
         StatusMessage = null;
         Ue4ssStatusMessage = null;

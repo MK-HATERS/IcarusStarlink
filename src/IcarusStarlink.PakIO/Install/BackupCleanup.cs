@@ -158,20 +158,24 @@ public static class BackupCleanup
     }
 
     /// <summary>
-    /// Labels (FolderBackup.LabelSuffix) whose backup folder is gone, whether this clean up or an
-    /// earlier trim removed it. A few bytes each, and only ever read by their own backup's name.
+    /// Labels and the other files kept beside a backup (FolderBackup.SidecarSuffixes: a deleted
+    /// mod's source pak and fix choices) whose backup folder is gone, whether this clean up or an
+    /// earlier trim removed it. Only ever read by their own backup's name.
     /// </summary>
     private static void RemoveOrphanedLabels(string directory)
     {
         try
         {
-            foreach (var label in Directory.GetFiles(directory, "*" + FolderBackup.LabelSuffix))
+            foreach (var suffix in FolderBackup.SidecarSuffixes)
             {
-                var backupName = Path.GetFileName(label)[..^FolderBackup.LabelSuffix.Length];
-                if (TimestampSuffix.Match(backupName) is { Success: true } match && !match.Groups["ext"].Success
-                    && !Directory.Exists(Path.Combine(directory, backupName)))
+                foreach (var sidecar in Directory.GetFiles(directory, "*" + suffix))
                 {
-                    File.Delete(label);
+                    var backupName = Path.GetFileName(sidecar)[..^suffix.Length];
+                    if (TimestampSuffix.Match(backupName) is { Success: true } match && !match.Groups["ext"].Success
+                        && !Directory.Exists(Path.Combine(directory, backupName)))
+                    {
+                        File.Delete(sidecar);
+                    }
                 }
             }
         }

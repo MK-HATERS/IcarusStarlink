@@ -26,6 +26,19 @@ public static class FolderBackup
     /// </summary>
     public const string LabelSuffix = ".label.json";
 
+    /// <summary>A deleted mod's saved source pak, kept beside its delete backup so Undo can put it back.</summary>
+    public const string SourcePakSuffix = ".source.pak";
+
+    /// <summary>A deleted mod's remembered fix choices, kept beside its delete backup so Undo can put them back.</summary>
+    public const string FixChoicesSuffix = ".fixchoices.json";
+
+    /// <summary>
+    /// Every file kept beside a Library mod backup as "{backup folder}{suffix}". Each goes once its
+    /// backup folder is gone (the keep-5 trim, Clean up backups). Two dots, so BackupCleanup never
+    /// takes one for a file backup of its own.
+    /// </summary>
+    public static readonly IReadOnlyList<string> SidecarSuffixes = [LabelSuffix, SourcePakSuffix, FixChoicesSuffix];
+
     /// <summary>
     /// Copies sourceFolder into backupBaseDirectory under a timestamped name, then prunes older
     /// backups of the same folder name beyond MaxBackups. No-op if sourceFolder doesn't exist. A

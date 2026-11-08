@@ -509,6 +509,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
                 Version = string.IsNullOrWhiteSpace(entry?.Version) ? null : entry.Version,
                 NexusFileId = entry?.NexusFileId,
                 NexusFileVersion = entry?.NexusFileVersion,
+                LibraryInfo = reason == ModBackupReasons.BeforeDelete ? KeptLibraryInfo(folderName) : null,
             };
             AtomicFile.WriteAllText(BackupLabelPath(backupPath), JsonSerializer.Serialize(label));
         }
@@ -518,17 +519,34 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         }
     }
 
+    /// <summary>The mod's Library info for a delete's backup label, so Undo can bring back its notes, Nexus link and source. Null when the sidecar can't be read right now.</summary>
+    private string? KeptLibraryInfo(string folderName)
+    {
+        var meta = _metaStore.Load(folderName, out var couldNotRead);
+        if (couldNotRead)
+        {
+            _logger.LogWarning("Couldn't read the Library info of '{Folder}' to keep with its backup", folderName);
+            return null;
+        }
+
+        return JsonSerializer.Serialize(meta);
+    }
+
+    /// <summary>Labels and the other files kept beside a backup (FolderBackup.SidecarSuffixes) whose backup is gone.</summary>
     private void RemoveOrphanedBackupLabels(string folderName)
     {
         try
         {
-            foreach (var label in Directory.EnumerateFiles(_modBackupsDirectory, "*" + BackupLabelSuffix))
+            foreach (var suffix in FolderBackup.SidecarSuffixes)
             {
-                var backupName = Path.GetFileName(label)[..^BackupLabelSuffix.Length];
-                if (FolderBackup.IsTimestampedBackupOf(backupName, folderName)
-                    && !Directory.Exists(Path.Combine(_modBackupsDirectory, backupName)))
+                foreach (var sidecar in Directory.EnumerateFiles(_modBackupsDirectory, "*" + suffix))
                 {
-                    File.Delete(label);
+                    var backupName = Path.GetFileName(sidecar)[..^suffix.Length];
+                    if (FolderBackup.IsTimestampedBackupOf(backupName, folderName)
+                        && !Directory.Exists(Path.Combine(_modBackupsDirectory, backupName)))
+                    {
+                        File.Delete(sidecar);
+                    }
                 }
             }
         }
@@ -626,6 +644,58 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         ClearFixedMarkIfBackupIsOlder(folderName, chosen.Path);
         RescanAll();
         return true;
+    }
+
+    /// <summary>
+    /// See ILibraryRepository.RestoreDeletedMod. The backup is copied, never moved, so it stays in
+    /// the history. A new mod may have taken the name since the delete: the old one then comes back
+    /// beside it under a free name, and the new one is left alone.
+    /// </summary>
+    public string? RestoreDeletedMod(string folderName, string backupPath)
+    {
+        if (!AssetPathGuard.IsSimpleFileName(folderName))
+        {
+            return null;
+        }
+
+        var wanted = Path.GetFullPath(backupPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var backup = FolderBackup.EnumerateFolderBackups(_modBackupsDirectory, folderName).FirstOrDefault(b => string.Equals(
+            Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), wanted, StringComparison.OrdinalIgnoreCase));
+        if (backup is null || !HoldsAModFile(backup))
+        {
+            return null;
+        }
+
+        var meta = ReadKeptLibraryInfo(backup) ?? new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow };
+        var restoredName = MakeUniqueFolderName(folderName);
+        var target = Path.Combine(_extractedModsDirectory, restoredName);
+        WriteNewModFolder(target, () =>
+        {
+            FolderBackup.CopyDirectory(backup, target);
+            _metaStore.Save(restoredName, meta);
+        });
+
+        RescanAll();
+        return restoredName;
+    }
+
+    /// <summary>The Library info a delete's backup label kept; null when there is none or it can't be read (the mod then comes back with fresh info).</summary>
+    private LibraryMeta? ReadKeptLibraryInfo(string backupPath)
+    {
+        if (ReadBackupLabel(backupPath)?.LibraryInfo is not { } json)
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<LibraryMeta>(json);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "The Library info kept with backup {Backup} can't be read", backupPath);
+            return null;
+        }
     }
 
     public void SetKeptVersion(string folderName, KeptVersion? kept) =>

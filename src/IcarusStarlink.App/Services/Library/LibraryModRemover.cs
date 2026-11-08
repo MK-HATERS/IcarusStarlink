@@ -1,8 +1,13 @@
 using System.IO;
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.PakIO.Import;
+using IcarusStarlink.PakIO.Install;
 
 namespace IcarusStarlink.App.Services;
+
+/// <summary>A Library mod Delete took away: its folder name then, and the backup the delete took (what Undo puts back).</summary>
+public sealed record DeletedLibraryMod(string FolderName, string BackupPath);
 
 /// <summary>
 /// The one way a Library mod's copy is taken away — Library's Delete, and the old copy a
@@ -11,6 +16,8 @@ namespace IcarusStarlink.App.Services;
 /// preview cache, so none of it is picked up by a different mod later landing under the same name.
 /// The preview cache was only ever purged by Delete, so an updated pak kept showing the old preview.
 /// Delete also forgets the cached Nexus picture (a replacement keeps it: an update is the same mod).
+/// Undo brings a deleted mod back from the backup Delete took, with all of that but the preview
+/// cache and the picture (both are made again when needed).
 /// </summary>
 public sealed class LibraryModRemover(
     ILibraryRepository library,
@@ -19,10 +26,15 @@ public sealed class LibraryModRemover(
     ModFixService? fixService = null,
     string? thumbnailCacheDirectory = null)
 {
-    /// <summary>Delete: backed up first (a mod that can't be backed up isn't deleted), then the folder and everything kept for it.</summary>
-    public void Delete(string folderName)
+    /// <summary>
+    /// Delete: backed up first (a mod that can't be backed up isn't deleted), then the folder and
+    /// everything kept for it. The backup's label keeps the mod's Library info, and its saved source
+    /// pak and fix choices are kept beside the backup, so Undo can bring it all back.
+    /// </summary>
+    public DeletedLibraryMod Delete(string folderName)
     {
-        library.BackupMod(folderName);
+        var backup = library.BackupMod(folderName, ModBackupReasons.BeforeDelete);
+        KeepForUndo(folderName, backup);
         library.Delete(folderName);
 
         // Best-effort from here on: the mod is gone. A locked fix-choices file used to make the
@@ -39,6 +51,87 @@ public sealed class LibraryModRemover(
         DeleteSourcePak(folderName);
         PurgePreviewCache(folderName);
         ForgetNexusPicture(folderName);
+        return new DeletedLibraryMod(folderName, backup);
+    }
+
+    /// <summary>
+    /// Undo of Delete: the folder and its Library info from the backup (under a free name when a
+    /// newer mod took the old one), then its source pak and fix choices under the name it came back
+    /// as. Returns that name, or null when the backup is gone. The pak and the choices are best
+    /// effort: the mod is back either way.
+    /// </summary>
+    public string? Undo(DeletedLibraryMod deleted)
+    {
+        var restored = library.RestoreDeletedMod(deleted.FolderName, deleted.BackupPath);
+        if (restored is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var pak = deleted.BackupPath + FolderBackup.SourcePakSuffix;
+            if (pakSourceStore is not null && File.Exists(pak))
+            {
+                pakSourceStore.Save(restored, pak);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "Brought back '{Folder}' but couldn't put back its saved source pak", restored);
+        }
+
+        try
+        {
+            var choices = deleted.BackupPath + FolderBackup.FixChoicesSuffix;
+            if (fixService is not null && File.Exists(choices))
+            {
+                fixService.PutChoices(restored, File.ReadAllText(choices));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "Brought back '{Folder}' but couldn't put back its fix choices", restored);
+        }
+
+        return restored;
+    }
+
+    /// <summary>
+    /// Copies the saved source pak and the fix choices beside the delete's backup (removed with it
+    /// by the keep-5 trim and Clean up backups). Best effort: without them Undo still brings the
+    /// mod back, only without live re-conversion or the remembered choices.
+    /// </summary>
+    private void KeepForUndo(string folderName, string backup)
+    {
+        if (!Path.IsPathRooted(backup))
+        {
+            return;
+        }
+
+        try
+        {
+            if (pakSourceStore?.TryGetPath(folderName) is { } pak)
+            {
+                File.Copy(pak, backup + FolderBackup.SourcePakSuffix, overwrite: true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "Couldn't keep the saved source pak of '{Folder}' with its backup", folderName);
+        }
+
+        try
+        {
+            if (fixService?.ReadChoices(folderName) is { } choices)
+            {
+                AtomicFile.WriteAllText(backup + FolderBackup.FixChoicesSuffix, choices);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "Couldn't keep the fix choices of '{Folder}' with its backup", folderName);
+        }
     }
 
     /// <summary>The mod's cached Nexus picture, so a different mod later imported under the same folder name doesn't show it. Best-effort, like DeleteSourcePak.</summary>

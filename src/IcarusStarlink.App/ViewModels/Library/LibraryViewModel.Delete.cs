@@ -1,3 +1,4 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
@@ -181,6 +182,8 @@ public sealed partial class LibraryViewModel
 
         var deletedCount = 0;
         var ue4ssDeleted = 0;
+        var undoable = new List<UndoableDelete>();
+        var ue4ssDeletedNames = new List<string>();
         var failures = new List<string>();
         var anyLocked = false;
         foreach (var ue4ssPart in ue4ssParts)
@@ -190,6 +193,7 @@ public sealed partial class LibraryViewModel
             if (failure is null)
             {
                 ue4ssDeleted++;
+                ue4ssDeletedNames.Add(ue4ssPart);
                 _activityLog.Log($"Deleted UE4SS mod '{ue4ssPart}' (part of the same download).", ActivityEntryKind.Info);
             }
             else
@@ -205,12 +209,14 @@ public sealed partial class LibraryViewModel
             // timer left pending can't fire after the delete and write them into a different mod
             // that reuses the freed folder name.
             item.FlushPendingSave();
+            var wasTicked = item.IsEnabled;
             try
             {
                 // Backed up first, so a delete (an easy right-click to hit by accident) isn't
                 // permanent — a mod that can't be backed up isn't deleted. Its remembered fix
-                // choices, saved source pak and preview cache go with it (LibraryModRemover).
-                ModRemover.Delete(item.FolderName);
+                // choices, saved source pak and preview cache go with it (LibraryModRemover), and
+                // are kept with the backup for the notice's Undo.
+                undoable.Add(new UndoableDelete(ModRemover.Delete(item.FolderName), name, wasTicked));
                 deletedCount++;
                 if (SelectedItem == item)
                 {
@@ -253,6 +259,121 @@ public sealed partial class LibraryViewModel
 
         // Its own handler reloads both panels (the UE4SS parts too): no Reload of its own here.
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        OfferUndo(undoable, ue4ssDeletedNames);
+    }
+
+    /// <summary>The delete notice shows Undo: the last delete can still be put back.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(UndoDeleteCommand))]
+    private bool _canUndoDelete;
+
+    /// <summary>One mod the last delete took: what Undo puts back, the name the notice uses, and whether it was ticked for Merge &amp; Install.</summary>
+    private sealed record UndoableDelete(DeletedLibraryMod Mod, string Name, bool WasTicked);
+
+    /// <summary>The last delete's mods (the Library halves; a UE4SS half that went with them isn't kept here).</summary>
+    private List<UndoableDelete> _undoableDeletes = [];
+
+    /// <summary>The UE4SS halves the last delete took too: Undo says it doesn't bring them back.</summary>
+    private List<string> _undoSkippedUe4ss = [];
+
+    /// <summary>Set after the delete's own notice is up, so only that notice offers Undo.</summary>
+    private void OfferUndo(List<UndoableDelete> deleted, List<string> ue4ssDeleted)
+    {
+        _undoableDeletes = deleted;
+        _undoSkippedUe4ss = ue4ssDeleted;
+        CanUndoDelete = deleted.Count > 0;
+    }
+
+    /// <summary>The notice changed or closed: its Undo goes with it.</summary>
+    private void WithdrawUndo()
+    {
+        _undoableDeletes = [];
+        _undoSkippedUe4ss = [];
+        CanUndoDelete = false;
+    }
+
+    /// <summary>
+    /// Undo on the delete notice: each mod comes back from the backup its delete took, with its
+    /// notes, Nexus link, source, pin and rename, its saved source pak and its fix choices
+    /// (LibraryModRemover.Undo). One whose folder name a newer mod took comes back under a free
+    /// name. The copy runs off the UI thread (a pak mod can be large). A mod that was ticked for
+    /// Merge &amp; Install is ticked again.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanUndoDelete))]
+    private async Task UndoDeleteAsync()
+    {
+        var toUndo = _undoableDeletes;
+        var skippedUe4ss = _undoSkippedUe4ss;
+        WithdrawUndo();
+        if (toUndo.Count == 0)
+        {
+            return;
+        }
+
+        var remover = ModRemover;
+        var (restored, failures) = await Task.Run(() =>
+        {
+            var back = new List<(UndoableDelete Deleted, string FolderName)>();
+            var failed = new List<string>();
+            foreach (var deleted in toUndo)
+            {
+                try
+                {
+                    if (remover.Undo(deleted.Mod) is { } folderName)
+                    {
+                        back.Add((deleted, folderName));
+                    }
+                    else
+                    {
+                        failed.Add($"{deleted.Name}: its backup is gone");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Same UI boundary as Delete: one mod that can't be copied back doesn't stop the rest.
+                    failed.Add($"{deleted.Name}: {ex.Message.TrimEnd('.')}");
+                }
+            }
+
+            return (back, failed);
+        });
+
+        // Its own handler reloads the rows (see DeleteMods).
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+
+        var ticked = 0;
+        foreach (var (deleted, folderName) in restored)
+        {
+            _activityLog.Log($"Brought back '{deleted.Name}' after a delete.", ActivityEntryKind.Info);
+            if (deleted.WasTicked && AllLibraryItems().FirstOrDefault(i => string.Equals(i.FolderName, folderName, StringComparison.OrdinalIgnoreCase)) is { } item)
+            {
+                // Raises EnabledToggled, which puts it in the Merge & Install queue.
+                item.IsEnabled = true;
+                ticked++;
+            }
+        }
+
+        var movedNote = restored
+            .Where(r => !string.Equals(r.FolderName, r.Deleted.Mod.FolderName, StringComparison.OrdinalIgnoreCase))
+            .Select(r => $" A newer mod uses the folder name {r.Deleted.Mod.FolderName}, so '{r.Deleted.Name}' is in {r.FolderName}.")
+            .FirstOrDefault() ?? "";
+        var tickedNote = ticked switch
+        {
+            0 => "",
+            1 when restored.Count == 1 => " It's ticked for Merge & Install again.",
+            1 => " One of them is ticked for Merge & Install again.",
+            _ => $" {ticked} of them are ticked for Merge & Install again.",
+        };
+        var ue4ssNote = skippedUe4ss.Count > 0 ? $" Undo doesn't bring back the UE4SS mod {string.Join(", ", skippedUe4ss)}: install it again to get it back." : "";
+        var done = restored.Count == 1 ? $"Brought back '{restored[0].Deleted.Name}'." : $"Brought back {restored.Count} mods.";
+        if (failures.Count > 0)
+        {
+            ReportProblem($"Brought back {restored.Count} of {toUndo.Count} — {string.Join("; ", failures)}.{movedNote}{tickedNote}");
+        }
+        else
+        {
+            StatusMessage = $"{done}{movedNote}{tickedNote}{ue4ssNote}";
+        }
     }
 
     /// <summary>The several-mods question names them, so a selection that grew past what the list shows is caught: five names, then "and N more".</summary>
