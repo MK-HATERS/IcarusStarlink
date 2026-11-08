@@ -106,13 +106,24 @@ public static class GameSessionHealthCheck
             // read-share open failed then, so the tail came back empty exactly when it mattered.
             using var stream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var reader = new StreamReader(stream);
-            var lines = new List<string>();
-            while (reader.ReadLine() is { } line)
+            if (maxLines <= 0)
             {
-                lines.Add(line);
+                return [];
             }
 
-            return lines.TakeLast(maxLines).ToList();
+            // Only the last maxLines are kept while reading, so a long log never sits in memory whole.
+            var lines = new Queue<string>(maxLines);
+            while (reader.ReadLine() is { } line)
+            {
+                if (lines.Count == maxLines)
+                {
+                    lines.Dequeue();
+                }
+
+                lines.Enqueue(line);
+            }
+
+            return [.. lines];
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

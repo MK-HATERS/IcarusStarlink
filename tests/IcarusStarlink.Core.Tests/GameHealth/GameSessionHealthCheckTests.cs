@@ -118,6 +118,22 @@ public class GameSessionHealthCheckTests : IDisposable
         Assert.Equal(["line 96", "line 97", "line 98", "line 99", "line 100"], lines);
     }
 
+    [Theory]
+    [InlineData(40)]
+    [InlineData(0)]
+    public void ReadUe4ssLogTail_ALongLog_ReturnsItsLastLinesInOrder(int maxLines)
+    {
+        var contentPath = Path.Combine(_tempDir, "Icarus", "Content");
+        var loaderFolder = Path.Combine(_tempDir, "Icarus", "Binaries", "Win64", "ue4ss");
+        Directory.CreateDirectory(contentPath);
+        Directory.CreateDirectory(loaderFolder);
+        File.WriteAllLines(Path.Combine(loaderFolder, "UE4SS.log"), Enumerable.Range(1, 10_000).Select(i => $"line {i}"));
+
+        var lines = GameSessionHealthCheck.ReadUe4ssLogTail(contentPath, maxLines);
+
+        Assert.Equal(Enumerable.Range(10_001 - maxLines, maxLines).Select(i => $"line {i}"), lines);
+    }
+
     /// <summary>UE4SS holds its log open for writing while the game runs; the tail used to come back empty then.</summary>
     [Fact]
     public void ReadUe4ssLogTail_LogHeldOpenForWriting_StillReadsIt()
