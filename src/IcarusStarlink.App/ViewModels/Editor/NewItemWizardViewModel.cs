@@ -281,6 +281,7 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
         }
 
         _source = value is null ? null : ItemCloner.Inspect(_game, value.Name);
+        RemoveDlcGate = false; // a choice for the item it was ticked on
         Links.Clear();
         foreach (var link in _source?.Links ?? [])
         {

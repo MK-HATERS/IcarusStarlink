@@ -245,7 +245,7 @@ public static partial class GameItemEditor
         }
 
         var itemable = RowLinks.LinkedRow(effectiveStatic["Itemable"]);
-        var displayName =itemable is null ? null : NsLocText.TextOf(RowLinks.StringOf((Effective(game, mod, ItemableFile, itemable) ?? game.Row(ItemableFile, itemable))?["DisplayName"]));
+        var displayName = itemable is null ? null : NsLocText.TextOf(RowLinks.StringOf((Effective(game, mod, ItemableFile, itemable) ?? game.Row(ItemableFile, itemable))?["DisplayName"]));
         return new GameItemView(itemName, displayName, [.. sections.Where(s => s.Fields.Count > 0 || s.StatGroups.Count > 0)], kept);
     }
 

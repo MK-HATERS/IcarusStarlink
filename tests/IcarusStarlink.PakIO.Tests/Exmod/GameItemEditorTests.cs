@@ -700,4 +700,38 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.NotNull(_game.Row("Traits-D_Armour.json", "io_undersuit"));
         Assert.Equal("IO_Undersuit", _game.GameRowName("Traits-D_Armour.json", "IO_UNDERSUIT"));
     }
+    /// <summary>
+    /// Removing the DLC requirement writes onto the rows the item links to; when one of them is shared
+    /// (two suits on one Itemable row), the line says the other items lose the gate too.
+    /// </summary>
+    [Fact]
+    public void RemoveTheDlcRequirement_OnASharedRow_SaysAllItemsSharingIt()
+    {
+        void W(string relative, string json)
+        {
+            var path = Path.Combine(_root, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
+        }
+
+        const string gate = """{"RequiredFeatureLevel":{"RowName":"GreatHunts"}}""";
+        W("Items/D_ItemsStatic.json", """
+            {"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"}},"Rows":[
+              {"Name":"Hunter_Suit","Itemable":{"RowName":"Item_Hunter_Suit"},"Metadata":GATE},
+              {"Name":"Hunter_Suit_Dark","Itemable":{"RowName":"Item_Hunter_Suit"},"Metadata":GATE}
+            ]}
+            """.Replace("GATE", gate));
+        W("Traits/D_Itemable.json", """
+            {"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Hunter_Suit","Metadata":GATE}]}
+            """.Replace("GATE", gate));
+        var game = new GameTableIndex(_root);
+        var mod = EmptyMod();
+
+        var lines = GameItemEditor.Apply(game, mod, "Hunter_Suit", [new GameItemChange(GameItemEditor.DlcSection, new EditPath("Metadata", []), JsonValue.Create(true))], new HashSet<string>());
+
+        Assert.Contains(lines, l => l.Contains("Item_Hunter_Suit") && l.EndsWith("(all 2 items)"));
+        Assert.Contains(lines, l => l.Contains("› Hunter_Suit ·") && !l.Contains("(all"));
+        var field = Assert.Single(GameItemEditor.Describe(game, null, "Hunter_Suit")!.Sections, s => s.Key == GameItemEditor.DlcSection).Fields.Single();
+        Assert.Contains("shared with other items", field.Description);
+    }
 }

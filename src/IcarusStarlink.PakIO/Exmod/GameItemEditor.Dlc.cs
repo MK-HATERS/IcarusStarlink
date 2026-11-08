@@ -24,29 +24,30 @@ public static partial class GameItemEditor
         var removed = gated.All(g => DlcGate.Of(Effective(game, mod, g.File, g.Row)) is null);
         var name = DlcGate.Name(game, gated[0].Level);
         var field = new EditableField(new EditPath(DlcGate.MetadataField, []), "Remove the DLC requirement",
-            $"On = players without {name} can use it too. Off = it needs {name}, as in the game.",
+            $"On = players without {name} can use it too. Off = it needs {name}, as in the game. Rows shared with other items are unlocked for those items too.",
             EditableKind.Toggle, JsonValue.Create(false), JsonValue.Create(removed), false);
         return new EditableSection(DlcSection, $"DLC: {name}", ItemsStatic, itemName, itemName, 1, [field], []);
     }
 
     /// <summary>
     /// Every row the item uses whose game row a paid DLC gates: the file, the row as the item uses
-    /// it now (an own copy's name), the game's row, and the DLC.
+    /// it now (an own copy's name), the game's row, the DLC, and the D_ItemsStatic field that links
+    /// to it (null for rows not reached through a link).
     /// </summary>
-    private static List<(string File, string Row, string GameRow, string Level)> DlcGatedRows(GameTableIndex game, ExmodPackage? mod, GameItemLookup lookup, string itemName)
+    private static List<(string File, string Row, string GameRow, string Level, string? Field)> DlcGatedRows(GameTableIndex game, ExmodPackage? mod, GameItemLookup lookup, string itemName)
     {
-        var rows = new List<(string File, string Row, string GameRow, string Level)>();
+        var rows = new List<(string File, string Row, string GameRow, string Level, string? Field)>();
         if (game.Row(ItemsStatic, itemName) is not { } gameStatic)
         {
             return rows;
         }
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        void Add(string file, string row, string gameRow)
+        void Add(string file, string row, string gameRow, string? field = null)
         {
             if (seen.Add($"{file}|{row}") && DlcGate.Of(game.Row(file, gameRow)) is { } level)
             {
-                rows.Add((file, row, gameRow, level));
+                rows.Add((file, row, gameRow, level, field));
             }
         }
 
@@ -55,7 +56,7 @@ public static partial class GameItemEditor
         {
             if (RowLinks.LinkedRow(value) is { } rowName && game.LinkTarget(ItemsStatic, field) is { } table && game.CurrentFileFor(table) is { } file)
             {
-                Add(file, rowName, game.GameRowName(file, rowName) ?? RowLinks.RowNameOf(gameStatic[field]) ?? rowName);
+                Add(file, rowName, game.GameRowName(file, rowName) ?? RowLinks.RowNameOf(gameStatic[field]) ?? rowName, field);
             }
         }
 
@@ -81,11 +82,14 @@ public static partial class GameItemEditor
         return rows;
     }
 
-    /// <summary>Takes the gate off every gated row of the item (<paramref name="remove"/>), or puts the game's Metadata back on them.</summary>
+    /// <summary>
+    /// Takes the gate off every gated row of the item (<paramref name="remove"/>), or puts the game's
+    /// Metadata back on them. A game row other items link to too changes for them as well; its line says so.
+    /// </summary>
     private static void SetDlcGate(
         GameTableIndex game, ExmodPackage mod, GameItemLookup lookup, string itemName, bool remove, List<string> lines, List<(string File, string Row, string Top)> written)
     {
-        foreach (var (file, row, gameRow, level) in DlcGatedRows(game, mod, lookup, itemName))
+        foreach (var (file, row, gameRow, level, field) in DlcGatedRows(game, mod, lookup, itemName))
         {
             var metadata = Effective(game, mod, file, row)?[DlcGate.MetadataField];
             if (remove == (DlcGate.OfMetadata(metadata) is null))
@@ -95,7 +99,9 @@ public static partial class GameItemEditor
 
             SetValue(game, mod, file, row, gameRow, new EditPath(DlcGate.MetadataField, []), remove ? DlcGate.Without(metadata) : null);
             written.Add((file, row, DlcGate.MetadataField));
-            lines.Add($"{GameTableIndex.TableNameOf(file)} › {row} · needs {DlcGate.Name(game, level)}: {(remove ? "no longer" : "again, as in the game")}");
+            var users = field is not null && game.HasRow(file, row) ? lookup.UsersOf(field, row) : 1;
+            var shared = users > 1 ? $"  (all {users:N0} items)" : "";
+            lines.Add($"{GameTableIndex.TableNameOf(file)} › {row} · needs {DlcGate.Name(game, level)}: {(remove ? "no longer" : "again, as in the game")}{shared}");
         }
     }
 }

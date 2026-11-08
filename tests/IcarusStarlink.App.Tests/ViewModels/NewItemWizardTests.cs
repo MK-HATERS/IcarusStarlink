@@ -335,6 +335,27 @@ public sealed class NewItemWizardTests : IDisposable
         Assert.DoesNotContain(rows, i => i.Fields.TryGetValue("Metadata", out var metadata) && metadata?["RequiredFeatureLevel"] is not null);
     }
 
+    /// <summary>The "Remove the DLC requirement" tick is a choice for one item: picking another item starts it off again.</summary>
+    [Fact]
+    public void TheRemoveTheDlcRequirementTick_IsClearedWhenAnotherItemIsPicked()
+    {
+        Write("Items/D_ItemsStatic.json", """
+            {"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"}},"Rows":[
+              {"Name":"Hunter_Suit","Itemable":{"RowName":"Item_Hunter_Suit"},"Metadata":{"RequiredFeatureLevel":{"RowName":"GreatHunts"}}},
+              {"Name":"Hunter_Bow","Itemable":{"RowName":"Item_Hunter_Bow"},"Metadata":{"RequiredFeatureLevel":{"RowName":"GreatHunts"}}}
+            ]}
+            """);
+        Write("Traits/D_Itemable.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Hunter_Suit"},{"Name":"Item_Hunter_Bow"}]}""");
+        var wizard = new NewItemWizardViewModel(new GameTableIndex(DataFolder), null);
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Hunter_Suit");
+        wizard.RemoveDlcGate = true;
+
+        wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Hunter_Bow");
+
+        Assert.True(wizard.CanRemoveDlcGate);
+        Assert.False(wizard.RemoveDlcGate);
+    }
+
     /// <summary>Regression: free updates gate their items too (Galileo is fishing, Laika is taming), and those items got the DLC note though every player has them.</summary>
     [Fact]
     public void AnItemFromAFreeUpdate_GetsNoDlcNote()
