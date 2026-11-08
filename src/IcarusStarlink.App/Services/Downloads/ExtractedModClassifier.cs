@@ -162,6 +162,11 @@ public static class ExtractedModClassifier
         }
 
         var warnings = ModLints.CheckSplitAssetPairs(allFiles);
+        if (ModLints.CheckForPrograms(allFiles) is { } programs)
+        {
+            warnings = [.. warnings, programs];
+        }
+
         var carriesUe4ss = CarriesUe4ssItself(extractedDirectory, allFiles);
         if (carriesUe4ss)
         {

@@ -63,4 +63,33 @@ public sealed class ModLintsTests : IDisposable
         Assert.Contains(findings, f => f.Contains("Lonely.uasset") && f.Contains(".uexp"));
         Assert.Contains(findings, f => f.Contains("Orphan.uexp") && f.Contains(".uasset"));
     }
+
+    [Fact]
+    public void CheckForPrograms_NamesTheProgramsAndScripts()
+    {
+        var finding = ModLints.CheckForPrograms(["MyMod/Scripts/main.lua", "MyMod/Install.bat", "Setup.EXE", "Tools/run.ps1"]);
+
+        Assert.NotNull(finding);
+        Assert.Contains("Install.bat", finding);
+        Assert.Contains("Setup.EXE", finding);
+        Assert.Contains("run.ps1", finding);
+        Assert.Contains("never runs", finding);
+    }
+
+    [Fact]
+    public void CheckForPrograms_ManyFiles_NamesThreeAndCountsTheRest()
+    {
+        var finding = ModLints.CheckForPrograms(["a.exe", "b.bat", "c.cmd", "d.vbs", "e.js"]);
+
+        Assert.NotNull(finding);
+        Assert.Contains("and 2 more", finding);
+        Assert.DoesNotContain("d.vbs", finding);
+    }
+
+    /// <summary>UE4SS C++ mods need dlls/main.dll, so a .dll is never flagged; mod files and documents aren't either.</summary>
+    [Fact]
+    public void CheckForPrograms_DllsLuaAndPaks_AreNotFlagged()
+    {
+        Assert.Null(ModLints.CheckForPrograms(["MyMod/dlls/main.dll", "MyMod/Scripts/main.lua", "X_P.pak", "Readme.txt", "mod.json"]));
+    }
 }

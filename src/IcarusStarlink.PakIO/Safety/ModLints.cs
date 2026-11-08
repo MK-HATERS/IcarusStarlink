@@ -80,6 +80,31 @@ public static class ModLints
             : $"Contains an IoStore container ('{Path.GetFileName(container)}') — that's a UE5 packaging format Icarus (UE 4.27) can't load. This download isn't usable as-is.";
     }
 
+    /// <summary>Programs and scripts Windows can run with a double-click. No Icarus mod needs one. .dll is left out: UE4SS C++ mods ship dlls/main.dll.</summary>
+    private static readonly HashSet<string> ProgramExtensions = new(
+        [".exe", ".msi", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".scr", ".lnk"], StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Programs or scripts in a download: an installer the player doesn't need, or something to
+    /// be wary of. Reported, not refused. The text is true whether or not the file was copied
+    /// with the mod (it is only when it sits inside a mod folder), so it doesn't say either way.
+    /// </summary>
+    public static string? CheckForPrograms(IEnumerable<string> filePaths)
+    {
+        var names = filePaths
+            .Where(f => ProgramExtensions.Contains(Path.GetExtension(f)))
+            .Select(Path.GetFileName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (names.Count == 0)
+        {
+            return null;
+        }
+
+        var listed = string.Join(", ", names.Take(3).Select(n => $"'{n}'")) + (names.Count > 3 ? $" and {names.Count - 3} more" : "");
+        return $"This download has programs or scripts in it ({listed}). Icarus mods don't need them, and Starlink never runs them. Don't open them unless you trust where the mod came from.";
+    }
+
     /// <summary>
     /// A cooked asset is a .uasset/.uexp PAIR; one half without the other (a packaging mistake, a
     /// partial copy) loads as corrupt in-game. Reported, not refused — the rest of the mod may be fine.

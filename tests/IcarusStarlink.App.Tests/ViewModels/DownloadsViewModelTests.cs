@@ -200,6 +200,29 @@ public sealed partial class DownloadsViewModelTests : IDisposable
     }
 
     /// <summary>
+    /// A program inside the mod folder is copied with the mod (Starlink stages the folder as it
+    /// is), so the player is told it is there and that Starlink never runs it. The mod still goes in.
+    /// </summary>
+    [Fact]
+    public async Task Activate_ProgramInsideTheModFolder_StagesTheModAndWarnsAboutTheProgram()
+    {
+        var harness = new Harness(_root);
+        var vm = harness.Build();
+        var item = harness.AddDownload("MyMod 1.0.zip", archive =>
+        {
+            WriteEntry(archive, "Readme.txt", "read me");
+            WriteEntry(archive, "MyMod/Scripts/main.lua", "print('hi')");
+            WriteEntry(archive, "MyMod/Install.bat", "@echo off");
+        });
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        Assert.Contains("MyMod", harness.Ue4ss.GetAll());
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.Contains("Install.bat") && e.Message.Contains("never runs"));
+        Assert.Contains("Install.bat", vm.PendingDownloadStatusMessage);
+    }
+
+    /// <summary>
     /// A mod author's own build ("--import build.zip") replaces the installed
     /// Nexus copy, both halves, in place (no "_2"), backed up, and keeps the Nexus link.
     /// </summary>
