@@ -66,7 +66,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// covered here.
 /// </summary>
 [Collection(MessengerCollection.Name)]
-public sealed class SettingsViewModelTests
+public sealed partial class SettingsViewModelTests
 {
     private static WeeklyChangeReport MakeReport(int changedFileCount) => new(
         DateTimeOffset.UtcNow.AddDays(-7),
