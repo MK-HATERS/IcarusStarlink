@@ -7,6 +7,7 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.PakIO.Assets;
+using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Pak;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
@@ -21,7 +22,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// same "fake every interface dependency, verify the real orchestration logic around them" approach
 /// OpaquePakAssetPreviewServiceTests already uses for its own decoder fallback chain.
 /// </summary>
-public sealed class LibraryItemViewModelTests : IDisposable
+public sealed partial class LibraryItemViewModelTests : IDisposable
 {
     // A real, minimal, valid 1x1 PNG — needed because the texture-success branch doesn't just check
     // "PngBytes is non-null", it decodes them into a real BitmapImage (TryDecodeImage) before
@@ -50,15 +51,17 @@ public sealed class LibraryItemViewModelTests : IDisposable
         FakeUassetSoundDecoder? soundDecoder = null,
         FakeUassetMaterialDecoder? materialDecoder = null,
         LibraryEntry? entry = null,
-        FakeSettingsService? settings = null) =>
+        FakeSettingsService? settings = null,
+        FakeLibraryRepository? repository = null,
+        FakeOpaquePakAssetPreviewService? pakPreview = null) =>
         new(
-            entry ?? MakeEntry(), new FakeLibraryRepository(_modFolderPath), new FakeUnrealPakService(),
+            entry ?? MakeEntry(), repository ?? new FakeLibraryRepository(_modFolderPath), new FakeUnrealPakService(),
             textureDecoder ?? new FakeUassetTextureDecoder(),
             staticMeshDecoder ?? new FakeUassetStaticMeshDecoder(),
             skeletalMeshDecoder ?? new FakeUassetSkeletalMeshDecoder(),
             soundDecoder ?? new FakeUassetSoundDecoder(),
             materialDecoder ?? new FakeUassetMaterialDecoder(),
-            new FakeOpaquePakAssetPreviewService(), settings ?? new FakeSettingsService(),
+            pakPreview ?? new FakeOpaquePakAssetPreviewService(), settings ?? new FakeSettingsService(),
             new FakeNexusApiClient(), new FakeCredentialStore(), new HttpClient(),
             Path.Combine(_modFolderPath, "ThumbCache"), Path.Combine(_modFolderPath, "PakPreviewCache"),
             () => Task.FromResult<IReadOnlyList<CatalogEntry>>([]),
@@ -473,10 +476,16 @@ public sealed class LibraryItemViewModelTests : IDisposable
 
     private sealed class FakeOpaquePakAssetPreviewService : IOpaquePakAssetPreviewService
     {
+        /// <summary>Each preview asked for: which pak, and the cache folder it was to be extracted into.</summary>
+        public List<(string PakFilePath, string CacheDirectory)> Calls { get; } = [];
+
         public Task<OpaquePakAssetPreviewResult> PreviewAssetAsync(
             string unrealPakExePath, string pakFilePath, string relativeAssetPath, string cacheDirectory,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException("Not exercised by these tests — no entry here is IsOpaquePak.");
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add((pakFilePath, cacheDirectory));
+            return Task.FromResult(OpaquePakAssetPreviewResult.Failed("x"));
+        }
     }
 
     private sealed class FakeSettingsService : ISettingsService
@@ -532,6 +541,12 @@ public sealed class LibraryItemViewModelTests : IDisposable
 
     private sealed class FakeLibraryRepository(string folderPath) : ILibraryRepository
     {
+        /// <summary>The folder's files, asset list and readme come from the real folder on disk (a test that writes a mod there).</summary>
+        public bool ReadsTheRealFolder { get; init; }
+
+        /// <summary>When set, answers ReadAssetContent (which otherwise throws).</summary>
+        public Func<string, byte[]>? ReadAssetContentHandler { get; init; }
+
         public IReadOnlyList<LibraryEntry> GetAll() => throw new NotSupportedException("Not exercised by these tests.");
 
         public IReadOnlyList<string> UnreadableFolders => [];
@@ -579,16 +594,18 @@ public sealed class LibraryItemViewModelTests : IDisposable
         public IReadOnlyList<string> ListAssetPaths(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
 
         public IReadOnlyList<string> ListAssetPaths(string folderName, IReadOnlyList<string> precomputedFiles) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+            ReadsTheRealFolder ? ExmodFolder.ListAssetPaths(folderPath, precomputedFiles) : throw new NotSupportedException("Not exercised by these tests.");
 
-        public byte[] ReadAssetContent(string folderName, string relativePath) => throw new NotSupportedException("Not exercised by these tests.");
+        public byte[] ReadAssetContent(string folderName, string relativePath) =>
+            ReadAssetContentHandler is not null ? ReadAssetContentHandler(relativePath) : throw new NotSupportedException("Not exercised by these tests.");
 
         public string? ReadReadme(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
 
         public string? ReadReadme(string folderName, IReadOnlyList<string> precomputedFiles) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+            ReadsTheRealFolder ? null : throw new NotSupportedException("Not exercised by these tests.");
 
-        public IReadOnlyList<string> ListFolderFiles(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
+        public IReadOnlyList<string> ListFolderFiles(string folderName) =>
+            ReadsTheRealFolder ? [.. Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories)] : throw new NotSupportedException("Not exercised by these tests.");
 
         // The one real member every test in this file needs — DecodeCompiledAssetPreviewAsync
         // reads this before it ever touches a decoder, and no test here has a real folder on disk

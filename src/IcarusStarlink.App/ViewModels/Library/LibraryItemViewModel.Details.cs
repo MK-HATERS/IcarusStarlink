@@ -99,7 +99,14 @@ public sealed partial class LibraryItemViewModel
         try
         {
             var lines = await Task.Run(() => PakIO.Exmod.ModChangeSummarizer.SummarizePackage(package, dataFolder));
-            var replaced = ExmodChangesFormatter.ReplacedGameFiles(replacedGameFiles) is { Count: > 0 } files
+            // The list passed in is already the replaced game files (extensions cut off): filtering
+            // it again by extension emptied it, so a blueprint-only mod read "Nothing differs".
+            // Named only for a mod with no data rows, the same rule as the full Changes text: without
+            // the game's own file list a mod's new cooked files (icons, meshes for new items) can't
+            // be told from replaced game files, and a mod with rows usually ships some.
+            // "EndOfMod" closes every EXMOD (PakIO's ExmodSentinelFiles, internal there): not a data row.
+            var hasRows = package.Rows.Any(r => !string.Equals(r.CurrentFile, "EndOfMod", StringComparison.OrdinalIgnoreCase));
+            var replaced = !hasRows && replacedGameFiles is { Count: > 0 } files
                 ? $"Replaces {(files.Count == 1 ? "1 game file" : $"{files.Count} game files")}: {string.Join(", ", files.Take(3))}{(files.Count > 3 ? ", …" : "")}"
                 : null;
             summary = lines.Count == 0
@@ -162,9 +169,15 @@ public sealed partial class LibraryItemViewModel
         {
             PakListingStatus = "Loading pak contents…";
             var paths = new List<string>();
+            // Which pak each listed file is in, so a preview extracts that pak (a later pak wins, as in the list).
+            var pakOfAsset = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var pakFilePath in pakFilePaths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
             {
-                paths.AddRange(await _unrealPakService.ListPakContentsAsync(unrealPakExePath, pakFilePath));
+                foreach (var path in await _unrealPakService.ListPakContentsAsync(unrealPakExePath, pakFilePath))
+                {
+                    paths.Add(path);
+                    pakOfAsset[path] = pakFilePath;
+                }
             }
 
             if (run != _pakContentsRun)
@@ -172,6 +185,7 @@ public sealed partial class LibraryItemViewModel
                 return;
             }
 
+            _pakOfAsset = pakOfAsset;
             AssetPaths.Clear();
             foreach (var path in paths.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
             {
@@ -191,6 +205,14 @@ public sealed partial class LibraryItemViewModel
 
     private int _pakContentsRun;
 
+    private static readonly IReadOnlyDictionary<string, string> EmptyPakMap = new Dictionary<string, string>();
+
+    /// <summary>The pak each file of the last listing is in (full path), for the preview of a bundle.</summary>
+    private IReadOnlyDictionary<string, string> _pakOfAsset = EmptyPakMap;
+
+    /// <summary>The mod picture shows in a 120 px box: decoded at twice that for sharp high-DPI screens, not at full size.</summary>
+    private const int ThumbnailPixelWidth = 240;
+
     /// <summary>
     /// Best-effort only: a missing or corrupt thumbnail is cosmetic, not a reason to fail the
     /// whole details load the way a Files/Readme read failure would — so failures here are
@@ -209,7 +231,7 @@ public sealed partial class LibraryItemViewModel
 
         try
         {
-            ThumbnailImage = TryDecodeImage(_repository.ReadAssetContent(FolderName, thumbnailPath));
+            ThumbnailImage = TryDecodeImage(_repository.ReadAssetContent(FolderName, thumbnailPath), ThumbnailPixelWidth);
         }
         catch (Exception)
         {
@@ -234,7 +256,7 @@ public sealed partial class LibraryItemViewModel
             var cachePath = Path.Combine(_thumbnailCacheDirectory, $"{FolderName}.img");
             if (File.Exists(cachePath))
             {
-                ThumbnailImage = TryDecodeImage(await File.ReadAllBytesAsync(cachePath));
+                ThumbnailImage = TryDecodeImage(await File.ReadAllBytesAsync(cachePath), ThumbnailPixelWidth);
                 return;
             }
 
@@ -260,7 +282,7 @@ public sealed partial class LibraryItemViewModel
             }
 
             var bytes = await _httpClient.GetByteArrayAsync(imageUrl);
-            var decoded = TryDecodeImage(bytes);
+            var decoded = TryDecodeImage(bytes, ThumbnailPixelWidth);
             if (decoded is null)
             {
                 return;

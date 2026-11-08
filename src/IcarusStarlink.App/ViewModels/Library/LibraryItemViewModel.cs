@@ -207,6 +207,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(HasUpdateAvailable));
         OnPropertyChanged(nameof(VersionText));
+        // "Your build" compares this version with Nexus's: an update landing in the same folder must hide it.
+        OnPropertyChanged(nameof(IsAheadOfNexus));
     }
 
     /// <summary>The Version column: "v1.2.0", or empty when the mod declares no version.</summary>
@@ -565,6 +567,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         Source = entry.Source;
         NexusModId = entry.NexusModId;
         OnPropertyChanged(nameof(HasNexusLink));
+        OnPropertyChanged(nameof(IsAheadOfNexus));
         OnPropertyChanged(nameof(ShowEndorseThumb));
         OnPropertyChanged(nameof(NexusLinkActionLabel));
         // Their CanExecute needs a Nexus link: linking a mod must enable them, not only show them.
@@ -617,6 +620,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         // ends up selected) re-read them, instead of this row showing pre-refresh Files/Readme/
         // thumbnail content for the rest of the session.
         AssetPaths.Clear();
+        _pakOfAsset = EmptyPakMap;
         ReadmeContent = null;
         ChangesContent = null;
         ChangesSummary = null;

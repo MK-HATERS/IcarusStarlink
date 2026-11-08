@@ -5,6 +5,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
 using IcarusStarlink.PakIO.Assets;
 using IcarusStarlink.PakIO.Pak;
+using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -60,20 +61,27 @@ public sealed partial class LibraryItemViewModel
                 return;
             }
 
-            var bytes = _repository.ReadAssetContent(FolderName, value);
-
-            // Preview text and images — an image asset used to render as binary noise in
-            // the text box, since every non-text file fell through to the byte-count message.
-            if (ImageExtensions.Contains(Path.GetExtension(value)) && TryDecodeImage(bytes) is { } image)
+            // Nothing is read on the UI thread: a .ubulk or .uexp can be hundreds of MB. Images and
+            // small files are read in the background; a big text file shows its start; any other
+            // big file shows only its size, without reading it.
+            var fullPath = AssetPathGuard.ResolveWithinDirectory(_repository.GetFolderPath(FolderName), value);
+            var length = new FileInfo(fullPath).Length;
+            var extension = Path.GetExtension(value);
+            if (ImageExtensions.Contains(extension) || length <= PreviewReadLimit)
             {
-                SelectedAssetImage = image;
-                SelectedAssetPreview = null;
+                SelectedAssetPreview = ReadingFilePlaceholder;
+                _ = ReadFilePreviewAsync(value, isImage: ImageExtensions.Contains(extension), generation);
                 return;
             }
 
-            SelectedAssetPreview = LooksLikeText(bytes)
-                ? System.Text.Encoding.UTF8.GetString(bytes)
-                : $"(binary file — {bytes.Length:N0} bytes, no preview)";
+            if (TextExtensions.Contains(extension))
+            {
+                SelectedAssetPreview = ReadingFilePlaceholder;
+                _ = ReadTextStartPreviewAsync(fullPath, generation);
+                return;
+            }
+
+            SelectedAssetPreview = $"(binary file — {length:N0} bytes, no preview)";
         }
         catch (Exception ex)
         {
@@ -86,6 +94,103 @@ public sealed partial class LibraryItemViewModel
             _reportStatus($"Preview failed: {ex.Message}");
         }
     }
+
+    private const string ReadingFilePlaceholder = "Reading this file...";
+
+    /// <summary>Files up to this size are read whole for the preview; a bigger text file shows only this much of its start.</summary>
+    private const int PreviewReadLimit = 256 * 1024;
+
+    /// <summary>Extensions whose start is shown as text even when the file is too big to read whole.</summary>
+    private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".txt", ".md", ".json", ".ini", ".lua", ".cfg", ".xml", ".csv", ".log", ".yaml", ".yml",
+    };
+
+    /// <summary>The largest width an asset preview is decoded at: enough for the preview pane on any screen.</summary>
+    private const int AssetPreviewPixelWidth = 2048;
+
+    /// <summary>Material texture thumbnails show at 80 px: decoded at twice that for high-DPI screens.</summary>
+    private const int MaterialThumbnailPixelWidth = 160;
+
+    /// <summary>An image or a small file, read off the UI thread; a stale result (another file picked meanwhile) is dropped.</summary>
+    private async Task ReadFilePreviewAsync(string relativePath, bool isImage, int generation)
+    {
+        string? text = null;
+        BitmapImage? image = null;
+        try
+        {
+            var folderName = FolderName;
+            (image, text) = await Task.Run<(BitmapImage?, string?)>(() =>
+            {
+                var bytes = _repository.ReadAssetContent(folderName, relativePath);
+                if (isImage && TryDecodeImage(bytes, AssetPreviewPixelWidth) is { } decoded)
+                {
+                    return (decoded, null);
+                }
+
+                return (null, LooksLikeText(bytes)
+                    ? System.Text.Encoding.UTF8.GetString(bytes)
+                    : $"(binary file — {bytes.Length:N0} bytes, no preview)");
+            });
+        }
+        catch (Exception ex)
+        {
+            ShowFileReadFailure(ex, generation);
+            return;
+        }
+
+        if (generation != _assetPreviewGeneration)
+        {
+            return;
+        }
+
+        SelectedAssetImage = image;
+        SelectedAssetPreview = text;
+    }
+
+    /// <summary>The start of a text file too big to read whole, read off the UI thread.</summary>
+    private async Task ReadTextStartPreviewAsync(string fullPath, int generation)
+    {
+        string text;
+        try
+        {
+            text = await Task.Run(() =>
+            {
+                using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                var buffer = new byte[PreviewReadLimit];
+                var read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+                return System.Text.Encoding.UTF8.GetString(buffer, 0, read);
+            });
+        }
+        catch (Exception ex)
+        {
+            ShowFileReadFailure(ex, generation);
+            return;
+        }
+
+        if (generation == _assetPreviewGeneration)
+        {
+            SelectedAssetPreview = text + "\n\n… (only the first 256 KB is shown)";
+        }
+    }
+
+    /// <summary>The file vanished or got locked after it was listed: said in the preview pane, not thrown.</summary>
+    private void ShowFileReadFailure(Exception ex, int generation)
+    {
+        if (generation != _assetPreviewGeneration)
+        {
+            return;
+        }
+
+        SelectedAssetPreview = $"(failed to read this file: {ex.Message})";
+        _reportStatus($"Preview failed: {ex.Message}");
+    }
+
+    /// <summary>
+    /// Empties every preview slot (text, image, mesh, material, sound) so a row the details window
+    /// no longer shows doesn't keep a decoded texture or mesh in memory for the rest of the session.
+    /// </summary>
+    public void ReleasePreview() => SelectedAssetPath = null;
 
     /// <summary>
     /// The one non-null slot in CompiledAssetDecodeResult — an asset is realistically only ever one
@@ -144,7 +249,7 @@ public sealed partial class LibraryItemViewModel
             return;
         }
 
-        if (result.PngBytes is not null && TryDecodeImage(result.PngBytes) is { } image)
+        if (result.PngBytes is not null && TryDecodeImage(result.PngBytes, AssetPreviewPixelWidth) is { } image)
         {
             SelectedAssetImage = image;
             SelectedAssetPreview = null;
@@ -267,10 +372,10 @@ public sealed partial class LibraryItemViewModel
     /// Real preview attempt for a .uasset packed inside an opaque/prebuilt-imported pak.
     /// DecodeCompiledAssetPreviewAsync above can point its decoders straight at this mod's own
     /// folder on disk because a regular EXMOD mod's assets already live there loose — an opaque
-    /// pak's own assets don't; they're only ever packed inside its single .pak file, which
-    /// CueAssetProviderLocator (what every decoder goes through) can't index directly. So this
-    /// extracts that pak first — cached under this app's own Cache directory, same convention
-    /// ThumbnailImage's own remote-picture cache already uses, keyed by this mod's FolderName so
+    /// pak's own assets don't; they're only packed inside its .pak file (in a bundle, the pak the
+    /// Files listing found this file in), which CueAssetProviderLocator (what every decoder goes
+    /// through) can't index directly. So this extracts that pak first — cached under this app's
+    /// own Cache directory, keyed by this mod's FolderName (and, in a bundle, one cache per pak) so
     /// repeated preview clicks against the same pak don't each pay a fresh whole-pak extract (see
     /// OpaquePakAssetPreviewService's own doc comment for why it's whole-pak, not scoped, and
     /// what that costs the first time) — then runs the exact same five decoders through it. Same
@@ -289,10 +394,14 @@ public sealed partial class LibraryItemViewModel
             return;
         }
 
+        // The pak the last listing found this file in; without a listing, the first pak.
         string? pakFilePath;
         try
         {
-            pakFilePath = Directory.GetFiles(_repository.GetFolderPath(FolderName), "*.pak").FirstOrDefault();
+            pakFilePath = _pakOfAsset.GetValueOrDefault(relativeAssetPath)
+                ?? Directory.GetFiles(_repository.GetFolderPath(FolderName), "*.pak")
+                    .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
         }
         catch (Exception ex)
         {
@@ -312,7 +421,11 @@ public sealed partial class LibraryItemViewModel
             return;
         }
 
-        var cacheDirectory = Path.Combine(_pakPreviewCacheDirectory, FolderName);
+        // One cache per pak of a bundle: one shared folder would be wiped and extracted again on
+        // every switch between paks (the service stamps a cache with the pak it holds).
+        var cacheDirectory = IsPakBundle
+            ? Path.Combine(_pakPreviewCacheDirectory, FolderName, "paks", Path.GetFileNameWithoutExtension(pakFilePath))
+            : Path.Combine(_pakPreviewCacheDirectory, FolderName);
         OpaquePakAssetPreviewResult result;
         try
         {
@@ -337,7 +450,7 @@ public sealed partial class LibraryItemViewModel
             return;
         }
 
-        if (result.PngBytes is not null && TryDecodeImage(result.PngBytes) is { } image)
+        if (result.PngBytes is not null && TryDecodeImage(result.PngBytes, AssetPreviewPixelWidth) is { } image)
         {
             SelectedAssetImage = image;
             SelectedAssetPreview = null;
@@ -438,7 +551,7 @@ public sealed partial class LibraryItemViewModel
         var textures = new List<MaterialTextureParamDisplay>();
         foreach (var texture in materialParams.Textures)
         {
-            if (TryDecodeImage(texture.PngBytes) is { } thumbnail)
+            if (TryDecodeImage(texture.PngBytes, MaterialThumbnailPixelWidth) is { } thumbnail)
             {
                 textures.Add(new MaterialTextureParamDisplay(texture.Name, thumbnail));
             }
@@ -461,15 +574,30 @@ public sealed partial class LibraryItemViewModel
     /// <summary>Unreal's own linear-color channels aren't clamped to 0..1 by construction (an emissive color, in particular, can legitimately run well above 1) — clamped here before scaling so an out-of-range value becomes a plain solid swatch color instead of an invalid byte.</summary>
     private static byte ToDisplayByte(float channel) => (byte)(Math.Clamp(channel, 0f, 1f) * 255);
 
-    /// <summary>Decodes image bytes to a frozen bitmap, or null if they aren't a decodable image. Frozen so it can be handed to the UI thread's bindings safely and never re-reads the (already disposed) stream.</summary>
-    private static BitmapImage? TryDecodeImage(byte[] bytes)
+    /// <summary>
+    /// Decodes image bytes to a frozen bitmap, or null if they aren't a decodable image. Frozen so it
+    /// can be handed to the UI thread's bindings safely and never re-reads the (already disposed)
+    /// stream. With maxPixelWidth, a wider image is decoded at that width (the height follows, so the
+    /// shape stays): a 4096 px texture is about 64 MB of pixels at full size. Never scaled up.
+    /// </summary>
+    private static BitmapImage? TryDecodeImage(byte[] bytes, int? maxPixelWidth = null)
     {
         try
         {
             using var stream = new MemoryStream(bytes);
+            var decodeWidth = 0;
+            if (maxPixelWidth is { } maxWidth)
+            {
+                var sourceWidth = BitmapDecoder.Create(stream, BitmapCreateOptions.DelayCreation | BitmapCreateOptions.IgnoreColorProfile, BitmapCacheOption.None)
+                    .Frames[0].PixelWidth;
+                decodeWidth = sourceWidth > maxWidth ? maxWidth : 0;
+                stream.Position = 0;
+            }
+
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.DecodePixelWidth = decodeWidth;
             bitmap.StreamSource = stream;
             bitmap.EndInit();
             bitmap.Freeze();
