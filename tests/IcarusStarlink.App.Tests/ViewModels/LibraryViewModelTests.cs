@@ -313,11 +313,6 @@ public sealed partial class LibraryViewModelTests
     }
 
     /// <summary>
-    /// One Nexus download that landed as a Library mod (its paks) PLUS a Lua mod on the UE4SS tab
-    /// (WirelessPower; both carry Nexus mod ID 361) is deleted whole, with one confirmation that
-    /// names both halves — half a mod is a broken mod, and the UE4SS tab's own Delete routes here too.
-    /// </summary>
-    /// <summary>
     /// The Lua half of a download that was off (only in staging) was deleted
     /// for good, while the question said the parts are backed up. It's backed up first now.
     /// </summary>
@@ -428,6 +423,11 @@ public sealed partial class LibraryViewModelTests
         Assert.Contains("Icarus is running", vm.Ue4ssStatusMessage);
     }
 
+    /// <summary>
+    /// One Nexus download that landed as a Library mod (its paks) PLUS a Lua mod on the UE4SS tab
+    /// (WirelessPower; both carry Nexus mod ID 361) is deleted whole, with one confirmation that
+    /// names both halves — half a mod is a broken mod, and the UE4SS tab's own Delete routes here too.
+    /// </summary>
     [Fact]
     public void DeleteItemCommand_OnAModWithALuaHalf_DeletesBothHalvesAndNamesThemInTheConfirmation()
     {
@@ -754,33 +754,6 @@ public sealed partial class LibraryViewModelTests
         Assert.Equal("ArcFissionLibrary turned off", vm.PendingUe4ssText);
     }
 
-    [Fact]
-    public void TypeFilter_NarrowsTheListToOneKind()
-    {
-        var harness = new TestHarness();
-        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
-        harness.AddMod("Steadfast");
-        harness.AddMod("SomePak", isOpaquePak: true);
-        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("ArcFissionLibrary", IsEnabled: true));
-        var vm = harness.Build();
-        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
-        Assert.Equal(3, vm.RootItems.Count);
-
-        vm.TypeFilter = "UE4SS";
-        Assert.Single(vm.RootItems.OfType<Ue4ssModRowViewModel>());
-        Assert.Empty(vm.RootItems.OfType<LibraryItemViewModel>());
-
-        vm.TypeFilter = "Pak";
-        Assert.Equal(["SomePak"], vm.RootItems.OfType<LibraryItemViewModel>().Select(i => i.FolderName).ToList());
-        Assert.Empty(vm.RootItems.OfType<Ue4ssModRowViewModel>());
-
-        vm.TypeFilter = "EXMOD";
-        Assert.Equal(["Steadfast"], vm.RootItems.OfType<LibraryItemViewModel>().Select(i => i.FolderName).ToList());
-
-        vm.TypeFilter = "All";
-        Assert.Equal(3, vm.RootItems.Count);
-    }
-
     /// <summary>The "On" checkbox: a user tick raises EnabledToggled (the view model turns that into a merge-queue change); a tick set FROM the queue must not, or the two would loop.</summary>
     [Fact]
     public void PakRowOnCheckbox_UserTickRaisesEnabledToggled_QueueSyncDoesNot()
@@ -1075,8 +1048,7 @@ public sealed partial class LibraryViewModelTests
         vm.ToggleBulkSelection(vm.Ue4ssRootItems[^1]);
 
         Assert.Equal(4, vm.BulkSelectedCount);
-        Assert.Equal(2, vm.BulkSelectedPakCount);
-        Assert.True(vm.IsAllSelectedForBulk);
+        Assert.Equal(2, vm.DataSelectedCount);
         Assert.All(vm.RootItems.OfType<Ue4ssModRowViewModel>(), r => Assert.True(r.IsSelectedForBulk));
 
         var steadfast = vm.RootItems.OfType<LibraryItemViewModel>().Single(i => i.FolderName == "Steadfast");

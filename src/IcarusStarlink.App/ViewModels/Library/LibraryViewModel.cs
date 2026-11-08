@@ -57,7 +57,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly string _pakPreviewCacheDirectory;
     private readonly IDialogService _dialogService;
 
-    /// <summary>Resolved lazily (Merge & Install is constructed on first navigation, not at DI composition time) — same pattern SettingsViewModel already uses to reach it. Only invoked once the user actually adds something to the queue from here, so opening Library alone never forces Merge & Install into existence.</summary>
+    /// <summary>Resolved lazily (Merge & Install is constructed on first navigation, not at DI composition time) — same pattern SettingsViewModel already uses to reach it. Read for its queue (the "On" tick) and its game-running check.</summary>
     private readonly Func<MergeInstallViewModel> _mergeInstallViewModel;
 
     /// <summary>The shared DownloadsViewModel: the Database page's IMM Database tab binds through this property (its DataContext is this page VM), and this page reads its pending-download status. Not lazy, unlike Nexus below.</summary>
@@ -107,10 +107,6 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     [ObservableProperty]
     private int _modCount;
-
-    /// <summary>Count of variant families currently shown (LibraryGroup.IsFamily), not the total root-row count — matches the real app's "N mod(s) · M group(s)" wording.</summary>
-    [ObservableProperty]
-    private int _groupCount;
 
     /// <summary>Null when every folder on disk read cleanly — see Reload()'s own comment for what sets it.</summary>
     [ObservableProperty]
@@ -267,40 +263,14 @@ public sealed partial class LibraryViewModel : ObservableObject
         OnPropertyChanged(nameof(LibraryChecksRunningText));
     }
 
-    /// <summary>Ctrl/Shift-click multi-select, for "Add to merge queue" — the only way mods reach Merge & Install's queue now that its own Library pane is gone. A plain list (not a HashSet): insertion order isn't meaningful here, but ObservableCollection gives free CollectionChanged notification for HasBulkSelection/BulkSelectedCount.</summary>
+    /// <summary>The data rows in the Ctrl/Shift-click selection: what the "On" tick, Delete and the selection bar act on. A plain list (not a HashSet): ObservableCollection gives free CollectionChanged notification for the counts.</summary>
     public ObservableCollection<LibraryItemViewModel> BulkSelectedItems { get; } = [];
 
-    /// <summary>UE4SS rows in the same click selection. Kept apart from BulkSelectedItems so pak-only actions (Add to merge queue, Delete, Convert) never see a Lua row.</summary>
+    /// <summary>UE4SS rows in the same click selection. Kept apart from BulkSelectedItems so data-mod actions (Delete, Convert) never see a Lua row.</summary>
     public ObservableCollection<Ue4ssModRowViewModel> BulkSelectedUe4ssRows { get; } = [];
-
-    public bool HasBulkSelection => BulkSelectedCount > 0;
 
     /// <summary>Every selected row, pak and UE4SS.</summary>
     public int BulkSelectedCount => BulkSelectedItems.Count + BulkSelectedUe4ssRows.Count;
-
-    /// <summary>Selected pak/EXMOD rows only — what "Add to merge queue" acts on.</summary>
-    public int BulkSelectedPakCount => BulkSelectedItems.Count;
-
-    /// <summary>Whether every mod currently shown is bulk-selected — drives the header row's own "select all" checkbox. False (not true) when the list is empty, matching Explorer's own convention of an unchecked header checkbox on an empty list.</summary>
-    public bool IsAllSelectedForBulk
-    {
-        get
-        {
-            var rows = FlattenRows();
-            return rows.Count > 0 && BulkSelectedCount == rows.Count;
-        }
-        set
-        {
-            if (value)
-            {
-                SelectAllForBulk("data");
-            }
-            else
-            {
-                ClearBulkSelection();
-            }
-        }
-    }
 
     /// <summary>Null = the default order (pinned mods first, then alphabetical) — set by clicking a sortable column header; a second click on the same header flips SortDescending instead of picking a new column, matching Explorer's own Details-view convention.</summary>
     [ObservableProperty]
@@ -481,10 +451,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     private void RaiseBulkSelectionChanged()
     {
-        OnPropertyChanged(nameof(HasBulkSelection));
         OnPropertyChanged(nameof(BulkSelectedCount));
-        OnPropertyChanged(nameof(BulkSelectedPakCount));
-        OnPropertyChanged(nameof(IsAllSelectedForBulk));
         RaisePanelSelectionChanged();
     }
 
@@ -493,34 +460,8 @@ public sealed partial class LibraryViewModel : ObservableObject
         IReadOnlyList<LibraryGroup> groups, Func<LibraryGroup, TKey> keySelector, IComparer<TKey>? comparer = null) =>
         [.. (SortDescending ? groups.OrderByDescending(keySelector, comparer) : groups.OrderBy(keySelector, comparer))];
 
-    /// <summary>Sends the current bulk selection (or, with none active, just the passed-in row — a right-click with no prior Ctrl-click) to Merge & Install's queue.</summary>
-    [RelayCommand]
-    private void AddToMergeQueue(LibraryItemViewModel? item)
-    {
-        var folderNames = BulkSelectedItems.Count > 0
-            ? BulkSelectedItems.Select(i => i.FolderName).ToList()
-            : item is not null ? [item.FolderName] : [];
-
-        if (folderNames.Count == 0)
-        {
-            return;
-        }
-
-        _mergeInstallViewModel().AddToQueueByFolderNames(folderNames);
-        ClearBulkSelection();
-        StatusMessage = folderNames.Count == 1
-            ? $"Added '{folderNames[0]}' to the merge queue."
-            : $"Added {folderNames.Count} mods to the merge queue.";
-    }
-
-    // ---- The Type filter and the UE4SS built-ins toggle (the "On" tick, Status and the pending
-    // bars are in LibraryViewModel.InstallStatus.cs). ----
-
-    /// <summary>"All" / "EXMOD" / "Pak" / "UE4SS": narrows the list to one kind. No control on the page sets it since the Library got its two panels (the Type dropdown went); clearing the filters resets it.</summary>
-    [ObservableProperty]
-    private string _typeFilter = "All";
-
-    partial void OnTypeFilterChanged(string value) => Reload();
+    // ---- The UE4SS built-ins toggle (the "On" tick, Status and the pending bars are in
+    // LibraryViewModel.InstallStatus.cs). ----
 
     /// <summary>
     /// UE4SS's own bundled mods (BPModLoaderMod, Keybinds, ConsoleEnablerMod…) — hidden unless asked
@@ -545,14 +486,6 @@ public sealed partial class LibraryViewModel : ObservableObject
     public string ShowUe4ssBuiltInsLabel => $"Show UE4SS built-ins ({Ue4ssBuiltInCount})";
 
     partial void OnUe4ssBuiltInCountChanged(int value) => OnPropertyChanged(nameof(ShowUe4ssBuiltInsLabel));
-
-    private bool MatchesTypeFilter(LibraryGroup group) => TypeFilter switch
-    {
-        "EXMOD" => group.Entries.Any(e => !e.IsOpaquePak),
-        "Pak" => group.Entries.Any(e => e.IsOpaquePak),
-        "UE4SS" => false,
-        _ => true,
-    };
 
     private bool MatchesSearch(Ue4ssModRowViewModel row) =>
         string.IsNullOrWhiteSpace(SearchText)

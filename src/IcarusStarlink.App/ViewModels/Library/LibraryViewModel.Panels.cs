@@ -66,8 +66,8 @@ public sealed partial class LibraryViewModel
     /// <summary>Either panel's text when the search box or a filter hides every row.</summary>
     public const string NoMatchText = "No mods match — clear the search or pick All.";
 
-    /// <summary>True while the search box, a filter chip or the type filter is hiding rows.</summary>
-    public bool IsListNarrowed => !string.IsNullOrWhiteSpace(SearchText) || ListFilter != FilterAll || TypeFilter != "All";
+    /// <summary>True while the search box or a filter chip is hiding rows.</summary>
+    public bool IsListNarrowed => !string.IsNullOrWhiteSpace(SearchText) || ListFilter != FilterAll;
 
     /// <summary>The left panel's text when it has no rows: nothing matches, or no data mods at all yet.</summary>
     public string DataEmptyText => IsListNarrowed ? NoMatchText : "No data mods yet. Import one, or find one on the Database page.";
@@ -82,7 +82,6 @@ public sealed partial class LibraryViewModel
     private void ShowAllMods()
     {
         SearchText = "";
-        TypeFilter = "All";
         ListFilter = FilterAll;
     }
 

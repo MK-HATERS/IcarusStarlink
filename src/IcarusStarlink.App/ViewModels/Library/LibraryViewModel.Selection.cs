@@ -163,7 +163,7 @@ public sealed partial class LibraryViewModel
     /// consult the TreeView's own live expand/collapse state (fragile to reach for from a
     /// ViewModel, and TreeView-specific) — a range or "select all" acts on every real mod
     /// regardless of whether its family group happens to be collapsed right now, matching how this
-    /// app's own bulk actions (Add to merge queue, Delete) already treat a family as a transparent
+    /// app's own bulk actions (the "On" tick, Delete) already treat a family as a transparent
     /// container rather than something that can hide its members from a bulk operation.
     /// </summary>
     private List<object> FlattenRows() => [.. ExpandGroups(RootItems)];

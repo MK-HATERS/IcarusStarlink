@@ -46,7 +46,6 @@ public sealed partial class LibraryViewModel
         };
 
         ModCount = groups.Sum(g => g.Entries.Count);
-        GroupCount = groups.Count(g => g.IsFamily);
         BuildPackages();
 
         // A folder that's visibly on disk but unreadable (corrupt EXMOD, locked file) was only
@@ -77,11 +76,6 @@ public sealed partial class LibraryViewModel
         var resyncedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var group in groups)
         {
-            if (!MatchesTypeFilter(group))
-            {
-                continue;
-            }
-
             resyncedFolders.UnionWith(group.Entries.Select(entry => entry.FolderName));
             var items = group.Entries.Select(entry => GetOrCreateItem(entry, fullResync)).ToList();
             var pinned = group.Entries.Any(e => e.IsPinned);
@@ -96,9 +90,10 @@ public sealed partial class LibraryViewModel
             }
         }
 
-        var ue4ssRows = TypeFilter is "All" or "UE4SS"
-            ? Ue4ssMods.Where(row => (ShowUe4ssBuiltIns || !row.IsBuiltIn) && MatchesSearch(row)).Select(row => (SortName: row.Name, Pinned: false, Row: (object)row)).ToList()
-            : [];
+        var ue4ssRows = Ue4ssMods
+            .Where(row => (ShowUe4ssBuiltIns || !row.IsBuiltIn) && MatchesSearch(row))
+            .Select(row => (SortName: row.Name, Pinned: false, Row: (object)row))
+            .ToList();
 
         // A full resync re-reads the rows the search hides too (they stay cached, see the eviction
         // below): a mod updated, fixed or converted while hidden kept its old version, "Update
@@ -167,18 +162,14 @@ public sealed partial class LibraryViewModel
         OnPropertyChanged(nameof(IsListNarrowed));
         OnPropertyChanged(nameof(DataEmptyText));
         OnPropertyChanged(nameof(Ue4ssPanelEmptyText));
+        // Only sets each row's LinkedPartner, which the status pass above doesn't read: one pass is enough.
         LinkHalves();
-        OnPropertyChanged(nameof(IsAllSelectedForBulk));
-        EnsureMergeQueueSubscription();
-        RefreshEnabledAndStatus();
 
         // Drop cached instances for mods/families no longer present/matching, so these don't grow
-        // forever. FlushPendingSave() first, not CancelPendingSave() — the mod's folder isn't going
-        // anywhere here (unlike DeleteSelected), so a pending Notes edit should be saved a little
-        // early, not silently discarded; without this, an orphaned timer could fire later and write
-        // the edit to disk after a fresh instance for the same mod (built from the now-stale
-        // repository read) has already replaced this one, leaving the visible Notes field stale
-        // relative to what's actually on disk.
+        // forever. FlushPendingSave() first, so a pending Notes edit is saved a little early, not
+        // lost: an orphaned timer could otherwise fire later and write the edit to disk after a
+        // fresh instance for the same mod (built from the now-stale repository read) has already
+        // replaced this one, leaving the visible Notes field stale relative to what's on disk.
         // Evicted only when the mod is GONE from the repository, not merely hidden by the current
         // search filter: whole-library checks run over AllLibraryItems() below,
         // and a hidden row must keep its fetched "Update available" badge until the filter clears.
@@ -267,8 +258,8 @@ public sealed partial class LibraryViewModel
     {
         if (_itemsByFolderName.TryGetValue(entry.FolderName, out var existing))
         {
-            // Only on an explicit Refresh() — see the fullResync doc comment on Reload() for why
-            // this can't run on every reload.
+            // Only on a full resync (Refresh and every LibraryChangedMessage) — see the fullResync
+            // doc comment on Reload() for why this can't run on every reload.
             if (fullResync)
             {
                 existing.Update(entry);
