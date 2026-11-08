@@ -104,12 +104,13 @@ public sealed partial class LibraryViewModel
     private static string Ue4ssUpdateKey(Ue4ssModRowViewModel row) => "ue4ss:" + row.Name;
 
     /// <summary>One Nexus update (file choice, download, install), counted while it runs so "Your build" can wait for it.</summary>
-    private async Task FetchNexusUpdateAsync(int nexusModId, string name)
+    /// <returns>True when its file choice was cancelled.</returns>
+    private async Task<bool> FetchNexusUpdateAsync(int nexusModId, string name)
     {
         _nexusUpdatesRunning++;
         try
         {
-            await Downloads.ResolvePrimaryFileAndFetchAsync(nexusModId, name);
+            return await Downloads.ResolvePrimaryFileAndFetchAsync(nexusModId, name);
         }
         finally
         {
@@ -419,6 +420,7 @@ public sealed partial class LibraryViewModel
                 continue; // its own Update pill is running it
             }
 
+            bool cancelled;
             try
             {
                 var item = nexusItems.FirstOrDefault(i => DataUpdateKey(i) == target.Key);
@@ -432,15 +434,14 @@ public sealed partial class LibraryViewModel
                 started.Add(target);
                 item?.FlushPendingSave();
                 StatusMessage = $"Getting '{target.Name}' from Nexus… ({started.Count} of {targets.Count})";
-                await FetchNexusUpdateAsync(target.ModId, target.Name);
+                cancelled = await FetchNexusUpdateAsync(target.ModId, target.Name);
             }
             finally
             {
                 _updatesRunning.Remove(target.Key);
             }
 
-            // The text ResolvePrimaryFileAndFetchAsync leaves when its file choice is cancelled.
-            if (Downloads.PendingDownloadStatusMessage == "Download cancelled.")
+            if (cancelled)
             {
                 stoppedAt = target.Name;
             }

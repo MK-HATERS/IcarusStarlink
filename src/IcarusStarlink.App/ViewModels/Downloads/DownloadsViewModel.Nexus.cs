@@ -83,13 +83,14 @@ public sealed partial class DownloadsViewModel
     /// newer version of the installed file preselected. An account known not to be Premium can't
     /// download from inside an app, so the file's own Nexus page opens instead.
     /// </summary>
-    public async Task ResolvePrimaryFileAndFetchAsync(int nexusModId, string? displayName = null)
+    /// <returns>True when the file choice was cancelled (nothing was downloaded, by the player's choice).</returns>
+    public async Task<bool> ResolvePrimaryFileAndFetchAsync(int nexusModId, string? displayName = null)
     {
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
         if (apiKey is null)
         {
             PendingDownloadStatusMessage = "Sign in with your Nexus API key in Settings first.";
-            return;
+            return false;
         }
 
         PendingDownloadStatusMessage = $"Finding mod #{nexusModId}'s file(s)…";
@@ -100,7 +101,7 @@ public sealed partial class DownloadsViewModel
             if (files.Count == 0)
             {
                 PendingDownloadStatusMessage = $"Mod #{nexusModId} has no downloadable files listed.";
-                return;
+                return false;
             }
 
             // Updating: the newer version of the exact file already installed (one of several
@@ -116,7 +117,7 @@ public sealed partial class DownloadsViewModel
                 PendingDownloadStatusMessage = OpenUrl(page) is null
                     ? "Nexus only lets Premium accounts download from inside an app. Click Mod Manager Download on the page that opened; Starlink installs it from there."
                     : $"Nexus only lets Premium accounts download from inside an app, and your browser didn't open. Go to {page} and click Mod Manager Download there; Starlink installs it from there.";
-                return;
+                return false;
             }
 
             NexusModFile file;
@@ -132,7 +133,7 @@ public sealed partial class DownloadsViewModel
                 if (_choosingFileFor is { } open)
                 {
                     PendingDownloadStatusMessage = $"Already choosing a file for '{open}'. Pick one or cancel that list first.";
-                    return;
+                    return false;
                 }
 
                 NexusModFile? chosen;
@@ -149,7 +150,7 @@ public sealed partial class DownloadsViewModel
                 if (chosen is null)
                 {
                     PendingDownloadStatusMessage = "Download cancelled.";
-                    return;
+                    return true;
                 }
 
                 file = chosen;
@@ -174,6 +175,8 @@ public sealed partial class DownloadsViewModel
         {
             PendingDownloadStatusMessage = $"Couldn't find that mod's file: {ex.Message}";
         }
+
+        return false;
     }
 
     /// <summary>
