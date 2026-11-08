@@ -115,11 +115,16 @@ public class PendingDownloadStoreTests : IDisposable
     {
         var store = CreateStore();
         store.Add(MakeEntry(290, 1234));
-        store.SetActivation(290, 1234, "Nearby_Crafting", PendingDownloadActivationKind.Library);
+        store.SetActivation(
+            290, 1234,
+            [new PendingDownloadActivatedItem("Nearby_Crafting", PendingDownloadActivationKind.Library), new PendingDownloadActivatedItem("NearbyLua", PendingDownloadActivationKind.Ue4ssMod)],
+            ["UE4SS"]);
 
         var entry = Assert.Single(CreateStore().Entries);
+        Assert.Equal(["Nearby_Crafting", "NearbyLua"], entry.ActivatedItems.Select(i => i.FolderName));
         Assert.Equal("Nearby_Crafting", entry.ActivatedFolderName);
         Assert.Equal(PendingDownloadActivationKind.Library, entry.ActivatedKind);
+        Assert.Equal(["UE4SS"], entry.Requirements);
     }
 
     [Fact]
@@ -127,16 +132,18 @@ public class PendingDownloadStoreTests : IDisposable
     {
         var store = CreateStore();
         store.Add(MakeEntry(290, 1234));
-        store.SetActivation(290, 1234, "Some_Mod", PendingDownloadActivationKind.Ue4ssMod);
+        store.SetActivation(290, 1234, [new PendingDownloadActivatedItem("Some_Mod", PendingDownloadActivationKind.Ue4ssMod)], []);
 
-        Assert.Single(store.Entries);
+        var entry = Assert.Single(store.Entries);
+        Assert.Equal("Some_Mod", Assert.Single(entry.ActivatedItems).FolderName);
+        Assert.Equal(PendingDownloadActivationKind.Ue4ssMod, entry.ActivatedKind);
     }
 
     [Fact]
     public void SetActivation_UnknownModAndFileId_IsANoOp()
     {
         var store = CreateStore();
-        store.SetActivation(999, 999, "Nothing", PendingDownloadActivationKind.Library);
+        store.SetActivation(999, 999, [new PendingDownloadActivatedItem("Nothing", PendingDownloadActivationKind.Library)], []);
 
         Assert.Empty(store.Entries);
     }

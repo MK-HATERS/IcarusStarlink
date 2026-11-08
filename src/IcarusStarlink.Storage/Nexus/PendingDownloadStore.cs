@@ -46,20 +46,6 @@ public sealed class PendingDownloadStore : IPendingDownloadStore
         Save();
     }
 
-    public void SetActivation(int modId, int fileId, string? folderName, PendingDownloadActivationKind? kind)
-    {
-        var entry = _entries.FirstOrDefault(e => e.ModId == modId && e.FileId == fileId);
-        if (entry is null)
-        {
-            return;
-        }
-
-        entry.ActivatedFolderName = folderName;
-        entry.ActivatedKind = kind;
-        entry.ActivatedItems = folderName is not null && kind is { } k ? [new PendingDownloadActivatedItem(folderName, k)] : [];
-        Save();
-    }
-
     public void SetActivation(int modId, int fileId, IReadOnlyList<PendingDownloadActivatedItem> items, IReadOnlyList<string> requirements)
     {
         var entry = _entries.FirstOrDefault(e => e.ModId == modId && e.FileId == fileId);

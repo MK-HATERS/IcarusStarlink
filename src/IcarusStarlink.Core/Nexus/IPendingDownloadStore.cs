@@ -19,9 +19,6 @@ public interface IPendingDownloadStore
         }
     }
 
-    /// <summary>Records what a successful Activate produced, without removing the entry — folderName/kind null resets it back to never-activated.</summary>
-    void SetActivation(int modId, int fileId, string? folderName, PendingDownloadActivationKind? kind);
-
-    /// <summary>Records every item an activation produced (the first becomes the legacy primary pair) plus the README requirements found alongside.</summary>
+    /// <summary>Records every item an activation produced, without removing the entry (the first item becomes the legacy primary pair; none resets it to never-activated), plus the README requirements found alongside.</summary>
     void SetActivation(int modId, int fileId, IReadOnlyList<PendingDownloadActivatedItem> items, IReadOnlyList<string> requirements);
 }
