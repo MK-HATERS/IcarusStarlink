@@ -40,7 +40,13 @@ public partial class PickModDialog : Window
         DialogResult = true;
     }
 
-    private void ModsListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e) => Merge_Click(sender, e);
+    private void ModsListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (ListDoubleClick.IsOnItem(ModsListBox, e))
+        {
+            Merge_Click(sender, e);
+        }
+    }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
 }

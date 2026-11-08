@@ -45,7 +45,13 @@ public partial class PickFileDialog : Window
         DialogResult = true;
     }
 
-    private void FilesListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e) => Add_Click(sender, e);
+    private void FilesListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (ListDoubleClick.IsOnItem(FilesListBox, e))
+        {
+            Add_Click(sender, e);
+        }
+    }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
 }

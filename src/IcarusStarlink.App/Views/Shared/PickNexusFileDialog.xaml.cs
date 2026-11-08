@@ -95,7 +95,14 @@ public partial class PickNexusFileDialog : Window
         DialogResult = true;
     }
 
-    private void FilesListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e) => Download_Click(sender, e);
+    /// <summary>Only a double-click on a row downloads it: one on the scrollbar or the blank space under the rows does nothing.</summary>
+    private void FilesListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (ListDoubleClick.IsOnItem(FilesListBox, e))
+        {
+            Download_Click(sender, e);
+        }
+    }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
 }
