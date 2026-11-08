@@ -12,7 +12,7 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// </summary>
 public static class ExmodChangesFormatter
 {
-    // The default encoder escapes safe ASCII as \uXXXX (a quote becomes " and '+' becomes +) — a
+    // The default encoder escapes safe ASCII as \uXXXX (a quote becomes \u0022 and '+' becomes \u002B) — a
     // sensible default for JSON embedded in HTML, actively unreadable here. Real EXMOD field
     // names use both characters constantly (the "(Value=\"Xxx_+\")" stat-name convention), so
     // this is the difference between this feature actually working and not.
