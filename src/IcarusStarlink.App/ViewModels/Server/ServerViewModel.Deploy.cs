@@ -179,10 +179,7 @@ public sealed partial class ServerViewModel
                     }
                 }
 
-                if (existing.Count > 0)
-                {
-                    RememberDeleteCapability(deleteFailures.Count == 0);
-                }
+                var deletesWorked = deleteFailures.Count == 0;
 
                 foreach (var name in toUpload)
                 {
@@ -203,6 +200,13 @@ public sealed partial class ServerViewModel
                             deleteFailures.Add(UploadingName(name));
                         }
                     }
+                }
+
+                // Recorded only once the new files are in place: nothing sits between the deletes
+                // and the renames that could stop the install half done.
+                if (existing.Count > 0)
+                {
+                    RememberDeleteCapability(deletesWorked);
                 }
 
                 // A same-name file whose delete was refused has been written over by now.
@@ -239,8 +243,8 @@ public sealed partial class ServerViewModel
     /// Checks the server's own UE4SS.log version marker against the locally-installed one (the
     /// same real signal Ue4ssLoaderInstallService already uses for the local check — UE4SS.dll
     /// itself carries no Win32 version resource) and, if they differ, uploads the loader — never
-    /// the server's own Mods\ folder or its UE4SS-settings.ini if one already exists there, so a
-    /// loader update can't clobber whatever's already configured/running on the server.
+    /// the server's own Mods\ folder, and the game's UE4SS-settings.ini only when the server surely
+    /// has none, so a loader update can't clobber whatever's already configured on the server.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task SyncUe4ssLoaderToServerAsync()
@@ -304,20 +308,24 @@ public sealed partial class ServerViewModel
                 return;
             }
 
-            var remoteHasSettings = (await TryListRemoteAsync(RemoteLoaderPath))
-                .Any(e => !e.IsDirectory && string.Equals(e.Name, Ue4ssServerFiles.SettingsFileName, StringComparison.OrdinalIgnoreCase));
+            // Your UE4SS-settings.ini goes up only when the server surely has none: a listing that
+            // failed (a slow host timing out) used to read as "none", and yours went over the server's.
+            var remoteHasSettings = await ServerHasUe4ssSettingsAsync();
+            var couldntCheckNote = remoteHasSettings is null
+                ? " Couldn't check whether the server has its own UE4SS-settings.ini, so yours isn't sent (the server's, if any, is kept)."
+                : "";
 
             // The same loader files a local server gets: no Mods folder, and none of the game's own
             // logs or crash dumps (those used to be uploaded over the server's own UE4SS.log).
             var localFiles = Ue4ssServerFiles.LoaderFiles(localLoaderFolder)
-                .Where(r => !(remoteHasSettings && string.Equals(r, Ue4ssServerFiles.SettingsFileName, StringComparison.OrdinalIgnoreCase)))
+                .Where(r => remoteHasSettings == false || !string.Equals(r, Ue4ssServerFiles.SettingsFileName, StringComparison.OrdinalIgnoreCase))
                 .Select(r => Path.Combine(localLoaderFolder, r))
                 .ToList();
 
             var prompt =
                 $"This will upload {localFiles.Count} loader file(s) (UE4SS.dll, dwmapi.dll, etc.) to '{RemoteWin64Path}' on "
                 + $"'{_connectedSite?.Name}', replacing its current loader ({(remoteVersion is null ? "not installed" : Ue4ssBuild.Describe(remoteVersion, remoteCommit))}) with yours ({localLabel}). "
-                + $"The server's own Mods folder{(remoteHasSettings ? " and its existing UE4SS-settings.ini" : "")} won't be touched. Continue?";
+                + $"The server's own Mods folder{(remoteHasSettings == true ? " and its existing UE4SS-settings.ini" : "")} won't be touched.{couldntCheckNote} Continue?";
             if (!(_dialogService.Confirm(prompt, "Sync UE4SS loader to server", ThemedConfirmSeverity.Warning)))
             {
                 return;
@@ -335,7 +343,7 @@ public sealed partial class ServerViewModel
 
             await ReplaceRemoteFileAsync(Ue4ssGamePaths.ResolveDwmapiPath(contentPath), $"{RemoteWin64Path}/dwmapi.dll");
 
-            ConnectionStatusMessage = $"Synced UE4SS {localLabel} to '{_connectedSite?.Name}'.";
+            ConnectionStatusMessage = $"Synced UE4SS {localLabel} to '{_connectedSite?.Name}'.{couldntCheckNote}";
             _activityLog.Log($"Synced UE4SS loader ({localLabel}) to FTP site '{_connectedSite?.Name}'.", ActivityEntryKind.Success);
         }
         catch (Exception ex)
@@ -351,6 +359,42 @@ public sealed partial class ServerViewModel
             IsBusy = false;
             DeleteTempFile(tempLogPath);
         }
+    }
+
+    /// <summary>
+    /// Whether the server's ue4ss folder holds a UE4SS-settings.ini: true or false when Starlink
+    /// could see, null when it couldn't. An empty or failed listing of the ue4ss folder proves
+    /// nothing (some servers refuse to list a missing folder, a cut-off listing reads as empty),
+    /// so then the Win64 folder above is asked: listed with files and no ue4ss folder is a fresh
+    /// server with no settings file.
+    /// </summary>
+    private async Task<bool?> ServerHasUe4ssSettingsAsync()
+    {
+        try
+        {
+            var loader = await _connectedClient!.ListDirectoryAsync(RemoteLoaderPath);
+            if (loader.Count > 0)
+            {
+                return loader.Any(e => !e.IsDirectory && string.Equals(e.Name, Ue4ssServerFiles.SettingsFileName, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        try
+        {
+            var win64 = await _connectedClient!.ListDirectoryAsync(RemoteWin64Path);
+            if (win64.Count > 0 && !win64.Any(e => e.IsDirectory && string.Equals(e.Name, "ue4ss", StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return null;
     }
 
     /// <summary>Deletes a temporary file, ignoring one a scanner still holds: it is in %TEMP%, and a failed delete must not leave the page busy.</summary>
@@ -402,8 +446,11 @@ public sealed partial class ServerViewModel
     /// Uploads the UE4SS mods that are on in the game (Ue4ssServerFiles.ModsOnInGame: the same rule
     /// a local server uses, so switched-off mods and the framework's own stay home) and aren't on
     /// the server yet, then turns them on in the server's mods.txt (it used to upload
-    /// every installed mod and switch none of them on there). Additive only: a mod already on
-    /// the server, and its on/off line, are left as the server has them.
+    /// every installed mod and switch none of them on there). A mod on in the game whose folder is
+    /// already on the server but that nothing there turns on (no mods.txt line, no enabled.txt:
+    /// an earlier sync whose mods.txt step failed) is turned on too, without uploading it again.
+    /// Nothing is removed or written over: a mod's files on the server, and an existing line such
+    /// as "Name : 0", stay as the server has them.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task SyncUe4ssModsToServerAsync()
@@ -446,16 +493,31 @@ public sealed partial class ServerViewModel
                 remoteEntries.Where(e => e.IsDirectory).Select(e => e.Name),
                 StringComparer.OrdinalIgnoreCase);
 
-            var missing = Ue4ssServerFiles.ModsOnInGame(localModsFolder).Where(n => !remoteNames.Contains(n)).ToList();
-            if (missing.Count == 0)
+            var onInGame = Ue4ssServerFiles.ModsOnInGame(localModsFolder);
+            var missing = onInGame.Where(n => !remoteNames.Contains(n)).ToList();
+
+            // Mods that went up on an earlier sync whose mods.txt step failed: on the server, but off.
+            var leftOff = await ModsNothingTurnsOnAsync([.. onInGame.Where(remoteNames.Contains)], remoteEntries);
+            if (missing.Count == 0 && leftOff.Count == 0)
             {
                 ConnectionStatusMessage = "The server already has every UE4SS mod that's on in your game.";
                 return;
             }
 
+            var steps = new List<string>();
+            if (missing.Count > 0)
+            {
+                steps.Add($"Upload and turn on in its mods.txt:\n{string.Join('\n', missing.Select(n => $"  - {n}"))}");
+            }
+
+            if (leftOff.Count > 0)
+            {
+                steps.Add($"Turn on in its mods.txt (already on the server, but nothing there turns them on):\n{string.Join('\n', leftOff.Select(n => $"  - {n}"))}");
+            }
+
             var prompt =
-                $"This will upload the following UE4SS mod(s) to '{RemoteModsRootPath}' on '{_connectedSite?.Name}' and turn them on in its mods.txt "
-                + $"(nothing already there is touched):\n{string.Join('\n', missing.Select(n => $"  - {n}"))}\n\nContinue?";
+                $"This will change UE4SS mods in '{RemoteModsRootPath}' on '{_connectedSite?.Name}':\n\n{string.Join("\n\n", steps)}\n\n"
+                + "Nothing else there is touched: other mods and their mods.txt lines stay as they are. Continue?";
             if (!(_dialogService.Confirm(prompt, "Sync UE4SS mods to server", ThemedConfirmSeverity.Warning)))
             {
                 return;
@@ -496,26 +558,50 @@ public sealed partial class ServerViewModel
                 }
             }
 
-            if (done.Count > 0)
+            var turnOn = done.Concat(leftOff).ToList();
+            if (turnOn.Count > 0)
             {
                 // The listing made above says whether the server has a mods.txt: a second listing
                 // that failed used to read as "none", and a fresh file with only these mods went up
                 // over the server's whole list.
-                await TurnOnInRemoteModsTxtAsync(done, remoteEntries);
+                try
+                {
+                    await TurnOnInRemoteModsTxtAsync(turnOn, remoteEntries);
+                }
+                catch (Exception ex)
+                {
+                    // A dropped connection here used to show only "UE4SS mod sync failed", not which
+                    // mods were now on the server but off.
+                    ConnectionStatusMessage =
+                        $"UE4SS mod sync: {string.Join(", ", turnOn)} {(turnOn.Count == 1 ? "is" : "are")} on the server but NOT turned on: "
+                        + $"the server's mods.txt couldn't be updated ({ex.Message.TrimEnd('.')}). Sync again to try once more, "
+                        + "or add a line \"Name : 1\" for each to the server's ue4ss\\Mods\\mods.txt in your host's file manager."
+                        + (failure is not null ? $" Also, '{brokenOff}' is only partly on the server: delete its folder there, then sync again." : "");
+                    _activityLog.Log(ConnectionStatusMessage, ActivityEntryKind.Warning);
+                    return;
+                }
             }
 
+            var leftOffNote = leftOff.Count > 0
+                ? $"Turned on {leftOff.Count} mod(s) already on the server ({string.Join(", ", leftOff)}). "
+                : "";
             if (failure is not null)
             {
                 ConnectionStatusMessage =
                     $"UE4SS mod sync stopped part way: {failure.Message} "
                     + (done.Count > 0 ? $"{done.Count} mod(s) went up whole and were turned on ({string.Join(", ", done)}). " : "")
+                    + leftOffNote
                     + $"'{brokenOff}' is only partly on the server and was not turned on: delete its folder there in the host's file manager, then sync again.";
                 _activityLog.Log($"UE4SS mod sync to '{_connectedSite?.Name}' stopped part way at '{brokenOff}': {failure.Message}", ActivityEntryKind.Warning);
                 return;
             }
 
-            ConnectionStatusMessage = $"Uploaded {missing.Count} UE4SS mod(s) to '{_connectedSite?.Name}' and turned them on. They load when the server restarts.";
-            _activityLog.Log($"Uploaded {missing.Count} UE4SS mod(s) to FTP site '{_connectedSite?.Name}': {string.Join(", ", missing)}.", ActivityEntryKind.Success);
+            ConnectionStatusMessage = missing.Count > 0
+                ? $"Uploaded {missing.Count} UE4SS mod(s) to '{_connectedSite?.Name}' and turned them on. {leftOffNote}They load when the server restarts."
+                : $"{leftOffNote}They load when the server restarts.";
+            _activityLog.Log(
+                $"UE4SS mod sync to FTP site '{_connectedSite?.Name}': uploaded {missing.Count} ({string.Join(", ", missing)}), turned on {turnOn.Count} ({string.Join(", ", turnOn)}).",
+                ActivityEntryKind.Success);
         }
         catch (Exception ex)
         {
@@ -538,6 +624,69 @@ public sealed partial class ServerViewModel
         {
             return [];
         }
+    }
+
+    /// <summary>
+    /// Of these mods, already on the server, the ones nothing there turns on: no line in the
+    /// server's mods.txt (an explicit "Name : 0" is the admin's choice and stays) and no enabled.txt
+    /// in the mod's folder. When the mods.txt or a mod folder can't be read, that mod is left as it
+    /// is: only a mod Starlink could see is off gets turned on.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> ModsNothingTurnsOnAsync(IReadOnlyList<string> onServer, IReadOnlyList<FtpEntry> modsFolderListing)
+    {
+        if (onServer.Count == 0)
+        {
+            return [];
+        }
+
+        Ue4ssModsTxt list;
+        var hasList = modsFolderListing
+            .Any(e => !e.IsDirectory && string.Equals(e.Name, Ue4ssModStart.ListFileName, StringComparison.OrdinalIgnoreCase));
+        if (hasList)
+        {
+            string? temp = null;
+            try
+            {
+                temp = Path.GetTempFileName();
+                await _connectedClient!.DownloadFileAsync($"{RemoteModsRootPath}/{Ue4ssModStart.ListFileName}", temp);
+                list = Ue4ssModsTxt.Load(temp);
+            }
+            catch (Exception)
+            {
+                return [];
+            }
+            finally
+            {
+                DeleteTempFile(temp);
+            }
+        }
+        else
+        {
+            list = Ue4ssModsTxt.Parse(null);
+        }
+
+        var result = new List<string>();
+        foreach (var name in onServer.Where(n => list.IsEnabled(n) is null))
+        {
+            IReadOnlyList<FtpEntry> folder;
+            try
+            {
+                folder = await _connectedClient!.ListDirectoryAsync($"{RemoteModsRootPath}/{name}");
+            }
+            catch (Exception)
+            {
+                continue;
+            }
+
+            // A mod folder always holds something: an empty listing is one Starlink couldn't read.
+            if (folder.Count > 0
+                && !folder.Any(e => !e.IsDirectory && string.Equals(e.Name, Ue4ssModStart.EnabledFileName, StringComparison.OrdinalIgnoreCase)))
+            {
+                result.Add(name);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>

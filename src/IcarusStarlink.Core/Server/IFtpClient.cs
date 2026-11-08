@@ -9,6 +9,9 @@ public interface IFtpClient : IAsyncDisposable
 {
     Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default);
 
+    /// <summary>Whether the connection is encrypted (TLS) right now. False before ConnectAsync, and after a "when the host supports it" connect that fell back to plain FTP.</summary>
+    bool IsEncrypted { get; }
+
     Task<IReadOnlyList<FtpEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default);
 
     /// <summary>Uploads a file, replacing an existing file of that name in place, without deleting it first.</summary>

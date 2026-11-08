@@ -11,10 +11,10 @@ namespace IcarusStarlink.App.ViewModels;
 public sealed partial class ServerViewModel
 {
     /// <summary>
-    /// Reconnect, not relogin — if a password was saved on a previous Connect (or
-    /// via Save), this needs nothing further from the user at all. Typing a password here first
-    /// always saves it, matching Save's own behavior, so connecting once is enough to make every
-    /// future connect password-free too.
+    /// Reconnect, not relogin: a password saved on an earlier Connect (or by Save) needs nothing
+    /// more from the user. A password typed here is saved only once the login works, so a typo
+    /// can't replace the saved one; after a failed login the box keeps what was typed. When it
+    /// connects, the status says whether the connection is encrypted.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ConnectAsync()
@@ -35,31 +35,35 @@ public sealed partial class ServerViewModel
             return;
         }
 
+        // A typed password used to be saved before connecting, so a mistyped one replaced the
+        // working saved password even when the login failed.
+        var typed = string.IsNullOrEmpty(PasswordInput) ? null : PasswordInput;
         string password;
-        try
+        if (typed is not null)
         {
-            if (!string.IsNullOrEmpty(PasswordInput))
+            password = typed;
+        }
+        else
+        {
+            try
             {
-                password = PasswordInput;
-                _credentialStore.Save(CredentialTargets.FtpSite(site.Id), password);
-                PasswordInput = "";
+                if (_credentialStore.Read(CredentialTargets.FtpSite(site.Id)) is { } savedPassword)
+                {
+                    password = savedPassword;
+                }
+                else
+                {
+                    ConnectionStatusMessage = "No saved password for this site — type one and Connect again.";
+                    return;
+                }
             }
-            else if (_credentialStore.Read(CredentialTargets.FtpSite(site.Id)) is { } savedPassword)
+            catch (Exception ex)
             {
-                password = savedPassword;
-            }
-            else
-            {
-                ConnectionStatusMessage = "No saved password for this site — type one and Connect again.";
+                // A Credential Manager failure used to escape the command (it flows exceptions to the
+                // task scheduler), so Connect silently did nothing.
+                ConnectionStatusMessage = $"Couldn't read this site's password in Windows Credential Manager: {ex.Message}";
                 return;
             }
-        }
-        catch (Exception ex)
-        {
-            // A Credential Manager failure used to escape the command (it flows exceptions to the
-            // task scheduler), so Connect silently did nothing.
-            ConnectionStatusMessage = $"Couldn't read or save this site's password in Windows Credential Manager: {ex.Message}";
-            return;
         }
 
         IsConnecting = true;
@@ -97,9 +101,33 @@ public sealed partial class ServerViewModel
             _connectedClient = client;
             _connectedSite = site;
             IsConnected = true;
-            ConnectionStatusMessage = $"Connected to '{site.Name}'.";
-            _activityLog.Log($"Connected to FTP site '{site.Name}'.", ActivityEntryKind.Success);
+            var encrypted = client.IsEncrypted;
+            var connectedMessage = encrypted
+                ? $"Connected to '{site.Name}'. The connection is encrypted."
+                : $"Connected to '{site.Name}'. The connection isn't encrypted: your FTP password and files travel as plain text.";
+            ConnectionStatusMessage = connectedMessage;
+            _activityLog.Log($"Connected to FTP site '{site.Name}' ({(encrypted ? "encrypted" : "not encrypted")}).", ActivityEntryKind.Success);
+
+            string? passwordProblem = null;
+            if (typed is not null)
+            {
+                // Bookkeeping after a login that worked: a failure here doesn't undo the connection.
+                try
+                {
+                    _credentialStore.Save(CredentialTargets.FtpSite(site.Id), typed);
+                    PasswordInput = "";
+                }
+                catch (Exception ex)
+                {
+                    passwordProblem = $"Connected to '{site.Name}', but the password couldn't be saved in Windows Credential Manager: {ex.Message}";
+                    _activityLog.Log(passwordProblem, ActivityEntryKind.Warning);
+                }
+            }
+
             await LoadDirectoryAsync(string.IsNullOrWhiteSpace(site.RemotePath) ? "/" : site.RemotePath);
+
+            // A listing that works clears the status line: say again how the connection stands.
+            ConnectionStatusMessage = passwordProblem ?? ConnectionStatusMessage ?? connectedMessage;
         }
         catch (Exception ex)
         {
@@ -406,9 +434,20 @@ public sealed partial class ServerViewModel
         // Saved onto the CURRENT stored profile, not the object captured at Connect: _connectedSite predates any Save the user made since connecting, so writing it
         // back wholesale silently reverted a just-saved ModsPath/Host/Port edit to its pre-connect
         // value. Only the learned fact is applied; everything else stays as last saved.
-        var stored = _siteStore.GetAll().FirstOrDefault(s => s.Id == _connectedSite.Id) ?? _connectedSite;
-        stored.SupportsDelete = supportsDelete;
-        _siteStore.Save(stored);
+        // Best effort: a site list that can't be written (held by a scanner) used to stop Install
+        // merged pak between its deletes and renames, and turned a delete that worked into
+        // "Delete failed". The in-memory value above still applies for this connection.
+        try
+        {
+            var stored = _siteStore.GetAll().FirstOrDefault(s => s.Id == _connectedSite.Id) ?? _connectedSite;
+            stored.SupportsDelete = supportsDelete;
+            _siteStore.Save(stored);
+        }
+        catch (Exception ex)
+        {
+            _activityLog.Log($"Couldn't save what Starlink learned about '{_connectedSite.Name}' (whether it allows deleting files): {ex.Message}", ActivityEntryKind.Warning);
+        }
+
         OnPropertyChanged(nameof(HasKnownDeleteRestriction));
     }
 }

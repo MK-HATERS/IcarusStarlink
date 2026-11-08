@@ -9,14 +9,15 @@ using CoreIFtpClient = IcarusStarlink.Core.Server.IFtpClient;
 namespace IcarusStarlink.Storage.Server;
 
 /// <summary>
-/// Wraps FluentFTP's real AsyncFtpClient (confirmed API shape via its own source, not
-/// guessed) — this is the only place in the app that references FluentFTP directly;
-/// everything else talks to the Core-level IFtpClient/FtpEntry types instead. One instance = one
-/// connection, matching AsyncFtpClient's own lifecycle (construct, Connect, use, Disconnect/Dispose).
+/// The Core IFtpClient on FluentFTP's AsyncFtpClient: the only place in the app that references
+/// FluentFTP; everything else uses the Core IFtpClient/FtpEntry types. One instance is one
+/// connection (construct, Connect, use, Disconnect/Dispose).
 /// </summary>
 public sealed class FluentFtpClient : CoreIFtpClient
 {
     private AsyncFtpClient? _client;
+
+    public bool IsEncrypted => _client?.IsEncrypted == true;
 
     public async Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default)
     {
@@ -33,19 +34,15 @@ public sealed class FluentFtpClient : CoreIFtpClient
         {
             IcarusStarlink.Core.Server.FtpEncryptionMode.Explicit => FluentFTP.FtpEncryptionMode.Explicit,
             IcarusStarlink.Core.Server.FtpEncryptionMode.Implicit => FluentFTP.FtpEncryptionMode.Implicit,
+            // TLS when the host answers AUTH TLS, plain FTP when it doesn't: IsEncrypted says which.
+            IcarusStarlink.Core.Server.FtpEncryptionMode.Auto => FluentFTP.FtpEncryptionMode.Auto,
             _ => FluentFTP.FtpEncryptionMode.None,
         };
-        // Real API confirmed via reflection against the actual referenced package (FluentFTP
-        // 54.2.0), not guessed: AsyncFtpClient.ValidateCertificate gives full control over whether
-        // to accept a certificate FluentFTP's own default chain validation rejected. A budget
-        // game-server host (the case this was built for) commonly presents a self-signed cert —
-        // with no override at all, this app could never connect to hosts like that. A certificate
-        // that already validates cleanly is always accepted; one that doesn't is accepted only if
-        // its thumbprint matches what this site's own user previously chose to trust (mirrors
-        // FileZilla/WinSCP's "trust this certificate" convention, including re-prompting rather
-        // than silently trusting forever if the presented certificate ever changes). Otherwise the
-        // rejection is captured here and re-thrown as a typed exception after Connect() fails, so
-        // the caller can show a real prompt instead of just a generic TLS error.
+        // Budget game-server hosts often present a self-signed certificate, which FluentFTP's own
+        // chain check rejects. A certificate that validates is accepted; otherwise only one whose
+        // SHA-256 thumbprint the user chose to trust for this site, and a changed certificate is
+        // asked about again (as FileZilla and WinSCP do). A refusal is kept here and thrown as
+        // FtpUntrustedCertificateException once Connect fails, so the caller can ask the user.
         FtpUntrustedCertificateException? untrusted = null;
         _client.ValidateCertificate += (_, e) =>
         {
@@ -119,14 +116,9 @@ public sealed class FluentFtpClient : CoreIFtpClient
         {
             var client = RequireClient();
 
-            // Matches FileZilla's own real delete logic (confirmed by reading its actual source,
-            // engine/ftpcontrolsocket.cpp): change into the file's parent folder first, then delete
-            // by its bare filename, rather than one DELE against a fully-qualified absolute path —
-            // some restrictive/chrooted FTP daemons accept the former and reject the latter. Doesn't
-            // help every possible rejection (a real SurvivalServers account was confirmed, by
-            // testing this exact change live, to reject both forms identically — its own custom
-            // gateway restricts delete for a reason this app couldn't identify from the FTP
-            // protocol alone), but it's still the more broadly-compatible form to send.
+            // CWD into the file's folder, then DELE by its bare name: some chrooted daemons refuse
+            // a full-path DELE (FileZilla does the same). A host that blocks delete for the whole
+            // account refuses both forms.
             var lastSlash = remotePath.LastIndexOf('/');
             if (lastSlash >= 0)
             {

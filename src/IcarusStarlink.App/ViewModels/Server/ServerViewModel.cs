@@ -49,10 +49,7 @@ public sealed partial class ServerViewModel : ObservableObject
     private FtpSiteProfile? _connectedSite;
 
     /// <summary>The connected site's own ModsPath override when it set one, else the fixed
-    /// SurvivalServers-shaped default above. Internal (not private) purely so ServerViewModelTests
-    /// can assert on it after a real ConnectAsync round trip — this ViewModel had no tests at all
-    /// before this, and every command that actually uploads also pops a real ThemedMessageBox
-    /// confirmation, which can't run in a unit test host.</summary>
+    /// default above. Internal so ServerViewModelTests can check it.</summary>
     internal string RemoteModsPath
     {
         get
@@ -87,7 +84,14 @@ public sealed partial class ServerViewModel : ObservableObject
     /// <summary>The "Local server" tab: dedicated servers on this PC (see LocalServerViewModel). Null in tests that only exercise the FTP side.</summary>
     public LocalServerViewModel? Local { get; }
 
-    public static IReadOnlyList<FtpEncryptionMode> EncryptionModes { get; } = Enum.GetValues<FtpEncryptionMode>();
+    /// <summary>The Encryption box: every mode in plain words, the recommended one first.</summary>
+    public static IReadOnlyList<EncryptionChoice> EncryptionChoices { get; } =
+    [
+        new(FtpEncryptionMode.Auto, "Encrypted when the host supports it (recommended)"),
+        new(FtpEncryptionMode.Explicit, "Encrypted (TLS, most hosts)"),
+        new(FtpEncryptionMode.Implicit, "Encrypted, older style (port 990)"),
+        new(FtpEncryptionMode.None, "Not encrypted (password sent as plain text)"),
+    ];
 
     // --- Connection + directory browser ---
     [ObservableProperty]
@@ -112,13 +116,9 @@ public sealed partial class ServerViewModel : ObservableObject
     [ObservableProperty]
     private bool _isBusy;
 
-    // IsBusy is set around every FTP-touching command below, but was never consulted as a guard
-    // and never bound in XAML — nothing stopped two of them from running concurrently against the
-    // single shared _connectedClient (one FluentFtpClient), which could corrupt its session state
-    // or throw ObjectDisposedException if e.g. Disconnect raced an in-flight Upload. Every command
-    // below now early-returns while already busy, and every action button in ServerView.xaml binds
-    // IsEnabled to this so a click can't even fire in the first place — the same belt-and-suspenders
-    // shape IsNotConnected/ConnectAsync's own IsConnecting guard already established.
+    // Every FTP command returns early while IsBusy, and the action buttons bind IsEnabled to
+    // IsNotBusy: one FluentFtpClient can't run two commands at once (a Disconnect racing an Upload
+    // used to throw ObjectDisposedException).
     public bool IsNotBusy => !IsBusy;
 
     partial void OnIsBusyChanged(bool value) => OnPropertyChanged(nameof(IsNotBusy));
@@ -166,3 +166,6 @@ public sealed partial class ServerViewModel : ObservableObject
         });
     }
 }
+
+/// <summary>One row of the Server page's Encryption box: the mode a site stores and the words shown for it.</summary>
+public sealed record EncryptionChoice(FtpEncryptionMode Mode, string Label);

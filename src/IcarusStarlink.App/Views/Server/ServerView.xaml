@@ -147,7 +147,8 @@
                     </Expander>
 
                     <TextBlock Text="Encryption" FontSize="12" Margin="0,8,0,2"/>
-                    <ComboBox ItemsSource="{Binding EncryptionModes}" SelectedItem="{Binding EncryptionModeInput}"/>
+                    <ComboBox ItemsSource="{Binding EncryptionChoices}" DisplayMemberPath="Label" SelectedValuePath="Mode" SelectedValue="{Binding EncryptionModeInput}"
+                              ToolTip="How your login and files travel to the host. Not encrypted sends your FTP password as plain text: pick an Encrypted choice if your host supports it."/>
 
                     <Button Content="Save site" Command="{Binding SaveSiteCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,12,0,0" HorizontalAlignment="Left"/>
                     <TextBlock Text="{Binding SiteStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
@@ -193,9 +194,9 @@
                         <Button Content="Install merged pak" Command="{Binding InstallPakToServerCommand}"
                                 ToolTip="Uploads the merged pak your last Merge &amp; Install built to the server's mods folder (Content/Paks/mods, or this site's Mods path), replacing what's there."/>
                         <Button Content="Sync UE4SS loader" Command="{Binding SyncUe4ssLoaderToServerCommand}" Margin="8,0,0,0"
-                                ToolTip="Checks the server's UE4SS version and uploads UE4SS if it's missing or out of date (to Binaries/Win64, or this site's Win64 path). Never touches the server's Mods folder or its UE4SS-settings.ini."/>
+                                ToolTip="Checks the server's UE4SS version and uploads UE4SS if it's missing or out of date (to Binaries/Win64, or this site's Win64 path). Never touches the server's Mods folder, and never sends your UE4SS-settings.ini over one the server already has."/>
                         <Button Content="Sync UE4SS mods" Command="{Binding SyncUe4ssModsToServerCommand}" Margin="8,0,0,0"
-                                ToolTip="Uploads every UE4SS mod that's on in your game and missing on the server, and turns them on there. Never removes or overwrites a mod already there."/>
+                                ToolTip="Uploads every UE4SS mod that's on in your game and missing on the server, and turns them on there. Also turns on one that's already there but that nothing on the server turns on. Never removes or overwrites a mod, and a mod the server turned off stays off."/>
                     </WrapPanel>
                 </StackPanel>
                 </ScrollViewer>

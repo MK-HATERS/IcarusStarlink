@@ -33,6 +33,7 @@ public sealed class FtpSiteProfile
     /// together.</summary>
     public string? Win64Path { get; set; }
 
+    /// <summary>None here on purpose: a site saved before this field existed was plain FTP and stays so. New sites get Auto from the site form.</summary>
     public FtpEncryptionMode EncryptionMode { get; set; } = FtpEncryptionMode.None;
 
     /// <summary>SHA-256 thumbprint of a TLS certificate this site's user has explicitly chosen to

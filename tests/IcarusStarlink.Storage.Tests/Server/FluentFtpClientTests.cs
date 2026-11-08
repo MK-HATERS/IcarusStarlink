@@ -64,6 +64,22 @@ public sealed class FluentFtpClientTests
         Assert.DoesNotContain(server.Commands, c => c.StartsWith("DELE", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>"Encrypted when the host supports it" asks the host for TLS, and on a host without it connects in plain FTP and says so.</summary>
+    [Fact]
+    public async Task Connect_EncryptedWhenSupported_HostWithoutTls_AsksThenConnectsUnencrypted()
+    {
+        await using var server = new LoopbackFtpServer();
+        var site = SiteFor(server);
+        site.EncryptionMode = FtpEncryptionMode.Auto;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await using var client = new FluentFtpClient();
+
+        await client.ConnectAsync(site, "p", timeout.Token);
+
+        Assert.Contains(server.Commands, c => c.StartsWith("AUTH", StringComparison.OrdinalIgnoreCase));
+        Assert.False(client.IsEncrypted);
+    }
+
     /// <summary>
     /// A minimal FTP server on a free loopback port: one control connection at a time, passive
     /// data connections, files kept in memory by absolute path. Every DELE is refused the way a

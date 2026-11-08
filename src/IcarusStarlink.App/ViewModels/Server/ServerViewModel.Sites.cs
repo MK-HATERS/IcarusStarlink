@@ -96,7 +96,9 @@ public sealed partial class ServerViewModel
         RemotePathInput = "";
         ModsPathInput = "";
         Win64PathInput = "";
-        EncryptionModeInput = FtpEncryptionMode.None;
+        // A new site asks the host for TLS and falls back to plain FTP only when the host has none;
+        // the connect status says which it got. Saved sites keep the mode they were saved with.
+        EncryptionModeInput = FtpEncryptionMode.Auto;
         SiteStatusMessage = null;
         IsSiteFormOpen = true;
     }
@@ -195,11 +197,8 @@ public sealed partial class ServerViewModel
             return;
         }
 
-        // Every other destructive Server action already confirms first (DeleteRemoteAsync below) —
-        // this one didn't, and a click meant for the file browser's own Delete landed here instead
-        // during this app's own real testing, permanently wiping a real saved site + its stored
-        // password with no undo. Recovered that time only because the details were still known;
-        // this confirmation is the actual fix, not just a lesson noted for later.
+        // Confirms first: deleting a site also removes its saved password from Windows Credential
+        // Manager, and there is no undo.
         var confirm = _dialogService.Confirm(
             $"Delete the saved site '{site.Name}'? Its saved password will be removed too. This can't be undone from here.",
             "Delete site", ThemedConfirmSeverity.Warning);

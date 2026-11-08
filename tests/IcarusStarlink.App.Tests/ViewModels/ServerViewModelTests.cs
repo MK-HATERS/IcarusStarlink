@@ -396,8 +396,16 @@ public sealed class ServerViewModelTests
 
         public IReadOnlyList<FtpSiteProfile> GetAll() => _sites;
 
+        /// <summary>Save throws, as when ftp_sites.json is held by a scanner or a sync client.</summary>
+        public bool ThrowOnSave { get; set; }
+
         public void Save(FtpSiteProfile site)
         {
+            if (ThrowOnSave)
+            {
+                throw new IOException("The process cannot access the file 'ftp_sites.json' because it is being used by another process.");
+            }
+
             _sites.RemoveAll(s => s.Id == site.Id);
             _sites.Add(site);
         }
@@ -410,7 +418,13 @@ public sealed class ServerViewModelTests
     /// comment for why that matters).</summary>
     private sealed class FakeFtpClient : IFtpClient
     {
-        public Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        /// <summary>Thrown by ConnectAsync (a refused login, say). Null: the connect works.</summary>
+        public Exception? ConnectFailure { get; init; }
+
+        public bool IsEncrypted { get; init; }
+
+        public Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default) =>
+            ConnectFailure is { } failure ? Task.FromException(failure) : Task.CompletedTask;
 
         public Task<IReadOnlyList<FtpEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<FtpEntry>>([]);
@@ -436,6 +450,8 @@ public sealed class ServerViewModelTests
     private sealed class DeletingFtpClient : IFtpClient
     {
         public Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public bool IsEncrypted => false;
 
         public Task<IReadOnlyList<FtpEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<FtpEntry>>([]);
@@ -466,6 +482,8 @@ public sealed class ServerViewModelTests
         public TaskCompletionSource ReleaseDisconnect { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public bool IsEncrypted => false;
 
         public Task<IReadOnlyList<FtpEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<FtpEntry>>([]);
@@ -503,6 +521,8 @@ public sealed class ServerViewModelTests
         public bool RefuseDelete { get; set; }
 
         public Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public bool IsEncrypted => false;
 
         public Task<IReadOnlyList<FtpEntry>> ListDirectoryAsync(string remotePath, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<FtpEntry>>([.. Files.Where(f => f.StartsWith(remotePath + "/", StringComparison.OrdinalIgnoreCase))
@@ -948,12 +968,349 @@ public sealed class ServerViewModelTests
         }
     }
 
+    /// <summary>A game with UE4SS whose loader folder holds UE4SS.dll and a UE4SS-settings.ini reading "game settings".</summary>
+    private static (string Folder, FakeSettingsService Settings) GameWithUe4ssAndSettings()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        var loader = IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveLoaderFolder(settings.Current.IcarusContentPath!);
+        WriteFile(Path.Combine(loader, "UE4SS.dll"));
+        WriteFile(Path.Combine(loader, Ue4ssServerFiles.SettingsFileName), "game settings");
+        WriteFile(IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveDwmapiPath(settings.Current.IcarusContentPath!));
+        return (folder, settings);
+    }
+
+    /// <summary>
+    /// Regression: a listing of the server's ue4ss folder that failed (a slow host timing out)
+    /// read as "the server has no UE4SS-settings.ini", and the game's went up over the server's.
+    /// </summary>
+    [Fact]
+    public async Task SyncUe4ssLoader_ListingFails_DoesNotSendTheSettingsFile()
+    {
+        var (folder, settings) = GameWithUe4ssAndSettings();
+        try
+        {
+            var ftp = new MemoryFtpClient();
+            ftp.Files[$"{RemoteUe4ss}/{Ue4ssServerFiles.SettingsFileName}"] = "server settings";
+            var dialogs = new FakeDialogService(confirmResult: true);
+            var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), ftp, dialogs, settings: settings);
+            vm.SelectedSite = vm.Sites.Single();
+            vm.PasswordInput = "irrelevant-password";
+            await vm.ConnectCommand.ExecuteAsync(null);
+            ftp.ListingsBeforeFailure = 0;
+
+            await vm.SyncUe4ssLoaderToServerCommand.ExecuteAsync(null);
+
+            Assert.Equal("server settings", ftp.Files[$"{RemoteUe4ss}/{Ue4ssServerFiles.SettingsFileName}"]);
+            Assert.Contains($"{RemoteUe4ss}/UE4SS.dll", ftp.Files.Keys);
+            Assert.Contains(dialogs.Messages, m => m.Contains("Couldn't check whether the server has its own UE4SS-settings.ini"));
+            Assert.Contains("Couldn't check", vm.ConnectionStatusMessage);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>A fresh server (Win64 there, no ue4ss folder yet) still gets the game's UE4SS-settings.ini.</summary>
+    [Fact]
+    public async Task SyncUe4ssLoader_FreshServer_GetsTheSettingsFile()
+    {
+        var (folder, settings) = GameWithUe4ssAndSettings();
+        try
+        {
+            var ftp = new MemoryFtpClient();
+            ftp.Files["Icarus/Binaries/Win64/IcarusServer-Win64-Shipping.exe"] = "server";
+            var vm = await ConnectedAsync(ftp, settings);
+
+            await vm.SyncUe4ssLoaderToServerCommand.ExecuteAsync(null);
+
+            Assert.Equal("game settings", ftp.Files[$"{RemoteUe4ss}/{Ue4ssServerFiles.SettingsFileName}"]);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>A server that has its own UE4SS-settings.ini keeps it.</summary>
+    [Fact]
+    public async Task SyncUe4ssLoader_ServerHasItsOwnSettings_KeepsThem()
+    {
+        var (folder, settings) = GameWithUe4ssAndSettings();
+        try
+        {
+            var ftp = new MemoryFtpClient();
+            ftp.Files[$"{RemoteUe4ss}/UE4SS.dll"] = "old";
+            ftp.Files[$"{RemoteUe4ss}/{Ue4ssServerFiles.SettingsFileName}"] = "server settings";
+            var vm = await ConnectedAsync(ftp, settings);
+
+            await vm.SyncUe4ssLoaderToServerCommand.ExecuteAsync(null);
+
+            Assert.Equal("server settings", ftp.Files[$"{RemoteUe4ss}/{Ue4ssServerFiles.SettingsFileName}"]);
+            Assert.Equal("x", ftp.Files[$"{RemoteUe4ss}/UE4SS.dll"]);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>Regression: a typed password was saved before connecting, so a mistyped one replaced the working saved password even when the login failed.</summary>
+    [Fact]
+    public async Task ConnectAsync_LoginFails_KeepsTheSavedPassword()
+    {
+        var site = MakeSite(Guid.NewGuid());
+        var credentials = new RecordingCredentialStore();
+        credentials.Saved[CredentialTargets.FtpSite(site.Id)] = "right";
+        var vm = CreateViewModel(new FakeFtpSiteStore([site]), new FakeFtpClient { ConnectFailure = new InvalidOperationException("530 Login incorrect.") }, credentialStore: credentials);
+        vm.SelectedSite = vm.Sites.Single();
+        vm.PasswordInput = "wrong";
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.False(vm.IsConnected);
+        Assert.Empty(credentials.SaveCalls);
+        Assert.Equal("right", credentials.Saved[CredentialTargets.FtpSite(site.Id)]);
+        Assert.Equal("wrong", vm.PasswordInput);
+    }
+
+    /// <summary>A login that works saves the typed password, once, and clears the box.</summary>
+    [Fact]
+    public async Task ConnectAsync_LoginWorks_SavesTheTypedPasswordOnce()
+    {
+        var site = MakeSite(Guid.NewGuid());
+        var credentials = new RecordingCredentialStore();
+        var vm = CreateViewModel(new FakeFtpSiteStore([site]), new FakeFtpClient(), credentialStore: credentials);
+        vm.SelectedSite = vm.Sites.Single();
+        vm.PasswordInput = "typed";
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.True(vm.IsConnected);
+        Assert.Equal(["typed"], credentials.SaveCalls);
+        Assert.Equal("", vm.PasswordInput);
+    }
+
+    /// <summary>Regression: a Credential Manager that couldn't save a typed password stopped Connect before it tried; the login works now and the page says the password wasn't kept.</summary>
+    [Fact]
+    public async Task ConnectAsync_TypedPassword_CredentialManagerFails_StillConnectsAndSaysSo()
+    {
+        var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), new FakeFtpClient(), credentialStore: new ThrowingCredentialStore());
+        vm.SelectedSite = vm.Sites.Single();
+        vm.PasswordInput = "typed";
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.True(vm.IsConnected);
+        Assert.Contains("couldn't be saved in Windows Credential Manager", vm.ConnectionStatusMessage);
+    }
+
+    /// <summary>The Encryption box shows every mode in plain words, and the unencrypted one says the password travels as plain text.</summary>
+    [Fact]
+    public void EncryptionChoices_CoverEveryMode_InPlainWords()
+    {
+        Assert.Equal(
+            Enum.GetValues<FtpEncryptionMode>().Order(),
+            ServerViewModel.EncryptionChoices.Select(c => c.Mode).Order());
+        Assert.Contains("plain text", ServerViewModel.EncryptionChoices.Single(c => c.Mode == FtpEncryptionMode.None).Label);
+        Assert.Contains("recommended", ServerViewModel.EncryptionChoices.Single(c => c.Mode == FtpEncryptionMode.Auto).Label);
+    }
+
+    /// <summary>Regression: a new site started as plain FTP, so the password and every upload travelled unencrypted unless the user changed the box.</summary>
+    [Fact]
+    public void NewSite_StartsEncryptedWhenTheHostSupportsIt()
+    {
+        var vm = CreateViewModel(new FakeFtpSiteStore([]), new FakeFtpClient());
+
+        vm.NewSiteCommand.Execute(null);
+
+        Assert.Equal(FtpEncryptionMode.Auto, vm.EncryptionModeInput);
+    }
+
+    /// <summary>A saved site keeps the encryption it was saved with.</summary>
+    [Fact]
+    public void SelectingASavedPlainSite_KeepsItsSetting()
+    {
+        var site = MakeSite(Guid.NewGuid());
+        site.EncryptionMode = FtpEncryptionMode.None;
+        var vm = CreateViewModel(new FakeFtpSiteStore([site]), new FakeFtpClient());
+        vm.NewSiteCommand.Execute(null);
+
+        vm.SelectedSite = vm.Sites.Single();
+
+        Assert.Equal(FtpEncryptionMode.None, vm.EncryptionModeInput);
+    }
+
+    /// <summary>After connecting, the page says whether the connection is encrypted (it showed nothing once the folder was listed).</summary>
+    [Theory]
+    [InlineData(false, "isn't encrypted")]
+    [InlineData(true, "is encrypted")]
+    public async Task ConnectAsync_SaysWhetherTheConnectionIsEncrypted(bool encrypted, string expected)
+    {
+        var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), new FakeFtpClient { IsEncrypted = encrypted });
+        vm.SelectedSite = vm.Sites.Single();
+        vm.PasswordInput = "irrelevant-password";
+
+        await vm.ConnectCommand.ExecuteAsync(null);
+
+        Assert.Contains(expected, vm.ConnectionStatusMessage);
+    }
+
+    /// <summary>A game with UE4SS mods.txt "OnMod : 1" and OnMod's main.lua, and a server with Keybinds on.</summary>
+    private static (string Folder, FakeSettingsService Settings, MemoryFtpClient Ftp) GameWithOnModAndServer()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        var mods = IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveModsFolder(settings.Current.IcarusContentPath!);
+        WriteFile(Path.Combine(mods, "mods.txt"), "OnMod : 1\r\n");
+        WriteFile(Path.Combine(mods, "OnMod", "Scripts", "main.lua"));
+        var ftp = new MemoryFtpClient();
+        ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"] = "Keybinds : 1\r\n";
+        return (folder, settings, ftp);
+    }
+
+    /// <summary>
+    /// Regression: when the mods.txt step failed (a dropped connection), the page said only "UE4SS
+    /// mod sync failed", not which mods were now on the server but not turned on.
+    /// </summary>
+    [Fact]
+    public async Task SyncUe4ssMods_ModsTxtUploadFails_NamesTheModsLeftOff()
+    {
+        var (folder, settings, ftp) = GameWithOnModAndServer();
+        try
+        {
+            var vm = await ConnectedAsync(ftp, settings);
+            ftp.FailUploadContaining = "mods.txt";
+
+            await vm.SyncUe4ssModsToServerCommand.ExecuteAsync(null);
+
+            Assert.Contains($"{RemoteUe4ss}/Mods/OnMod/Scripts/main.lua", ftp.Files.Keys);
+            Assert.Contains("OnMod", vm.ConnectionStatusMessage);
+            Assert.Contains("not turned on", vm.ConnectionStatusMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Regression: a mod whose folder went up but whose mods.txt step failed stayed off for good:
+    /// the next sync saw its folder, said "already has every mod" and never turned it on.
+    /// </summary>
+    [Fact]
+    public async Task SyncUe4ssMods_AfterTheModsTxtStepFailed_NextSyncTurnsTheModOn()
+    {
+        var (folder, settings, ftp) = GameWithOnModAndServer();
+        try
+        {
+            var dialogs = new FakeDialogService(confirmResult: true);
+            var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), ftp, dialogs, settings: settings);
+            vm.SelectedSite = vm.Sites.Single();
+            vm.PasswordInput = "irrelevant-password";
+            await vm.ConnectCommand.ExecuteAsync(null);
+            ftp.FailUploadContaining = "mods.txt";
+            await vm.SyncUe4ssModsToServerCommand.ExecuteAsync(null);
+            ftp.FailUploadContaining = null;
+
+            await vm.SyncUe4ssModsToServerCommand.ExecuteAsync(null);
+
+            var txt = ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"];
+            Assert.Contains("OnMod : 1", txt);
+            Assert.Contains("Keybinds : 1", txt);
+            Assert.DoesNotContain("already has every", vm.ConnectionStatusMessage);
+            Assert.Contains("OnMod", dialogs.Messages[^1]);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>A mod the server's admin turned off ("OnMod : 0") stays off, and one that starts by its enabled.txt is left alone.</summary>
+    [Fact]
+    public async Task SyncUe4ssMods_ModOffOnTheServerOrStartedByEnabledTxt_IsLeftAsTheServerHasIt()
+    {
+        var (folder, settings) = GameWithUe4ss();
+        try
+        {
+            var mods = IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveModsFolder(settings.Current.IcarusContentPath!);
+            WriteFile(Path.Combine(mods, "mods.txt"), "OffThere : 1\r\nByFile : 1\r\n");
+            WriteFile(Path.Combine(mods, "OffThere", "Scripts", "main.lua"));
+            WriteFile(Path.Combine(mods, "ByFile", "Scripts", "main.lua"));
+            var ftp = new MemoryFtpClient();
+            ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"] = "OffThere : 0\r\nKeybinds : 1\r\n";
+            ftp.Files[$"{RemoteUe4ss}/Mods/OffThere/Scripts/main.lua"] = "x";
+            ftp.Files[$"{RemoteUe4ss}/Mods/ByFile/Scripts/main.lua"] = "x";
+            ftp.Files[$"{RemoteUe4ss}/Mods/ByFile/enabled.txt"] = "";
+            var dialogs = new FakeDialogService(confirmResult: true);
+            var vm = CreateViewModel(new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]), ftp, dialogs, settings: settings);
+            vm.SelectedSite = vm.Sites.Single();
+            vm.PasswordInput = "irrelevant-password";
+            await vm.ConnectCommand.ExecuteAsync(null);
+
+            await vm.SyncUe4ssModsToServerCommand.ExecuteAsync(null);
+
+            Assert.Equal("OffThere : 0\r\nKeybinds : 1\r\n", ftp.Files[$"{RemoteUe4ss}/Mods/mods.txt"]);
+            Assert.Equal(0, dialogs.ConfirmCallCount);
+            Assert.Contains("already has every", vm.ConnectionStatusMessage);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Regression: when ftp_sites.json couldn't be saved (held by a scanner), Install merged pak
+    /// stopped between deleting the old paks and renaming the new one into place, leaving the
+    /// server with only "….pak.uploading", which the game doesn't load.
+    /// </summary>
+    [Fact]
+    public async Task InstallPakToServer_SiteListCantBeSaved_StillRenamesThePakIntoPlace()
+    {
+        var siteStore = new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]);
+        var ftp = new RecordingFtpClient("IMM_Merged_Mod_P.pak");
+        var (vm, folder) = await ConnectedWithBuiltPakAsync(ftp, siteStore: siteStore);
+        try
+        {
+            siteStore.ThrowOnSave = true;
+
+            await vm.InstallPakToServerCommand.ExecuteAsync(null);
+
+            Assert.Contains($"rename {Mods}ISL-Merged_P.pak.uploading -> {Mods}ISL-Merged_P.pak", ftp.Operations);
+            Assert.Contains("Installed the merged pak", vm.ConnectionStatusMessage);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>Regression: a delete that worked was reported as "Delete failed" when ftp_sites.json couldn't be saved afterwards.</summary>
+    [Fact]
+    public async Task DeleteRemote_SiteListCantBeSaved_StillSaysDeleted()
+    {
+        var siteStore = new FakeFtpSiteStore([MakeSite(Guid.NewGuid())]);
+        var vm = CreateViewModel(siteStore, new DeletingFtpClient());
+        vm.SelectedSite = vm.Sites.Single();
+        vm.PasswordInput = "irrelevant-password";
+        await vm.ConnectCommand.ExecuteAsync(null);
+        siteStore.ThrowOnSave = true;
+        vm.SelectedRemoteEntry = new FtpEntry("some-file.txt", false, 10, null);
+
+        await vm.DeleteRemoteCommand.ExecuteAsync(null);
+
+        Assert.Equal("Deleted 'some-file.txt'.", vm.ConnectionStatusMessage);
+    }
+
     /// <summary>An FTP server in memory with real folders and file contents: listing shows the direct children.</summary>
     private sealed class MemoryFtpClient : IFtpClient
     {
         public Dictionary<string, string> Files { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public Task ConnectAsync(FtpSiteProfile site, string password, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public bool IsEncrypted => false;
 
         /// <summary>Listings that still work; after that every listing fails (a dropped connection). Null: never fails.</summary>
         public int? ListingsBeforeFailure { get; set; }
@@ -1030,6 +1387,24 @@ public sealed class ServerViewModelTests
         public string? Read(string target) => throw new InvalidOperationException("Credential Manager is unavailable");
 
         public void Delete(string target) { }
+    }
+
+    /// <summary>Holds one saved password per target and records every Save.</summary>
+    private sealed class RecordingCredentialStore : ICredentialStore
+    {
+        public Dictionary<string, string> Saved { get; } = [];
+
+        public List<string> SaveCalls { get; } = [];
+
+        public void Save(string target, string secret)
+        {
+            SaveCalls.Add(secret);
+            Saved[target] = secret;
+        }
+
+        public string? Read(string target) => Saved.TryGetValue(target, out var secret) ? secret : null;
+
+        public void Delete(string target) => Saved.Remove(target);
     }
 
     private sealed class FakeCredentialStore : ICredentialStore
