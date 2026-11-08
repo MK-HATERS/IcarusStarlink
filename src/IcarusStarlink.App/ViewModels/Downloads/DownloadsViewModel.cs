@@ -59,6 +59,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
     /// <summary>UE4SS names staged and in the game — one answer for every check on this page.</summary>
     private readonly Ue4ssInstalledNames _ue4ssNames;
 
+    /// <summary>Whether Icarus runs, for refusing an install that would take a UE4SS mod out of the running game. Null never refuses.</summary>
+    private readonly IGameProcessChecker? _gameProcessChecker;
+
     /// <summary>
     /// One install at a time. The nxm:// hand-off, Download &amp; extract, Download selected and the
     /// Nexus cards could each run an import at once, and Library import isn't safe for concurrent
@@ -102,8 +105,11 @@ public sealed partial class DownloadsViewModel : ObservableObject
         string pendingDownloadsDirectory, IPrebuiltPakImporter prebuiltPakImporter, string dataFolder,
         ICatalogSnapshotStore? catalogSnapshotStore = null,
         IDialogService? dialogService = null,
-        ModReplacementService? modReplacement = null)
+        ModReplacementService? modReplacement = null,
+        IGameProcessChecker? gameProcessChecker = null)
     {
+        // Null never refuses (tests, headless): see RefuseWhileGameHoldsMods.
+        _gameProcessChecker = gameProcessChecker;
         // The app passes the shared one (with the fix service and the saved source paks); a
         // default is enough to replace copies safely when nothing else is wired up.
         _modReplacement = modReplacement ?? new ModReplacementService(
@@ -278,6 +284,39 @@ public sealed partial class DownloadsViewModel : ObservableObject
         PendingDownloadStatusMessage = saveError is null
             ? status
             : $"{status} Starlink couldn't save the downloads list ({saveError}), so they may show again after a restart.";
+    }
+
+    /// <summary>
+    /// Where downloads still running will land. A file appears at its final path only once it is
+    /// complete, so two overlapping downloads of one name both found the path free; the second
+    /// then replaced the first and both list entries pointed at one file.
+    /// </summary>
+    private readonly HashSet<string> _reservedDownloadPaths = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A free file name under Pending_Downloads for a download, held until ReleaseDownloadPath.</summary>
+    private string ReserveDownloadFileName(string candidate, int modId, int fileId, Func<string, bool> belongsToThisDownload)
+    {
+        lock (_reservedDownloadPaths)
+        {
+            var name = DownloadFileNameSanitizer.ResolveUniqueFileName(
+                _pendingDownloadsDirectory, candidate, modId, fileId, belongsToThisDownload,
+                path => _reservedDownloadPaths.Contains(Path.GetFullPath(path)));
+            _reservedDownloadPaths.Add(Path.GetFullPath(Path.Combine(_pendingDownloadsDirectory, name)));
+            return name;
+        }
+    }
+
+    private void ReleaseDownloadPath(string? path)
+    {
+        if (path is null)
+        {
+            return;
+        }
+
+        lock (_reservedDownloadPaths)
+        {
+            _reservedDownloadPaths.Remove(Path.GetFullPath(path));
+        }
     }
 
     /// <summary>

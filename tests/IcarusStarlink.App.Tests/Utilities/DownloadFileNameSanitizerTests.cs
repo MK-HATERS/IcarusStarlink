@@ -114,4 +114,16 @@ public class DownloadFileNameSanitizerTests
 
         Assert.Equal("mod.zip", result);
     }
+
+    /// <summary>A name another download still running will land on isn't on disk yet, but it is taken.</summary>
+    [Fact]
+    public void ResolveUniqueFileName_ReservedByARunningDownload_DisambiguatesWithModAndFileId()
+    {
+        var dir = CreateTempDirectory();
+
+        var result = DownloadFileNameSanitizer.ResolveUniqueFileName(
+            dir, "mod.zip", modId: 42, fileId: 7, _ => false, path => string.Equals(path, Path.Combine(dir, "mod.zip"), StringComparison.OrdinalIgnoreCase));
+
+        Assert.Equal("mod_42-7.zip", result);
+    }
 }

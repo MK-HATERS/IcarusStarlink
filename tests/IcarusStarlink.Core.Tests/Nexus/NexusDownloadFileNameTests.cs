@@ -39,4 +39,13 @@ public sealed class NexusDownloadFileNameTests
     [InlineData("nexus_361_2739")]
     public void StripNexusSuffix_NoSuffix_Unchanged(string input) =>
         Assert.Equal(input, NexusDownloadFileName.StripNexusSuffix(input));
+
+    /// <summary>The "_&lt;modId&gt;-&lt;fileId&gt;" tag a second file of one name is saved with showed up as the mod's name.</summary>
+    [Theory]
+    [InlineData("MkHaters Stability_368-3137", 368, 3137, "MkHaters Stability")]
+    [InlineData("MkHaters Stability_368-3137", 368, 9, "MkHaters Stability_368-3137")]
+    [InlineData("Mod_2-3", 5, 6, "Mod_2-3")]
+    [InlineData("_368-3137", 368, 3137, "_368-3137")]
+    public void StripUniquenessTag_RemovesOnlyThisDownloadsOwnTag(string input, int modId, int fileId, string expected) =>
+        Assert.Equal(expected, NexusDownloadFileName.StripUniquenessTag(input, modId, fileId));
 }

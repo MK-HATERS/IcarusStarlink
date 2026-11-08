@@ -167,6 +167,7 @@ public sealed partial class DownloadsViewModel
         _activeDownloadsTracker.Start(trackerKey, trackerDisplayName);
         var row = BeginDownload(trackerDisplayName);
         var cancellationToken = row.Token;
+        string? reservedPath = null;
         try
         {
             var links = await _nexusApiClient.GetDownloadLinksAsync(
@@ -185,14 +186,17 @@ public sealed partial class DownloadsViewModel
             var fileName = "";
             var localPath = await HttpFileDownloader.DownloadToFileAsync(_downloadHttpClient, [.. links.Select(l => l.Uri)], response =>
             {
+                // Held for this download until it ends (the finally below), so another one running
+                // at the same time can't pick the same name.
                 fileName = ChooseNexusFileName(response, nxmUrl, links[0].Uri);
+                reservedPath = Path.Combine(_pendingDownloadsDirectory, fileName);
                 if (displayName is null)
                 {
                     // "Mod #123" until now: the file's own name says more on the Downloading row.
-                    row.Name = Path.GetFileNameWithoutExtension(fileName);
+                    row.Name = NexusDownloadFileName.StripUniquenessTag(Path.GetFileNameWithoutExtension(fileName), nxmUrl.ModId, nxmUrl.FileId);
                 }
 
-                return Path.Combine(_pendingDownloadsDirectory, fileName);
+                return reservedPath;
             }, HttpFileDownloader.DefaultIdleTimeout, cancellationToken, row.Progress);
 
             // The import below doesn't count as downloading: Cancel downloads must not cut an
@@ -251,6 +255,7 @@ public sealed partial class DownloadsViewModel
         }
         finally
         {
+            ReleaseDownloadPath(reservedPath);
             FinishDownloadRow(row);
             _activeDownloadsTracker.Finish(trackerKey);
         }
@@ -284,9 +289,9 @@ public sealed partial class DownloadsViewModel
         Directory.CreateDirectory(_pendingDownloadsDirectory);
         // See DownloadFileNameSanitizer.ResolveUniqueFileName's own doc comment: disambiguates
         // against a DIFFERENT (ModId, FileId) pair's download that happens to share this exact
-        // file name, without disturbing a legitimate re-download of this same pair.
-        return DownloadFileNameSanitizer.ResolveUniqueFileName(
-            _pendingDownloadsDirectory, fileName, nxmUrl.ModId, nxmUrl.FileId,
+        // file name, finished or still running, without disturbing a re-download of this same pair.
+        return ReserveDownloadFileName(
+            fileName, nxmUrl.ModId, nxmUrl.FileId,
             path => _pendingDownloadStore.Entries.Any(e => e.ModId == nxmUrl.ModId && e.FileId == nxmUrl.FileId && e.LocalFilePath == path));
     }
 

@@ -1,4 +1,5 @@
 using System.IO;
+using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.App.Utilities;
@@ -30,16 +31,19 @@ public static class DownloadFileNameSanitizer
     /// <paramref name="pathAlreadyBelongsToThisDownload"/> is how the caller tells the two apart
     /// (checking its own PendingDownloadEntry records) — only a collision against something else (a
     /// different pair's download, or an untracked stray file) gets disambiguated.
+    /// <paramref name="isReservedByAnotherDownload"/> names paths a download still running will
+    /// land on: such a file doesn't exist yet (it appears only once complete), so without it two
+    /// overlapping downloads of one name both took the same path. A reserved path is always taken.
     /// </summary>
     public static string ResolveUniqueFileName(
-        string directory, string candidateFileName, int modId, int fileId, Func<string, bool> pathAlreadyBelongsToThisDownload)
+        string directory, string candidateFileName, int modId, int fileId, Func<string, bool> pathAlreadyBelongsToThisDownload,
+        Func<string, bool>? isReservedByAnotherDownload = null)
     {
         var candidatePath = Path.Combine(directory, candidateFileName);
-        if (!File.Exists(candidatePath) || pathAlreadyBelongsToThisDownload(candidatePath))
-        {
-            return candidateFileName;
-        }
-
-        return $"{Path.GetFileNameWithoutExtension(candidateFileName)}_{modId}-{fileId}{Path.GetExtension(candidateFileName)}";
+        var free = isReservedByAnotherDownload?.Invoke(candidatePath) != true
+            && (!File.Exists(candidatePath) || pathAlreadyBelongsToThisDownload(candidatePath));
+        return free
+            ? candidateFileName
+            : $"{Path.GetFileNameWithoutExtension(candidateFileName)}{NexusDownloadFileName.UniquenessTag(modId, fileId)}{Path.GetExtension(candidateFileName)}";
     }
 }

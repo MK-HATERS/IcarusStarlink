@@ -42,4 +42,16 @@ public static partial class NexusDownloadFileName
             : ManualDownloadSuffixPattern().Match(trimmed);
         return manual.Success ? manual.Groups["name"].Value.Trim() : nameWithoutExtension;
     }
+
+    /// <summary>"_368-3137": what a download's file name gets when another download already has that name (DownloadFileNameSanitizer.ResolveUniqueFileName).</summary>
+    public static string UniquenessTag(int modId, int fileId) => $"_{modId}-{fileId}";
+
+    /// <summary>"MkHaters Stability_368-3137" → "MkHaters Stability". Only this download's own IDs are removed, so a real name such as "Mod_2-3" stays.</summary>
+    public static string StripUniquenessTag(string nameWithoutExtension, int modId, int fileId)
+    {
+        var tag = UniquenessTag(modId, fileId);
+        return nameWithoutExtension.Length > tag.Length && nameWithoutExtension.EndsWith(tag, StringComparison.Ordinal)
+            ? nameWithoutExtension[..^tag.Length]
+            : nameWithoutExtension;
+    }
 }

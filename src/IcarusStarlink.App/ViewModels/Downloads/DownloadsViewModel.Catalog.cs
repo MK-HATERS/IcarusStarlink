@@ -657,49 +657,56 @@ public sealed partial class DownloadsViewModel
         Directory.CreateDirectory(_pendingDownloadsDirectory);
         var fileId = PendingDownloadEntry.CatalogFileId(catalogEntry.Id);
         var fileName = DownloadFileNameSanitizer.Sanitize($"{catalogEntry.Name}{(isExmodz ? ".EXMODZ" : ".pak")}");
-        fileName = DownloadFileNameSanitizer.ResolveUniqueFileName(
-            _pendingDownloadsDirectory, fileName, 0, fileId,
+        // Held until the entry is recorded, so another download running at the same time can't pick the same name.
+        fileName = ReserveDownloadFileName(
+            fileName, 0, fileId,
             path => _pendingDownloadStore.Entries.Any(e => e.ModId == 0 && e.FileId == fileId && e.LocalFilePath == path));
         var localPath = Path.Combine(_pendingDownloadsDirectory, fileName);
-
-        // Streamed to disk through a .part file, same as the Nexus path:
-        // GetByteArrayAsync buffered the whole pak in memory AND put the entire transfer under
-        // HttpClient's 100 s timeout, so a large catalog pak on a slow connection failed every time.
-        // The Downloading row: the caller's when it installs straight after (it then says
-        // "Installing…" and the caller removes it), else this method's own, gone once the file is in.
-        var row = callerRow ?? BeginDownload(catalogEntry.Name);
         try
         {
-            await HttpFileDownloader.DownloadToFileAsync(_downloadHttpClient, [downloadUrl], localPath, HttpFileDownloader.DefaultIdleTimeout, row.Token, row.Progress);
+            // Streamed to disk through a .part file, same as the Nexus path:
+            // GetByteArrayAsync buffered the whole pak in memory AND put the entire transfer under
+            // HttpClient's 100 s timeout, so a large catalog pak on a slow connection failed every time.
+            // The Downloading row: the caller's when it installs straight after (it then says
+            // "Installing…" and the caller removes it), else this method's own, gone once the file is in.
+            var row = callerRow ?? BeginDownload(catalogEntry.Name);
+            try
+            {
+                await HttpFileDownloader.DownloadToFileAsync(_downloadHttpClient, [downloadUrl], localPath, HttpFileDownloader.DefaultIdleTimeout, row.Token, row.Progress);
+            }
+            finally
+            {
+                if (callerRow is null)
+                {
+                    FinishDownloadRow(row);
+                }
+                else
+                {
+                    EndDownload(row);
+                }
+            }
+
+            // catalogEntryId is the Database counterpart of the Nexus pipeline's nexusModId — the
+            // stable link that keeps the Downloaded badge and update-checking working after a
+            // Rename, which name-matching alone can't survive.
+            TrySaveDownloadsList(() => _pendingDownloadStore.Add(new PendingDownloadEntry
+            {
+                ModId = 0,
+                FileId = fileId,
+                FileName = fileName,
+                LocalFilePath = localPath,
+                DownloadedAtUtc = DateTimeOffset.UtcNow,
+                Source = PendingDownloadEntry.DatabaseSource,
+                CatalogEntryId = catalogEntry.Id,
+                DisplayName = catalogEntry.Name,
+                Author = catalogEntry.Author,
+            }));
+            ReloadPendingDownloads();
         }
         finally
         {
-            if (callerRow is null)
-            {
-                FinishDownloadRow(row);
-            }
-            else
-            {
-                EndDownload(row);
-            }
+            ReleaseDownloadPath(localPath);
         }
-
-        // catalogEntryId is the Database counterpart of the Nexus pipeline's nexusModId — the
-        // stable link that keeps the Downloaded badge and update-checking working after a
-        // Rename, which name-matching alone can't survive.
-        TrySaveDownloadsList(() => _pendingDownloadStore.Add(new PendingDownloadEntry
-        {
-            ModId = 0,
-            FileId = fileId,
-            FileName = fileName,
-            LocalFilePath = localPath,
-            DownloadedAtUtc = DateTimeOffset.UtcNow,
-            Source = PendingDownloadEntry.DatabaseSource,
-            CatalogEntryId = catalogEntry.Id,
-            DisplayName = catalogEntry.Name,
-            Author = catalogEntry.Author,
-        }));
-        ReloadPendingDownloads();
 
         return PendingDownloads.FirstOrDefault(p => p.ModId == 0 && p.FileId == fileId)
             ?? throw new InvalidOperationException($"'{catalogEntry.Name}' downloaded but couldn't be recorded.");

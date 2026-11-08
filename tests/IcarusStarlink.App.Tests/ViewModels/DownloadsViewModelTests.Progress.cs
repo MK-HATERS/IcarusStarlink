@@ -99,6 +99,31 @@ public sealed partial class DownloadsViewModelTests
         Assert.Contains("Cancelled downloading 'Alpha'", vm.CatalogStatusMessage);
     }
 
+    /// <summary>
+    /// Two downloads of one name running at once both found the name free (a file appears only when
+    /// it is complete): the second replaced the first and both entries pointed at one file.
+    /// </summary>
+    [Fact]
+    public async Task CatalogDownloads_TwoWithTheSameNameAtOnce_LandInTwoFiles()
+    {
+        var handler = new GatedHandler(firstChunk: 10, total: 20);
+        var harness = new Harness(_root) { HttpHandler = handler };
+        var vm = harness.Build();
+
+        var first = vm.DownloadCatalogFileAsync(PakEntry("a", "Same Name"));
+        var second = vm.DownloadCatalogFileAsync(PakEntry("b", "Same Name"));
+        await WaitUntil(() => vm.ActiveDownloads.Count == 2 && vm.ActiveDownloads.All(r => r.BytesReceived == 10), "both rows started");
+        handler.Body("a").Release();
+        await first;
+        handler.Body("b").Release();
+        await second;
+
+        var paths = harness.PendingStore.Entries.Select(e => e.LocalFilePath).ToList();
+        Assert.Equal(2, paths.Count);
+        Assert.Equal(2, paths.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.All(paths, p => Assert.True(File.Exists(p), p));
+    }
+
     [Fact]
     public async Task CatalogDownload_Fails_TheRowGoesAndTheFailureIsSaid()
     {

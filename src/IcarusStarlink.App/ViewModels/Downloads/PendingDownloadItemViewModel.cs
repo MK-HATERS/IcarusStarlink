@@ -38,12 +38,14 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
     /// <summary>
     /// The mod's name as its source listed it (a catalog entry's Name), else the name the Library
     /// shows for what this download installed (or for the same Nexus mod), else the upload's own
-    /// file name without Nexus's id/version/timestamp/hash tail or the extension. The raw
+    /// file name without Nexus's id/version/timestamp/hash tail, the "_&lt;modId&gt;-&lt;fileId&gt;" tag a
+    /// second file of the same name is saved with, or the extension. The raw
     /// "Synthetic Miasma V1 1 376 1.1 2026-10-22T10-52Z AHkozS8Ru" read as noise on the Downloads page.
     /// </summary>
     public string DisplayName => _displayName
         ?? LibraryName()
-        ?? NexusDownloadFileName.StripNexusSuffix(System.IO.Path.GetFileNameWithoutExtension(FileName), IsCatalog ? null : ModId);
+        ?? NexusDownloadFileName.StripNexusSuffix(
+            NexusDownloadFileName.StripUniquenessTag(System.IO.Path.GetFileNameWithoutExtension(FileName), ModId, FileId), IsCatalog ? null : ModId);
 
     private readonly string? _displayName;
 
