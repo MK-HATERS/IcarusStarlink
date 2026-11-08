@@ -857,7 +857,7 @@
                                            Visibility="{Binding ValidationMessage, Converter={StaticResource NullToVisibilityConverter}}"/>
                                 <Button Content="Save settings" Command="{Binding SaveSettingsCommand}" Style="{StaticResource PrimaryButtonStyle}"
                                         HorizontalAlignment="Left" Margin="0,6,0,0"
-                                        ToolTip="Saves these settings. Any other lines in the server's settings file are kept. A running server uses them after a restart."/>
+                                        ToolTip="Saves these settings. Any other lines in the server's settings file are kept. While the server runs, game settings (max players, passwords, world and lobby options) are saved through Restart."/>
                             </StackPanel>
                         </Border>
                     </Grid>

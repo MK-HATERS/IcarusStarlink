@@ -232,6 +232,85 @@ public sealed partial class LocalServerViewModelTests
         Assert.Equal("Test Olympus", vm.LastProspectName);
     }
 
+    // ---- Game settings while the server runs ----
+
+    /// <summary>A running server writes its own game settings back, so Save refuses them and points to Restart.</summary>
+    [Fact]
+    public async Task Save_WhileRunning_GameSettingChange_IsRefused_AndPointsToRestart()
+    {
+        var (vm, processes, _) = BuildWithIni();
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.TickAsync();
+
+        vm.MaxPlayersText = "4";
+        vm.SaveSettingsCommand.Execute(null);
+
+        Assert.Equal(6, IniOnDisk().Read().MaxPlayers);
+        Assert.Contains("Restart", vm.ValidationMessage);
+    }
+
+    [Fact]
+    public async Task Save_WhileRunning_JoinPasswordChange_IsRefused()
+    {
+        var (vm, processes, _) = BuildWithIni();
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.TickAsync();
+
+        vm.JoinPassword = "secret";
+        vm.SaveSettingsCommand.Execute(null);
+
+        Assert.True(string.IsNullOrEmpty(IniOnDisk().Read().JoinPassword));
+        Assert.Contains("Restart", vm.ValidationMessage);
+    }
+
+    [Fact]
+    public async Task Save_WhileRunning_OnlyAPortChange_StillSaves()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(IniPath)!);
+        File.WriteAllText(IniPath, IniHeader + "MaxPlayers=6\r\nAdminPassword=old\r\n");
+        var (vm, store, processes, _) = BuildWithServer();
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.TickAsync();
+
+        vm.PortText = "17790";
+        vm.SaveSettingsCommand.Execute(null);
+
+        Assert.Null(vm.ValidationMessage);
+        Assert.Equal(17790, store.Profiles.Single().Port);
+        Assert.Equal("Saved. Restart the server to apply.", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task Restart_AppliesAGameSettingChange()
+    {
+        var (vm, processes, _) = BuildWithIni();
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.TickAsync();
+
+        vm.MaxPlayersText = "4";
+        processes.DuringStop = () => processes.Running = null;
+        await vm.RestartCommand.ExecuteAsync(null);
+
+        Assert.Equal(4, IniOnDisk().Read().MaxPlayers);
+        Assert.Single(processes.Started);
+    }
+
+    [Fact]
+    public async Task Save_WhileRunning_ServerRewroteIniWithOnlyItsOwnKeys_FormUnchanged_Saves()
+    {
+        var (vm, processes, dialogs) = BuildWithIni();
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.TickAsync();
+        HandEditIni("MaxPlayers=6.000000\r\nAdminPassword=old\r\nLastProspectName=Test Olympus\r\n");
+
+        vm.SaveSettingsCommand.Execute(null);
+
+        Assert.Empty(dialogs.Messages);
+        Assert.Null(vm.ValidationMessage);
+        Assert.Equal("Saved. Restart the server to apply.", vm.StatusMessage);
+        Assert.Equal("Test Olympus", IniOnDisk().Read().LastProspectName);
+    }
+
     [Fact]
     public void ResumeProspect_UnsetInTheFile_ShowsOn_AndIsSavedAsTrueOrFalse()
     {

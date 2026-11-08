@@ -287,6 +287,15 @@ public sealed partial class LocalServerViewModel
             return false;
         }
 
+        // A running server writes its own game settings back over the file, so a change saved now
+        // is lost. Restart still applies them: it saves after its stop, when Running is null.
+        if ((Running is not null || IsBusy || IsAutomationBusy)
+            && ChangesGameSettings(settings, DedicatedServerLayout.SettingsIniPath(updated.InstallFolder, updated.SavedDirSuffix), ini == IniReconcile.KeptMine))
+        {
+            ValidationMessage = "A running server keeps its own game settings (max players, passwords, world and lobby options) and writes them back, so these weren't saved. Click Restart: it stops the server, saves them and starts it with them. Or stop the server first.";
+            return false;
+        }
+
         if (DescribePortClash(current, updated) is { } clash
             && clash != acceptedPortClash
             && !ConfirmPortClash(clash))
@@ -586,6 +595,30 @@ public sealed partial class LocalServerViewModel
     internal static string IniSettingsKey(DedicatedServerSettings s) => string.Join("\u001f",
         s.JoinPassword, s.AdminPassword, s.MaxPlayers, s.ShutdownIfNotJoinedFor, s.ShutdownIfEmptyFor, s.GameSaveFrequency, s.LoadProspect, s.CreateProspect,
         s.AllowNonAdminsToLaunchProspects, s.AllowNonAdminsToDeleteProspects, s.ResumeProspect ?? true, s.SaveGameOnExit, s.FiberFoliageRespawn, s.LargeStonesRespawn);
+
+    /// <summary>
+    /// Writing <paramref name="settings"/> to the ini at <paramref name="path"/> would change a game
+    /// setting the form edits. Compared with the ini as last read, or read now when that is unknown
+    /// or stale (<paramref name="readNow"/>: the file changed and the form is kept over it); a file
+    /// that can't be read counts as a change.
+    /// </summary>
+    private bool ChangesGameSettings(DedicatedServerSettings settings, string path, bool readNow)
+    {
+        var onDisk = readNow ? null : _iniSettingsKey;
+        if (onDisk is null)
+        {
+            try
+            {
+                onDisk = IniSettingsKey(ServerSettingsIni.Load(path).Read());
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+
+        return IniSettingsKey(settings) != onDisk;
+    }
 
     /// <summary>The form now matches the ini at this path (just read or just written); null forgets it (the file couldn't be read).</summary>
     private void RememberIniOnDisk(string? path)
