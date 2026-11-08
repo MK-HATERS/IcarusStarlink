@@ -5,13 +5,13 @@ namespace IcarusStarlink.App.Services;
 /// <summary>
 /// The note the updater leaves before it relaunches the app (IcarusStarlink.Updater's
 /// UpdateOutcomeFile: the outcome's name on the first line, one sentence for the user on the
-/// second). Read once on the next start and deleted, so a rolled-back update is reported instead
+/// second; the names come from UpdateOutcomeNote, which both exes compile). Read once on the next start and deleted, so a rolled-back update is reported instead
 /// of the old version quietly coming back.
 /// </summary>
 public sealed record AppUpdateOutcome(bool Installed, string Message)
 {
-    public const string FileName = "update-outcome.txt";
-    public const string TempFileName = "IcarusStarlink-update-outcome.txt";
+    public const string FileName = IcarusStarlink.Updater.UpdateOutcomeNote.FileName;
+    public const string TempFileName = IcarusStarlink.Updater.UpdateOutcomeNote.TempFileName;
 
     /// <summary>The newest note among <paramref name="paths"/> (the Logs folder, then TEMP), or null; every one found is deleted.</summary>
     public static AppUpdateOutcome? TakeLast(params string[] paths)
@@ -35,7 +35,7 @@ public sealed record AppUpdateOutcome(bool Installed, string Message)
                     continue;
                 }
 
-                var installed = string.Equals(lines[0].Trim(), "Applied", StringComparison.OrdinalIgnoreCase);
+                var installed = string.Equals(lines[0].Trim(), IcarusStarlink.Updater.UpdateOutcomeNote.AppliedLine, StringComparison.OrdinalIgnoreCase);
                 var message = lines.Length > 1 && lines[1].Trim().Length > 0
                     ? lines[1].Trim()
                     : installed ? "The update installed." : "The last update didn't install; your previous version is still in place.";

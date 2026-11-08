@@ -40,7 +40,7 @@ public sealed class AppUpdateOutcomeTests : IDisposable
         var temp = Path.Combine(_root, AppUpdateOutcome.TempFileName);
         File.WriteAllText(temp, "RolledBack\nold failure\n");
         File.SetLastWriteTimeUtc(temp, DateTime.UtcNow.AddDays(-2));
-        File.WriteAllText(logs, "Applied\nThe update installed.\n");
+        File.WriteAllText(logs, $"{IcarusStarlink.Updater.UpdateOutcomeNote.AppliedLine}\nThe update installed.\n");
 
         // The older note is passed first, so "the first one found wins" can't pass: only the
         // write-time comparison picks the newer one.

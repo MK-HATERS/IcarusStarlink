@@ -13,6 +13,12 @@
     <ProjectReference Include="..\ThirdParty\UeSaveGame\UeSaveGame.csproj" />
   </ItemGroup>
 
+  <!-- The update-outcome note's names, compiled into both exes so the updater that writes the
+       note and the app that reads it can't drift apart (the Updater isn't referenced as an assembly). -->
+  <ItemGroup>
+    <Compile Include="..\IcarusStarlink.Updater\UpdateOutcomeNote.cs" Link="Services\Shell\UpdateOutcomeNote.cs" />
+  </ItemGroup>
+
   <!-- The Updater ProjectReference inherits this project's own RuntimeIdentifier when one is set
        (e.g. `dotnet publish -r win-x64`), which moves ITS OWN build output from
        bin\$(Configuration)\net10.0\ to bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\. Sourcing

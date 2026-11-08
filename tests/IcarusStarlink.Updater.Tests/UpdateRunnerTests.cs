@@ -149,6 +149,23 @@ public sealed class UpdateRunnerTests : IDisposable
         Assert.Equal(["RolledBack", "line one  line two"], File.ReadAllLines(path));
     }
 
+    /// <summary>
+    /// The app reads a note whose first line is "Applied" as a good update. Nothing tied that word,
+    /// or the note's file names, to what the updater writes: a rename on one side would have turned
+    /// every good update into a reported failure, with every test still passing.
+    /// </summary>
+    [Fact]
+    public void OutcomeFile_AGoodUpdatesFirstLine_IsWhatTheAppReadsAsInstalled()
+    {
+        var path = Path.Combine(_root, UpdateOutcomeFile.FileName);
+
+        UpdateOutcomeFile.Write(path, UpdateRunner.Outcome.Applied, "x");
+
+        Assert.Equal(UpdateOutcomeNote.AppliedLine, File.ReadAllLines(path)[0]);
+        Assert.Equal(UpdateOutcomeNote.FileName, UpdateOutcomeFile.FileName);
+        Assert.Equal(UpdateOutcomeNote.TempFileName, UpdateOutcomeFile.TempFileName);
+    }
+
     [Fact]
     public void Run_RelaunchCallbackReturnsFalse_ResultReflectsThat()
     {
