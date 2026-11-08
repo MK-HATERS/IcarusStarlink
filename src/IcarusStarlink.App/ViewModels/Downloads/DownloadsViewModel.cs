@@ -181,6 +181,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
             }
         });
 
+        // Signed in with another key, or signed out: whether the account is Premium is looked up again.
+        WeakReferenceMessenger.Default.Register<NexusAccountChangedMessage>(this, (recipient, _) => ((DownloadsViewModel)recipient).ForgetNexusAccount());
+
         // An app update or closing the window must not cut a download or an install off halfway.
         WeakReferenceMessenger.Default.Register<BackgroundWorkRequestMessage>(this, (recipient, message) =>
         {

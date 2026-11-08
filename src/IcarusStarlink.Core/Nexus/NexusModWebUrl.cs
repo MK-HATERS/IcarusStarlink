@@ -30,4 +30,10 @@ public static partial class NexusModWebUrl
     }
 
     public static string For(int modId) => $"https://www.nexusmods.com/icarus/mods/{modId}";
+
+    /// <summary>The mod's Files tab.</summary>
+    public static string ForFiles(int modId) => $"{For(modId)}?tab=files";
+
+    /// <summary>One file on the mod's Files tab; nmm=1 asks the page for its Mod Manager Download.</summary>
+    public static string ForFile(int modId, int fileId) => $"{For(modId)}?tab=files&file_id={fileId}&nmm=1";
 }

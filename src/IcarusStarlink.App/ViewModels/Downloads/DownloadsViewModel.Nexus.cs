@@ -29,18 +29,57 @@ namespace IcarusStarlink.App.ViewModels;
 // The Nexus download flow: nxm:// links, file choice, the download itself and the Nexus details recorded on what it installed.
 public sealed partial class DownloadsViewModel
 {
-    /// <summary>
-    /// Resolves a bare Nexus mod ID to a downloadable file, then runs it through
-    /// FetchAndDownloadAsync — the same two-step DownloadModAsync uses. Shared here so
-    /// NexusCatalogViewModel's own per-card Download button (its only real caller) doesn't carry
-    /// its own copy of this logic. A mod with exactly one file downloads it directly, same as
-    /// before; a mod with more than one (different versions, optional add-ons, or FOMOD-style
-    /// variant packs) shows a real picker instead of silently grabbing whatever Nexus marks
-    /// primary — that was silently discarding every other file a mod offered.
-    /// </summary>
     /// <summary>A Nexus API key is saved, so a mod's files can be listed and downloaded from here.</summary>
     public bool CanFetchFromNexus => _credentialStore.Read(CredentialTargets.NexusApiKey) is not null;
 
+    /// <summary>Opens a web page in the browser; returns the error, or null when it opened (tests swap in a fake).</summary>
+    internal Func<string, Exception?> OpenUrl { get; set; } = UrlOpener.TryOpen;
+
+    /// <summary>
+    /// Whether the signed-in Nexus account is Premium: null while unknown (not checked yet, or the
+    /// key couldn't be checked). Looked up once per sign-in (CheckIsPremiumAsync) and forgotten when
+    /// the account changes. Only Premium accounts can download from inside an app.
+    /// </summary>
+    public bool? IsPremium { get; private set; }
+
+    /// <summary>The account was looked up for this sign-in (IsPremium may still be null when the key wasn't recognised).</summary>
+    private bool _premiumChecked;
+
+    /// <summary>IsPremium, looking the account up first if this sign-in hasn't yet. Never throws: Nexus unreachable leaves it unknown and asks again next time.</summary>
+    public async Task<bool?> CheckIsPremiumAsync()
+    {
+        if (_premiumChecked || _credentialStore.Read(CredentialTargets.NexusApiKey) is not { } apiKey)
+        {
+            return IsPremium;
+        }
+
+        try
+        {
+            IsPremium = (await _nexusApiClient.ValidateKeyAsync(apiKey))?.IsPremium;
+            _premiumChecked = true;
+        }
+        catch (Exception)
+        {
+            // Unknown: today's flow (the file list, then Nexus's own answer).
+        }
+
+        return IsPremium;
+    }
+
+    private void ForgetNexusAccount()
+    {
+        IsPremium = null;
+        _premiumChecked = false;
+    }
+
+    /// <summary>
+    /// Resolves a bare Nexus mod ID to a downloadable file, then runs it through
+    /// FetchAndDownloadAsync. Library's Update and "Your build", the missing-requirement offer and
+    /// the Nexus page's Download button all come here. A mod with one file downloads it directly;
+    /// with more (versions, optional add-ons, variant packs) the file list asks which, with the
+    /// newer version of the installed file preselected. An account known not to be Premium can't
+    /// download from inside an app, so the file's own Nexus page opens instead.
+    /// </summary>
     public async Task ResolvePrimaryFileAndFetchAsync(int nexusModId, string? displayName = null)
     {
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
@@ -65,6 +104,17 @@ public sealed partial class DownloadsViewModel
             // variants, perhaps) is what's wanted — fetched directly when it's the only choice,
             // otherwise preselected, so switching to a different variant stays possible.
             var newer = NewerVersionOfInstalledFile(nexusModId, fileSet);
+
+            // A free account: the file list would only lead to Nexus refusing the download.
+            if (await CheckIsPremiumAsync() == false)
+            {
+                var target = newer ?? (files.Count == 1 ? files[0] : null);
+                OpenUrl(target is null ? NexusModWebUrl.ForFiles(nexusModId) : NexusModWebUrl.ForFile(nexusModId, target.FileId));
+                PendingDownloadStatusMessage =
+                    "Nexus only lets Premium accounts download from inside an app. Click Mod Manager Download on the page that opened; Starlink installs it from there.";
+                return;
+            }
+
             NexusModFile file;
             if (files.Count == 1)
             {
@@ -228,23 +278,16 @@ public sealed partial class DownloadsViewModel
         }
         catch (NexusDownloadRejectedException ex)
         {
-            // Nexus's own real rejection for exactly this case: a non-premium account's API key
-            // alone isn't accepted for a direct download-link request (GetDownloadLinksAsync
-            // above) — the account needs a real, temporary key+expires pair, which only comes from
-            // clicking Nexus's own "Mod Manager Download" button on the actual website. Caught
-            // specifically, ahead of the generic catch below, and opens the real mod page directly
-            // rather than just naming it, so there's one less manual step for a confused non-
-            // premium user. Found live: this exact case used to fall through to the generic
-            // "Download failed: ..." message below with no actionable next step at all, since
-            // ResolvePrimaryFileAndFetchAsync's own separate (more helpful) catch for this same
-            // exception type was unreachable dead code — this method's own broad catch already
-            // swallowed it first, every time, before it could ever propagate that far. Only this
-            // rejection: any InvalidOperationException (a failed import, say) used to send the user
-            // to the website with Premium advice.
-            UrlOpener.TryOpen(NexusModWebUrl.For(nxmUrl.ModId));
+            // A non-Premium account's API key alone isn't accepted for a download link: the
+            // account needs the temporary key+expires pair that only Nexus's own "Mod Manager
+            // Download" button on the website gives. Caught ahead of the generic catch below, so
+            // the player gets that next step and the file's own page opens. Only this rejection:
+            // any InvalidOperationException (a failed import, say) used to send the user to the
+            // website with Premium advice.
+            OpenUrl(NexusModWebUrl.ForFile(nxmUrl.ModId, nxmUrl.FileId));
             PendingDownloadStatusMessage =
-                $"{ex.Message} Opened the mod's Nexus page — if your account isn't Premium, click its "
-                + "\"Mod Manager Download\" button there instead (register IcarusStarlink as your nxm:// "
+                $"{ex.Message} Opened the file's Nexus page — if your account isn't Premium, click its "
+                + "\"Mod Manager Download\" button there instead (register Starlink as your nxm:// "
                 + "handler in Settings first, if you haven't already).";
         }
         catch (Exception ex)

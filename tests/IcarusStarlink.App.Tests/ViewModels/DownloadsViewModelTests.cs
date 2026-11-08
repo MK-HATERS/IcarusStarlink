@@ -1296,12 +1296,27 @@ public sealed partial class DownloadsViewModelTests : IDisposable
 
     private sealed class FakeNexusApiClient : INexusApiClient
     {
-        public Task<NexusUserInfo?> ValidateKeyAsync(string apiKey, CancellationToken cancellationToken = default) => Task.FromResult<NexusUserInfo?>(null);
+        /// <summary>The account the key belongs to; unset, the key isn't recognised (Premium unknown).</summary>
+        public NexusUserInfo? User { get; set; }
+
+        public int ValidateKeyCalls { get; private set; }
+
+        public Task<NexusUserInfo?> ValidateKeyAsync(string apiKey, CancellationToken cancellationToken = default)
+        {
+            ValidateKeyCalls++;
+            return Task.FromResult(User);
+        }
+
         /// <summary>What GetDownloadLinksAsync throws; unset, it isn't supported.</summary>
         public Exception? DownloadLinksError { get; set; }
 
-        public Task<IReadOnlyList<NexusDownloadLink>> GetDownloadLinksAsync(string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default) =>
-            throw (DownloadLinksError ?? new NotSupportedException());
+        public int GetDownloadLinksCalls { get; private set; }
+
+        public Task<IReadOnlyList<NexusDownloadLink>> GetDownloadLinksAsync(string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default)
+        {
+            GetDownloadLinksCalls++;
+            throw DownloadLinksError ?? new NotSupportedException();
+        }
         public Task<NexusModInfo?> GetModInfoAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
             Task.FromResult<NexusModInfo?>(new NexusModInfo(modId, $"Nexus Mod {modId}", "author", "summary", "1", null));
         public Task<IReadOnlyList<NexusModInfo>> GetModListAsync(string apiKey, string gameDomain, NexusModList list, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -1363,6 +1378,15 @@ public sealed partial class DownloadsViewModelTests : IDisposable
 
         public RenamePromptResult PromptRename(string currentName, string description = "", string? resetValue = null, string resetLabel = "", string resetTooltip = "", string title = "", string fieldLabel = "") =>
             throw new NotSupportedException("Not exercised by these tests.");
+
+        /// <summary>How often the Nexus file list was shown; it answers Cancel.</summary>
+        public int PickNexusFileCalls { get; private set; }
+
+        public NexusModFile? PickNexusFile(string modName, IReadOnlyList<NexusModFile> files, NexusModFile? preselect)
+        {
+            PickNexusFileCalls++;
+            return null;
+        }
     }
 
     private sealed class FakeCredentialStore : ICredentialStore
