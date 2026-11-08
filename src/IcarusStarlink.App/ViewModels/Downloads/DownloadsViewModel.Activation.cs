@@ -135,6 +135,12 @@ public sealed partial class DownloadsViewModel
             return (ModReplacementResult.Cancel(refused), previous);
         }
 
+        if (KeepNewerVersion(item, previous) is { } kept)
+        {
+            PendingDownloadStatusMessage = kept;
+            return (ModReplacementResult.Cancel(kept), previous);
+        }
+
         var (source, nexusModId) = SourceOf(item);
 
         // Resolved at use: the stored path is absolute, so moving the app
@@ -317,6 +323,33 @@ public sealed partial class DownloadsViewModel
         return running
             ? $"Icarus is running, and {string.Join(", ", inGame)} is on in the game, so '{modName}' can't be replaced now. Close the game, then try again. Nothing was changed."
             : null;
+    }
+
+    /// <summary>
+    /// Null when the install may go ahead. An older download of a Nexus mod whose installed copies
+    /// come from a newer file (a bigger Nexus file ID) asks first: its Reinstall used to swap the
+    /// newer version for the old one without a word. No, or nobody to ask, keeps the newer one.
+    /// </summary>
+    private string? KeepNewerVersion(PendingDownloadItemViewModel item, PreviousCopies previous)
+    {
+        if (item.IsCatalog)
+        {
+            return null;
+        }
+
+        var replacesNewer = previous.LibraryFolders.Select(folder => new PendingDownloadActivatedItem(folder, PendingDownloadActivationKind.Library))
+            .Concat(previous.Ue4ssFolders.Select(folder => new PendingDownloadActivatedItem(folder, PendingDownloadActivationKind.Ue4ssMod)))
+            .Any(part => RecordedNexusFileId(part, item.ModId) > item.FileId);
+        if (!replacesNewer && !item.IsSuperseded)
+        {
+            return null;
+        }
+
+        var install = _dialogService?.Confirm(
+            $"This download of '{item.DisplayName}' is older than the version you have installed.\n\n"
+            + "Install the older version anyway? It replaces the newer one.",
+            "Install an older version?", ThemedConfirmSeverity.Warning) == true;
+        return install ? null : $"Kept the newer version of '{item.DisplayName}' that is installed. Nothing was changed.";
     }
 
     /// <summary>The download's file name without the "_&lt;modId&gt;-&lt;fileId&gt;" tag a second file of the same name is saved with: what its mods are named after.</summary>

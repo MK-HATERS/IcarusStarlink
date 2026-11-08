@@ -382,11 +382,19 @@ public sealed partial class DownloadsViewModel : ObservableObject
         }
     }
 
-    /// <summary>The kept download a Library mod was installed from (its file still on disk), or null.</summary>
-    public PendingDownloadItemViewModel? FindOriginalDownload(string libraryFolderName) =>
-        PendingDownloads.FirstOrDefault(d =>
+    /// <summary>
+    /// The kept download a Library mod was installed from (its file still on disk), or null. When
+    /// the mod records which Nexus file it came from, only that file's download counts: taking the
+    /// newest download listing the folder could put an older file back in its place.
+    /// </summary>
+    public PendingDownloadItemViewModel? FindOriginalDownload(string libraryFolderName)
+    {
+        var entry = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, libraryFolderName, StringComparison.OrdinalIgnoreCase));
+        return PendingDownloads.FirstOrDefault(d =>
             d.ActivatedItems.Any(i => i.Kind == PendingDownloadActivationKind.Library && string.Equals(i.FolderName, libraryFolderName, StringComparison.OrdinalIgnoreCase))
+            && (entry?.NexusFileId is not { } fileId || d.IsCatalog || d.FileId == fileId)
             && File.Exists(ResolveLocalFilePath(d)));
+    }
 
     /// <summary>
     /// Matches the list to the store, keeping each row whose file is unchanged — overlapping
@@ -418,7 +426,10 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
     partial void OnShowInstalledDownloadsChanged(bool value) => RefreshVisiblePendingDownloads();
 
-    public int InstalledDownloadCount => PendingDownloads.Count(p => p.IsInstalled);
+    /// <summary>The rows Show installed brings back: installed downloads and older versions of mods updated since.</summary>
+    public int InstalledDownloadCount => PendingDownloads.Count(HiddenUnlessShowInstalled);
+
+    private static bool HiddenUnlessShowInstalled(PendingDownloadItemViewModel item) => item.IsInstalled || item.IsSuperseded;
 
     public void RefreshVisiblePendingDownloads()
     {
@@ -429,9 +440,53 @@ public sealed partial class DownloadsViewModel : ObservableObject
             item.Refresh(installed);
         }
 
-        ObservableCollectionSync.SyncTo(VisiblePendingDownloads, [.. PendingDownloads.Where(item => ShowInstalledDownloads || !item.IsInstalled)]);
+        foreach (var item in PendingDownloads)
+        {
+            item.SetSuperseded(IsSuperseded(item, installed));
+        }
+
+        ObservableCollectionSync.SyncTo(VisiblePendingDownloads, [.. PendingDownloads.Where(item => ShowInstalledDownloads || !HiddenUnlessShowInstalled(item))]);
         OnPropertyChanged(nameof(InstalledDownloadCount));
         OnPropertyChanged(nameof(DownloadsEmptyText));
+    }
+
+    /// <summary>
+    /// Whether a newer version of this Nexus download's mod is installed in its place. Nexus file
+    /// IDs only grow, so a bigger ID is a newer upload. When the installed copies of its folders
+    /// record their Nexus file, that decides; otherwise a newer download of the same mod that is
+    /// installed and shares one of its folders does.
+    /// </summary>
+    private bool IsSuperseded(PendingDownloadItemViewModel item, InstalledModsSnapshot installed)
+    {
+        if (item.IsCatalog || item.ModId <= 0 || item.ActivatedItems.Count == 0)
+        {
+            return false;
+        }
+
+        var recorded = item.PresentItems.Select(part => RecordedNexusFileId(part, item.ModId, installed)).OfType<int>().ToList();
+        if (recorded.Count > 0)
+        {
+            return recorded.Any(fileId => fileId > item.FileId);
+        }
+
+        return PendingDownloads.Any(other => !ReferenceEquals(other, item) && !other.IsCatalog
+            && other.ModId == item.ModId && other.FileId > item.FileId && other.IsInstalled
+            && other.ActivatedItems.Any(part => item.ActivatedItems.Any(mine => mine.Kind == part.Kind && string.Equals(mine.FolderName, part.FolderName, StringComparison.OrdinalIgnoreCase))));
+    }
+
+    /// <summary>The Nexus file the installed copy in this folder records, when it is linked to <paramref name="nexusModId"/>; null otherwise.</summary>
+    private int? RecordedNexusFileId(PendingDownloadActivatedItem part, int nexusModId, InstalledModsSnapshot? installed = null)
+    {
+        if (part.Kind == PendingDownloadActivationKind.Library)
+        {
+            var entry = installed is not null
+                ? installed.LibraryEntryForFolder(part.FolderName)
+                : _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, part.FolderName, StringComparison.OrdinalIgnoreCase));
+            return entry?.NexusModId == nexusModId ? entry.NexusFileId : null;
+        }
+
+        var meta = _ue4ssModMetaStore.Load(part.FolderName);
+        return meta.NexusModId == nexusModId ? meta.NexusFileId : null;
     }
 
     /// <summary>What the Downloads page says instead of an empty table; null while it has rows.</summary>
@@ -439,9 +494,11 @@ public sealed partial class DownloadsViewModel : ObservableObject
         ? null
         : PendingDownloads.Count == 0
             ? "Nothing downloaded yet — get mods from Database, or click Mod Manager Download on nexusmods.com."
-            : InstalledDownloadCount == 1
-                ? "Your one download is installed — tick Show installed to see it."
-                : $"All {InstalledDownloadCount} downloads are installed — tick Show installed to see them.";
+            : PendingDownloads.Any(p => p.IsSuperseded)
+                ? "Your downloads are installed, or older versions of mods you've updated — tick Show installed to see them."
+                : InstalledDownloadCount == 1
+                    ? "Your one download is installed — tick Show installed to see it."
+                    : $"All {InstalledDownloadCount} downloads are installed — tick Show installed to see them.";
 
     [RelayCommand]
     private void CancelDownloads()

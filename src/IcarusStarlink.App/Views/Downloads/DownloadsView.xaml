@@ -71,7 +71,7 @@
                  StringFormat on its binding is ignored and the box read just "3". -->
             <CheckBox DockPanel.Dock="Right" IsChecked="{Binding ShowInstalledDownloads}" VerticalAlignment="Center"
                       Content="{Binding InstalledDownloadCount}" ContentStringFormat="Show installed ({0})"
-                      ToolTip="Downloads that are fully installed are hidden by default — tick to see them (Reinstall lives there)"/>
+                      ToolTip="Downloads that are fully installed, and older versions of mods you've updated, are hidden by default — tick to see them (Reinstall lives there)"/>
             <!-- Two or more rows selected (Ctrl/Shift-click): discard them in one go, one question for the installed ones. -->
             <Button DockPanel.Dock="Right" Margin="0,0,12,0" Command="{Binding DiscardSelectedDownloadsCommand}"
                     Content="{Binding SelectedPendingDownloadCount}" ContentStringFormat="Discard selected ({0})"
@@ -114,6 +114,10 @@
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding IsInstalled}" Value="True">
                                                 <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                            </DataTrigger>
+                                            <!-- Last, so it wins: an older version's parts can still be present under a newer copy. -->
+                                            <DataTrigger Binding="{Binding IsSuperseded}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>

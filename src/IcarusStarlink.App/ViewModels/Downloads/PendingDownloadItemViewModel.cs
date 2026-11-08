@@ -165,8 +165,25 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
         }
     }
 
-    /// <summary>Installed / Removed from Library / Not installed — one phrase for the row, no inference needed.</summary>
-    public string StateLabel => IsInstalled ? "Installed" : WasDeleted ? "Removed from Library" : "Not installed";
+    /// <summary>
+    /// A newer version of this Nexus mod is installed in this download's place (DownloadsViewModel
+    /// works it out on each refresh). Such a row reads "Older version" and is hidden unless Show
+    /// installed is ticked; it used to read "Removed from Library" when the update dropped a part.
+    /// </summary>
+    public bool IsSuperseded { get; private set; }
+
+    internal void SetSuperseded(bool value)
+    {
+        if (IsSuperseded != value)
+        {
+            IsSuperseded = value;
+            OnPropertyChanged(nameof(IsSuperseded));
+            OnPropertyChanged(nameof(StateLabel));
+        }
+    }
+
+    /// <summary>Older version / Installed / Removed from Library / Not installed — one phrase for the row, no inference needed.</summary>
+    public string StateLabel => IsSuperseded ? "Older version" : IsInstalled ? "Installed" : WasDeleted ? "Removed from Library" : "Not installed";
 
     public void SetActivated(IReadOnlyList<PendingDownloadActivatedItem> items, IReadOnlyList<string> requirements)
     {
@@ -186,6 +203,9 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
 
         return IsCatalog ? null : Installed.LibraryNameForNexusMod(ModId);
     }
+
+    /// <summary>The parts of this download that are still in the Library or the game (perhaps as another download's copy of the same folder).</summary>
+    internal IEnumerable<PendingDownloadActivatedItem> PresentItems => ActivatedItems.Where(StillPresent);
 
     private bool StillPresent(PendingDownloadActivatedItem item) => item.Kind switch
     {
@@ -247,6 +267,10 @@ public sealed class InstalledModsSnapshot
     /// <summary>The name the Library shows for the mod in <paramref name="folderName"/>; null when it isn't there.</summary>
     public string? LibraryNameForFolder(string folderName) =>
         _libraryEntries.Value.FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase))?.Name is { Length: > 0 } name ? name : null;
+
+    /// <summary>The Library entry in <paramref name="folderName"/>; null when it isn't there.</summary>
+    public LibraryEntry? LibraryEntryForFolder(string folderName) =>
+        _libraryEntries.Value.FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The name the Library shows for a mod linked to this Nexus mod id; null when none is.</summary>
     public string? LibraryNameForNexusMod(int modId) =>
