@@ -1082,6 +1082,39 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Contains("Not in your Library, so not in the patch: Something Else", vm.ShareStatusMessage);
     }
 
+    /// <summary>A Nexus mod changed in Starlink goes in as your copy, and the status names it, as Export patch on Merge &amp; Install does.</summary>
+    [Fact]
+    public async Task ExportServerPatch_AModChangedInStarlink_IsNamedAsYourCopy()
+    {
+        var edited = Entry("Wireless Power", nexusModId: 361);
+        edited.FixedByIslAtUtc = DateTimeOffset.UtcNow;
+        var library = new FakeLibrary { Entries = [edited] };
+        var folder = Path.Combine(_root, "Library", "Wireless Power");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "Wireless Power.EXMOD"), """
+            {
+                "name": "Wireless Power", "author": "A", "version": "1", "description": "D",
+                "fileName": "Wireless Power",
+                "Rows": [
+                    {"CurrentFile": "Crafting-D_ProcessorRecipes.json",
+                     "File_Items": [{"Name": "SmelterRecipe", "CraftTime": 5}]}
+                ]
+            }
+            """);
+        library.FolderPaths["Wireless Power"] = folder;
+        var patches = new FakePatchService();
+        var (vm, _, _, dialogs) = Build(pick: _install, library: library, patches: patches);
+        vm.AddExistingServerCommand.Execute(null);
+        InstallServerMergedPak("Wireless Power");
+        dialogs.SaveFilePath = Path.Combine(_root, "ISL-Patch-server.zip");
+
+        await vm.ExportServerPatchCommand.ExecuteAsync(null);
+
+        Assert.True(Assert.Single(patches.ExportedManifest!.Mods).Bundled);
+        Assert.Contains("Your copy went in", vm.ShareStatusMessage);
+        Assert.Contains("Wireless Power", vm.ShareStatusMessage);
+    }
+
     /// <summary>Apply a patch: Merge &amp; Install does the Library side, then the patch's UE4SS mods go on the server from the game's copies, with the patch's settings written into the server's copy.</summary>
     [Fact]
     public async Task ApplyPatchToServer_ImportsOnTheLibrarySide_ThenPutsTheUe4ssModsAndSettingsOnTheServer()
@@ -1484,7 +1517,11 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         public List<LibraryEntry> Entries { get; set; } = [];
 
         public IReadOnlyList<LibraryEntry> GetAll() => Entries;
-        public string GetFolderPath(string folderName) => Path.Combine(Path.GetTempPath(), "nowhere", folderName);
+        /// <summary>Real folders for the mods a test reads from disk; the rest point nowhere.</summary>
+        public Dictionary<string, string> FolderPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public string GetFolderPath(string folderName) =>
+            FolderPaths.TryGetValue(folderName, out var path) ? path : Path.Combine(Path.GetTempPath(), "nowhere", folderName);
         public IReadOnlyList<string> UnreadableFolders => [];
         public IReadOnlyList<LibraryEntry> Search(string query) => throw new NotSupportedException();
         public LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null) => throw new NotSupportedException();

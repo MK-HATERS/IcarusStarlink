@@ -117,8 +117,9 @@ public sealed partial class LocalServerViewModel
             // Build reads every bundled EXMOD and lists each mod's files: off the UI thread.
             var library = _library;
             var includeConfigs = ServerExportIncludesConfigs;
-            var (manifest, bundle, skipped) = await OffUiThread(() => new PatchBuilder(library, _ue4ssMetaStore)
+            var built = await OffUiThread(() => new PatchBuilder(library, _ue4ssMetaStore)
                 .Build(p.Name, match.Matched, new GameplayOptions(), ue4ss, includeConfigs, new HashSet<(string Name, string Author)>()));
+            var (manifest, bundle, skipped) = built;
             var extension = bundle.IsEmpty ? "json" : "zip";
             if (_dialogService.PickSaveFile(
                     "Export patch for players",
@@ -142,6 +143,11 @@ public sealed partial class LocalServerViewModel
             if (match.Unmatched.Count > 0)
             {
                 ShareStatusMessage += $" Not in your Library, so not in the patch: {string.Join(", ", match.Unmatched)}.";
+            }
+
+            if (built.ChangedCopies.Count > 0)
+            {
+                ShareStatusMessage += $" Your copy went in for the mods you changed in Starlink, so friends get your changes, not the Nexus original: {string.Join(", ", built.ChangedCopies)}.";
             }
 
             if (skipped.Count > 0)
