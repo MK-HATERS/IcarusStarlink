@@ -30,8 +30,7 @@ namespace IcarusStarlink.PakIO.Assets;
 /// Never throws out of construction (it does no I/O at all until the first TryLoadExport call) or
 /// out of a failed mount (IcarusContentPath unset, the Paks folder missing, or the mount itself
 /// throwing all collapse to a cached null task). A failed mount isn't final, though (at first
-/// launch the game path is still empty, and the risk pill then never appeared
-/// all session): it's tried again once the Content path changes, or after RetryFailedMountAfter —
+/// launch the game path can still be empty): it's tried again once the Content path changes, or after RetryFailedMountAfter —
 /// never on every call, so a doomed mount isn't redone per lookup.
 /// </summary>
 public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGameAssetCatalog, IIdleReleasable
@@ -436,11 +435,10 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
     }
 
     /// <summary>
-    /// Blocks on the cached mount Task rather than exposing an async surface of its own — every
-    /// real caller today (CueUassetMaterialDecoder's fallback) is itself synchronous, already
-    /// running off the UI thread inside LibraryItemViewModel's own Task.Run, the same place
-    /// CueAssetProviderLocator's own synchronous (and comparable, if smaller-scale) mount already
-    /// runs — so a blocking wait here costs a background thread-pool thread, never the UI thread.
+    /// Blocks on the cached mount Task rather than exposing an async surface of its own — its
+    /// callers (the material fallback, item icons, the risk checks, Repoint checks, maps, growth
+    /// curves) are synchronous and run off the UI thread, so a blocking wait here costs a
+    /// background thread-pool thread, never the UI thread.
     /// </summary>
     private MountedContent? GetOrMountProvider()
     {
@@ -510,22 +508,20 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
             return null;
         }
 
+        // Declared outside the try so a mount that throws partway still releases the provider and
+        // the pak readers it opened (a failed mount is tried again later, not left to finalisation).
+        DefaultFileProvider? provider = null;
         try
         {
-            var provider = new DefaultFileProvider(paksPath, SearchOption.TopDirectoryOnly, Versions, StringComparer.OrdinalIgnoreCase);
+            provider = new DefaultFileProvider(paksPath, SearchOption.TopDirectoryOnly, Versions, StringComparer.OrdinalIgnoreCase);
             // Function code too, for comparing a mod's copy of a game blueprint with the game's.
             provider.ReadScriptData = true;
             provider.Initialize();
             provider.Mount();
 
-            // Built once, right after a successful mount (still on this same background Task, so
-            // it adds to the one-time mount cost rather than to any later TryLoadExport call) —
-            // replaces what used to be an O(n) provider.Files.Keys.FirstOrDefault(EndsWithSegmentBoundary)
-            // scan on every single lookup (measured ~500ms of pure overhead across a realistic
-            // ~150-lookup save-slot load against a real install) with an O(1) dictionary lookup.
-            // A key without the Icarus/Content/ prefix (the small Engine/* subset — no real caller
-            // path can ever match one of those anyway) is indexed under its own full key instead of
-            // being dropped, so nothing is silently lost even though nothing here can reach it.
+            // An index from Content-relative path to provider key, built once after the mount, so
+            // each lookup is one dictionary hit instead of a scan of every key. A key without the
+            // Icarus/Content/ prefix (the small Engine/* subset) is indexed under its own full key.
             var contentPathIndex = new Dictionary<string, string>(provider.Files.Count, StringComparer.OrdinalIgnoreCase);
             foreach (var key in provider.Files.Keys)
             {
@@ -542,6 +538,7 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
             // A corrupt/unreadable install, a permissions problem, or any other real mount
             // failure — degrades to "base-game content unavailable this session" rather than
             // throwing out of the Task every TryLoadExport call is waiting on.
+            provider?.Dispose();
             return null;
         }
     }

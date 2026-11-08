@@ -156,12 +156,30 @@ public sealed class GameFileFingerprintStore
             {
                 foreach (var (build, files) in read)
                 {
-                    // Read back with the comparers a fresh store has (JSON doesn't keep them).
-                    builds[build] = new GameBuildFingerprints
+                    // Valid JSON can still hold a null anywhere (a hand edit, a damaged file):
+                    // a null build or file is left out, a null function list or hash reads as empty.
+                    if (files is null)
                     {
-                        RecordedAtUtc = files.RecordedAtUtc,
-                        Files = new(files.Files ?? [], StringComparer.OrdinalIgnoreCase),
-                    };
+                        continue;
+                    }
+
+                    // Read back with the comparers a fresh store has (JSON doesn't keep them).
+                    var kept = new Dictionary<string, GameFileFingerprint>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var (file, fingerprint) in files.Files ?? [])
+                    {
+                        if (fingerprint is null)
+                        {
+                            continue;
+                        }
+
+                        kept[file] = new GameFileFingerprint
+                        {
+                            Functions = fingerprint.Functions is { } functions ? new(functions, StringComparer.Ordinal) : new(StringComparer.Ordinal),
+                            DefaultsHash = fingerprint.DefaultsHash ?? "",
+                        };
+                    }
+
+                    builds[build] = new GameBuildFingerprints { RecordedAtUtc = files.RecordedAtUtc, Files = kept };
                 }
             }
         }
@@ -259,9 +277,8 @@ public sealed class GameFileFingerprintStore
     }
 
     /// <summary>Writes the store when anything was recorded since the last save.</summary>
-    /// <remarks>The write is inside the lock: two saves at once used to share one fixed ".tmp" name,
-    /// and an older snapshot could land after a newer one. A failed write leaves
-    /// the store dirty, so the next save tries again.</remarks>
+    /// <remarks>The write is inside the lock, so two saves at once can't land an older snapshot after
+    /// a newer one. A failed write leaves the store dirty, so the next save tries again.</remarks>
     public void SaveIfChanged()
     {
         lock (_lock)

@@ -138,6 +138,44 @@ public sealed class GameFileFingerprintsTests : IDisposable
         Assert.Equal(["GetCurrentProspectLocation"], reloaded.ChangeAt("25956278", File)!.ChangedFunctions);
     }
 
+    /// <summary>Regression: valid JSON with a null build or a null file entry threw NullReferenceException while the store loaded at startup.</summary>
+    [Fact]
+    public void Load_NullsInsideTheFile_StartWithoutThem()
+    {
+        WriteStore("""{"b1":null,"b2":{"RecordedAtUtc":"2026-10-01T12:00:00+00:00","Files":{"BP/X":null,"BP/Y":{"Functions":null,"DefaultsHash":"x"}}}}""");
+
+        var store = GameFileFingerprintStore.Load(StorePath);
+
+        Assert.Equal(["b2"], store.Builds);
+        Assert.False(store.Has("b2", "BP/X"));
+        Assert.True(store.Has("b2", "BP/Y"));
+        Assert.Null(store.ChangeAt("b2", "BP/Y"));
+    }
+
+    /// <summary>Regression: a null Functions or DefaultsHash loaded, then threw in ChangeAt on every risk pass.</summary>
+    [Fact]
+    public void Load_NullFunctionsAndDefaults_CompareAsEmpty()
+    {
+        WriteStore("""
+            {"b1":{"RecordedAtUtc":"2026-10-01T12:00:00+00:00","Files":{"BP/Y":{"Functions":{"Tick":"a"},"DefaultsHash":"x"}}},
+             "b2":{"RecordedAtUtc":"2026-10-08T12:00:00+00:00","Files":{"BP/Y":{"Functions":null,"DefaultsHash":null}}}}
+            """);
+
+        var store = GameFileFingerprintStore.Load(StorePath);
+        var change = store.ChangeAt("b2", "BP/Y");
+
+        Assert.NotNull(change);
+        Assert.Equal(["Tick"], change.RemovedFunctions);
+        Assert.Empty(change.AddedFunctions);
+        Assert.True(change.SettingsChanged);
+    }
+
+    private void WriteStore(string json)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(StorePath)!);
+        System.IO.File.WriteAllText(StorePath, json);
+    }
+
     [Fact]
     public void RecordingAgain_KeepsTheFirstCopy()
     {
