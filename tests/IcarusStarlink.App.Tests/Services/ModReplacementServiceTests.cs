@@ -46,9 +46,38 @@ public sealed class ModReplacementServiceTests : IDisposable
         }
     }
 
-    private ModReplacementService Service(FakeDialogService? dialogs = null) =>
-        new(_library, _ue4ss, _ue4ssMeta, new Ue4ssModStateService(_ue4ss), _settings, Path.Combine(_root, "Backups"), dialogs,
+    private ModReplacementService Service(FakeDialogService? dialogs = null, IUe4ssModRepository? ue4ss = null) =>
+        new(_library, ue4ss ?? _ue4ss, _ue4ssMeta, new Ue4ssModStateService(ue4ss ?? _ue4ss), _settings, Path.Combine(_root, "Backups"), dialogs,
             new ModFixService(_library, Path.Combine(_root, "Data"), decisionsDirectory: _fixChoices));
+
+    /// <summary>Writes a UE4SS mod folder named <paramref name="name"/> holding <paramref name="files"/> (relative path, text) under its own new parent folder; returns the parent.</summary>
+    private string Ue4ssSource(string name, params (string Path, string Text)[] files)
+    {
+        var parent = Path.Combine(_root, "Sources", Guid.NewGuid().ToString("N"));
+        foreach (var (relative, text) in files)
+        {
+            var path = Path.Combine(parent, name, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text);
+        }
+
+        return parent;
+    }
+
+    /// <summary>Stages a UE4SS mod that is off (only in Staged_UE4SS).</summary>
+    private void StageUe4ss(string name, params (string Path, string Text)[] files) =>
+        _ue4ss.ImportFromFolder(Ue4ssSource(name, files), name);
+
+    /// <summary>Installs a new UE4SS copy the way Activate does: remove the old copies, then stage the new one.</summary>
+    private Func<Action, Task<IReadOnlyList<PendingDownloadActivatedItem>>> InstallUe4ss(string name, params (string Path, string Text)[] files) => removeOld =>
+    {
+        removeOld();
+        var landed = _ue4ss.ImportFromFolder(Ue4ssSource(name, files), name);
+        return Task.FromResult<IReadOnlyList<PendingDownloadActivatedItem>>([new PendingDownloadActivatedItem(landed, PendingDownloadActivationKind.Ue4ssMod)]);
+    };
+
+    /// <summary>Holds the file open for reading only: it can still be read and copied, but not deleted.</summary>
+    private static FileStream HoldOpen(string path) => new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
 
     /// <summary>A prebuilt pak named <paramref name="name"/>.pak holding <paramref name="content"/>, in its own folder.</summary>
     private string Pak(string name, string content)
@@ -146,7 +175,7 @@ public sealed class ModReplacementServiceTests : IDisposable
         Assert.False(result.Succeeded);
         Assert.True(result.RolledBack);
         Assert.Contains("the disk is full", result.Message);
-        Assert.Contains("restored from its backup", result.Message);
+        Assert.Contains("your previous copy is back", result.Message);
         var restored = Entry(old.FolderName);
         Assert.Equal("v1", PakContent(old.FolderName));
         Assert.Equal("Nexus", restored.Source);
@@ -321,6 +350,219 @@ public sealed class ModReplacementServiceTests : IDisposable
         Assert.True(worked.Succeeded);
         Assert.False(File.Exists(choices));
         Assert.Null(Entry(Assert.Single(worked.Items).FolderName).DisplayNameOverride); // pristine: the rename isn't carried
+    }
+
+    /// <summary>Regression: an old UE4SS copy that was off went only to a temp folder that the replacement then deleted, so nothing of it survived.</summary>
+    [Fact]
+    public async Task Replace_DisabledUe4ssMod_BacksTheOldCopyUpUnderBackupsUe4ss()
+    {
+        StageUe4ss("Pets", ("Scripts/main.lua", "my build 0.8.0"));
+
+        var result = await Service().ReplaceAsync(new ModReplacementRequest("Pets", [], ["Pets"]), InstallUe4ss("Pets", ("Scripts/main.lua", "nexus 0.7.0")));
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("nexus 0.7.0", File.ReadAllText(Path.Combine(_ue4ss.GetFolderPath("Pets"), "Scripts", "main.lua")));
+        var backup = Assert.Single(FolderBackup.EnumerateFolderBackups(Path.Combine(_root, "Backups", "UE4SS"), "Pets"));
+        Assert.Equal("my build 0.8.0", File.ReadAllText(Path.Combine(backup, "Scripts", "main.lua")));
+    }
+
+    [Fact]
+    public async Task Replace_DisabledUe4ssModThatCantBeBackedUp_ReplacesNothing()
+    {
+        StageUe4ss("Pets", ("Scripts/main.lua", "my build 0.8.0"));
+        // A file where the backup folder should be: the backup can't be made.
+        Directory.CreateDirectory(Path.Combine(_root, "Backups"));
+        File.WriteAllText(Path.Combine(_root, "Backups", "UE4SS"), "");
+        var installed = false;
+
+        var result = await Service().ReplaceAsync(
+            new ModReplacementRequest("Pets", [], ["Pets"]),
+            removeOld =>
+            {
+                installed = true;
+                return InstallUe4ss("Pets", ("Scripts/main.lua", "nexus 0.7.0"))(removeOld);
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("Couldn't back up", result.Message);
+        Assert.False(installed);
+        Assert.Equal("my build 0.8.0", File.ReadAllText(Path.Combine(_ue4ss.GetFolderPath("Pets"), "Scripts", "main.lua")));
+    }
+
+    /// <summary>Regression: a staged copy whose delete stopped partway (a file held open) was left gutted, while the result said it was restored.</summary>
+    [Fact]
+    public async Task Replace_StagedUe4ssModWhoseDeleteStopsPartway_PutsTheWholeCopyBack()
+    {
+        StageUe4ss("Pets", ("Scripts/main.lua", "old"), ("config.lua", "mine"));
+        var held = Path.Combine(_ue4ss.GetFolderPath("Pets"), "Scripts", "main.lua");
+
+        var result = await Service().ReplaceAsync(
+            new ModReplacementRequest("Pets", [], ["Pets"]),
+            removeOld =>
+            {
+                using (HoldOpen(held))
+                {
+                    removeOld();
+                }
+
+                return InstallUe4ss("Pets", ("Scripts/main.lua", "new"))(() => { });
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.True(result.RolledBack);
+        var config = Path.Combine(_ue4ss.GetFolderPath("Pets"), "config.lua");
+        Assert.True(File.Exists(config), "config.lua is gone from the staged copy");
+        Assert.Equal("mine", File.ReadAllText(config));
+        Assert.Equal("old", File.ReadAllText(Path.Combine(_ue4ss.GetFolderPath("Pets"), "Scripts", "main.lua")));
+        Assert.Equal(["Pets"], _ue4ss.GetAll());
+    }
+
+    /// <summary>Regression: an enabled mod whose sidecar couldn't be deleted ended up in neither the game nor staging, while the result said it was restored.</summary>
+    [Fact]
+    public async Task Replace_EnabledUe4ssModWhoseSidecarIsLocked_PutsItBackInTheGame()
+    {
+        _settings.Current.IcarusContentPath = Path.Combine(_root, "Game", "Icarus", "Content");
+        var gameMods = Ue4ssGamePaths.ResolveModsFolder(_settings.Current.IcarusContentPath);
+        Directory.CreateDirectory(Path.Combine(gameMods, "MiniMapa", "Scripts"));
+        File.WriteAllText(Path.Combine(gameMods, "MiniMapa", "Scripts", "main.lua"), "old");
+        _ue4ssMeta.Save("MiniMapa", new Ue4ssModMeta { NexusModId = 345 });
+
+        var result = await Service().ReplaceAsync(
+            new ModReplacementRequest("Minimap", [], ["MiniMapa"]),
+            removeOld =>
+            {
+                using (HoldOpen(Path.Combine(_root, "Ue4ss_Meta", "MiniMapa.json")))
+                {
+                    removeOld();
+                }
+
+                throw new InvalidOperationException("removeOld should have failed");
+            });
+
+        Assert.True(result.RolledBack);
+        var gameCopy = Path.Combine(gameMods, "MiniMapa", "Scripts", "main.lua");
+        Assert.True(File.Exists(gameCopy), "MiniMapa is no longer in the game");
+        Assert.Equal("old", File.ReadAllText(gameCopy));
+        Assert.Equal(345, _ue4ssMeta.Load("MiniMapa").NexusModId);
+        Assert.Empty(_ue4ss.GetAll());
+    }
+
+    /// <summary>Regression: a rollback that couldn't finish deleted the temp folder holding the only whole copy, and pointed at Backups\Mods (where UE4SS mods never go).</summary>
+    [Fact]
+    public async Task Replace_RollbackThatCantFinish_KeepsTheScratchCopyAndSaysWhere()
+    {
+        StageUe4ss("CoolLua", ("Scripts/main.lua", "old (my edit)"));
+        var ue4ss = new FailingImportUe4ssRepository(_ue4ss);
+
+        var result = await Service(ue4ss: ue4ss).ReplaceAsync(
+            new ModReplacementRequest("CoolLua", [], ["CoolLua"]),
+            removeOld =>
+            {
+                removeOld();
+                ue4ss.FailImports = true;
+                throw new IOException("disk full");
+            });
+
+        Assert.False(result.RolledBack);
+        Assert.DoesNotContain("Backups\\Mods", result.Message);
+        Assert.Contains("Backups\\UE4SS", result.Message);
+        var at = result.Message!.IndexOf("IcarusStarlink_Replace_", StringComparison.Ordinal);
+        Assert.True(at >= 0, $"The message doesn't say where the whole copy is: {result.Message}");
+        var scratch = Path.Combine(Path.GetTempPath(), result.Message.Substring(at, "IcarusStarlink_Replace_".Length + 32));
+        try
+        {
+            Assert.True(Directory.Exists(scratch), "The temp folder holding the whole copy was deleted");
+            Assert.Equal("old (my edit)", File.ReadAllText(Path.Combine(scratch, "CoolLua", "CoolLua", "Scripts", "main.lua")));
+        }
+        finally
+        {
+            if (Directory.Exists(scratch))
+            {
+                Directory.Delete(scratch, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>Regression: a failed install's rollback deleted every Library folder that wasn't there before, a mod made on the Editor page meanwhile too.</summary>
+    [Fact]
+    public async Task Replace_UntrackedInstallFails_NeverDeletesAModMadeInStarlink()
+    {
+        var old = _library.ImportPak(Pak("Homestead", "v1"), source: "Nexus", nexusModId: 223);
+
+        var result = await Service().ReplaceAsync(
+            new ModReplacementRequest("Homestead", [old.FolderName], []),
+            removeOld =>
+            {
+                removeOld();
+                _library.CreateBlankMod("Mine", "me");
+                throw new IOException("disk full");
+            });
+
+        Assert.True(result.RolledBack);
+        Assert.Contains(_library.GetAll(), e => e.FolderName == "Mine");
+        Assert.True(Directory.Exists(Path.Combine(_root, "Extracted_Mods", "Mine")));
+        Assert.Equal("v1", PakContent(old.FolderName));
+    }
+
+    /// <summary>Regression: a failed install's rollback deleted mods another page added while it ran (it took every new folder for its own).</summary>
+    [Fact]
+    public async Task Replace_TrackedInstallFails_KeepsAModAddedElsewhereMeanwhile()
+    {
+        var old = _library.ImportPak(Pak("Homestead", "v1"), source: "Nexus", nexusModId: 223);
+
+        var result = await Service().ReplaceAsync(
+            new ModReplacementRequest("Homestead", [old.FolderName], []),
+            (removeOld, writes) =>
+            {
+                removeOld();
+                _library.CreateBlankMod("Mine", "me");
+                _library.ImportPak(Pak("Other", "x"));
+                var partial = _library.ImportPak(Pak("Homestead_v2", "v2"));
+                writes.Wrote(partial.FolderName, PendingDownloadActivationKind.Library);
+                throw new IOException("disk full");
+            });
+
+        Assert.True(result.RolledBack);
+        Assert.Equal(["Homestead", "Mine", "Other"], _library.GetAll().Select(e => e.FolderName).Order(StringComparer.OrdinalIgnoreCase));
+        Assert.Equal("v1", PakContent(old.FolderName));
+    }
+
+    [Fact]
+    public async Task Replace_UntrackedInstallFails_BacksUpWhatItSweeps()
+    {
+        var old = _library.ImportPak(Pak("Homestead", "v1"), source: "Nexus", nexusModId: 223);
+
+        var result = await Service().ReplaceAsync(
+            new ModReplacementRequest("Homestead", [old.FolderName], []),
+            removeOld =>
+            {
+                removeOld();
+                _library.ImportPak(Pak("Other", "x"));
+                throw new IOException("disk full");
+            });
+
+        Assert.True(result.RolledBack);
+        Assert.Single(FolderBackup.EnumerateFolderBackups(Path.Combine(_root, "Backups", "Mods"), "Other"));
+    }
+
+    /// <summary>Staging that can be told to fail every import, for a rollback that can't put a copy back.</summary>
+    private sealed class FailingImportUe4ssRepository(IUe4ssModRepository inner) : IUe4ssModRepository
+    {
+        public bool FailImports { get; set; }
+
+        public IReadOnlyList<string> GetAll() => inner.GetAll();
+
+        public string ImportFromFolder(string sourceFolder, string fallbackName, IReadOnlyCollection<string>? namesAlreadyInUse = null) =>
+            FailImports ? throw new IOException("disk full") : inner.ImportFromFolder(sourceFolder, fallbackName, namesAlreadyInUse);
+
+        public void Delete(string folderName) => inner.Delete(folderName);
+
+        public string GetFolderPath(string folderName) => inner.GetFolderPath(folderName);
+
+        public IReadOnlyList<string> ListInstalledInGame(string gameModsFolderPath) => inner.ListInstalledInGame(gameModsFolderPath);
+
+        public string AdoptFromGame(string gameModsFolderPath, string folderName, IReadOnlyCollection<string>? namesAlreadyInUse = null) =>
+            inner.AdoptFromGame(gameModsFolderPath, folderName, namesAlreadyInUse);
     }
 
     private sealed class FakeSettingsService : ISettingsService

@@ -105,14 +105,42 @@ public sealed class ModReplacementResult
         new() { Message = message, Error = error, RolledBack = rolledBack };
 }
 
+/// <summary>What an install wrote, as it wrote it. A failed install's rollback takes out exactly these, never a mod another page added meanwhile.</summary>
+public sealed class ReplacementWrites
+{
+    private readonly List<PendingDownloadActivatedItem> _items = [];
+
+    /// <summary>The install made this folder (a Library mod or a staged UE4SS mod). Called right after the folder is made, before anything else that can fail.</summary>
+    public void Wrote(string folderName, PendingDownloadActivationKind kind)
+    {
+        lock (_items)
+        {
+            _items.Add(new PendingDownloadActivatedItem(folderName, kind));
+        }
+    }
+
+    internal bool Has(string folderName, PendingDownloadActivationKind kind)
+    {
+        lock (_items)
+        {
+            return _items.Any(i => i.Kind == kind && string.Equals(i.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+}
+
 /// <summary>
 /// The one way a mod is replaced by a new copy — Downloads' Activate/Reinstall, Library's Get
-/// update and Reinstall original all go through here. Every existing Library copy is backed up and
-/// its Library info (pin, favourite, notes, rename, source link) captured first; an edited copy is
-/// only replaced after asking; an enabled UE4SS mod is taken out of the game (Apply, backed up)
-/// before its staged copy goes, and the new one is enabled again afterwards. Pin/favourite/notes and
-/// the rename carry over to the new copy and remembered fixes are made again — unless the user
-/// asked for the pristine original. Any failure after the old copy was removed puts it back.
+/// update and Reinstall original all go through here. Every old copy is backed up before anything
+/// is removed: a Library copy to Backups\Mods, with its Library info (pin, favourite, notes, rename,
+/// source link) captured; a UE4SS copy that is off to Backups\UE4SS here, one that is on by Apply
+/// when it takes it out of the game (Backups\UE4SS too). An edited copy is only replaced after
+/// asking; the new UE4SS copy of an enabled mod is enabled again afterwards. Pin/favourite/notes
+/// and the rename carry over to the new copy and remembered fixes are made again — unless the user
+/// asked for the pristine original. Any failure after the old copy was removed puts it back; when
+/// that can't all be done, the whole old UE4SS copy stays in the temp folder the message names.
+/// An install that reports what it writes (ReplacementWrites) has exactly that taken out on a
+/// failure; otherwise anything new since the start is, except a mod made in Starlink, and each is
+/// backed up first.
 /// </summary>
 public sealed class ModReplacementService(
     ILibraryRepository library,
@@ -137,8 +165,21 @@ public sealed class ModReplacementService(
     public ModFixService? FixService => fixService;
 
     /// <param name="install">Imports the new copy. It's handed the "remove the old copies" step and calls it right before its first write (after any question of its own, so cancelling that changes nothing); it returns what landed.</param>
-    public async Task<ModReplacementResult> ReplaceAsync(
-        ModReplacementRequest request, Func<Action, Task<IReadOnlyList<PendingDownloadActivatedItem>>> install)
+    public Task<ModReplacementResult> ReplaceAsync(
+        ModReplacementRequest request, Func<Action, Task<IReadOnlyList<PendingDownloadActivatedItem>>> install) =>
+        ReplaceCoreAsync(request, install, writes: null);
+
+    /// <param name="install">The same, and it tells the ReplacementWrites it's handed about every folder it makes, so a failure takes out only those.</param>
+    public Task<ModReplacementResult> ReplaceAsync(
+        ModReplacementRequest request, Func<Action, ReplacementWrites, Task<IReadOnlyList<PendingDownloadActivatedItem>>> install)
+    {
+        var writes = new ReplacementWrites();
+        return ReplaceCoreAsync(request, removeOld => install(removeOld, writes), writes);
+    }
+
+    /// <param name="writes">What the install reported writing; null when it doesn't report.</param>
+    private async Task<ModReplacementResult> ReplaceCoreAsync(
+        ModReplacementRequest request, Func<Action, Task<IReadOnlyList<PendingDownloadActivatedItem>>> install, ReplacementWrites? writes)
     {
         var entries = library.GetAll();
         var oldEntries = request.LibraryFolders
@@ -193,11 +234,27 @@ public sealed class ModReplacementService(
             .Select(name => new OldUe4ssCopy(name, inGame.Contains(name), ue4ssMetaStore.Load(name)))
             .ToList();
 
+        // A copy that is off lives only in staging, so nothing else backs it up (Apply backs up a
+        // copy that is on when it takes it out of the game). Nothing is removed yet, so a backup
+        // that fails changes nothing.
+        foreach (var copy in oldUe4ss.Where(c => !c.WasEnabled))
+        {
+            try
+            {
+                FolderBackup.BackupFolder(ue4ssRepository.GetFolderPath(copy.Name), Path.Combine(backupDirectory, "UE4SS"));
+            }
+            catch (Exception ex)
+            {
+                return ModReplacementResult.Failure($"Couldn't back up '{copy.Name}' first, so nothing was replaced: {ex.Message}", error: null, rolledBack: false);
+            }
+        }
+
         var libraryBefore = entries.Select(e => e.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var scratch = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Replace_{Guid.NewGuid():N}");
         var removedLibrary = new List<OldLibraryCopy>();
         var removedUe4ss = new List<OldUe4ssCopy>();
         var removed = false;
+        var keepScratch = false;
 
         void RemoveOld()
         {
@@ -209,17 +266,17 @@ public sealed class ModReplacementService(
             removed = true;
             foreach (var copy in oldUe4ss)
             {
+                // A whole copy kept aside first, from where it lives now, and recorded at once:
+                // whatever fails after this, the rollback has all of it to put back.
+                var live = copy.WasEnabled ? Path.Combine(modsFolder!, copy.Name) : ue4ssRepository.GetFolderPath(copy.Name);
+                FolderBackup.CopyDirectory(live, Path.Combine(scratch, copy.Name, copy.Name));
+                removedUe4ss.Add(copy);
+
                 if (copy.WasEnabled)
                 {
-                    // A staged copy next to the enabled one is a leftover of the old reinstall bug
-                    // (the game kept the old copy); disabling would land the game copy as "_2".
-                    if (staged.Contains(copy.Name))
-                    {
-                        ue4ssRepository.Delete(copy.Name);
-                    }
-
-                    // Out of the game first (backed up under Backups\UE4SS), the way Disable does —
-                    // otherwise the game kept running the old copy and a later disable made a "_2".
+                    // Out of the game first (backed up under Backups\UE4SS; a staged leftover of the
+                    // same name is backed up and replaced), the way Disable does — otherwise the game
+                    // kept running the old copy and a later disable made a "_2".
                     var failures = ue4ssStateService.Apply(modsFolder!, new Dictionary<string, bool> { [copy.Name] = false }, backupDirectory);
                     if (failures.Count > 0)
                     {
@@ -227,11 +284,12 @@ public sealed class ModReplacementService(
                     }
                 }
 
-                // Kept aside until the new copy is in, so a failure can put it back.
-                FolderBackup.CopyDirectory(ue4ssRepository.GetFolderPath(copy.Name), Path.Combine(scratch, copy.Name, copy.Name));
-                ue4ssRepository.Delete(copy.Name);
+                if (ue4ssRepository.GetAll().Contains(copy.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    ue4ssRepository.Delete(copy.Name);
+                }
+
                 ue4ssMetaStore.Delete(copy.Name);
-                removedUe4ss.Add(copy);
             }
 
             foreach (var copy in oldLibrary)
@@ -250,8 +308,11 @@ public sealed class ModReplacementService(
             }
             catch (ImportCancelledException ex)
             {
-                var putBack = !removed || RollBack(libraryBefore, staged, removedLibrary, removedUe4ss, modsFolder, scratch);
-                return ModReplacementResult.Cancel(putBack ? ex.Message : $"{ex.Message} Your previous copy couldn't be put back — use Restore latest backup.");
+                var putBack = !removed || RollBack(libraryBefore, staged, removedLibrary, oldUe4ss, removedUe4ss, modsFolder, scratch, writes);
+                keepScratch = !putBack;
+                return ModReplacementResult.Cancel(putBack
+                    ? ex.Message
+                    : $"{ex.Message} Your previous copy couldn't all be put back.{WhereTheOldCopyIs(removedLibrary.Count > 0, removedUe4ss.Count > 0, scratch)}");
             }
             catch (Exception ex)
             {
@@ -260,11 +321,12 @@ public sealed class ModReplacementService(
                     return ModReplacementResult.Failure(ex.Message, ex, rolledBack: false);
                 }
 
-                var rolledBack = RollBack(libraryBefore, staged, removedLibrary, removedUe4ss, modsFolder, scratch);
+                var rolledBack = RollBack(libraryBefore, staged, removedLibrary, oldUe4ss, removedUe4ss, modsFolder, scratch, writes);
+                keepScratch = !rolledBack;
                 return ModReplacementResult.Failure(
                     rolledBack
-                        ? $"{ex.Message} — your previous copy was restored from its backup."
-                        : $"{ex.Message} — your previous copy couldn't be put back automatically; it's in Backups\\Mods.",
+                        ? $"{ex.Message} — your previous copy is back."
+                        : $"{ex.Message} — your previous copy couldn't all be put back.{WhereTheOldCopyIs(removedLibrary.Count > 0, removedUe4ss.Count > 0, scratch)}",
                     ex, rolledBack);
             }
 
@@ -278,8 +340,33 @@ public sealed class ModReplacementService(
         }
         finally
         {
-            TryDeleteDirectory(scratch);
+            if (keepScratch)
+            {
+                // The only whole copy of an old UE4SS mod that couldn't be put back.
+                Serilog.Log.Warning("Kept the replaced copy at {Scratch}: it couldn't all be put back", scratch);
+            }
+            else
+            {
+                TryDeleteDirectory(scratch);
+            }
         }
+    }
+
+    /// <summary>" The data mod is in Backups\Mods … The UE4SS mod is in Backups\UE4SS, and whole in …" — where to find what a rollback couldn't put back.</summary>
+    private static string WhereTheOldCopyIs(bool library, bool ue4ss, string scratch)
+    {
+        var text = "";
+        if (library)
+        {
+            text += " The data mod is in Backups\\Mods (right-click it › Restore latest backup).";
+        }
+
+        if (ue4ss)
+        {
+            text += $" The UE4SS mod is in Backups\\UE4SS, and whole in {scratch}.";
+        }
+
+        return text;
     }
 
     /// <summary>Pin/favourite/notes (always), the rename and remembered fixes (unless pristine) onto each new Library copy.</summary>
@@ -457,17 +544,36 @@ public sealed class ModReplacementService(
         }
     }
 
-    /// <summary>Takes out whatever the failed install left and puts every removed copy back. True when all of it came back.</summary>
+    /// <summary>
+    /// Takes out whatever the failed install left and puts every removed copy back. True when all
+    /// of it came back. With <paramref name="writes"/>, only the folders the install reported go;
+    /// without, every folder new since the start goes (another page may have added it meanwhile, so
+    /// each is backed up first), except a mod made in Starlink: only New mod and the Editor page's
+    /// save as a new mod make one, never an install, and it may exist nowhere else.
+    /// </summary>
     private bool RollBack(
         IReadOnlySet<string> libraryBefore, IReadOnlySet<string> stagedBefore, IReadOnlyList<OldLibraryCopy> removedLibrary,
-        IReadOnlyList<OldUe4ssCopy> removedUe4ss, string? modsFolder, string scratch)
+        IReadOnlyList<OldUe4ssCopy> oldUe4ss, IReadOnlyList<OldUe4ssCopy> removedUe4ss, string? modsFolder, string scratch, ReplacementWrites? writes)
     {
         var ok = true;
+        // Old names are put back by the per-copy steps below, never swept.
         var oldNames = removedLibrary.Select(o => o.Entry.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var partial in library.GetAll().Select(e => e.FolderName).Where(f => !libraryBefore.Contains(f) && !oldNames.Contains(f)).ToList())
+        var libraryLeftovers = library.GetAll()
+            .Where(e => !oldNames.Contains(e.FolderName))
+            .Where(e => writes is not null
+                ? writes.Has(e.FolderName, PendingDownloadActivationKind.Library)
+                : !libraryBefore.Contains(e.FolderName) && !e.MadeInStarlink)
+            .Select(e => e.FolderName)
+            .ToList();
+        foreach (var partial in libraryLeftovers)
         {
             try
             {
+                if (writes is null)
+                {
+                    library.BackupMod(partial);
+                }
+
                 library.Delete(partial);
             }
             catch (Exception)
@@ -494,11 +600,20 @@ public sealed class ModReplacementService(
             }
         }
 
-        var oldUe4ssNames = removedUe4ss.Select(o => o.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var partial in ue4ssRepository.GetAll().Where(n => !stagedBefore.Contains(n) || oldUe4ssNames.Contains(n)).ToList())
+        var oldUe4ssNames = oldUe4ss.Select(o => o.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ue4ssLeftovers = ue4ssRepository.GetAll()
+            .Where(n => !oldUe4ssNames.Contains(n))
+            .Where(n => writes is not null ? writes.Has(n, PendingDownloadActivationKind.Ue4ssMod) : !stagedBefore.Contains(n))
+            .ToList();
+        foreach (var partial in ue4ssLeftovers)
         {
             try
             {
+                if (writes is null)
+                {
+                    FolderBackup.BackupFolder(ue4ssRepository.GetFolderPath(partial), Path.Combine(backupDirectory, "UE4SS"));
+                }
+
                 ue4ssRepository.Delete(partial);
                 ue4ssMetaStore.Delete(partial);
             }
@@ -508,10 +623,31 @@ public sealed class ModReplacementService(
             }
         }
 
+        // Each of these has a whole copy in the scratch folder.
         foreach (var old in removedUe4ss)
         {
             try
             {
+                if (old.WasEnabled && modsFolder is not null && Directory.Exists(Path.Combine(modsFolder, old.Name)))
+                {
+                    // Still in the game: taking it out was refused (a file in use) or stopped partway.
+                    // Untouched means nothing to put back; a partly removed one is left as it is, and
+                    // the whole copy stays in the scratch folder.
+                    if (!HasSameFiles(Path.Combine(modsFolder, old.Name), Path.Combine(scratch, old.Name, old.Name)))
+                    {
+                        ok = false;
+                    }
+
+                    continue;
+                }
+
+                // A delete that stopped partway, or the failed install's new copy: the whole copy
+                // replaces it (imported beside it, it would land as "Name_2").
+                if (ue4ssRepository.GetAll().Contains(old.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    ue4ssRepository.Delete(old.Name);
+                }
+
                 var name = ue4ssRepository.ImportFromFolder(Path.Combine(scratch, old.Name), old.Name);
                 ue4ssMetaStore.Save(name, old.Meta);
                 if (old.WasEnabled && modsFolder is not null
@@ -527,6 +663,18 @@ public sealed class ModReplacementService(
         }
 
         return ok;
+    }
+
+    /// <summary>The same files (relative paths, ignoring case) with the same sizes in both folders.</summary>
+    private static bool HasSameFiles(string folder, string other)
+    {
+        static Dictionary<string, long> Files(string root) =>
+            Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                .ToDictionary(f => Path.GetRelativePath(root, f), f => new FileInfo(f).Length, StringComparer.OrdinalIgnoreCase);
+
+        var left = Files(folder);
+        var right = Files(other);
+        return left.Count == right.Count && left.All(f => right.TryGetValue(f.Key, out var length) && length == f.Value);
     }
 
     /// <summary>The Library info Delete removed: the exact snapshot when there is one, else the fields the entry holds.</summary>
