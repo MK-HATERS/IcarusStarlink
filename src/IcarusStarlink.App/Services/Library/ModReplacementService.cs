@@ -429,12 +429,15 @@ public sealed class ModReplacementService(
                 var fromFolder = old.Entry.FolderName;
                 var fixedBefore = old.Entry.FixedByIslAtUtc is not null || old.HadRememberedFixes;
                 var newFolder = folder;
+                // In the same folder the old copy, backed up before it was removed, must stay the
+                // latest backup; a new folder has no backup yet, so it gets one before the fixes.
+                var backUp = !string.Equals(fromFolder, newFolder, StringComparison.OrdinalIgnoreCase);
                 // A copy that was fixed before gets its sure fixes made again; remembered choices too.
                 // Off the UI thread: a check reads the game's tables.
                 fixes += await Task.Run(() =>
                 {
                     service.CarryOver(fromFolder, newFolder);
-                    return fixedBefore ? service.FixSure(newFolder).Applied : service.ReapplyRemembered(newFolder);
+                    return fixedBefore ? service.FixSure(newFolder, backUp: backUp).Applied : service.ReapplyRemembered(newFolder, backUp: backUp);
                 });
             }
             catch (Exception ex)

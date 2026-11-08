@@ -5,6 +5,8 @@ using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Ue4ss;
+using IcarusStarlink.PakIO.Container;
+using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Install;
 using IcarusStarlink.Storage.Library;
 using IcarusStarlink.Storage.Ue4ss;
@@ -548,6 +550,87 @@ public sealed class ModReplacementServiceTests : IDisposable
         Assert.True(result.RolledBack);
         Assert.Equal(["Homestead", "Mine", "Other"], _library.GetAll().Select(e => e.FolderName).Order(StringComparer.OrdinalIgnoreCase));
         Assert.Equal("v1", PakContent(old.FolderName));
+    }
+
+    /// <summary>The game table a misnamed "D_Itemable.json" row set belongs to, so moving it there is a sure fix.</summary>
+    private void ItemableTable()
+    {
+        var path = Path.Combine(_root, "Data", "Traits", "D_Itemable.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{"RowStruct": "S", "Defaults": {}, "Rows": [{"Name": "Item_Fiber", "DisplayName": "Fiber"}]}""");
+    }
+
+    /// <summary>Writes the mod's .EXMOD: its rows sit under the misnamed "D_Itemable.json" (a sure problem) unless <paramref name="fixedTable"/>.</summary>
+    private void WriteItemableMod(string folder, string version, bool fixedTable)
+    {
+        var table = fixedTable ? "Traits-D_Itemable.json" : "D_Itemable.json";
+        ExmodFolder.Write(_library.GetFolderPath(folder), new ExmodPackageContents(ExmodJson.Parse($$"""
+            {
+                "name": "Fix Me", "author": "Me", "version": "{{version}}", "description": "D", "fileName": "Fix_Me",
+                "Rows": [{"CurrentFile": "{{table}}", "File_Items": [{"Name": "Item_Fiber", "DisplayName": "Rope"}]}]
+            }
+            """), []));
+        _library.RefreshEntry(folder);
+    }
+
+    private static string ExmodText(string folder) => File.ReadAllText(Directory.GetFiles(folder, "*.EXMOD", SearchOption.AllDirectories).Single());
+
+    /// <summary>
+    /// Regression: replacing a mod Starlink fixed made the fixes again on the new copy and backed it
+    /// up first, so the latest backup was the fresh unfixed download, not the old copy.
+    /// </summary>
+    [Fact]
+    public async Task Replace_AModStarlinkFixed_KeepsTheOldCopyAsTheLatestBackup()
+    {
+        ItemableTable();
+        var old = _library.CreateBlankMod("Fix Me", "Me");
+        WriteItemableMod(old.FolderName, "1", fixedTable: true);
+        _library.MarkFixedByIsl(old.FolderName);
+        var oldText = ExmodText(_library.GetFolderPath(old.FolderName));
+
+        var result = await Service().ReplaceAsync(
+            new ModReplacementRequest("Fix Me", [old.FolderName], []),
+            removeOld =>
+            {
+                removeOld();
+                var entry = _library.CreateBlankMod("Fix Me", "Me");
+                WriteItemableMod(entry.FolderName, "2", fixedTable: false);
+                return Task.FromResult<IReadOnlyList<PendingDownloadActivatedItem>>([new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library)]);
+            });
+
+        Assert.True(result.Succeeded);
+        var folder = Assert.Single(result.Items).FolderName;
+        Assert.Equal(old.FolderName, folder);
+        Assert.Contains("Traits-D_Itemable.json", ExmodText(_library.GetFolderPath(folder))); // the fix was made again
+        Assert.Equal(oldText, ExmodText(_library.TryGetLatestModBackupPath(old.FolderName)!));
+    }
+
+    /// <summary>A new copy in a folder of its own has no backup yet, so making the fixes again backs it up first.</summary>
+    [Fact]
+    public async Task Replace_AModStarlinkFixedIntoANewFolder_BacksTheNewCopyUpToo()
+    {
+        ItemableTable();
+        var old = _library.CreateBlankMod("Fix Me", "Me");
+        WriteItemableMod(old.FolderName, "1", fixedTable: true);
+        _library.MarkFixedByIsl(old.FolderName);
+        var oldText = ExmodText(_library.GetFolderPath(old.FolderName));
+
+        var result = await Service().ReplaceAsync(
+            new ModReplacementRequest("Fix Me", [old.FolderName], []),
+            removeOld =>
+            {
+                removeOld();
+                var entry = _library.CreateBlankMod("Fix Me v2", "Me");
+                WriteItemableMod(entry.FolderName, "2", fixedTable: false);
+                return Task.FromResult<IReadOnlyList<PendingDownloadActivatedItem>>([new PendingDownloadActivatedItem(entry.FolderName, PendingDownloadActivationKind.Library)]);
+            });
+
+        Assert.True(result.Succeeded);
+        var folder = Assert.Single(result.Items).FolderName;
+        Assert.NotEqual(old.FolderName, folder);
+        Assert.Contains("D_Itemable.json\"", ExmodText(_library.TryGetLatestModBackupPath(folder)!));
+        Assert.DoesNotContain("Traits-D_Itemable.json", ExmodText(_library.TryGetLatestModBackupPath(folder)!));
+        Assert.Equal(oldText, ExmodText(_library.TryGetLatestModBackupPath(old.FolderName)!));
     }
 
     [Fact]
