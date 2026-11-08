@@ -246,13 +246,16 @@ public sealed class ModFixService(
     /// made is remembered as a choice, so a re-conversion makes exactly these again
     /// (ReapplyRemembered). Returns (applied, still to look over).
     /// </summary>
+    /// <param name="backUp">Back the mod up before the first fix. False when the caller has just backed it up itself
+    /// (an update backs up the old copy first, and that copy must stay the latest backup).</param>
     public (int Applied, int ToReview) FixSure(string folderName, IDictionary<string, JsonObject?>? baseTableCache = null, GameValueHistory? history = null,
-        IReadOnlySet<string>? libraryAddedRows = null) =>
-        Fix(folderName, baseTableCache, history, libraryAddedRows, onlyRemembered: false);
+        IReadOnlySet<string>? libraryAddedRows = null, bool backUp = true) =>
+        Fix(folderName, baseTableCache, history, libraryAddedRows, onlyRemembered: false, backUp);
 
     /// <param name="onlyRemembered">Only the choices remembered for this mod (ReapplyRemembered), not every sure problem.</param>
+    /// <param name="backUp">Back the mod up before the first round writes.</param>
     private (int Applied, int ToReview) Fix(string folderName, IDictionary<string, JsonObject?>? baseTableCache, GameValueHistory? history,
-        IReadOnlySet<string>? libraryAddedRows, bool onlyRemembered)
+        IReadOnlySet<string>? libraryAddedRows, bool onlyRemembered, bool backUp)
     {
         lock (_gate)
         {
@@ -270,7 +273,7 @@ public sealed class ModFixService(
                     break;
                 }
 
-                var thisRound = Write(folderName, fixes, backUp: applied == 0);
+                var thisRound = Write(folderName, fixes, backUp: backUp && applied == 0);
                 if (fixes.Any(f => !f.i.Remembered))
                 {
                     Remember(folderName, fixes.Where(f => !f.i.Remembered));
@@ -296,17 +299,18 @@ public sealed class ModFixService(
     /// gets its sure problems fixed once more (and remembered from then on). Without this a broken
     /// link fixed with Fix sure problems came back on the next refresh.
     /// </summary>
+    /// <param name="backUp">Back the mod up before the first fix (false when the caller has just backed it up itself).</param>
     public int ReapplyRemembered(string folderName, IDictionary<string, JsonObject?>? baseTableCache = null, GameValueHistory? history = null,
-        IReadOnlySet<string>? libraryAddedRows = null)
+        IReadOnlySet<string>? libraryAddedRows = null, bool backUp = true)
     {
         lock (_gate)
         {
             if (!LoadDecisions(folderName).HasFixes)
             {
-                return Entry(folderName)?.FixedByIslAtUtc is not null ? FixSure(folderName, baseTableCache, history, libraryAddedRows).Applied : 0;
+                return Entry(folderName)?.FixedByIslAtUtc is not null ? FixSure(folderName, baseTableCache, history, libraryAddedRows, backUp).Applied : 0;
             }
 
-            return Fix(folderName, baseTableCache, history, libraryAddedRows, onlyRemembered: true).Applied;
+            return Fix(folderName, baseTableCache, history, libraryAddedRows, onlyRemembered: true, backUp).Applied;
         }
     }
 
@@ -460,7 +464,7 @@ public sealed class ModFixService(
         }
     }
 
-    /// <param name="backUp">Back the mod up before writing (false for FixSure's later rounds: its first round already did).</param>
+    /// <param name="backUp">Back the mod up before writing (false for FixSure's later rounds: its first round already did; false too when the caller backed it up itself).</param>
     private int Write(string folderName, IReadOnlyCollection<(ModIssue Issue, ModIssueFix Fix)> fixes, bool backUp)
     {
         var changing = fixes.Where(f => f.Fix != ModIssueFix.KeepMod).ToList();

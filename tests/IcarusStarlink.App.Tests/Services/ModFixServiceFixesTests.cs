@@ -30,6 +30,11 @@ public sealed class ModFixServiceFixesTests : IDisposable
         Table("Traits/D_Itemable.json", """{"Name": "Item_Fiber", "DisplayName": "NSLOCTEXT(\"D_Itemable\", \"Item_Fiber-DisplayName\", \"Fiber\")"}""");
 
         _folder = _library.CreateBlankMod("Fix Me", "Me", ModTemplate.Blank).FolderName;
+        WriteMod();
+    }
+
+    /// <summary>The mod as its author made it (again after a re-conversion or an update).</summary>
+    private void WriteMod() =>
         ExmodFolder.Write(_library.GetFolderPath(_folder), new ExmodPackageContents(ExmodJson.Parse("""
             {
                 "name": "Fix Me", "author": "Me", "version": "1", "description": "D", "fileName": "Fix_Me",
@@ -44,7 +49,6 @@ public sealed class ModFixServiceFixesTests : IDisposable
                 ]
             }
             """), []));
-    }
 
     public void Dispose()
     {
@@ -114,5 +118,37 @@ public sealed class ModFixServiceFixesTests : IDisposable
         Assert.DoesNotContain(report.Issues, i => i.Kind == ModIssueKind.UnknownField && i.FieldName == "weight");
         Assert.Contains(report.Issues, i => i.Kind == ModIssueKind.SameAsGame);
         Assert.Equal(2, service.RememberedCount(_folder));
+    }
+
+    /// <summary>
+    /// Regression: after an update the caller has just backed up the old copy itself; making the
+    /// fixes again on the new copy took another backup, so the latest backup was the new copy
+    /// without its fixes, not the old one.
+    /// </summary>
+    [Fact]
+    public void FixSureAndReapplyRemembered_WithoutBackUp_TakeNoBackup()
+    {
+        var service = Service();
+
+        Assert.Equal(2, service.FixSure(_folder, backUp: false).Applied);
+        Assert.False(_library.HasModBackup(_folder));
+
+        WriteMod();
+        Assert.Equal(2, service.ReapplyRemembered(_folder, backUp: false));
+        Assert.False(_library.HasModBackup(_folder));
+        Assert.DoesNotContain(service.Check(_folder).Issues, i => i.Kind == ModIssueKind.UnknownTable);
+    }
+
+    /// <summary>The default still backs up before the first fix.</summary>
+    [Fact]
+    public void ReapplyRemembered_BacksUpByDefault()
+    {
+        var service = Service();
+        service.FixSure(_folder, backUp: false);
+        WriteMod();
+
+        Assert.Equal(2, service.ReapplyRemembered(_folder));
+
+        Assert.True(_library.HasModBackup(_folder));
     }
 }
