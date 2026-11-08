@@ -124,8 +124,19 @@ public sealed partial class LibraryViewModel
         // overwriting the name the author already got right.
         if (!converted.HasAuthorDeclaredMetadata)
         {
-            _repository.MarkConvertedFromPrebuiltPak(item.FolderName);
+            try
+            {
+                _repository.MarkConvertedFromPrebuiltPak(item.FolderName);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // The convert itself worked. Without the mark the mod is treated as one its author
+                // made (not converted again after a game update, its name not taken from Nexus),
+                // which errs safe.
+                Serilog.Log.Warning(ex, "Converted '{Folder}' but couldn't mark it converted from a pak", item.FolderName);
+            }
         }
+
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
         return (true, $"Converted '{item.Name}' to a real, editable mod — a backup of the original was kept.");
     }
@@ -376,8 +387,10 @@ public sealed partial class LibraryViewModel
 
         // 3. Mods built from scale rules (the editor's Scale rules view, the Quality of life
         // template) rebuild their rule rows from the new game data — the whole point of keeping
-        // rules instead of frozen copies. Rules own only their own fields, so hand edits stay; a mod
-        // open in the editor is left for its own Apply/Save, same guard as above.
+        // rules instead of frozen copies. A rule rewrites the fields it owns on every row it covers;
+        // a value set by hand there stays only when the rule skips that row (Keep my value in the
+        // mod editor, or a value saved from the Editor page). A mod open in the editor is left for
+        // its own Apply/Save, same guard as above.
         // Off the UI thread, reading only each mod's package (not its cooked files): this read every
         // mod's assets on the UI thread, freezing the app after each game data refresh. Each mod is
         // backed up before it's rewritten, like every other pass that writes mods.
