@@ -9,6 +9,7 @@ namespace IcarusStarlink.App.Tests.Services;
 /// Other mod managers take nxm:// links when they start, and players had to keep
 /// re-checking Settings to see whether Starlink still had them.
 /// </summary>
+[Collection(MessengerCollection.Name)]
 public class NxmHandlerWatchTests
 {
     private const string Starlink = "\"F:\\ModManager\\Icarus Mod Manager\\IcarusStarlink.App.exe\" \"%1\"";
