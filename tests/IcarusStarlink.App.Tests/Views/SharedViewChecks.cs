@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
+using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog.Nexus;
 
@@ -59,10 +60,12 @@ internal static class SharedViewChecks
                 return "the message isn't in a scroll area, so a long one pushes Yes and No off the screen";
             }
 
+            // The text size scales the whole box, so the on-screen height is MaxHeight times the scale.
             var screen = SystemParameters.WorkArea.Height;
-            return scroller.MaxHeight < screen
+            var onScreen = scroller.MaxHeight * UiScale.Current;
+            return onScreen <= Math.Max(120 * UiScale.Current, screen * 0.6) + 0.5
                 ? null
-                : $"the message's scroll area can grow to {scroller.MaxHeight} on a {screen} high screen";
+                : $"the message's scroll area can grow to {onScreen} on a {screen} high screen";
         }
         finally
         {

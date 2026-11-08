@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using IcarusStarlink.App.Utilities;
 
 namespace IcarusStarlink.App.Views;
 
@@ -24,8 +25,7 @@ public partial class ThemedConfirmDialog : Window
         Title = title;
         TitleText.Text = title;
         MessageTextBlock.Text = message;
-        // The message may take up to 60% of the screen; past that it scrolls, so the buttons stay visible.
-        MessageScroller.MaxHeight = Math.Max(120, SystemParameters.WorkArea.Height * 0.6);
+        MessageScroller.MaxHeight = MessageMaxHeight(SystemParameters.WorkArea.Height, UiScale.Current);
 
         var (geometryKey, brushKey) = severity switch
         {
@@ -136,6 +136,13 @@ public partial class ThemedConfirmDialog : Window
 
         e.Handled = true;
     }
+
+    /// <summary>
+    /// The message may take up to 60% of the screen at any text size; past that it scrolls, so the
+    /// buttons stay visible. The text size scales the whole box, so the height is in unscaled units.
+    /// </summary>
+    internal static double MessageMaxHeight(double workAreaHeight, double scale) =>
+        Math.Max(120, workAreaHeight * 0.6 / scale);
 
     /// <summary>
     /// The box as text, laid out like the Windows message box's Ctrl+C: title, message and the
