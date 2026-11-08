@@ -515,11 +515,17 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
             // Every item into the one package, in memory first: if one can't be applied, nothing is
             // written (and no empty new mod is left in Library).
+            // One lookup for every item of this Save (built for this package: never _bulkLookup).
             var lines = new List<string>();
+            var lookup = new GameItemLookup(game, package);
+            var exceptBefore = package.ScaleRules.Sum(r => r.ExceptRows.Count);
             foreach (var (itemName, changes, ownCopies) in work)
             {
-                lines.AddRange(GameItemEditor.Apply(game, package, itemName, changes, ownCopies));
+                lines.AddRange(GameItemEditor.Apply(game, package, itemName, changes, ownCopies, lookup));
             }
+
+            // A value typed on a row a Scale rule sets puts the row on the rule's skip list.
+            var nowSkipped = package.ScaleRules.Sum(r => r.ExceptRows.Count) - exceptBefore;
 
             if (target.IsNew)
             {
@@ -563,7 +569,10 @@ public sealed partial class GameEditorViewModel : ObservableObject
                 1 => $" Note: {noIngredients[0]}'s recipe takes no ingredients now. A machine (a furnace, a processor) never starts a recipe like that by itself: give it one ingredient if a machine makes it.",
                 _ => $" Note: {noIngredients.Count} recipes take no ingredients now ({string.Join(", ", noIngredients)}). A machine (a furnace, a processor) never starts a recipe like that by itself: give each one ingredient if a machine makes it.",
             };
-            StatusMessage = $"Saved {lines.Count} change(s) to '{name}'{items}.{backup} To use it in game: Turn on & go to Merge & Install, then Install.{warning}";
+            var skipped = nowSkipped > 0
+                ? $" {nowSkipped} value(s) a Scale rule sets now stay as you typed them: the rule skips those rows (see Scale rules in the mod editor)."
+                : "";
+            StatusMessage = $"Saved {lines.Count} change(s) to '{name}'{items}.{backup}{skipped} To use it in game: Turn on & go to Merge & Install, then Install.{warning}";
             _activityLog?.Log($"Saved {lines.Count} change(s) to '{name}'{items} in the Editor.", ActivityEntryKind.Success);
             SavedModFolder = folder;
         }
