@@ -59,6 +59,10 @@ public static class ExtractedModClassifier
 
     private static readonly string[] NestedArchiveExtensions = [".exmodz", ".zip", ".rar", ".7z"];
 
+    /// <summary>Files that are never a mod: a download holding only these has nothing to install.</summary>
+    private static readonly HashSet<string> NothingToInstallExtensions = new(
+        [".txt", ".md", ".pdf", ".url", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".exe", ".msi"], StringComparer.OrdinalIgnoreCase);
+
     /// <summary>" Warning: … (+N more in the Activity panel)" for the end of a status line; "" when there are none.</summary>
     public static string WarningSummary(IReadOnlyList<string> warnings) =>
         warnings.Count == 0 ? "" : $" Warning: {warnings[0]}" + (warnings.Count > 1 ? $" (+{warnings.Count - 1} more in the Activity panel)" : "");
@@ -352,6 +356,14 @@ public static class ExtractedModClassifier
                     PendingDownloadActivationKind.Ue4ssMod))
                 .ToList();
             return new ClassifiedImport(staged[0].FolderName, staged[0].FolderName, PendingDownloadActivationKind.Ue4ssMod, IsOpaquePak: false, staged, requirements, warnings);
+        }
+
+        // Nothing but documents, pictures or an installer (or nothing at all): staged, it was an
+        // empty UE4SS mod UE4SS never starts, reported as a success. A config file or loose Lua
+        // still goes to the catch-all, since odd UE4SS layouts can be fixed by hand.
+        if (allFiles.All(f => NothingToInstallExtensions.Contains(Path.GetExtension(f))))
+        {
+            throw new FormatException("Nothing in this download can be installed: it holds only documents, pictures or an installer, no mod files.");
         }
 
         session.Writing();

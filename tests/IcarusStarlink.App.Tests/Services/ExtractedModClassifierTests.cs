@@ -741,16 +741,51 @@ public sealed class ExtractedModClassifierTests : IDisposable
         Assert.Equal(0, libraryRepository.ImportCallCount);
     }
 
+    /// <summary>Regression: an empty download was staged as an empty UE4SS mod and reported as a success.</summary>
     [Fact]
-    public async Task ClassifyAndImport_EmptyExtractedFolder_StillFallsBackToUe4ssModImport()
+    public async Task ClassifyAndImport_EmptyExtractedFolder_IsRefusedAsNothingToInstall()
     {
-        // An edge case worth pinning down explicitly: nothing recognizable at all still resolves to
-        // SOME outcome (the UE4SS catch-all) rather than throwing — ImportOnePath's caller has
-        // nothing better to fall back to either.
         var ue4ssModRepository = new FakeUe4ssModRepository { Result = "Empty_1" };
 
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Empty.zip", new FakeLibraryRepository(), ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null));
+
+        Assert.Contains("Nothing in this download can be installed", ex.Message);
+        Assert.Equal(0, ue4ssModRepository.ImportFromFolderCallCount);
+    }
+
+    /// <summary>Regression: a README with screenshots and an installer landed as a UE4SS mod UE4SS never starts, and the status said it was activated.</summary>
+    [Fact]
+    public async Task ClassifyAndImport_OnlyAReadmeScreenshotsAndAnInstaller_IsRefusedAsNothingToInstall()
+    {
+        File.WriteAllText(Path.Combine(_extractedDir, "README.txt"), "Run the installer.");
+        Directory.CreateDirectory(Path.Combine(_extractedDir, "Screenshots"));
+        File.WriteAllBytes(Path.Combine(_extractedDir, "Screenshots", "shot1.PNG"), [0x89, 0x50]);
+        File.WriteAllBytes(Path.Combine(_extractedDir, "Screenshots", "shot2.jpg"), [0xFF, 0xD8]);
+        File.WriteAllBytes(Path.Combine(_extractedDir, "Setup.exe"), [0x4D, 0x5A]);
+        var ue4ssModRepository = new FakeUe4ssModRepository { Result = "Docs" };
+        var library = new FakeLibraryRepository();
+
+        var ex = await Assert.ThrowsAsync<FormatException>(() => ExtractedModClassifier.ClassifyAndImport(
+            _extractedDir, "Docs.zip", library, ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null));
+
+        Assert.Contains("Nothing in this download can be installed", ex.Message);
+        Assert.Equal(0, ue4ssModRepository.ImportFromFolderCallCount);
+        Assert.Equal(0, library.ImportCallCount);
+    }
+
+    /// <summary>A config file or loose Lua still goes to the UE4SS catch-all: odd layouts can be fixed by hand afterwards.</summary>
+    [Theory]
+    [InlineData("config.ini")]
+    [InlineData("main.lua")]
+    public async Task ClassifyAndImport_ReadmeWithAConfigOrLuaFile_StillFallsBackToUe4ssModImport(string fileName)
+    {
+        File.WriteAllText(Path.Combine(_extractedDir, "README.md"), "Readme");
+        File.WriteAllText(Path.Combine(_extractedDir, fileName), "x");
+        var ue4ssModRepository = new FakeUe4ssModRepository { Result = "Odd" };
+
         var (_, _, kind, _) = await ExtractedModClassifier.ClassifyAndImport(
-            _extractedDir, "Empty.zip", new FakeLibraryRepository(), ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null);
+            _extractedDir, "Odd.zip", new FakeLibraryRepository(), ue4ssModRepository, new FakePrebuiltPakImporter(), "SomeDataFolder", null);
 
         Assert.Equal(PendingDownloadActivationKind.Ue4ssMod, kind);
         Assert.Equal(1, ue4ssModRepository.ImportFromFolderCallCount);
