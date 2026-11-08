@@ -218,9 +218,10 @@ public sealed class GameFileFingerprintStore
     }
 
     /// <summary>
-    /// What the game changed in this file at this build, against the newest other recorded build
-    /// that has it. Null when there's no such build (only one recorded so far) or the file isn't
-    /// recorded for this build: nothing can be said then.
+    /// What the game changed in this file at this build, against the newest build recorded before
+    /// this one that has it. Null when there's no such build (only one recorded so far, or the
+    /// game went back to an older build) or the file isn't recorded for this build: nothing can
+    /// be said then.
     /// </summary>
     public GameFileChange? ChangeAt(string currentBuild, string file)
     {
@@ -232,8 +233,11 @@ public sealed class GameFileFingerprintStore
                 return null;
             }
 
+            // Only builds recorded before this one: after the game goes back to an older build
+            // (leaving a Steam beta), the newer one isn't "previous" and would turn every change around.
             var previous = _builds
-                .Where(b => !string.Equals(b.Key, currentBuild, StringComparison.OrdinalIgnoreCase) && b.Value.Files.ContainsKey(key))
+                .Where(b => !string.Equals(b.Key, currentBuild, StringComparison.OrdinalIgnoreCase) && b.Value.Files.ContainsKey(key)
+                    && b.Value.RecordedAtUtc < current.RecordedAtUtc)
                 .OrderByDescending(b => b.Value.RecordedAtUtc)
                 .Select(b => (Build: b.Key, File: b.Value.Files[key]))
                 .FirstOrDefault();
@@ -242,7 +246,11 @@ public sealed class GameFileFingerprintStore
                 return null;
             }
 
-            var changed = now.Functions.Keys.Where(f => before.Functions.TryGetValue(f, out var old) && old != now.Functions[f]).Order(StringComparer.Ordinal).ToList();
+            // A fingerprint recorded in the older form can't be compared with a "v2:" one, so a
+            // pair in different forms isn't called changed.
+            var changed = now.Functions.Keys
+                .Where(f => before.Functions.TryGetValue(f, out var old) && old != now.Functions[f] && Comparable(old, now.Functions[f]))
+                .Order(StringComparer.Ordinal).ToList();
             var added = now.Functions.Keys.Except(before.Functions.Keys).Order(StringComparer.Ordinal).ToList();
             var removed = before.Functions.Keys.Except(now.Functions.Keys).Order(StringComparer.Ordinal).ToList();
             return new GameFileChange(previous.Build, currentBuild, changed, added, removed,
@@ -280,6 +288,16 @@ public sealed class GameFileFingerprintStore
         {
             _builds.Remove(stale);
         }
+    }
+
+    /// <summary>Whether two code fingerprints are in the same form; "0" (no code) compares with either.</summary>
+    private static bool Comparable(string? a, string? b)
+    {
+        static int? FormatOf(string? fingerprint) =>
+            fingerprint is null or "0" ? null : fingerprint.StartsWith("v2:", StringComparison.Ordinal) ? 2 : 1;
+
+        var (first, second) = (FormatOf(a), FormatOf(b));
+        return first is null || second is null || first == second;
     }
 
     /// <summary>"BP/Player/BP_X.uasset" and "BP\Player\BP_X" are one file.</summary>

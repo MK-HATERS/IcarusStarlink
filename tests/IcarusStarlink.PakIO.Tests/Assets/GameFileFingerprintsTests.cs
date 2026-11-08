@@ -60,6 +60,44 @@ public sealed class GameFileFingerprintsTests : IDisposable
         Assert.Equal("the game changed GetCurrentProspectLocation, added OnLanded, removed Legacy and changed its settings in this update", change.Describe());
     }
 
+    /// <summary>
+    /// Regression: after the game went back to an older build (leaving a Steam beta), the newer
+    /// build recorded later was taken as "previous", so what changed was told backwards.
+    /// </summary>
+    [Fact]
+    public void ChangeAt_BackOnTheOlderBuild_SaysNothing()
+    {
+        Assert.Null(TwoBuilds().ChangeAt("25900000", File));
+    }
+
+    [Fact]
+    public void ChangeAt_BackOnTheOlderBuild_ComparesWithAnEvenOlderOne()
+    {
+        var store = TwoBuilds();
+        store.Record("25800000", File, Summary(new() { ["GetCurrentProspectLocation"] = "older", ["Tick"] = "same", ["Legacy"] = "x" }), Week1.AddDays(-7));
+
+        // Recorded last but first in time: 25800000 is the only build before it.
+        var change = store.ChangeAt("25800000", File);
+        Assert.Null(change);
+        Assert.Equal("25800000", store.ChangeAt("25900000", File)!.PreviousBuild);
+    }
+
+    /// <summary>
+    /// Fingerprints recorded before the code fingerprint gained its "v2:" form can't be compared
+    /// with new ones: the first refresh after the upgrade mustn't call every function changed.
+    /// </summary>
+    [Fact]
+    public void ChangeAt_OldAndNewFingerprintFormats_AreNotCalledChanged()
+    {
+        var store = GameFileFingerprintStore.Load(StorePath);
+        store.Record("A", File, Summary(new() { ["F"] = "26:ABC", ["G"] = "v2:3:111" }), Week1);
+        store.Record("B", File, Summary(new() { ["F"] = "v2:26:DEF", ["G"] = "v2:3:222" }), Week2);
+
+        var change = store.ChangeAt("B", File)!;
+
+        Assert.Equal(["G"], change.ChangedFunctions);
+    }
+
     [Fact]
     public void ModStillHoldingTheGamesOldCode_IsProvenOutOfDate()
     {

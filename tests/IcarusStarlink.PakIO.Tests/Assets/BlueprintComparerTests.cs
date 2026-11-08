@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using CUE4Parse.UE4.Kismet;
 using IcarusStarlink.PakIO.Assets;
 
 namespace IcarusStarlink.PakIO.Tests.Assets;
@@ -45,5 +47,27 @@ public sealed class BlueprintComparerTests
 
         Assert.True(difference.IsIdentical);
         Assert.Equal("is identical", difference.Describe());
+    }
+
+    /// <summary>
+    /// Regression: the fingerprint used to hash only each instruction's kind, so a mod that changed
+    /// one constant inside a function (3.0 → 0.5) read as identical to the game's copy.
+    /// </summary>
+    [Fact]
+    public void Fingerprint_DiffersWhenOnlyAConstantChanges()
+    {
+        static EX_FloatConst Float(float value)
+        {
+            var constant = (EX_FloatConst)RuntimeHelpers.GetUninitializedObject(typeof(EX_FloatConst));
+            constant.Value = value;
+            return constant;
+        }
+
+        var game = BlueprintComparer.Fingerprint([Float(3.0f), new EX_EndOfScript()]);
+        var mod = BlueprintComparer.Fingerprint([Float(0.5f), new EX_EndOfScript()]);
+
+        Assert.NotEqual(game, mod);
+        Assert.Equal(game, BlueprintComparer.Fingerprint([Float(3.0f), new EX_EndOfScript()]));
+        Assert.StartsWith("v2:2:", game);
     }
 }

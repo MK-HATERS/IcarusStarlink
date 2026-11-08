@@ -4,15 +4,18 @@ using System.Text;
 using System.Text.RegularExpressions;
 using CUE4Parse.UE4.Assets;
 using CUE4Parse.UE4.Assets.Exports;
+using CUE4Parse.UE4.Kismet;
 using CUE4Parse.UE4.Objects.UObject;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace IcarusStarlink.PakIO.Assets;
 
 /// <summary>
 /// What a cooked blueprint is made of, by name: its parts (exports), variables, each function's
-/// compiled code (a fingerprint of its instructions) and every part's default values. Enough to
-/// compare a mod's copy of a game blueprint with the game's own, though not to show its logic.
+/// compiled code (a fingerprint of the whole code, references by name) and every part's default
+/// values. Enough to compare a mod's copy of a game blueprint with the game's own, though not to
+/// show its logic.
 /// </summary>
 public sealed record BlueprintSummary(
     IReadOnlySet<string> Parts, IReadOnlySet<string> Variables,
@@ -154,16 +157,84 @@ public static partial class BlueprintComparer
         return new BlueprintDifference(settings, changed, onlyInGame, onlyInMod);
     }
 
-    /// <summary>A function's compiled code as a stable fingerprint (instruction count and their sequence).</summary>
-    private static string Fingerprint(UFunction function)
+    /// <summary>A function's compiled code as a stable fingerprint; "0" when it has none.</summary>
+    private static string Fingerprint(UFunction function) =>
+        function.ScriptBytecode is { Length: > 0 } code ? Fingerprint(code) : "0";
+
+    /// <summary>
+    /// The whole compiled code as "v2:&lt;statement count&gt;:&lt;hash&gt;": every instruction with what it
+    /// does (constants, called functions, jump targets), references by name only. The "v2:" form
+    /// can't be mistaken for the older "&lt;count&gt;:&lt;hash&gt;" of instruction kinds alone, which
+    /// GameFileFingerprintStore may still hold.
+    /// </summary>
+    internal static string Fingerprint(KismetExpression[] code)
     {
-        if (function.ScriptBytecode is not { Length: > 0 } code)
+        string body;
+        try
         {
-            return "0";
+            var tree = JToken.Parse(JsonConvert.SerializeObject(code, Formatting.None));
+            WithoutReaderDetails(tree);
+            body = tree.ToString(Formatting.None);
+        }
+        catch (Exception)
+        {
+            body = string.Join(",", code.Select(e => e.Token.ToString()));
         }
 
-        var tokens = string.Join(",", code.Select(e => e.Token.ToString()));
-        return $"{code.Length}:{Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(tokens)))}";
+        return $"v2:{code.Length}:{Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(body)))}";
+    }
+
+    /// <summary>
+    /// Takes out of the code's JSON what depends on the reader rather than the code, so the game's
+    /// paks and a mod folder give a byte-identical copy the same fingerprint: package paths (the
+    /// two spell them differently, as Value() handles), and how a property pointer came out. The
+    /// game's reader can load the class a property lives in and writes the whole property (with
+    /// load flags); a mod folder without that class leaves it as a path. Both become
+    /// "owner:property".
+    /// </summary>
+    private static void WithoutReaderDetails(JToken token)
+    {
+        switch (token)
+        {
+            case JObject node:
+                node.Remove("ObjectPath");
+                if (PropertyPointer(node) is { } pointer)
+                {
+                    node.RemoveAll();
+                    node["Field"] = pointer;
+                    return;
+                }
+
+                foreach (var property in node.Properties())
+                {
+                    WithoutReaderDetails(property.Value);
+                }
+
+                break;
+            case JArray items:
+                foreach (var item in items)
+                {
+                    WithoutReaderDetails(item);
+                }
+
+                break;
+        }
+    }
+
+    /// <summary>"&lt;owner class&gt;:UMG_MainMenu" for a property pointer in either form; null for anything else.</summary>
+    private static string? PropertyPointer(JObject node)
+    {
+        if (node["Property"] is JObject property && node.ContainsKey("Owner"))
+        {
+            return $"{(node["Owner"] as JObject)?["ObjectName"]}:{property["Name"]}";
+        }
+
+        if (node["Path"] is JArray path && node.ContainsKey("ResolvedOwner"))
+        {
+            return $"{(node["ResolvedOwner"] as JObject)?["ObjectName"]}:{path.FirstOrDefault()}";
+        }
+
+        return null;
     }
 
     /// <summary>A default value as text, with references by name only (two readers write their paths differently).</summary>
