@@ -2650,8 +2650,12 @@ public sealed partial class SavesViewModelTests : IDisposable
 
         public List<string?> RequestedPaths { get; } = [];
 
+        /// <summary>When set, every decode waits for it: holds the icon queues until a test lets them go.</summary>
+        public ManualResetEventSlim? Gate { get; set; }
+
         public byte[]? TryDecodeIconToPng(string? gameIconPath)
         {
+            Gate?.Wait();
             RequestedPaths.Add(gameIconPath);
             return PngBytesToReturn;
         }

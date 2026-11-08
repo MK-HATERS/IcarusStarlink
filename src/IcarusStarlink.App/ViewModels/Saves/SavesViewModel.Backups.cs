@@ -4,13 +4,43 @@ using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Utilities;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
+using IcarusStarlink.Core.Saves;
 
 namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class SavesViewModel
 {
+    /// <summary>The slot whose backups were listed last (null: none, or the list couldn't be read).</summary>
+    private string? _backupsListedFor;
+
+    /// <summary>The backups listed last, by path: a reload clears the shown list before listing it again.</summary>
+    private HashSet<string> _backupsListed = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The backup last selected; a list being emptied (a reload, the list box losing its items) isn't a pick.</summary>
+    private string? _pickedBackup;
+
+    partial void OnSelectedBackupChanged(SaveBackupInfo? value)
+    {
+        if (value is not null)
+        {
+            _pickedBackup = value.FilePath;
+        }
+    }
+
+    /// <summary>
+    /// Lists the slot's backups again. A backup that wasn't listed before (Save, Backup now and
+    /// Restore's pre_restore zip just made it; or another slot's list was shown) is selected, as
+    /// "Restore the newest backup" after a failed save expects. Otherwise the backup the player
+    /// picked stays picked (it used to jump back to the newest on every reload), or the newest
+    /// when the picked one is gone.
+    /// </summary>
     private void RefreshBackupsList()
     {
+        var sameSlot = SelectedSlot is not null && string.Equals(SelectedSlot.SteamId, _backupsListedFor, StringComparison.Ordinal);
+        HashSet<string> listedBefore = sameSlot ? _backupsListed : [];
+        var picked = sameSlot ? _pickedBackup : null;
+        _backupsListedFor = null;
+        _backupsListed = new(StringComparer.OrdinalIgnoreCase);
         Backups.Clear();
         if (SelectedSlot is null)
         {
@@ -33,8 +63,13 @@ public sealed partial class SavesViewModel
             return;
         }
 
-        SelectedBackup = Backups.FirstOrDefault();
-        LastBackupDisplay = Backups.FirstOrDefault() is { } newest
+        _backupsListedFor = SelectedSlot.SteamId;
+        _backupsListed = Backups.Select(b => b.FilePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var newest = Backups.FirstOrDefault();
+        SelectedBackup = newest is not null && !listedBefore.Contains(newest.FilePath)
+            ? newest
+            : Backups.FirstOrDefault(b => string.Equals(b.FilePath, picked, StringComparison.OrdinalIgnoreCase)) ?? newest;
+        LastBackupDisplay = newest is not null
             ? $"Last backup: {newest.TakenAtUtc.LocalDateTime:g}"
             : "No backups yet.";
     }

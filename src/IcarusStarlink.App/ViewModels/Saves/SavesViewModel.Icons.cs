@@ -6,8 +6,14 @@ namespace IcarusStarlink.App.ViewModels;
 
 public sealed partial class SavesViewModel
 {
+    /// <summary>Row icons (items, mounts, bestiary, the Talents list) show at 30-52 px: decoded no wider than this.</summary>
+    private const int RowIconWidth = 128;
+
+    /// <summary>Tree nodes and the workshop queue show up to about 220 px at full zoom: decoded no wider than this.</summary>
+    private const int TreeIconWidth = 256;
+
     /// <summary>
-    /// Session-lifetime cache: raw Icon/Image path → its decoded (and frozen) BitmapImage, or a
+    /// Session-lifetime cache: decode width and raw Icon/Image path → its decoded (and frozen) BitmapImage, or a
     /// cached null for a path that didn't resolve — shared across every row this page ever builds,
     /// not just the currently-loaded slot's. A save can carry many rows referencing the exact same
     /// D_Mounts/D_Itemable/D_BestiaryData texture (ten mounts of the same species; the same item
@@ -57,7 +63,7 @@ public sealed partial class SavesViewModel
         }
 
         var generation = _iconLoadGeneration;
-        _pendingIconLoad = LoadIconsAsync(requests, () => generation == _iconLoadGeneration);
+        _pendingIconLoad = LoadIconsAsync(requests, () => generation == _iconLoadGeneration, RowIconWidth);
         QueueWorkshopIcons();
     }
 
@@ -76,8 +82,10 @@ public sealed partial class SavesViewModel
     /// defines, not just ones the player's encountered — see BuildBestiaryEntries) means this can
     /// trail on in the background for a while after a slot loads; that's real but bounded (no UI
     /// thread time, one background thread, nothing blocks on it) rather than a correctness problem.
+    /// The picture is decoded in the background too, no wider than <paramref name="decodeWidth"/>
+    /// (a texture is often 512 px; a full-size copy of each stayed in the cache all session).
     /// </summary>
-    private async Task LoadIconsAsync(IReadOnlyList<(string? IconPath, bool Trim, Action<BitmapImage> SetIcon)> requests, Func<bool> stillWanted)
+    private async Task LoadIconsAsync(IReadOnlyList<(string? IconPath, bool Trim, Action<BitmapImage> SetIcon)> requests, Func<bool> stillWanted, int decodeWidth)
     {
         foreach (var (iconPath, trim, setIcon) in requests)
         {
@@ -91,7 +99,7 @@ public sealed partial class SavesViewModel
                 continue;
             }
 
-            var cacheKey = trim ? "trimmed:" + iconPath : iconPath;
+            var cacheKey = $"{decodeWidth}|{(trim ? "trimmed:" : "")}{iconPath}";
             if (!_iconCache.TryGetValue(cacheKey, out var bitmap))
             {
                 // Several queues run at once now (rows, a tree, the workshop): the gate keeps the
@@ -101,9 +109,8 @@ public sealed partial class SavesViewModel
                 {
                     if (!_iconCache.TryGetValue(cacheKey, out bitmap))
                     {
-                        var pngBytes = await Task.Run(() =>
-                            _baseGameIconDecoder.TryDecodeIconToPng(iconPath) is { } png ? (trim ? PngTrim.TrimTransparentBorder(png) : png) : null);
-                        bitmap = pngBytes is null ? null : TryDecodeImage(pngBytes);
+                        bitmap = await Task.Run(() =>
+                            _baseGameIconDecoder.TryDecodeIconToPng(iconPath) is { } png ? DecodeFrozen(trim ? PngTrim.TrimTransparentBorder(png) : png, decodeWidth) : null);
                         _iconCache[cacheKey] = bitmap;
                     }
                 }
@@ -125,15 +132,24 @@ public sealed partial class SavesViewModel
         }
     }
 
-    /// <summary>Decodes image bytes to a frozen bitmap, or null if they aren't a decodable image — same shape as LibraryItemViewModel's own private TryDecodeImage, duplicated rather than shared since nothing currently ties this page to that one.</summary>
-    private static BitmapImage? TryDecodeImage(byte[] bytes)
+    /// <summary>
+    /// Decodes PNG bytes to a frozen bitmap no wider than <paramref name="width"/> (a smaller
+    /// picture is never scaled up), or null if they aren't a decodable image. Frozen, so it can be
+    /// made on a background thread and shown on the UI thread.
+    /// </summary>
+    private static BitmapImage? DecodeFrozen(byte[] png, int width)
     {
         try
         {
-            using var stream = new MemoryStream(bytes);
+            using var stream = new MemoryStream(png);
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            if (PngWidth(png) is { } pngWidth && pngWidth > width)
+            {
+                bitmap.DecodePixelWidth = width;
+            }
+
             bitmap.StreamSource = stream;
             bitmap.EndInit();
             bitmap.Freeze();
@@ -144,4 +160,12 @@ public sealed partial class SavesViewModel
             return null;
         }
     }
+
+    private static ReadOnlySpan<byte> PngSignature => [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    /// <summary>The width in a PNG's IHDR (the big-endian number right after the signature and the chunk's length and type), or null when the bytes aren't a PNG.</summary>
+    private static int? PngWidth(byte[] bytes) =>
+        bytes.Length >= 24 && bytes.AsSpan(0, 8).SequenceEqual(PngSignature)
+            ? System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(16, 4))
+            : null;
 }

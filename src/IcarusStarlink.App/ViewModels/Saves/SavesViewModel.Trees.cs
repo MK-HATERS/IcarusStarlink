@@ -17,7 +17,7 @@ public sealed partial class SavesViewModel
     private bool _workshopTreesStale = true;
 
     public TalentTreeBrowserViewModel TalentTrees => _talentTrees ??= new(
-        "Max this tree", "Reset this tree", MaxTalentGroupCommand, ResetTalentGroupCommand, QueueTalentIcons);
+        "Max this tree", "Reset this tree", MaxTalentGroupCommand, ResetTalentGroupCommand, TreeIcons(), () => BatchedDirtyChanges());
 
     private TalentTreeBrowserViewModel? _missionTrees;
     private TalentTreeBrowserViewModel? _mountTrees;
@@ -26,14 +26,14 @@ public sealed partial class SavesViewModel
 
     /// <summary>Missions as the game's mission chains, a tree per map (D_Talents places the Prospect_* rows too).</summary>
     public TalentTreeBrowserViewModel MissionTrees => _missionTrees ??= new(
-        "Mark all done", "Mark none done", MarkMissionGroupDoneCommand, ClearMissionGroupCommand, QueueTalentIcons)
+        "Mark all done", "Mark none done", MarkMissionGroupDoneCommand, ClearMissionGroupCommand, TreeIcons(), () => BatchedDirtyChanges())
     {
         Zoom = 0.25,
     };
 
     /// <summary>The selected mount's trees, as its talent menu draws them.</summary>
     public TalentTreeBrowserViewModel MountTrees => _mountTrees ??= new(
-        "Max this tree", "Reset this tree", MaxMountGroupCommand, ResetMountGroupCommand, QueueTalentIcons)
+        "Max this tree", "Reset this tree", MaxMountGroupCommand, ResetMountGroupCommand, TreeIcons(), () => BatchedDirtyChanges())
     {
         Zoom = 0.45,
     };
@@ -110,7 +110,7 @@ public sealed partial class SavesViewModel
 
     /// <summary>Workshop nodes are 250 units to a talent's 128: drawn smaller to start with, about the same on screen.</summary>
     public TalentTreeBrowserViewModel WorkshopTrees => _workshopTrees ??= new(
-        "Research all in this tree", "Clear this tree", ResearchWorkshopGroupCommand, ClearWorkshopGroupCommand, QueueTalentIcons)
+        "Research all in this tree", "Clear this tree", ResearchWorkshopGroupCommand, ClearWorkshopGroupCommand, TreeIcons(), () => BatchedDirtyChanges())
     {
         Zoom = 0.3,
     };
@@ -243,37 +243,59 @@ public sealed partial class SavesViewModel
 
     // --- Talent and research icons: loaded for what's being looked at (a tree, the list) ---
 
-    private int _talentIconGeneration;
-    private Task _pendingTalentIconLoad = Task.CompletedTask;
-
-    /// <summary>Test seam: the talent icons asked for last.</summary>
-    internal Task WaitForTalentIconsAsync() => _pendingTalentIconLoad;
-
-    /// <summary>Loads these rows' pictures; a newer ask (another tree picked) takes over from this one.</summary>
-    private void QueueTalentIcons(IEnumerable<ITreeTalent> rows)
+    /// <summary>
+    /// One picture queue per place that shows talents: a newer ask from the same place (another
+    /// tree picked there) takes over from its older one, and never stops another place's. A slot
+    /// load picks a tree in every browser in turn: with one shared queue only the last kept loading.
+    /// </summary>
+    private sealed class IconQueue(SavesViewModel page, int decodeWidth)
     {
-        var requests = rows.Where(t => t.Icon is null && t.IconPath is not null)
-            .Select(t => (t.IconPath, false, (Action<System.Windows.Media.Imaging.BitmapImage>)(bitmap => t.Icon = bitmap)))
-            .ToList();
-        var generation = ++_talentIconGeneration;
-        if (requests.Count > 0)
+        private int _generation;
+
+        /// <summary>The newest load this queue started.</summary>
+        public Task Pending { get; private set; } = Task.CompletedTask;
+
+        public void Queue(IEnumerable<ITreeTalent> rows)
         {
-            _pendingTalentIconLoad = LoadIconsAsync(requests, () => generation == _talentIconGeneration);
+            var requests = rows.Where(t => t.Icon is null && t.IconPath is not null)
+                .Select(t => (t.IconPath, false, (Action<System.Windows.Media.Imaging.BitmapImage>)(bitmap => t.Icon = bitmap)))
+                .ToList();
+            if (requests.Count == 0)
+            {
+                return;
+            }
+
+            var mine = ++_generation;
+            Pending = page.LoadIconsAsync(requests, () => mine == _generation, decodeWidth);
         }
     }
 
-    /// <summary>The workshop's research pictures: kept apart from the talents', so picking a tree doesn't stop them.</summary>
-    private int _workshopIconGeneration;
+    private readonly List<IconQueue> _iconQueues = [];
 
-    private void QueueWorkshopIcons()
+    private IconQueue NewIconQueue(int decodeWidth)
     {
-        var requests = WorkshopTalents.Where(t => !IsMission(t) && t.Icon is null && t.IconPath is not null)
-            .Select(t => (t.IconPath, false, (Action<System.Windows.Media.Imaging.BitmapImage>)(bitmap => t.Icon = bitmap)))
-            .ToList();
-        var generation = ++_workshopIconGeneration;
-        if (requests.Count > 0)
-        {
-            _ = LoadIconsAsync(requests, () => generation == _workshopIconGeneration);
-        }
+        var queue = new IconQueue(this, decodeWidth);
+        _iconQueues.Add(queue);
+        return queue;
     }
+
+    /// <summary>A tree browser's own queue.</summary>
+    private Action<IEnumerable<ITreeTalent>> TreeIcons() => NewIconQueue(TreeIconWidth).Queue;
+
+    private IconQueue? _talentListIcons;
+
+    /// <summary>The Talents list's pictures (small, like the other lists' rows).</summary>
+    private IconQueue TalentListIcons => _talentListIcons ??= NewIconQueue(RowIconWidth);
+
+    private IconQueue? _workshopIcons;
+
+    /// <summary>Every research picture, asked for once a slot is read (the Workshop list and its queue show them, not only the picked tree).</summary>
+    private IconQueue WorkshopIcons => _workshopIcons ??= NewIconQueue(TreeIconWidth);
+
+    /// <summary>Test seam: every talent picture queue's newest load.</summary>
+    internal Task WaitForTalentIconsAsync() => Task.WhenAll(_iconQueues.Select(q => q.Pending));
+
+    private void QueueTalentIcons(IEnumerable<ITreeTalent> rows) => TalentListIcons.Queue(rows);
+
+    private void QueueWorkshopIcons() => WorkshopIcons.Queue(WorkshopTalents.Where(t => !IsMission(t)));
 }

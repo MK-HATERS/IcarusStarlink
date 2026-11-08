@@ -19,15 +19,19 @@ namespace IcarusStarlink.App.ViewModels;
 public sealed partial class TalentTreeBrowserViewModel : ObservableObject
 {
     private readonly Action<IEnumerable<ITreeTalent>> _wantIcons;
+    private readonly Func<IDisposable>? _batch;
 
+    /// <param name="wantIcons">Loads these rows' pictures (the browser's own queue: a newer ask takes over from its older one).</param>
+    /// <param name="batch">Holds the page's "something changed" work until disposed, so undoing a whole tree tells the page once.</param>
     public TalentTreeBrowserViewModel(string maxLabel, string resetLabel, IRelayCommand<string> max, IRelayCommand<string> reset,
-        Action<IEnumerable<ITreeTalent>> wantIcons)
+        Action<IEnumerable<ITreeTalent>> wantIcons, Func<IDisposable>? batch = null)
     {
         MaxLabel = maxLabel;
         ResetLabel = resetLabel;
         MaxCommand = max;
         ResetCommand = reset;
         _wantIcons = wantIcons;
+        _batch = batch;
     }
 
     public ObservableCollection<TalentTreeViewModel> Trees { get; } = [];
@@ -55,9 +59,19 @@ public sealed partial class TalentTreeBrowserViewModel : ObservableObject
     [RelayCommand]
     private void UndoTree(TalentTreeViewModel? tree)
     {
-        foreach (var talent in (tree?.Talents ?? []).Where(t => t.IsDirty).ToList())
+        if (tree is null)
         {
-            talent.Revert();
+            return;
+        }
+
+        // The page and the tree each recount once at the end, not once per row put back.
+        using (_batch?.Invoke())
+        using (tree.DeferRefresh())
+        {
+            foreach (var talent in tree.Talents.Where(t => t.IsDirty).ToList())
+            {
+                talent.Revert();
+            }
         }
     }
 
@@ -311,11 +325,55 @@ public sealed partial class TalentTreeViewModel : ObservableObject
         return points;
     }
 
+    /// <summary>Above 0 inside DeferRefresh: rank changes wait for one Refresh at the end.</summary>
+    private int _refreshDeferDepth;
+
+    private bool _refreshDeferred;
+
+    /// <summary>Many rows change at once (Undo on the tree): the tree is recounted once, when this is disposed.</summary>
+    internal IDisposable DeferRefresh()
+    {
+        _refreshDeferDepth++;
+        return new DeferredRefresh(this);
+    }
+
+    private sealed class DeferredRefresh(TalentTreeViewModel tree) : IDisposable
+    {
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            if (--tree._refreshDeferDepth == 0 && tree._refreshDeferred)
+            {
+                tree._refreshDeferred = false;
+                tree.Refresh();
+            }
+        }
+    }
+
     private void OnTalentChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(ITreeTalent.Rank))
         {
-            Refresh();
+            if (_refreshDeferDepth > 0)
+            {
+                _refreshDeferred = true;
+            }
+            else
+            {
+                Refresh();
+            }
+        }
+        else if (e.PropertyName == nameof(ITreeTalent.IsDirty))
+        {
+            // Save marks rows clean without changing a rank: Undo changes greys out again.
+            OnPropertyChanged(nameof(HasChanges));
         }
     }
 
