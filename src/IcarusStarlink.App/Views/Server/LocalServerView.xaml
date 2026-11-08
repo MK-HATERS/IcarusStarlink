@@ -598,10 +598,31 @@
                                 <ItemsControl Grid.Row="1" ItemsSource="{Binding OnlinePlayers}" Margin="0,4,0,8">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <TextBlock Margin="0,1">
-                                                <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold"/>
-                                                <Run Text="{Binding Since, Mode=OneWay, StringFormat='  since {0:HH:mm} UTC'}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
-                                            </TextBlock>
+                                            <StackPanel Margin="0,1,0,4">
+                                                <TextBlock>
+                                                    <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold"/>
+                                                    <Run Text="{Binding Since, Mode=OneWay, StringFormat='  since {0:HH:mm} UTC'}" Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="11"/>
+                                                </TextBlock>
+                                                <!-- Steam64 id from the log; the two list buttons only fill the boxes on Admins & bans (Save lists writes them). -->
+                                                <WrapPanel Margin="0,2,0,0" Visibility="{Binding HasSteam64Id, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                    <TextBlock Text="{Binding Steam64Id}" FontFamily="Consolas" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,2"
+                                                               Foreground="{DynamicResource SecondaryForegroundBrush}" ToolTip="This player's Steam64 id, the number the admin and ban lists use"/>
+                                                    <Button Content="Copy" Padding="6,0" FontSize="11" Margin="0,0,4,2"
+                                                            Command="{Binding DataContext.CopyPlayerIdCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip="Copy this player's Steam64 id"
+                                                            AutomationProperties.Name="Copy Steam64 id"/>
+                                                    <Button Content="Add to admins" Padding="6,0" FontSize="11" Margin="0,0,4,2"
+                                                            Command="{Binding DataContext.AddPlayerToAdminsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip="Put this player's id in the admin list on the Admins &amp; bans tab. Click Save lists there while the server is stopped."/>
+                                                    <Button Content="Ban" Padding="6,0" FontSize="11" Margin="0,0,4,2"
+                                                            Command="{Binding DataContext.BanPlayerCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip="Put this player's id in the ban list on the Admins &amp; bans tab. Click Save lists there while the server is stopped. To ban right away, type /BanPlayer name in game chat."
+                                                            AutomationProperties.Name="Add to ban list"/>
+                                                </WrapPanel>
+                                            </StackPanel>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>

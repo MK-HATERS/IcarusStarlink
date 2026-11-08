@@ -16,7 +16,13 @@ public enum ServerLogEventKind
 
 public sealed record ServerLogEvent(ServerLogEventKind Kind, DateTime? Time, string Text);
 
-public sealed record OnlinePlayer(string Name, string PlayerId, DateTime? Since);
+public sealed record OnlinePlayer(string Name, string PlayerId, DateTime? Since)
+{
+    /// <summary>The 17-digit Steam64 id for the admin and ban lists; null when the log gave no Steam id.</summary>
+    public string? Steam64Id => ServerAccessLists.Steam64FromPlayerId(PlayerId);
+
+    public bool HasSteam64Id => Steam64Id is not null;
+}
 
 /// <summary>
 /// Turns the dedicated server's own log into players and events. Line shapes taken from a real

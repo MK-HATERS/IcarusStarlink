@@ -1038,6 +1038,45 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Contains(vm.LogLines, l => l.Contains("password=***"));
     }
 
+    /// <summary>The Players panel shows each player's Steam64 id; Copy puts it on the clipboard and the two list buttons only fill the boxes (Save still writes them).</summary>
+    [Fact]
+    public void Players_ShowSteam64Id_CopyAddToAdminsAndBanFillTheBoxesOnly()
+    {
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        var log = DedicatedServerLayout.LogPath(_install, null, null);
+        Directory.CreateDirectory(Path.GetDirectoryName(log)!);
+        File.WriteAllText(log, string.Join("\r\n",
+            "[2026.08.12-17.31.50:975][102]LogNet: Login request: ?password=hunter2?Name=TestPlayer userId: Steam:UNKNOWN [0x1100001025E4C01] platform: Steam",
+            "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: TestPlayer",
+            "[2026.08.12-17.40.00:000][117]LogNet: Join succeeded: Friend") + "\r\n");
+        vm.Tick();
+
+        var player = vm.OnlinePlayers.Single(p => p.Name == "TestPlayer");
+        var noId = vm.OnlinePlayers.Single(p => p.Name == "Friend");
+        Assert.Equal("76561198000000001", player.Steam64Id);
+        Assert.Null(noId.Steam64Id);
+        Assert.False(vm.CopyPlayerIdCommand.CanExecute(noId));
+        Assert.False(vm.AddPlayerToAdminsCommand.CanExecute(noId));
+        Assert.False(vm.BanPlayerCommand.CanExecute(noId));
+
+        vm.CopyPlayerIdCommand.Execute(player);
+        Assert.Equal("76561198000000001", Copied.Last());
+
+        vm.AdminWhitelistText = "76561198000000009";
+        vm.AddPlayerToAdminsCommand.Execute(player);
+        Assert.Equal("76561198000000009\r\n76561198000000001\r\n", vm.AdminWhitelistText);
+        Assert.Contains("Save lists", vm.StatusMessage);
+        vm.AddPlayerToAdminsCommand.Execute(player);
+        Assert.Equal("76561198000000009\r\n76561198000000001\r\n", vm.AdminWhitelistText);
+        Assert.Contains("already", vm.StatusMessage);
+
+        vm.BanPlayerCommand.Execute(player);
+        Assert.Equal("76561198000000001\r\n", vm.BanListText);
+        Assert.False(File.Exists(DedicatedServerLayout.AdminWhitelistPath(_install, null)));
+        Assert.False(File.Exists(DedicatedServerLayout.BanListPath(_install, null)));
+    }
+
     /// <summary>The app's real path: the log is read off the UI thread (once, shared with automation) and the panels fill when it is in.</summary>
     [Fact]
     public async Task Log_IsReadOffTheUiThread_AndSharedWithAutomation()

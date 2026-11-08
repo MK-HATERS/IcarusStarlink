@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.Core.Server;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -101,5 +102,52 @@ public sealed partial class LocalServerViewModel
         }
 
         OnPropertyChanged(nameof(OnlineSummary));
+    }
+
+    // ---- Steam64 ids: copy, or put into the admin / ban list boxes (Save lists writes them) ----
+
+    private static bool PlayerHasSteam64Id(OnlinePlayer? player) => player?.Steam64Id is not null;
+
+    [RelayCommand(CanExecute = nameof(PlayerHasSteam64Id))]
+    private void CopyPlayerId(OnlinePlayer? player)
+    {
+        if (player?.Steam64Id is { } id)
+        {
+            CopyText(id, $"Copied {player.Name}'s Steam64 id ({id}).");
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(PlayerHasSteam64Id))]
+    private void AddPlayerToAdmins(OnlinePlayer? player)
+    {
+        if (player?.Steam64Id is { } id)
+        {
+            AdminWhitelistText = AddIdToList(AdminWhitelistText, id, player.Name, "admin list");
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(PlayerHasSteam64Id))]
+    private void BanPlayer(OnlinePlayer? player)
+    {
+        if (player?.Steam64Id is { } id)
+        {
+            BanListText = AddIdToList(BanListText, id, player.Name, "ban list");
+        }
+    }
+
+    /// <summary>Adds the id as its own line unless it is already there, and says that Save lists (server stopped) makes it count.</summary>
+    private string AddIdToList(string? text, string id, string name, string label)
+    {
+        text ??= "";
+        var lines = text.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim());
+        if (lines.Contains(id, StringComparer.Ordinal))
+        {
+            StatusMessage = $"{name} is already on the {label}.";
+            return text;
+        }
+
+        StatusMessage = $"Added {name} to the {label} on the Admins & bans tab. Click Save lists there while the server is stopped to make it count.";
+        var start = text.Length == 0 || text.EndsWith('\n') ? text : text + "\r\n";
+        return $"{start}{id}\r\n";
     }
 }

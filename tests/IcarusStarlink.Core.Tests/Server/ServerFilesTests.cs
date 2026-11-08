@@ -228,6 +228,20 @@ public sealed partial class ServerFilesTests : IDisposable
     private const string TravelJoin = "[2026.08.12-17.32.23:280][627]LogNet: Join succeeded: TestPlayer";
     private const string Prospect = "[2026.08.12-17.32.01:410][337]LogLocalSessionSubsystem: Display: SetActiveProspectInfo - ProspectID: Hard Elysium JULY | ProspectDTKey: OpenWorld_Elysium";
 
+    /// <summary>The log's hex player id is the Steam64 id the admin and ban lists take; anything that isn't one gives no id.</summary>
+    [Theory]
+    [InlineData("0x1100001351D72E3", "76561198851388131")]
+    [InlineData("0x1100001025E4C01", "76561198000000001")]
+    [InlineData("0x1", null)]
+    [InlineData("0xFFFFFFFFFFFFFFFFFF", null)]
+    [InlineData("TestPlayer", null)]
+    [InlineData("", null)]
+    public void Steam64Id_ComesFromTheLogsHexPlayerId(string playerId, string? expected)
+    {
+        Assert.Equal(expected, ServerAccessLists.Steam64FromPlayerId(playerId));
+        Assert.Equal(expected, new OnlinePlayer("TestPlayer", playerId, null).Steam64Id);
+    }
+
     [Fact]
     public void LogEvents_JoinProspectAndATravelThatIsNotALeave()
     {
