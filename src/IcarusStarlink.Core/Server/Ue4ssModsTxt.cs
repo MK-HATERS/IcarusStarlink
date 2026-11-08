@@ -31,6 +31,45 @@ public sealed partial class Ue4ssModsTxt
     public bool? IsEnabled(string name) =>
         Entries.Where(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase)).Select(e => (bool?)e.Enabled).FirstOrDefault();
 
+    /// <summary>
+    /// Whether UE4SS itself starts the folder from this list, by its own rule (RE-UE4SS start_mods):
+    /// a line holding ';' or of 4 characters or fewer is skipped; every space is removed; the name
+    /// before the first ':' must equal the folder's stem (its name without the last ".ext") exactly,
+    /// case included; any matching line whose value after the last ':' starts with '1' starts it,
+    /// so an earlier 0 doesn't stop a later 1. True: started; false: only lines that don't start
+    /// it; null: no line names it. A folder name with a space (or a dot) can't be named here at
+    /// all: only its enabled.txt starts it. <see cref="IsEnabled"/> is Starlink's own lookup for
+    /// editing the file.
+    /// </summary>
+    public bool? StartsByList(string folderName)
+    {
+        var stem = Path.GetFileNameWithoutExtension(folderName);
+        var key = stem.Length == 0 ? folderName : stem;
+        var matched = false;
+        foreach (var line in _lines)
+        {
+            if (line.Contains(';') || line.Length <= 4)
+            {
+                continue;
+            }
+
+            var compact = line.Replace(" ", "");
+            var colon = compact.IndexOf(':');
+            if (colon < 0 || !string.Equals(compact[..colon], key, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            matched = true;
+            if (compact[(compact.LastIndexOf(':') + 1)..].StartsWith('1'))
+            {
+                return true;
+            }
+        }
+
+        return matched ? false : null;
+    }
+
     public void Set(string name, bool enabled)
     {
         var value = enabled ? "1" : "0";

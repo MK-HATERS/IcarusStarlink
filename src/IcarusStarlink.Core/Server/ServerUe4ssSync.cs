@@ -255,14 +255,23 @@ public static class ServerUe4ssSync
             && ArcFissionLibraryStateFiles.Contains(relativePath, StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>Copies a mod folder from the game onto the server, without the game's runtime state of ArcFission Library.</summary>
+    /// <summary>
+    /// Whether a file of a game mod goes onto a server, by its path relative to the mod folder: the
+    /// game's runtime state of ArcFission Library (matched at the folder's top level) and what the
+    /// mod logged in the game (*.log) stay home. The one rule for the local copy and the FTP sync.
+    /// </summary>
+    public static bool IsModFileForServer(string modFolder, string relativePath) =>
+        !IsArcFissionLibraryState(modFolder, relativePath)
+        && !relativePath.EndsWith(".log", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Copies a mod folder from the game onto the server, without the files <see cref="IsModFileForServer"/> leaves home at its top level.</summary>
     private static void CopyModFolder(string source, string target)
     {
         Directory.CreateDirectory(target);
         foreach (var file in Directory.GetFiles(source))
         {
             var name = Path.GetFileName(file);
-            if (!IsArcFissionLibraryState(source, name))
+            if (IsModFileForServer(source, name))
             {
                 File.Copy(file, Path.Combine(target, name), overwrite: true);
             }
@@ -276,7 +285,10 @@ public static class ServerUe4ssSync
 
     private static readonly string[] RuntimeExtensions = [".log", ".bak", ".cache", ".tmp", ".old", ".txt", ".md"];
 
-    // A folder moved aside mid-update (CopyToServer) isn't a mod.
+    /// <summary>Where CopyToServer moves a server's old copy of a mod during an update: beside ue4ss\Mods, never in it, so UE4SS can't start it.</summary>
+    public const string UpdatingFolderName = "Starlink-updating";
+
+    // A folder moved aside mid-update inside Mods (older Starlink builds did that) isn't a mod.
     private static bool IsUpdateLeftover(string folder) => folder.Contains(".updating-", StringComparison.Ordinal);
 
     /// <summary>Written by the mod or the user, not shipped code: enabled.txt, logs, caches, backups, notes and state text files.</summary>
@@ -317,8 +329,11 @@ public static class ServerUe4ssSync
     /// to the server is turned on. The one way a mod goes onto a local server: nothing replaces the
     /// server's copy by deleting it first. ArcFission Library's runtime state (state.lua, status.lua,
     /// registry.txt…) is the game's own session: never copied; the server's own copies are kept.
+    /// Returns null when all went well, or a note to show when the mod was updated but its old copy
+    /// couldn't be moved to the backups (it is then left in ue4ss\Starlink-updating, where UE4SS
+    /// never looks).
     /// </summary>
-    public static void CopyToServer(string gameModsFolder, string modName, string installFolder, string backupsFolder)
+    public static string? CopyToServer(string gameModsFolder, string modName, string installFolder, string backupsFolder)
     {
         ServerModFiles.RequireFolderName(modName);
         var source = Path.Combine(gameModsFolder, modName);
@@ -333,10 +348,8 @@ public static class ServerUe4ssSync
         if (!Directory.Exists(target))
         {
             CopyModFolder(source, target);
-            var list = Ue4ssModsTxt.Load(txtPath);
-            list.Set(modName, true);
-            list.Save(txtPath);
-            return;
+            SetEnabled(installFolder, modName, true);
+            return null;
         }
 
         var wasOn = Ue4ssModStart.Starts(serverMods, modName, Ue4ssModsTxt.Load(txtPath));
@@ -353,10 +366,14 @@ public static class ServerUe4ssSync
             .Select(relative => (RelativePath: relative, Bytes: File.ReadAllBytes(Path.Combine(target, relative))))
             .ToList();
 
-        // The old copy is moved aside first (a rename, so it can't half-delete), the game's copy goes
-        // in, and only then does the old one go to the backups (the same place Remove puts mods). If
-        // the copy fails, the old copy is put back as it was.
-        var aside = $"{target}.updating-{DateTime.Now:yyyyMMddHHmmss}";
+        // The old copy is moved aside first (a rename on the same drive, so it can't half-delete),
+        // the game's copy goes in, the mod's on/off state is put back, and only then does the old
+        // one go to the backups (the same place Remove puts mods). If the copy fails, the old copy
+        // is put back as it was. The aside folder is beside Mods, not in it: UE4SS starts a folder
+        // by its stem, so "Pets.updating-…" left in Mods could start as a second "Pets".
+        var asideRoot = Path.Combine(Path.GetDirectoryName(serverMods)!, UpdatingFolderName);
+        Directory.CreateDirectory(asideRoot);
+        var aside = Path.Combine(asideRoot, $"{modName}.updating-{DateTime.Now:yyyyMMddHHmmss}");
         Directory.Move(target, aside);
         try
         {
@@ -379,7 +396,7 @@ public static class ServerUe4ssSync
 
                 Directory.Move(aside, target);
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // Leave the moved-aside copy where it is: the error below names the mod, and nothing is lost.
             }
@@ -387,13 +404,30 @@ public static class ServerUe4ssSync
             throw;
         }
 
-        var backup = Path.Combine(backupsFolder, "removed-ue4ss", $"{DateTime.Now:yyyy-MM-dd_HHmmss}_{modName}_before-update");
-        Directories.Copy(aside, backup);
-        Directory.Delete(aside, recursive: true);
+        // Right after the swap: a backup step that fails below must not leave a mod the server had
+        // off switched on through the game copy's enabled.txt.
         SetEnabled(installFolder, modName, wasOn);
+
+        var backup = Path.Combine(backupsFolder, "removed-ue4ss", $"{DateTime.Now:yyyy-MM-dd_HHmmss}_{modName}_before-update");
+        try
+        {
+            Directories.Copy(aside, backup);
+            Directory.Delete(aside, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The update itself went through: say where the old copy is rather than calling it a failure.
+            return $"{modName} was updated, but its old copy couldn't be moved to the backups ({ex.Message}); it is in {aside}.";
+        }
+
+        return null;
     }
 
-    /// <summary>Turns a mod on or off on the server the way UE4SS reads it: mods.txt's line, and enabled.txt (which starts a mod even where mods.txt says 0) removed when off.</summary>
+    /// <summary>
+    /// Turns a mod on or off on the server the way UE4SS reads it: mods.txt's line, and enabled.txt
+    /// written when on (UE4SS can't match a mods.txt line to a folder name with a space, but finds
+    /// enabled.txt by folder) and removed when off (it starts a mod even where mods.txt says 0).
+    /// </summary>
     public static void SetEnabled(string installFolder, string modName, bool enabled)
     {
         var serverMods = DedicatedServerLayout.Ue4ssModsFolder(installFolder);
@@ -409,7 +443,11 @@ public static class ServerUe4ssSync
         txt.Save(txtPath);
 
         var enabledFile = Path.Combine(folder, Ue4ssModStart.EnabledFileName);
-        if (!enabled && File.Exists(enabledFile))
+        if (enabled)
+        {
+            Ue4ssModStart.SwitchOn(serverMods, modName);
+        }
+        else if (File.Exists(enabledFile))
         {
             File.Delete(enabledFile);
         }

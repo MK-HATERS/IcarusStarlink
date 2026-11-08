@@ -216,4 +216,86 @@ public sealed class ServerUe4ssSyncTests : IDisposable
         // The other way: config.lua is the same now (not written again); the server-only ini comes over.
         Assert.Equal([Path.Combine("config", "extra.ini")], ServerUe4ssSync.CopyConfigs(server, game, backups));
     }
+
+    /// <summary>
+    /// Regression: switching a server mod on wrote only its mods.txt line. UE4SS removes every
+    /// space from that line, so a folder named "My Mod" switched off (enabled.txt deleted) and on
+    /// again showed On but never started. enabled.txt is looked up by folder name and does start it.
+    /// </summary>
+    [Fact]
+    public void SetEnabled_OffThenOn_WritesEnabledTxt()
+    {
+        var install = Path.Combine(_root, "install");
+        var serverMods = DedicatedServerLayout.Ue4ssModsFolder(install);
+        Directory.CreateDirectory(Path.Combine(serverMods, "My Mod", "Scripts"));
+        File.WriteAllText(Path.Combine(serverMods, "My Mod", "Scripts", "main.lua"), "code");
+        File.WriteAllText(Path.Combine(serverMods, "My Mod", "enabled.txt"), "");
+
+        ServerUe4ssSync.SetEnabled(install, "My Mod", false);
+        Assert.False(File.Exists(Path.Combine(serverMods, "My Mod", "enabled.txt")));
+        ServerUe4ssSync.SetEnabled(install, "My Mod", true);
+
+        Assert.True(File.Exists(Path.Combine(serverMods, "My Mod", "enabled.txt")));
+    }
+
+    /// <summary>A mod new to the server, with a space in its folder name, is switched on in a way UE4SS reads: enabled.txt, not only a mods.txt line.</summary>
+    [Fact]
+    public void CopyToServer_NewModWithASpaceInItsName_GetsEnabledTxt()
+    {
+        var install = Path.Combine(_root, "install");
+        var serverMods = DedicatedServerLayout.Ue4ssModsFolder(install);
+        Mod("game", "Minimap and Map Icons", ("Scripts/main.lua", "code"));
+
+        ServerUe4ssSync.CopyToServer(Path.Combine(_root, "game"), "Minimap and Map Icons", install, Path.Combine(_root, "backups"));
+
+        Assert.True(File.Exists(Path.Combine(serverMods, "Minimap and Map Icons", "enabled.txt")));
+        Assert.True(Ue4ssModsTxt.Load(Path.Combine(serverMods, "mods.txt")).IsEnabled("Minimap and Map Icons"));
+    }
+
+    /// <summary>
+    /// Regression: the old copy was moved aside INSIDE ue4ss\Mods, and the backup step (copy it to
+    /// the backups, then delete it) ran before the mod's on/off state was put back. When that step
+    /// threw (backups drive full, a file locked), the update had happened but the page said it
+    /// failed, a mod switched off on the server was on (through the game copy's enabled.txt), and
+    /// "Pets.updating-…" stayed in Mods where UE4SS could start it as a second copy.
+    /// </summary>
+    [Fact]
+    public void CopyToServer_BackupStepFails_KeepsOffState_AndLeavesNoStartableLeftoverInMods()
+    {
+        var install = Path.Combine(_root, "install");
+        var serverMods = DedicatedServerLayout.Ue4ssModsFolder(install);
+        Mod("game", "Pets", ("Scripts/main.lua", "new"), ("enabled.txt", ""));
+        Directory.CreateDirectory(Path.Combine(serverMods, "Pets", "Scripts"));
+        File.WriteAllText(Path.Combine(serverMods, "Pets", "Scripts", "main.lua"), "old");
+        File.WriteAllText(Path.Combine(serverMods, "mods.txt"), "Pets : 0\r\n");
+        var backups = Path.Combine(_root, "backups");
+        Directory.CreateDirectory(backups);
+        File.WriteAllText(Path.Combine(backups, "removed-ue4ss"), "a file where the backups folder should be");
+
+        string? note = null;
+        var error = Record.Exception(() => note = ServerUe4ssSync.CopyToServer(Path.Combine(_root, "game"), "Pets", install, backups));
+
+        Assert.Null(error);
+        Assert.NotNull(note);
+        Assert.Contains("Pets was updated", note);
+        Assert.Equal("new", File.ReadAllText(Path.Combine(serverMods, "Pets", "Scripts", "main.lua")));
+        Assert.False(IcarusStarlink.Core.Ue4ss.Ue4ssModStart.Starts(serverMods, "Pets", IcarusStarlink.Core.Ue4ss.Ue4ssModStart.ReadList(serverMods)));
+        Assert.Empty(Directory.GetDirectories(serverMods, "*.updating-*"));
+        var aside = Assert.Single(Directory.GetDirectories(Path.Combine(Path.GetDirectoryName(serverMods)!, "Starlink-updating"), "Pets.updating-*"));
+        Assert.Equal("old", File.ReadAllText(Path.Combine(aside, "Scripts", "main.lua")));
+    }
+
+    /// <summary>The game's own log at a mod's top level stays home, like the FTP sync leaves it.</summary>
+    [Fact]
+    public void CopyToServer_NewMod_LeavesTheGamesLogAtHome()
+    {
+        var install = Path.Combine(_root, "install");
+        var serverMods = DedicatedServerLayout.Ue4ssModsFolder(install);
+        Mod("game", "Pets", ("Scripts/main.lua", "code"), ("Pets.log", "what it logged in the game"));
+
+        ServerUe4ssSync.CopyToServer(Path.Combine(_root, "game"), "Pets", install, Path.Combine(_root, "backups"));
+
+        Assert.True(File.Exists(Path.Combine(serverMods, "Pets", "Scripts", "main.lua")));
+        Assert.False(File.Exists(Path.Combine(serverMods, "Pets", "Pets.log")));
+    }
 }
