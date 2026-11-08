@@ -19,6 +19,20 @@ public sealed partial class LibraryViewModel
     internal bool IsShownInDetailWindow(LibraryItemViewModel item) => _rowsInDetailWindows.Contains(item);
 
     /// <summary>
+    /// A details window closed or moved away from this row: when no other window still shows it,
+    /// its preview (image, mesh, material, sound) is let go. Rows stay cached for the session, so a
+    /// decoded texture used to stay in memory until the app closed.
+    /// </summary>
+    internal void DetailWindowLeaves(LibraryItemViewModel item)
+    {
+        DetailWindowStopsShowing(item);
+        if (!IsShownInDetailWindow(item))
+        {
+            item.SelectedAssetPath = null;
+        }
+    }
+
+    /// <summary>
     /// Reads the details of every row a window shows again, after a change cleared them. A row no
     /// longer in the Library (deleted; its window closes itself) is skipped. A row already loaded
     /// costs nothing.

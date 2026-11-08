@@ -231,6 +231,29 @@ public sealed partial class LibraryViewModel
             return;
         }
 
+        // One import at a time: the window stays usable while one unpacks, and a second drop
+        // started a second import beside it (two "which one?" choosers, one shared result line).
+        if (_isImporting)
+        {
+            ReportProblem("An import is still running — try again when it's done.");
+            return;
+        }
+
+        _isImporting = true;
+        try
+        {
+            await ImportPathsOneAtATime(paths);
+        }
+        finally
+        {
+            _isImporting = false;
+        }
+    }
+
+    private bool _isImporting;
+
+    private async Task ImportPathsOneAtATime(IReadOnlyList<string> paths)
+    {
         var importedCount = 0;
         var cancelled = 0;
         var failures = new List<string>();

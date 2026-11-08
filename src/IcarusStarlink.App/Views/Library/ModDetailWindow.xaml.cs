@@ -32,17 +32,21 @@ public partial class ModDetailWindow : Window
             if (_currentItem is not null)
             {
                 _currentItem.PropertyChanged -= OnCurrentItemPropertyChanged;
-                LibraryViewModel.DetailWindowStopsShowing(_currentItem);
             }
 
             // Releases whatever temp .wav file this window's own MediaElement still has open —
             // LibraryItemViewModel's own CleanupAudioTempFile only ever runs on the NEXT asset
             // selection, which might not happen again for a while (or ever) once this window is
             // closed, so without this a closed window could leave a playing/loaded file locked
-            // well past the point anything could still delete it. Close() first, so the delete
-            // below isn't racing MediaElement's own file handle release.
+            // well past the point anything could still delete it. Close() first, so the deletes
+            // below aren't racing MediaElement's own file handle release.
             AudioPlayer.Close();
-            _currentItem?.ReleaseAudioPreview();
+            if (_currentItem is not null)
+            {
+                // Also lets go of the row's image, mesh and material when no other window shows it.
+                LibraryViewModel.DetailWindowLeaves(_currentItem);
+                _currentItem.ReleaseAudioPreview();
+            }
         };
     }
 
@@ -57,10 +61,10 @@ public partial class ModDetailWindow : Window
         // is a safe no-op.
         item.EnsureDetailsLoaded();
 
-        if (_currentItem is not null)
+        var previous = _currentItem;
+        if (previous is not null)
         {
-            _currentItem.PropertyChanged -= OnCurrentItemPropertyChanged;
-            LibraryViewModel.DetailWindowStopsShowing(_currentItem);
+            previous.PropertyChanged -= OnCurrentItemPropertyChanged;
         }
         _currentItem = item;
         item.PropertyChanged += OnCurrentItemPropertyChanged;
@@ -69,6 +73,13 @@ public partial class ModDetailWindow : Window
         // delete, link or fix). Told directly, not left to this window's own LibraryChangedMessage
         // handler: the messenger gives no order between that one and the Library's.
         LibraryViewModel.DetailWindowShows(item);
+
+        // The row moved away from lets go of its preview when no other window shows it. After
+        // DetailWindowShows, so showing the same row again keeps it.
+        if (previous is not null)
+        {
+            LibraryViewModel.DetailWindowLeaves(previous);
+        }
 
         DataContext = item;
         NotesExpander.IsExpanded = !string.IsNullOrWhiteSpace(item.Notes);

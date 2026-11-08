@@ -486,10 +486,19 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     partial void OnUe4ssBuiltInCountChanged(int value) => OnPropertyChanged(nameof(ShowUe4ssBuiltInsLabel));
 
-    private bool MatchesSearch(Ue4ssModRowViewModel row) =>
-        string.IsNullOrWhiteSpace(SearchText)
-        || row.Name.Contains(SearchText.Trim(), StringComparison.OrdinalIgnoreCase)
-        || (row.NexusName?.Contains(SearchText.Trim(), StringComparison.OrdinalIgnoreCase) ?? false);
+    /// <summary>
+    /// The UE4SS panel's search: every word must be in the mod's name or its Nexus name, as the data
+    /// panel's search narrows by every word. Words with no letter or digit are skipped. It used to
+    /// need the whole phrase, so "minimap icons" found nothing beside "Minimap and Map Icons".
+    /// </summary>
+    private bool MatchesSearch(Ue4ssModRowViewModel row)
+    {
+        var words = (SearchText ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Any(char.IsLetterOrDigit))
+            .ToList();
+        return words.All(w => row.Name.Contains(w, StringComparison.OrdinalIgnoreCase)
+            || (row.NexusName?.Contains(w, StringComparison.OrdinalIgnoreCase) ?? false));
+    }
 
     [RelayCommand]
     private void Refresh()
