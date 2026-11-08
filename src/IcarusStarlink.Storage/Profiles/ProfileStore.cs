@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.PakIO.Install;
@@ -72,7 +73,38 @@ public sealed class ProfileStore : IProfileStore
 
     public void SaveWithoutBackup(Profile profile) => JsonFileStore.Save(ResolvePath(profile.Name), profile);
 
+    /// <summary>
+    /// Deletes the profile, and moves its backups aside into Deleted\&lt;name&gt;_&lt;time&gt; (kept
+    /// for a rescue by hand): a new profile made later under the same name starts with no backup,
+    /// so Restore profile backup can't put the deleted list back.
+    /// </summary>
     public void Delete(string name)
+    {
+        DeleteProfileFile(name);
+
+        var backups = BackupsOf(name);
+        if (backups.Count == 0)
+        {
+            return;
+        }
+
+        var aside = Path.Combine(_backupsDirectory, "Deleted", $"{name}_{DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}");
+        try
+        {
+            Directory.CreateDirectory(aside);
+            foreach (var backup in backups)
+            {
+                File.Move(backup, Path.Combine(aside, Path.GetFileName(backup)));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The profile itself is deleted; a backup left behind only keeps Restore offered.
+            _logger.LogWarning(ex, "Couldn't move the backups of deleted profile '{Name}' aside", name);
+        }
+    }
+
+    private void DeleteProfileFile(string name)
     {
         var path = ResolvePath(name);
         if (File.Exists(path))
@@ -80,6 +112,10 @@ public sealed class ProfileStore : IProfileStore
             File.Delete(path);
         }
     }
+
+    /// <summary>This profile's own timestamped backups in the top backups folder (none when it doesn't exist).</summary>
+    private IReadOnlyList<string> BackupsOf(string name) =>
+        Directory.Exists(_backupsDirectory) ? FolderBackup.EnumerateFileBackups(_backupsDirectory, name, ".json") : [];
 
     public void Rename(string oldName, string newName)
     {
@@ -94,10 +130,35 @@ public sealed class ProfileStore : IProfileStore
 
         // Different case of the same name (e.g. "Main" -> "MAIN") lands on the same file path on
         // Windows' case-insensitive filesystem — Save() above already overwrote it correctly, and
-        // deleting the "old" path here would just delete the file we all just wrote.
+        // deleting the "old" path here would just delete the file we all just wrote. Its backups
+        // already match the new name (backup names are matched ignoring case).
         if (!string.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase))
         {
-            Delete(oldName);
+            DeleteProfileFile(oldName);
+            MoveBackups(oldName, newName);
+        }
+    }
+
+    /// <summary>
+    /// A renamed profile keeps its backups: each "&lt;old&gt;_yyyyMMdd-HHmmss[_n].json" becomes
+    /// "&lt;new&gt;_…" (one whose new name is taken stays). Best-effort: the rename itself is done.
+    /// </summary>
+    private void MoveBackups(string oldName, string newName)
+    {
+        foreach (var backup in BackupsOf(oldName))
+        {
+            try
+            {
+                var target = Path.Combine(_backupsDirectory, newName + Path.GetFileName(backup)[oldName.Length..]);
+                if (!File.Exists(target))
+                {
+                    File.Move(backup, target);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Couldn't move backup {Backup} of profile '{Old}' to '{New}'", backup, oldName, newName);
+            }
         }
     }
 

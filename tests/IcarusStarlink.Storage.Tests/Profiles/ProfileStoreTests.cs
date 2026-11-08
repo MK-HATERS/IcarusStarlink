@@ -261,6 +261,53 @@ public class ProfileStoreTests : IDisposable
         Assert.False(store.RestoreLatestBackup("Main"));
     }
 
+    /// <summary>A new profile under a deleted one's name used to inherit its backups, so Restore profile backup put the deleted list back.</summary>
+    [Fact]
+    public void Delete_ThenSaveTheSameName_HasNoBackup()
+    {
+        var store = CreateStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModA"] });
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModB"] });
+        Assert.True(store.HasBackup("Coop"));
+
+        store.Delete("Coop");
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModC"] });
+
+        Assert.False(store.HasBackup("Coop"));
+        Assert.False(store.RestoreLatestBackup("Coop"));
+        // Kept aside, not destroyed.
+        Assert.NotEmpty(Directory.GetFiles(Path.Combine(_backupsDir, "Deleted"), "*.json", SearchOption.AllDirectories));
+    }
+
+    /// <summary>A rename used to leave the backups under the old name: Restore profile backup was greyed afterwards.</summary>
+    [Fact]
+    public void Rename_TakesTheBackupsAlong()
+    {
+        var store = CreateStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModA"] });
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModB"] });
+
+        store.Rename("Coop", "Team");
+
+        Assert.True(store.HasBackup("Team"));
+        Assert.False(store.HasBackup("Coop"));
+        Assert.True(store.RestoreLatestBackup("Team"));
+        Assert.Equal(["ModA"], store.Load("Team").MergeQueueFolderNames);
+    }
+
+    [Fact]
+    public void Rename_CaseOnly_ShowsTheNewCase()
+    {
+        var store = CreateStore();
+        store.Save(new Profile { Name = "coop", MergeQueueFolderNames = ["ModA"] });
+
+        store.Rename("coop", "Coop");
+
+        Assert.Equal(["Coop"], store.ProfileNames);
+        Assert.Equal("Coop", store.Load("Coop").Name);
+        Assert.Equal(["ModA"], store.Load("Coop").MergeQueueFolderNames);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))
