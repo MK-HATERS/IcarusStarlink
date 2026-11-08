@@ -42,8 +42,9 @@ public sealed class PatchManifest
 /// <summary>
 /// One queued mod's identity for cross-machine matching, plus whether this patch carries its
 /// actual content (<see cref="Bundled"/>) — true for mods with no Nexus or catalog source to
-/// point a friend at (or that were edited locally), false for mods a friend can download
-/// themselves, keeping most patches small.
+/// point a friend at, and for mods the exporter edited or fixed in Starlink (those keep their
+/// Nexus and catalog ids, so a friend sees where they came from); false for mods a friend can
+/// download themselves, keeping most patches small.
 /// </summary>
 public sealed class PatchModEntry
 {
@@ -58,7 +59,7 @@ public sealed class PatchModEntry
 
     public required bool Bundled { get; set; }
 
-    /// <summary>The Nexus mod it came from, when the exporter downloaded it through Starlink.</summary>
+    /// <summary>The Nexus mod it came from, when the exporter downloaded it through Starlink (kept on a bundled changed copy too).</summary>
     public int? NexusModId { get; set; }
 
     /// <summary>The exact Nexus file (a mod can offer several side by side).</summary>

@@ -14,10 +14,12 @@ namespace IcarusStarlink.App.Services;
 /// Install's Export patch (the queue, the game's UE4SS mods) and the Server page's Export for
 /// players (the server's installed list, the server's UE4SS mods) share it. A mod that came from
 /// Nexus or the community catalog is referenced by its ids (a friend downloads it themselves);
-/// one found in the catalog by name and author is referenced too; anything else (a local edit, a
-/// hand-made mod, a pak from nowhere) is bundled, since a friend genuinely couldn't get it
-/// elsewhere. A UE4SS mod is referenced by its Nexus id or bundled from its folder, with its
-/// config files as text when asked.
+/// one found in the catalog by name and author is referenced too, with the catalog entry's id.
+/// A mod changed in Starlink (edited ✎ or fixed) is bundled even when it has a source, keeping
+/// its ids so friends see where it came from: the original download would build a different
+/// merge. Anything else (a hand-made mod, a pak from nowhere) is bundled, since a friend couldn't
+/// get it elsewhere. A UE4SS mod is referenced by its Nexus id or bundled from its folder, with
+/// its config files as text when asked.
 /// </summary>
 public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore? ue4ssMetaStore)
 {
@@ -25,16 +27,23 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
     public sealed record Ue4ssModSource(string Name, string Folder);
 
     /// <param name="Skipped">Mods left out: a pak mod with no source and no pak files on disk (nothing to reference, nothing to bundle).</param>
-    public sealed record Result(PatchManifest Manifest, PatchBundle Bundle, IReadOnlyList<string> Skipped);
+    public sealed record Result(PatchManifest Manifest, PatchBundle Bundle, IReadOnlyList<string> Skipped)
+    {
+        /// <summary>The mods with a Nexus or catalog source that went in as the player's changed copy (edited or fixed in Starlink), by name.</summary>
+        public IReadOnlyList<string> ChangedCopies { get; init; } = [];
+    }
 
+    /// <param name="catalogIdsByKey">The catalog entry id for a (name, author) key, so a mod found in the catalog only by name is referenced with an id a friend's import can download.</param>
     public Result Build(
         string profileName, IReadOnlyList<LibraryEntry> mods, GameplayOptions options, IReadOnlyList<Ue4ssModSource> ue4ssMods,
-        bool includeConfigs, IReadOnlySet<(string Name, string Author)> catalogKeys)
+        bool includeConfigs, IReadOnlySet<(string Name, string Author)> catalogKeys,
+        IReadOnlyDictionary<(string Name, string Author), string>? catalogIdsByKey = null)
     {
         var entries = new List<PatchModEntry>();
         var bundledExmods = new Dictionary<string, ExmodPackageContents>();
         var bundledPaks = new Dictionary<string, IReadOnlyList<string>>();
         var skipped = new List<string>();
+        var changedCopies = new List<string>();
         foreach (var entry in mods)
         {
             if (entry.IsMissingFromLibrary)
@@ -42,18 +51,22 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
                 continue;
             }
 
-            var hasSource = entry.NexusModId is not null || entry.CatalogEntryId is not null
-                || catalogKeys.Contains(CatalogKey.Normalize(entry.Name, entry.Author));
+            var key = CatalogKey.Normalize(entry.Name, entry.Author);
+            var catalogEntryId = entry.CatalogEntryId
+                ?? (catalogIdsByKey is not null && catalogIdsByKey.TryGetValue(key, out var idByName) ? idByName : null);
+            var sourced = entry.NexusModId is not null || entry.CatalogEntryId is not null || catalogKeys.Contains(key);
+            var changedHere = entry.IsLocallyEdited || entry.FixedByIslAtUtc is not null;
+            var hasSource = sourced && !changedHere;
             var mod = new PatchModEntry
             {
                 FolderName = entry.FolderName, Name = entry.Name, Author = entry.Author, Version = entry.Version,
-                Bundled = !hasSource, NexusModId = entry.NexusModId, NexusFileId = entry.NexusFileId, CatalogEntryId = entry.CatalogEntryId,
+                Bundled = !hasSource, NexusModId = entry.NexusModId, NexusFileId = entry.NexusFileId, CatalogEntryId = catalogEntryId,
                 IsPak = entry.IsOpaquePak,
             };
             if (entry.IsOpaquePak)
             {
                 var paks = PakFilesOf(entry);
-                mod.PakFileNames = [.. paks.Select(Path.GetFileName)!];
+                mod.PakFileNames = [.. paks.Select(Path.GetFileName).OfType<string>()];
                 if (!hasSource)
                 {
                     if (paks.Count == 0)
@@ -69,6 +82,11 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
             else if (!hasSource)
             {
                 bundledExmods[entry.FolderName] = ExmodFolder.Read(library.GetFolderPath(entry.FolderName));
+            }
+
+            if (sourced && changedHere)
+            {
+                changedCopies.Add(entry.Name);
             }
 
             entries.Add(mod);
@@ -118,7 +136,7 @@ public sealed class PatchBuilder(ILibraryRepository library, IUe4ssModMetaStore?
             Ue4ssMods = ue4ssEntries,
             IncludesConfigs = includeConfigs && ue4ssEntries.Any(m => m.Configs.Count > 0),
         };
-        return new Result(manifest, new PatchBundle(bundledExmods, bundledPaks, bundledUe4ss), skipped);
+        return new Result(manifest, new PatchBundle(bundledExmods, bundledPaks, bundledUe4ss), skipped) { ChangedCopies = changedCopies };
     }
 
     /// <summary>The UE4SS mods on in a Mods folder (the game's or a server's), the framework's own left out, as sources for <see cref="Build"/>.</summary>
