@@ -192,14 +192,20 @@ public sealed class UnrealPakInstallerTests : IDisposable
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(payloadBytes) };
         });
         var installer = CreateInstaller(httpHandler: handler, releasedPayload: payloadBytes);
+        // %TEMP% is shared: a killed earlier run or the real app can leave its own UnrealPak-*.zip
+        // there, so only a file that wasn't there before this install counts.
+        var tempZipsBefore = TempDownloadZips();
 
         var exePath = await installer.InstallAsync();
 
         Assert.Equal(installer.InstalledExePath, exePath);
         Assert.True(File.Exists(exePath));
         // The temp download file must not linger after a successful install.
-        Assert.Empty(Directory.GetFiles(Path.GetTempPath(), "UnrealPak-*.zip"));
+        Assert.Empty(TempDownloadZips().Except(tempZipsBefore, StringComparer.OrdinalIgnoreCase));
     }
+
+    private static HashSet<string> TempDownloadZips() =>
+        new(Directory.GetFiles(Path.GetTempPath(), "UnrealPak-*.zip"), StringComparer.OrdinalIgnoreCase);
 
     [Fact]
     public async Task Install_NoLocalPayloadAndRemoteReturnsError_ThrowsWithGuidance()
