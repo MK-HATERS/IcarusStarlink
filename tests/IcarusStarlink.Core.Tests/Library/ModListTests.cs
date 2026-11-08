@@ -18,6 +18,19 @@ public class ModListTests
         Assert.Equal(["Chance-LitSigns", "Food Buff Duration - 2x"], ModListText.ParseNames(content));
     }
 
+    /// <summary>Regression: a renamed EXMOD wasn't found by the name Starlink's own merge manifest lists it by (its declared name).</summary>
+    [Fact]
+    public void Match_RenamedModByItsDeclaredName()
+    {
+        var renamed = MakeEntry("Faster_Processors", "Mine");
+        renamed.DeclaredName = "Faster Processors";
+
+        var result = ModListMatcher.Match(["Faster Processors"], [renamed]);
+
+        Assert.Same(renamed, Assert.Single(result.Matched));
+        Assert.Empty(result.Unmatched);
+    }
+
     [Fact]
     public void ParseNames_NoHeaderAtAll_EveryLineIsAName()
     {

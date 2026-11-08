@@ -126,6 +126,18 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
+    /// Whether the installed merged pak holds this row. Its manifest lists an opaque entry by each
+    /// pak's file name and an EXMOD by its declared package name, which a rename leaves as it was
+    /// (a renamed mod used to read "Needs Merge &amp; Install" for good); the row's own name and
+    /// folder name count too.
+    /// </summary>
+    internal static bool IsInInstalledMerge(
+        bool isOpaquePak, IReadOnlyList<string> pakFileNames, string? declaredName, string name, string folderName, IReadOnlySet<string> installed) =>
+        isOpaquePak && pakFileNames.Count > 0
+            ? pakFileNames.All(p => installed.Contains(Path.GetFileNameWithoutExtension(p)))
+            : (declaredName is not null && installed.Contains(declaredName)) || installed.Contains(name) || installed.Contains(folderName);
+
+    /// <summary>
     /// Recomputes every row's "On" tick (from the merge queue) and Status (from the installed
     /// merged pak's manifest plus the Lua half's own state), and the pending-changes bar.
     /// </summary>
@@ -139,15 +151,21 @@ public sealed partial class LibraryViewModel
         var updatedNames = new List<string>();
         var inGameNotTicked = 0;
         var pendingDataChanges = new List<(string Name, bool TurnedOn)>();
+        var declaredNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in _repository.GetAll())
+        {
+            if (entry.DeclaredName is { } declared)
+            {
+                declaredNames.TryAdd(entry.FolderName, declared);
+            }
+        }
+
         foreach (var item in _itemsByFolderName.Values)
         {
             var queued = mergeInstall?.IsQueued(item.FolderName) ?? false;
             item.SetEnabledFromQueue(queued);
 
-            // The manifest lists an EXMOD by name and an opaque entry by each pak's file name.
-            var inGame = item.IsOpaquePak && item.PakFileNames.Count > 0
-                ? item.PakFileNames.All(p => installed.Contains(Path.GetFileNameWithoutExtension(p)))
-                : installed.Contains(item.Name) || installed.Contains(item.FolderName);
+            var inGame = IsInInstalledMerge(item.IsOpaquePak, item.PakFileNames, declaredNames.GetValueOrDefault(item.FolderName), item.Name, item.FolderName, installed);
 
             var luaRows = LinkedLuaRows(item).ToList();
             var luaDirty = luaRows.Any(r => r.IsDirty);

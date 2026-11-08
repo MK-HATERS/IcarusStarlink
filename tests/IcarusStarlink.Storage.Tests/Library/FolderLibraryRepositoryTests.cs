@@ -229,6 +229,28 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.Empty(repo.GetAll());
     }
 
+    /// <summary>The merged pak's manifest lists an EXMOD by its declared name, so a rename must not lose it.</summary>
+    [Fact]
+    public void SetDisplayNameOverride_KeepsTheDeclaredName()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        string folderName;
+        using (var repo = CreateRepository())
+        {
+            folderName = repo.Import(_sourceDir).FolderName;
+            repo.SetDisplayNameOverride(folderName, "Mine");
+
+            var entry = Assert.Single(repo.GetAll());
+            Assert.Equal("Mine", entry.Name);
+            Assert.Equal("Faster Processors", entry.DeclaredName);
+        }
+
+        using var reopened = CreateRepository();
+        var again = Assert.Single(reopened.GetAll());
+        Assert.Equal("Mine", again.Name);
+        Assert.Equal("Faster Processors", again.DeclaredName);
+    }
+
     [Fact]
     public void GetAll_ListTakenBeforeAnImportOrDelete_IsLeftAsItWas()
     {

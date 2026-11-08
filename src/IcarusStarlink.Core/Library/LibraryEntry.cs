@@ -14,6 +14,9 @@ public sealed class LibraryEntry
     /// <summary>The EXMOD's own internal identifier (its "fileName" field), independent of FolderName — they can diverge if a folder-name collision forced a suffix at import time.</summary>
     public required string FileName { get; set; }
 
+    /// <summary>The EXMOD's own declared name (its package "name"), which the merged pak's manifest lists it by. A rename changes Name, never this. Null for an opaque pak.</summary>
+    public string? DeclaredName { get; set; }
+
     public string? VariantGroup { get; set; }
     public string? Variant { get; set; }
     public int? VariantSort { get; set; }

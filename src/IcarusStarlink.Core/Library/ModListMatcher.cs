@@ -4,9 +4,11 @@ namespace IcarusStarlink.Core.Library;
 /// Matches a plain list of mod names (an imported classic-IMM/ISL merge list — see ModListText)
 /// against the Library. Confirmed against a real LastMergedMods.txt: classic IMM's lists
 /// mix genuine display names ("Food Buff Duration - 2x") with folder-style names
-/// ("Coracks_Ammo_and_Repair_x100"), so each name is tried against Name, then FolderName, then the
-/// EXMOD's own FileName — all case-insensitive exact matches, never fuzzy (a wrong silent guess
-/// merging the wrong mod is worse than an honest "couldn't match" the user resolves by hand).
+/// ("Coracks_Ammo_and_Repair_x100"), so each name is tried against Name, then the EXMOD's declared
+/// name (what Starlink's own merge manifest lists, and what a rename leaves as it was), then
+/// FolderName, then the EXMOD's own FileName — all case-insensitive exact matches, never fuzzy (a
+/// wrong silent guess merging the wrong mod is worse than an honest "couldn't match" the user
+/// resolves by hand).
 /// </summary>
 public static class ModListMatcher
 {
@@ -37,6 +39,7 @@ public static class ModListMatcher
 
     private static LibraryEntry? FindByName(string name, IReadOnlyList<LibraryEntry> entries) =>
         entries.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase))
+        ?? entries.FirstOrDefault(e => string.Equals(e.DeclaredName, name, StringComparison.OrdinalIgnoreCase))
         ?? entries.FirstOrDefault(e => string.Equals(e.FolderName, name, StringComparison.OrdinalIgnoreCase))
         ?? entries.FirstOrDefault(e => string.Equals(e.FileName, name, StringComparison.OrdinalIgnoreCase));
 }

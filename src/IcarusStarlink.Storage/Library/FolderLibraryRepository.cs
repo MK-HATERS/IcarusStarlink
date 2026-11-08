@@ -691,6 +691,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         Version = (meta.ConvertedFromPrebuiltPak ? meta.NexusFileVersion ?? meta.NexusVersion : null) ?? package.Version,
         Description = (meta.ConvertedFromPrebuiltPak ? meta.NexusDescription : null) ?? package.Description,
         FileName = package.FileName,
+        DeclaredName = package.Name,
         VariantGroup = package.VariantGroup,
         Variant = package.Variant,
         VariantSort = package.VariantSort,
