@@ -1,3 +1,4 @@
+using IcarusStarlink.Core.IO;
 using UAssetAPI;
 using UAssetAPI.ExportTypes;
 using UAssetAPI.PropertyTypes.Objects;
@@ -75,13 +76,8 @@ public static class CurveAssetWriter
         }
         finally
         {
-            try
-            {
-                Directory.Delete(work, recursive: true);
-            }
-            catch (IOException)
-            {
-            }
+            // Only a temp folder: a file still held can't throw away a curve already written and checked.
+            Directories.TryDelete(work);
         }
     }
 

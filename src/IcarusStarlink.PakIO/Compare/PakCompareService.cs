@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.DataChanges;
 using IcarusStarlink.PakIO.Exmod;
@@ -8,13 +9,15 @@ using IcarusStarlink.PakIO.Pak;
 namespace IcarusStarlink.PakIO.Compare;
 
 /// <summary>
-/// The pak-vs-pak comparison tool (big-plan item 8b): built for "unpack the original classic-IMM
-/// merged pak and verify this app's own rebuilt pak is equivalent", but works for any two paks.
+/// The pak-vs-pak comparison tool: built for "unpack the original classic-IMM merged pak and
+/// verify this app's own rebuilt pak is equivalent", but works for any two paks.
 /// DataTable JSONs (the shape RebuildService itself stages under data/) diff at field level via
 /// TableDiffer — the same engine base-vs-modded editing and Weekly Changes already use — so an
 /// equivalent-but-differently-formatted table (key order, whitespace) correctly reads as
-/// identical. Everything else falls back to a raw byte comparison, including a JSON with no
-/// "Rows" array: RowsToKeyedObject maps those to an empty table, which would make two genuinely
+/// identical. The rest of a table (its Defaults, which every row inherits for fields it doesn't
+/// list, and its RowStruct) is compared as JSON too, and a difference there shows as the file's
+/// content differing. Everything else falls back to a raw byte comparison, including a JSON with
+/// no "Rows" array: RowsToKeyedObject maps those to an empty table, which would make two genuinely
 /// different non-table JSONs silently compare as equal if they went down the table path.
 /// </summary>
 public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPakCompareService
@@ -39,10 +42,8 @@ public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPak
         }
         finally
         {
-            if (Directory.Exists(tempRoot))
-            {
-                Directory.Delete(tempRoot, recursive: true);
-            }
+            // Left for Windows' temp cleanup when a scanner still holds a file: the comparison is done.
+            Directories.TryDelete(tempRoot);
         }
     }
 
@@ -70,12 +71,18 @@ public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPak
             // right now. See DataTableFileDiffer's own doc comment.
             if (inFirst && inSecond)
             {
-                if (firstTable is not null && secondTable is not null)
+                if (firstTable is { } first && secondTable is { } second)
                 {
-                    var changed = DataTableFileDiffer.Diff(relativePath, firstTable, secondTable, classifier, reportEmptyNewFile: true);
+                    var changed = DataTableFileDiffer.Diff(relativePath, first.Rows, second.Rows, classifier, reportEmptyNewFile: true);
                     if (changed is not null)
                     {
                         dataDifferences.Add(changed);
+                    }
+
+                    // The table's Defaults or RowStruct changed, which no row diff can show.
+                    if (!SameOutsideRows(first.Whole, second.Whole))
+                    {
+                        assetDifferences.Add(new PakAssetDifference(relativePath, PakAssetDifferenceKind.DifferentContent));
                     }
                 }
                 else if (!FileContentComparer.AreIdentical(firstPath!, secondPath!))
@@ -85,9 +92,9 @@ public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPak
             }
             else if (inFirst)
             {
-                if (firstTable is not null)
+                if (firstTable is { } first)
                 {
-                    var changed = DataTableFileDiffer.Diff(relativePath, firstTable, null, classifier, reportEmptyNewFile: true);
+                    var changed = DataTableFileDiffer.Diff(relativePath, first.Rows, null, classifier, reportEmptyNewFile: true);
                     if (changed is not null)
                     {
                         dataDifferences.Add(changed);
@@ -100,9 +107,9 @@ public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPak
             }
             else
             {
-                if (secondTable is not null)
+                if (secondTable is { } second)
                 {
-                    var changed = DataTableFileDiffer.Diff(relativePath, null, secondTable, classifier, reportEmptyNewFile: true);
+                    var changed = DataTableFileDiffer.Diff(relativePath, null, second.Rows, classifier, reportEmptyNewFile: true);
                     if (changed is not null)
                     {
                         dataDifferences.Add(changed);
@@ -125,8 +132,20 @@ public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPak
                 path => path,
                 StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Null when the file isn't a parseable DataTable JSON (wrong extension, malformed, or no "Rows" array) — those compare as raw content instead.</summary>
-    private static JsonObject? TryReadDataTable(string path)
+    /// <summary>Every top-level property but Rows (Defaults, RowStruct, anything else) is equal, in any property order.</summary>
+    private static bool SameOutsideRows(JsonObject first, JsonObject second)
+    {
+        var names = first.Select(p => p.Key).Union(second.Select(p => p.Key), StringComparer.Ordinal)
+            .Where(name => name != "Rows");
+        return names.All(name => JsonNode.DeepEquals(first[name], second[name]));
+    }
+
+    /// <summary>
+    /// The table's rows keyed by name, and the whole parsed file. Null when the file isn't a
+    /// parseable DataTable JSON (wrong extension, malformed, or no "Rows" array) — those compare as
+    /// raw content instead.
+    /// </summary>
+    private static (JsonObject Rows, JsonObject Whole)? TryReadDataTable(string path)
     {
         if (!path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
         {
@@ -145,7 +164,7 @@ public sealed class PakCompareService(IUnrealPakService unrealPakService) : IPak
                 return null;
             }
 
-            return DataTableJson.RowsToKeyedObject(parsed);
+            return (DataTableJson.RowsToKeyedObject(parsed), parsed);
         }
         catch (JsonException)
         {

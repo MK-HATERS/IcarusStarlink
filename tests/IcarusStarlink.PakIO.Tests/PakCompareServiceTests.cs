@@ -9,6 +9,7 @@ public sealed class PakCompareServiceTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "IcarusStarlinkTests", $"PakCompare_{Guid.NewGuid():N}");
     private readonly string _firstSource;
     private readonly string _secondSource;
+    private readonly FakeUnrealPakService _unrealPak;
     private readonly PakCompareService _service;
 
     public PakCompareServiceTests()
@@ -17,15 +18,30 @@ public sealed class PakCompareServiceTests : IDisposable
         _secondSource = Path.Combine(_root, "second_source");
         Directory.CreateDirectory(_firstSource);
         Directory.CreateDirectory(_secondSource);
-        _service = new PakCompareService(new FakeUnrealPakService(new Dictionary<string, string>
+        _unrealPak = new FakeUnrealPakService(new Dictionary<string, string>
         {
             ["first.pak"] = _firstSource,
             ["second.pak"] = _secondSource,
-        }));
+        });
+        _service = new PakCompareService(_unrealPak);
     }
 
     public void Dispose()
     {
+        foreach (var held in _unrealPak.HeldFiles)
+        {
+            held.Dispose();
+        }
+
+        foreach (var output in _unrealPak.OutputDirectories)
+        {
+            var compareRoot = Path.GetDirectoryName(output)!;
+            if (Directory.Exists(compareRoot))
+            {
+                Directory.Delete(compareRoot, recursive: true);
+            }
+        }
+
         if (Directory.Exists(_root))
         {
             Directory.Delete(_root, recursive: true);
@@ -184,6 +200,67 @@ public sealed class PakCompareServiceTests : IDisposable
         Assert.Equal(3, Assert.Single(file.FieldChanges).NewValue!.GetValue<int>());
     }
 
+    /// <summary>
+    /// Regression: only the rows were compared, so two tables whose Defaults (the values every row
+    /// inherits for fields it doesn't list) differ read as identical.
+    /// </summary>
+    [Fact]
+    public async Task TablesDifferingOnlyInDefaults_AreReported()
+    {
+        Write("first", "data/Traits/D_Fuel.json", "{\"RowStruct\":\"/Script/Icarus.Test\",\"Defaults\":{},\"Rows\":[{\"Name\":\"Composter\",\"Rate\":10}]}");
+        Write("second", "data/Traits/D_Fuel.json", "{\"RowStruct\":\"/Script/Icarus.Test\",\"Defaults\":{\"Weight\":5},\"Rows\":[{\"Name\":\"Composter\",\"Rate\":10}]}");
+
+        var result = await CompareAsync();
+
+        Assert.Empty(result.DataDifferences);
+        Assert.Equal(
+            [new PakAssetDifference("data/Traits/D_Fuel.json", PakAssetDifferenceKind.DifferentContent)],
+            result.AssetDifferences);
+    }
+
+    [Fact]
+    public async Task TablesDifferingOnlyInRowStruct_AreReported()
+    {
+        Write("first", "data/Traits/D_Fuel.json", "{\"RowStruct\":\"/Script/Icarus.FuelData\",\"Defaults\":{},\"Rows\":[{\"Name\":\"Composter\",\"Rate\":10}]}");
+        Write("second", "data/Traits/D_Fuel.json", "{\"Defaults\":{},\"RowStruct\":\"/Script/Icarus.OtherData\",\"Rows\":[{\"Name\":\"Composter\",\"Rate\":10}]}");
+
+        var result = await CompareAsync();
+
+        Assert.Empty(result.DataDifferences);
+        Assert.Equal(
+            [new PakAssetDifference("data/Traits/D_Fuel.json", PakAssetDifferenceKind.DifferentContent)],
+            result.AssetDifferences);
+    }
+
+    [Fact]
+    public async Task TablesWithTheSameDefaultsInAnotherOrder_ReportNoDifference()
+    {
+        Write("first", "data/Traits/D_Fuel.json", "{\"RowStruct\":\"x\",\"Defaults\":{\"Weight\":5,\"Stack\":2},\"Rows\":[{\"Name\":\"Composter\",\"Rate\":10}]}");
+        Write("second", "data/Traits/D_Fuel.json", "{\"Defaults\":{\"Stack\":2,\"Weight\":5},\"Rows\":[{\"Name\":\"Composter\",\"Rate\":10}],\"RowStruct\":\"x\"}");
+
+        var result = await CompareAsync();
+
+        Assert.Empty(result.DataDifferences);
+        Assert.Empty(result.AssetDifferences);
+    }
+
+    /// <summary>
+    /// Regression: the temp folder was deleted in a finally with no catch, so a file a scanner
+    /// still held turned a finished comparison into "Compare failed: The process cannot access the file".
+    /// </summary>
+    [Fact]
+    public async Task CompareAsync_TempFolderStillHeld_StillReturnsTheResult()
+    {
+        Write("first", "BP/Thing.uasset", "old-bytes");
+        Write("second", "BP/Thing.uasset", "new-bytes!");
+        _unrealPak.HoldAFile = true;
+
+        var result = await CompareAsync();
+
+        Assert.Equal(PakAssetDifferenceKind.DifferentContent, Assert.Single(result.AssetDifferences).Kind);
+        Assert.NotEmpty(_unrealPak.HeldFiles);
+    }
+
     [Fact]
     public async Task MalformedJson_FallsBackToRawComparison()
     {
@@ -198,10 +275,18 @@ public sealed class PakCompareServiceTests : IDisposable
 
     private sealed class FakeUnrealPakService(IReadOnlyDictionary<string, string> pakToSourceFolder) : IUnrealPakService
     {
+        /// <summary>Keeps one extracted file open for reading without delete sharing, the way a virus scanner can.</summary>
+        public bool HoldAFile { get; set; }
+
+        public List<FileStream> HeldFiles { get; } = [];
+
+        public List<string> OutputDirectories { get; } = [];
+
         public Task<int> ExtractPakAsync(
             string unrealPakExePath, string pakFilePath, string outputDirectory,
             CancellationToken cancellationToken = default, string? filter = null)
         {
+            OutputDirectories.Add(outputDirectory);
             var source = pakToSourceFolder[pakFilePath];
             var count = 0;
             foreach (var file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
@@ -210,6 +295,10 @@ public sealed class PakCompareServiceTests : IDisposable
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                 File.Copy(file, destination, overwrite: true);
                 count++;
+                if (HoldAFile && HeldFiles.Count == 0)
+                {
+                    HeldFiles.Add(new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.Read));
+                }
             }
 
             return Task.FromResult(count);

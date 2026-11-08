@@ -102,14 +102,8 @@ public static class AssetReferenceRewriter
         }
         finally
         {
-            try
-            {
-                Directory.Delete(work, recursive: true);
-            }
-            catch (Exception)
-            {
-                // Only a temp folder.
-            }
+            // Only a temp folder.
+            Directories.TryDelete(work);
         }
     }
 
