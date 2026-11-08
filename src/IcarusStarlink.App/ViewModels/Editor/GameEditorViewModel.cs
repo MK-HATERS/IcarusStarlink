@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -330,14 +331,22 @@ public sealed partial class GameEditorViewModel : ObservableObject
         StashShownItem();
         var stampBefore = _shownStamp;
         var target = TargetPackage();
+        RebuildDraftsIfTargetMoved(stampBefore, target);
+        ShowItem(target);
+    }
 
-        // The mod editor saved into the target since the waiting items were built from it.
+    /// <summary>
+    /// The mod under Save to changed on disk since the waiting items were built from it (the mod
+    /// editor or a fix saved into it): they're built again from its new version, keeping what was
+    /// typed. Every read of the target takes its new stamp, so skipping this would let Save write
+    /// the waiting items' lists from the old file.
+    /// </summary>
+    private void RebuildDraftsIfTargetMoved(DateTime? stampBefore, ExmodPackage? target)
+    {
         if (stampBefore is not null && _shownStamp != stampBefore && RebuildDrafts(target) is var dropped and > 0)
         {
             StatusMessage = $"That mod was changed somewhere else: {dropped} typed change(s) aren't in its new version, so they were dropped.";
         }
-
-        ShowItem(target);
     }
 
     /// <summary>Set while the target list is rebuilt: the list empties under the selection, which isn't a new pick.</summary>
@@ -416,6 +425,16 @@ public sealed partial class GameEditorViewModel : ObservableObject
             return;
         }
 
+        if (SharedRowClash(edited) is { } clash)
+        {
+            StatusMessage = clash;
+            return;
+        }
+
+        // Saved anyway (a free craft by hand can be on purpose), but said: a machine never starts it.
+        var noIngredients = edited.Where(e => e.Cards.Any(c => c.TakesOutEveryIngredient && !c.MadeOnlyByHand))
+            .Select(e => FindItem(e.Name)?.Title ?? e.Name).ToList();
+
         if (SelectedTarget is not { } target)
         {
             StatusMessage = "Choose where to save: a new mod, or one of your mods.";
@@ -466,7 +485,16 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
             // The mod editor may have saved into this mod since its values were shown here: the
             // cards (and what was typed against them) would be out of date.
-            if (!_writer.TrySave(folder, package, target.IsNew ? null : _shownStamp, out _))
+            var moved = !target.IsNew && _shownStamp is { } shownStamp && _writer.StampOf(folder, package.FileName) != shownStamp;
+            var backedUp = false;
+            if (!moved && !target.IsNew)
+            {
+                // One Save can change hundreds of items: Restore latest backup undoes it, like any automatic change.
+                _repository.BackupMod(folder);
+                backedUp = true;
+            }
+
+            if (moved || !_writer.TrySave(folder, package, target.IsNew ? null : _shownStamp, out _))
             {
                 StatusMessage = null;
                 ReloadKeepingTyped("aren't in that mod's new version");
@@ -482,7 +510,14 @@ public sealed partial class GameEditorViewModel : ObservableObject
             ClearBulkCache(); // built from the mod before this save
             RefreshTargets(selectFolder: folder);
             LoadItem();
-            StatusMessage = $"Saved {lines.Count} change(s) to '{name}'{items}. To use it in game: Turn on & go to Merge & Install, then Install.";
+            var backup = backedUp ? " It was backed up first (right-click it in Library › Restore latest backup undoes this Save)." : "";
+            var warning = noIngredients.Count switch
+            {
+                0 => "",
+                1 => $" Note: {noIngredients[0]}'s recipe takes no ingredients now. A machine (a furnace, a processor) never starts a recipe like that by itself: give it one ingredient if a machine makes it.",
+                _ => $" Note: {noIngredients.Count} recipes take no ingredients now ({string.Join(", ", noIngredients)}). A machine (a furnace, a processor) never starts a recipe like that by itself: give each one ingredient if a machine makes it.",
+            };
+            StatusMessage = $"Saved {lines.Count} change(s) to '{name}'{items}.{backup} To use it in game: Turn on & go to Merge & Install, then Install.{warning}";
             _activityLog?.Log($"Saved {lines.Count} change(s) to '{name}'{items} in the Editor.", ActivityEntryKind.Success);
             SavedModFolder = folder;
         }
@@ -491,6 +526,51 @@ public sealed partial class GameEditorViewModel : ObservableObject
             StatusMessage = $"Couldn't save: {ex.Message}";
             _activityLog?.Log($"Editor: couldn't save: {ex.Message}", ActivityEntryKind.Warning);
         }
+    }
+
+    /// <summary>
+    /// Two items changing one shared row "for all" to different values: whichever is written last
+    /// would win without a word. Returns the first such clash in plain words, or null.
+    /// </summary>
+    private string? SharedRowClash(IEnumerable<(string Name, IReadOnlyList<GameItemSectionViewModel> Cards)> edited)
+    {
+        var seen = new Dictionary<(string Table, string Row, string Path), (string Item, JsonNode? Value)>();
+        foreach (var (itemName, cards) in edited)
+        {
+            foreach (var card in cards.Where(c => c.IsShared && !c.OwnCopy))
+            {
+                foreach (var change in card.Changes())
+                {
+                    var key = (card.Section.Table.ToLowerInvariant(), card.Section.RowName.ToLowerInvariant(), change.Path.Key);
+                    if (!seen.TryGetValue(key, out var first))
+                    {
+                        seen[key] = (itemName, change.Value);
+                        continue;
+                    }
+
+                    if (string.Equals(first.Item, itemName, StringComparison.OrdinalIgnoreCase) || JsonNode.DeepEquals(first.Value, change.Value))
+                    {
+                        continue;
+                    }
+
+                    var label = card.Fields.FirstOrDefault(f => f.Field.Path.Key == change.Path.Key)?.Label
+                        ?? card.Fields.FirstOrDefault(f => f.Field.Path.Top == change.Path.Top)?.Label ?? change.Path.Key;
+                    var values = Shown(first.Value) is { } a && Shown(change.Value) is { } b ? $" ({a} and {b})" : "";
+                    return $"Not saved: {FindItem(first.Item)?.Title ?? first.Item} and {FindItem(itemName)?.Title ?? itemName} both change {label} on the row they share, {card.Section.RowName}, "
+                        + $"to different values{values}. It can only have one: type the same value for both, or give one its own copy.";
+                }
+            }
+        }
+
+        return null;
+
+        static string? Shown(JsonNode? value) => value switch
+        {
+            null => "the game's value",
+            JsonValue text when text.TryGetValue<string>(out var s) => s,
+            JsonValue number => number.ToJsonString(),
+            _ => null, // a whole list: too long for one line
+        };
     }
 
     /// <summary>"Only changed values": each card shows just the values that differ from the game's (taken when switched, not while typing).</summary>
@@ -505,8 +585,14 @@ public sealed partial class GameEditorViewModel : ObservableObject
         }
     }
 
-    /// <summary>Shows the selected item fresh from the game and the target mod (what was typed for it is thrown away).</summary>
-    private void LoadItem() => ShowItem(TargetPackage());
+    /// <summary>Shows the selected item fresh from the game and the target mod (what was typed for it is thrown away; the waiting items are rebuilt when the mod changed meanwhile).</summary>
+    private void LoadItem()
+    {
+        var stampBefore = _shownStamp;
+        var target = TargetPackage();
+        RebuildDraftsIfTargetMoved(stampBefore, target);
+        ShowItem(target);
+    }
 
     /// <summary>
     /// Shows the selected item: its waiting cards when changes were typed for it before, else fresh
@@ -536,6 +622,8 @@ public sealed partial class GameEditorViewModel : ObservableObject
                 ItemTitle = view.DisplayName is { Length: > 0 } d ? $"{d}  ({item.Name})" : item.Name;
                 ItemDescription = item.Info.Description is { Length: > 0 } about ? $"{item.Category} · {about}" : item.Category;
                 KeptAsGames = view.KeptAsGames.Count == 0 ? null : "Kept as the game's (models, sounds, how it's picked up and used): " + string.Join("; ", view.KeptAsGames) + ".";
+                // Cards a bulk preview built for it are older than this read of the target: never used again.
+                _bulkCards.Remove(item.Name);
                 if (!_drafts.Remove(item.Name, out var cards))
                 {
                     cards = BuildCards(game, view);

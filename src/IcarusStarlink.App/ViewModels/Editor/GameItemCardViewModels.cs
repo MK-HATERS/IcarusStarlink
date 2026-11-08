@@ -186,9 +186,12 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     /// <summary>A value the game doesn't have (a stat the mod adds), emptied by ↺: it comes out of the mod again.</summary>
     private bool IsRemoved => Field.GameValue is null && ValueText.Trim().Length == 0;
 
+    // A link left as the Save-to mod has it (a row that mod adds itself) isn't something typed here,
+    // and isn't written again; only a value picked here must be a row the list offers.
     public string? Error =>
         IsDropped ? null
-        : IsLink ? (LinkChoices is { Count: > 0 } choices && !choices.Any(c => string.Equals(c.Name, ValueText.Trim(), StringComparison.OrdinalIgnoreCase)) ? "Pick one from the list." : null)
+        : IsLink ? (LinkChoices is { Count: > 0 } choices && ValueText.Trim() != _startText.Trim()
+            && !choices.Any(c => string.Equals(c.Name, ValueText.Trim(), StringComparison.OrdinalIgnoreCase)) ? "Pick one from the list." : null)
         : Field.Kind != EditableKind.Number || IsRemoved ? null
         : !EditorValueText.TryParseNumber(ValueText, out var n) ? "Needs a number, like 50 or 0.5."
         : _wholeNumber && n != Math.Floor(n) ? (IsStat(Field) ? "Needs a whole number: stats have no fractions in the game, like 15." : "Needs a whole number here, like 50.")
@@ -354,13 +357,24 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
             return;
         }
 
+        AddBenchEntry(bench.Name, bench.Name);
+        BenchError = null;
+        BenchToAdd = null;
+        AllHidden = false;
+        MarkLastBench();
+        _changed();
+    }
+
+    /// <summary>A bench added to the list (<paramref name="row"/>, shown as <paramref name="valueText"/>: its drop-down can repoint it).</summary>
+    private void AddBenchEntry(string row, string valueText)
+    {
         var index = Section.Lists![Benches].Count + Fields.Count(f => IsBench(f.Field.Path) && f.AddedEntry is not null);
         var lastBench = Fields.LastOrDefault(f => IsBench(f.Field.Path));
         Add(at: lastBench is null ? null : Fields.IndexOf(lastBench) + 1, field: new GameItemFieldViewModel(new EditableField(new EditPath(Benches, [index, "RowName"]), $"Made at ({Fields.Count(f => IsBench(f.Field.Path)) + 1})",
             "Added by you: it can be made here too. ↺ takes it out again.", EditableKind.Link, null, null, false, BenchTable), linkChoices: BenchChoices)
         {
-            ValueText = bench.Name,
-            AddedEntry = (bench.Name, BenchTable),
+            ValueText = valueText,
+            AddedEntry = (row, BenchTable),
             RemoveAdded = field =>
             {
                 Fields.Remove(field);
@@ -377,11 +391,6 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
                 _changed();
             },
         });
-        BenchError = null;
-        BenchToAdd = null;
-        AllHidden = false;
-        MarkLastBench();
-        _changed();
     }
 
     /// <summary>A recipe card with an ingredient list: ingredients can be added and taken out.</summary>
@@ -398,32 +407,129 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
     private string? AddIngredient(ItemChoice item)
     {
         var current = Section.Lists![Ingredients];
-        bool Names(GameItemFieldViewModel f, string row) =>
-            f.AddedEntry?.Row is { } added ? string.Equals(added, row, StringComparison.OrdinalIgnoreCase)
-            : IsIngredient(f.Field.Path) && !f.IsDropped && string.Equals(current.ElementAtOrDefault((int)f.Field.Path.Steps[0])?["Element"]?["RowName"]?.GetValue<string>(), row, StringComparison.OrdinalIgnoreCase);
-        if (Fields.Any(f => Names(f, item.Name)))
+        if (Fields.Any(f => NamesIngredient(f, item.Name)))
         {
             return "Already an ingredient: change its number instead.";
         }
 
         // The same table the recipe's other ingredients name (D_ItemsStatic in the game's recipes).
         var table = current.OfType<JsonObject>().Select(e => e["Element"]?["DataTableName"]?.GetValue<string>()).FirstOrDefault(t => t is not null) ?? "D_ItemsStatic";
-        var index = current.Count + Fields.Count(f => f.AddedEntry is not null);
-        Add(new GameItemFieldViewModel(new EditableField(new EditPath(Ingredients, [index, "Count"]), $"Needs {item.Title}",
+        AddIngredientEntry(item.Name, table, $"Needs {item.Title}", "1");
+        AllHidden = false;
+        _changed();
+        return null;
+    }
+
+    /// <summary>The field is an ingredient in the list (not taken out) that names <paramref name="row"/>.</summary>
+    private bool NamesIngredient(GameItemFieldViewModel field, string row) =>
+        field.AddedEntry?.Row is { } added ? string.Equals(added, row, StringComparison.OrdinalIgnoreCase)
+        : IsIngredient(field.Field.Path) && !field.IsDropped
+            && string.Equals(Section.Lists![Ingredients].ElementAtOrDefault((int)field.Field.Path.Steps[0])?["Element"]?["RowName"]?.GetValue<string>(), row, StringComparison.OrdinalIgnoreCase);
+
+    private void AddIngredientEntry(string row, string table, string label, string valueText)
+    {
+        var index = Section.Lists![Ingredients].Count + Fields.Count(f => f.AddedEntry is not null);
+        Add(new GameItemFieldViewModel(new EditableField(new EditPath(Ingredients, [index, "Count"]), label,
             "Added by you: how many it takes. ↺ takes it out again.", EditableKind.Number, null, null, false), decimalField: false)
         {
-            ValueText = "1",
-            AddedEntry = (item.Name, table),
+            ValueText = valueText,
+            AddedEntry = (row, table),
             RemoveAdded = field =>
             {
                 Fields.Remove(field);
                 _changed();
             },
         });
-        AllHidden = false;
-        _changed();
+    }
+
+    /// <summary>What a list entry is for: the item an amount is of, or a bench's row.</summary>
+    private static string? EntryName(JsonNode? entry) =>
+        entry is JsonObject o && ((o["Element"] ?? o["Meta"] ?? o["Item"])?["RowName"] ?? o["RowName"]) is JsonValue v && v.TryGetValue<string>(out var name) ? name : null;
+
+    /// <summary>
+    /// This card's field for what <paramref name="field"/> is on <paramref name="from"/> (the same item's
+    /// card built against another mod or older game data). A list entry is found by what it is, not its
+    /// position: another mod's list can be shorter or in another order. Null when it has no place here.
+    /// </summary>
+    internal GameItemFieldViewModel? SameFieldAs(GameItemSectionViewModel from, GameItemFieldViewModel field)
+    {
+        var path = field.Field.Path;
+        if (path.Steps.Count != 2 || path.Steps[0] is not int index)
+        {
+            return Fields.FirstOrDefault(f => f.Field.Path.Key == path.Key);
+        }
+
+        var what = EntryName(from.Section.Lists?.GetValueOrDefault(path.Top)?.ElementAtOrDefault(index));
+        var list = Section.Lists?.GetValueOrDefault(path.Top);
+        if (what is null || list is null)
+        {
+            return null;
+        }
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (string.Equals(EntryName(list[i]), what, StringComparison.OrdinalIgnoreCase))
+            {
+                return Fields.FirstOrDefault(f => f.AddedEntry is null && f.Field.Path.Top == path.Top && f.Field.Path.Steps.Count == 2
+                    && f.Field.Path.Steps[0] is int at && at == i && Equals(f.Field.Path.Steps[1], path.Steps[1]));
+            }
+        }
+
         return null;
     }
+
+    /// <summary>Puts an ingredient or bench added on another card of this item on this one too; false when it has no place here (the list already has it, or this card has no such list).</summary>
+    internal bool CarryAdded(GameItemFieldViewModel added)
+    {
+        if (added.AddedEntry is not { } entry)
+        {
+            return false;
+        }
+
+        if (added.Field.Path.Top == Benches && CanEditBenches)
+        {
+            if (!KeptBenches.Any(f => string.Equals(f.ValueText.Trim(), added.ValueText.Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                AddBenchEntry(entry.Row, added.ValueText);
+                MarkLastBench();
+            }
+
+            return true;
+        }
+
+        if (added.Field.Path.Top == Ingredients && CanEditIngredients && !Fields.Any(f => NamesIngredient(f, entry.Row)))
+        {
+            AddIngredientEntry(entry.Row, entry.Table, added.Field.Label, added.ValueText);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>A recipe made nowhere can't be crafted: when every bench is taken out, they all go back in. Returns how many came back.</summary>
+    internal int KeepABench()
+    {
+        if (!CanEditBenches || KeptBenches.Any())
+        {
+            return 0;
+        }
+
+        var dropped = Fields.Where(f => IsBench(f.Field.Path) && f.IsDropped).ToList();
+        foreach (var bench in dropped)
+        {
+            bench.IsDropped = false;
+        }
+
+        MarkLastBench();
+        return dropped.Count;
+    }
+
+    /// <summary>Every ingredient is taken out here: Save writes a recipe that takes nothing.</summary>
+    internal bool TakesOutEveryIngredient =>
+        CanEditIngredients && Fields.Any(f => IsIngredient(f.Field.Path) && f.IsDropped) && !Fields.Any(f => IsIngredient(f.Field.Path) && !f.IsDropped);
+
+    /// <summary>Every bench the recipe keeps is crafting by hand ("Character"), where a recipe that takes nothing is a free craft.</summary>
+    internal bool MadeOnlyByHand => KeptBenches.All(f => string.Equals(f.ValueText.Trim(), "Character", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// What Save writes for this card: each changed value, except that a list with entries taken out

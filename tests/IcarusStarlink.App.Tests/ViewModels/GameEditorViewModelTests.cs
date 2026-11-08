@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.ViewModels;
@@ -1124,5 +1125,322 @@ public sealed partial class GameEditorViewModelTests : IDisposable
 
         Assert.Equal(["Envirosuit", "Stone"], Names(vm));
         Assert.Same(vm.FilteredItems[0], vm.SelectedItem);
+    }
+
+    /// <summary>Puts rows into one of the user's own mods straight on disk (what the mod editor or a fix would write).</summary>
+    private void WriteIntoMod(string folder, params ExmodFileRow[] rows)
+    {
+        var package = Read(_library, folder);
+        package.Rows.InsertRange(0, rows);
+        ExmodFolder.Write(_library.GetFolderPath(folder), new ExmodPackageContents(package, []));
+    }
+
+    private static ExmodFileRow ModRow(string file, string rowName, string fieldsJson) =>
+        new() { CurrentFile = file, FileItems = [ExmodFileItem.FromRow(rowName, JsonNode.Parse(fieldsJson)!.AsObject())] };
+
+    /// <summary>Moves the mod's .EXMOD stamp on, as a save from somewhere else does.</summary>
+    private void TouchExmod(string folder)
+    {
+        var exmod = Directory.GetFiles(Path.Combine(_library.GetFolderPath(folder), "Extracted Mods"), "*.EXMOD").Single();
+        File.SetLastWriteTimeUtc(exmod, DateTime.UtcNow.AddMinutes(1));
+    }
+
+    private JsonArray SavedList(string folder, string field) =>
+        (JsonArray)Read(_library, folder).Rows.Single(r => r.CurrentFile == "Crafting-D_ProcessorRecipes.json").FileItems.Single().Fields[field]!;
+
+    private static GameItemSectionViewModel Recipe(GameEditorViewModel vm) => vm.Sections.Single(s => s.Section.Key == "Recipe:Envirosuit_Recipe");
+
+    /// <summary>Regression: the shown item reloading after the mod changed elsewhere took the new stamp without rebuilding the waiting items, so Save wrote their lists from the old file.</summary>
+    [Fact]
+    public void AWaitingItem_IsRebuilt_WhenTheModChangedElsewhereWhileAnotherItemShows()
+    {
+        WriteEnvirosuitRecipe();
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        var vm = Open();
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Recipe(vm).Fields.Single(f => f.Label == "Needs Leather").DropCommand.Execute(null);
+        vm.SelectedItem = Item(vm, "Stone"); // Envirosuit waits; nothing typed on Stone
+
+        WriteIntoMod(mine.FolderName, ModRow("Crafting-D_ProcessorRecipes.json", "Envirosuit_Recipe", """
+            {"Inputs":[{"Element":{"RowName":"Stone","DataTableName":"D_ItemsStatic"},"Count":4},
+                       {"Element":{"RowName":"Leather","DataTableName":"D_ItemsStatic"},"Count":2},
+                       {"Element":{"RowName":"Envirosuit","DataTableName":"D_ItemsStatic"},"Count":1}]}
+            """));
+        TouchExmod(mine.FolderName);
+        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(["Stone", "Envirosuit"], SavedList(mine.FolderName, "Inputs").Select(e => e!["Element"]!["RowName"]!.GetValue<string>()));
+    }
+
+    private int BackupCount() =>
+        Directory.Exists(Path.Combine(_root, "Backups")) ? Directory.GetDirectories(Path.Combine(_root, "Backups")).Length : 0;
+
+    /// <summary>A Save into one of your mods backs it up first (Restore latest backup undoes that Save); a new mod has nothing to back up.</summary>
+    [Fact]
+    public void Save_IntoAnExistingMod_BacksItUpFirst_ButNotANewMod()
+    {
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "50";
+        vm.NewModName = "Lighter";
+        vm.SaveCommand.Execute(null);
+        Assert.Equal(0, BackupCount());
+
+        Weight(vm).ValueText = "40";
+        vm.SaveCommand.Execute(null);
+        Assert.Equal(1, BackupCount());
+        Weight(vm).ValueText = "30";
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(2, BackupCount());
+        Assert.Contains("backed up first", vm.StatusMessage);
+        var folder = Assert.Single(_library.GetAll()).FolderName;
+        var latest = Directory.GetFiles(_library.TryGetLatestModBackupPath(folder)!, "*.EXMOD", SearchOption.AllDirectories).Single();
+        Assert.Contains("40", File.ReadAllText(latest)); // the mod as it was right before this Save
+    }
+
+    /// <summary>Regression: "Put into Your changes" swapped a waiting item's typed cards for the cards an earlier preview built.</summary>
+    [Fact]
+    public void BulkEdit_AfterAnEarlierPreview_KeepsAWaitingItemsTypedChanges()
+    {
+        var vm = Open();
+        vm.TickAllShownCommand.Execute(null);
+        vm.OpenBulkCommand.Execute(null); // the preview builds both items' cards
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "50";
+        vm.SelectedItem = Item(vm, "Stone"); // Envirosuit waits with its 50
+
+        vm.OpenBulkCommand.Execute(null);
+        PickBulkField(vm, "Itemable", "Weight");
+        vm.MultiplyByCommand.Execute("3");
+        var suit = vm.BulkRows.Single(r => r.Item.Name == "Envirosuit");
+        Assert.Equal("50 → 150", $"{suit.CurrentText} → {suit.NewText}");
+        vm.ApplyBulkCommand.Execute(null);
+
+        Assert.Equal(["Stone", "Envirosuit"], vm.PendingGroups.Select(g => g.ItemName));
+        Assert.Equal(2, vm.EditedItemCount);
+
+        vm.UndoBulkCommand.Execute(null);
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Assert.Equal("50", Weight(vm).ValueText);
+    }
+
+    /// <summary>Regression: a typed amount was carried to another Save to by its position, landing on another ingredient without a word.</summary>
+    [Fact]
+    public void ATypedIngredient_FollowsItsItem_NotItsPosition()
+    {
+        WriteEnvirosuitRecipe();
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        WriteIntoMod(mine.FolderName, ModRow("Crafting-D_ProcessorRecipes.json", "Envirosuit_Recipe",
+            """{"Inputs":[{"Element":{"RowName":"Leather","DataTableName":"D_ItemsStatic"},"Count":2}]}"""));
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Recipe(vm).Fields.Single(f => f.Label == "Needs Stone").ValueText = "3";
+
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
+
+        Assert.Equal("2", Recipe(vm).Fields.Single(f => f.Label == "Needs Leather").ValueText);
+        Assert.Contains("1 typed change(s)", vm.StatusMessage);
+    }
+
+    /// <summary>Regression: a bench added here was lost on another Save to, and the taken-out one left the recipe with none.</summary>
+    [Fact]
+    public void AnAddedBench_ComesAlongToAnotherSaveTo()
+    {
+        WriteEnvirosuitRecipe();
+        WriteBenches();
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Recipe(vm).BenchToAdd = Recipe(vm).BenchChoices!.Single(c => c.Name == "Fabricator");
+        Recipe(vm).AddBenchCommand.Execute(null);
+        Recipe(vm).Fields.Single(f => f.Label == "Made at").DropCommand.Execute(null);
+
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
+
+        Assert.Single(Recipe(vm).Fields, f => f.ValueText == "Fabricator" && !f.IsDropped);
+        Assert.True(Recipe(vm).Fields.Single(f => f.Label == "Made at").IsDropped);
+        vm.SaveCommand.Execute(null);
+        Assert.Equal(["Fabricator"], SavedList(mine.FolderName, "RecipeSets").Select(e => e!["RowName"]!.GetValue<string>()));
+    }
+
+    /// <summary>Regression: a bench taken out was carried by position onto the only bench another mod's recipe has, leaving it made nowhere.</summary>
+    [Fact]
+    public void ATakenOutBench_NeverLeavesARecipeWithNone()
+    {
+        Write("Crafting/D_ProcessorRecipes.json", """
+            {"RowStruct":"S","Defaults":{},"Rows":[
+              {"Name":"Envirosuit_Recipe","RecipeSets":[{"RowName":"Character","DataTableName":"D_RecipeSets"},{"RowName":"Fabricator","DataTableName":"D_RecipeSets"}],
+               "Inputs":[{"Element":{"RowName":"Stone","DataTableName":"D_ItemsStatic"},"Count":4}],
+               "Outputs":[{"Element":{"RowName":"Envirosuit","DataTableName":"D_ItemTemplate"},"Count":1}]}
+            ]}
+            """);
+        WriteBenches();
+        var oneBench = _library.CreateBlankMod("One bench", "Me");
+        WriteIntoMod(oneBench.FolderName, ModRow("Crafting-D_ProcessorRecipes.json", "Envirosuit_Recipe",
+            """{"RecipeSets":[{"RowName":"Character","DataTableName":"D_RecipeSets"}]}"""));
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Recipe(vm).Fields.Single(f => f.Field.Path.Key == "RecipeSets/0/RowName").DropCommand.Execute(null);
+
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == oneBench.FolderName);
+
+        Assert.False(Recipe(vm).Fields.Single(f => f.Field.Path.Key == "RecipeSets/0/RowName").IsDropped);
+        Assert.Contains("1 typed change(s)", vm.StatusMessage);
+    }
+
+    /// <summary>Regression: a link the Save-to mod points at a row it adds itself showed "Pick one from the list." untouched and blocked every Save.</summary>
+    [Fact]
+    public void ALinkToTheModsOwnRow_DoesntBlockSaving()
+    {
+        WriteDeployableStone();
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        WriteIntoMod(mine.FolderName,
+            ModRow("Items-D_ItemTemplate.json", "Moldy_Stone", """{"ItemStaticData":{"RowName":"Stone"}}"""),
+            ModRow("Traits-D_Decayable.json", "Decay_Stone", """{"SpoiledItem":{"RowName":"Moldy_Stone"}}"""));
+        var vm = Open();
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
+        vm.SelectedItem = Item(vm, "Stone");
+
+        var spoils = vm.Sections.Single(s => s.Section.Key == "Decayable").Fields.Single(f => f.Label == "Spoils into");
+        Assert.Equal("Moldy_Stone", spoils.ValueText);
+        Assert.Null(spoils.Error);
+
+        Weight(vm).ValueText = "5";
+        vm.SaveCommand.Execute(null);
+        Assert.StartsWith("Saved", vm.StatusMessage);
+    }
+
+    /// <summary>Regression: the Stack size chip doubled the table's stack size of 1 on items that don't stack (tools, armour), making them stack.</summary>
+    [Fact]
+    public void StackSize_LeavesOutItemsThatDontStack()
+    {
+        var vm = Open();
+
+        vm.PickShortcutCommand.Execute(BulkEdit.Shortcuts.Single(s => s.Label == "Stack size"));
+
+        Assert.Empty(vm.BulkRows);
+        Assert.Contains("stack size of 1", vm.BulkSummary);
+    }
+
+    /// <summary>An item with a stack size of its own is still doubled; Set changes the ones that don't stack too.</summary>
+    [Fact]
+    public void StackSize_DoublesARealStack_AndSetStillReachesTheRest()
+    {
+        Write("Traits/D_Itemable.json", """
+            {"RowStruct":"S","Defaults":{"Weight":0,"MaxStack":1},"Rows":[
+              {"Name":"Item_Envirosuit","Weight":100},
+              {"Name":"Item_Stone","Weight":10,"MaxStack":50}
+            ]}
+            """);
+        var vm = Open();
+
+        vm.PickShortcutCommand.Execute(BulkEdit.Shortcuts.Single(s => s.Label == "Stack size"));
+
+        Assert.Equal(["Stone: 50 → 100"], vm.BulkRows.Select(r => $"{r.Item.Name}: {r.CurrentText} → {r.NewText}"));
+        Assert.Contains("1 item(s) that don't stack were left out", vm.BulkSummary);
+
+        vm.SelectedBulkOperation = BulkEdit.Operations.Single(o => o.Operation == BulkOperation.Set);
+        vm.BulkValueText = "5";
+        Assert.Equal(["Envirosuit", "Stone"], vm.BulkRows.Select(r => r.Item.Name));
+    }
+
+    /// <summary>Regression: ticking another item reset a preview row typed over, though it's kept until another value is picked.</summary>
+    [Fact]
+    public void ATypedOverRow_SurvivesTickingAnotherItem()
+    {
+        var vm = Open();
+        Item(vm, "Envirosuit").IsTicked = true;
+        vm.OpenBulkCommand.Execute(null);
+        PickBulkField(vm, "Itemable", "Weight");
+        vm.MultiplyByCommand.Execute("2");
+        vm.BulkRows.Single(r => r.Item.Name == "Envirosuit").NewText = "7";
+
+        Item(vm, "Stone").IsTicked = true;
+
+        Assert.Equal("7", vm.BulkRows.Single(r => r.Item.Name == "Envirosuit").NewText);
+    }
+
+    /// <summary>Regression: numbers typed over a row moved onto other ingredients when the row's values changed.</summary>
+    [Fact]
+    public void ATypedOverRow_IsDroppedWhenItsValuesChange()
+    {
+        WriteEnvirosuitRecipe();
+        var vm = Open();
+        Item(vm, "Envirosuit").IsTicked = true;
+        vm.OpenBulkCommand.Execute(null);
+        PickBulkField(vm, GameItemEditor.RecipeSection, "Inputs/*/Count");
+        vm.SelectedBulkOperation = BulkEdit.Operations.Single(o => o.Operation == BulkOperation.Set);
+        vm.BulkValueText = "2";
+        Assert.Equal("4", vm.BulkRows.Single().CurrentText); // only Stone changes
+        vm.BulkRows.Single().NewText = "3";
+
+        vm.BulkValueText = "1"; // now Stone and Leather change
+
+        var row = vm.BulkRows.Single();
+        Assert.Equal("4, 2", row.CurrentText);
+        Assert.Equal(row.ComputedText, row.NewText);
+        Assert.Null(row.Error);
+    }
+
+    /// <summary>Two items changing one shared row "for all" to different values: Save refuses, naming both, instead of the later one silently winning.</summary>
+    [Fact]
+    public void ASharedRowSetToTwoValues_IsRefused_NamingBothItems()
+    {
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        var decay = vm.Sections.Single(s => s.Section.Key == "Decayable");
+        decay.ChangeForAll = true;
+        decay.Fields.Single().ValueText = "600";
+        vm.SelectedItem = Item(vm, "Stone");
+        decay = vm.Sections.Single(s => s.Section.Key == "Decayable");
+        decay.ChangeForAll = true;
+        decay.Fields.Single().ValueText = "900";
+        vm.NewModName = "Slow decay";
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.Empty(_library.GetAll());
+        Assert.StartsWith("Not saved", vm.StatusMessage);
+        Assert.Contains("Xigo Envirosuit", vm.StatusMessage);
+        Assert.Contains("Stone", vm.StatusMessage);
+        Assert.Contains("600", vm.StatusMessage);
+        Assert.Contains("900", vm.StatusMessage);
+
+        decay.Fields.Single().ValueText = "600"; // the same value for both is fine
+        vm.SaveCommand.Execute(null);
+        Assert.StartsWith("Saved", vm.StatusMessage);
+    }
+
+    /// <summary>Taking out every ingredient saves (a free craft by hand can be on purpose) but warns when a bench makes it: a machine never starts a recipe with no inputs.</summary>
+    [Fact]
+    public void TakingOutEveryIngredient_SavesButWarnsForABench()
+    {
+        WriteEnvirosuitRecipe();
+        WriteBenches();
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Recipe(vm).BenchToAdd = Recipe(vm).BenchChoices!.Single(c => c.Name == "Fabricator");
+        Recipe(vm).AddBenchCommand.Execute(null);
+        Recipe(vm).Fields.Single(f => f.Label == "Needs Stone").DropCommand.Execute(null);
+        Recipe(vm).Fields.Single(f => f.Label == "Needs Leather").DropCommand.Execute(null);
+        vm.NewModName = "Free at the bench";
+        vm.SaveCommand.Execute(null);
+
+        Assert.StartsWith("Saved", vm.StatusMessage);
+        Assert.Contains("Xigo Envirosuit's recipe takes no ingredients", vm.StatusMessage);
+        Assert.Empty(SavedList(Assert.Single(_library.GetAll()).FolderName, "Inputs"));
+
+        vm.SelectedTarget = vm.Targets[0]; // a new mod: the game's recipe, made by hand
+        Recipe(vm).Fields.Single(f => f.Label == "Needs Stone").DropCommand.Execute(null);
+        Recipe(vm).Fields.Single(f => f.Label == "Needs Leather").DropCommand.Execute(null);
+        vm.NewModName = "Free by hand";
+        vm.SaveCommand.Execute(null);
+
+        Assert.StartsWith("Saved", vm.StatusMessage);
+        Assert.DoesNotContain("no ingredients", vm.StatusMessage); // a free craft by hand can be on purpose
     }
 }

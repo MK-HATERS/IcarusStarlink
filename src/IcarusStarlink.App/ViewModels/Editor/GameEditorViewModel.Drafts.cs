@@ -137,18 +137,37 @@ public sealed partial class GameEditorViewModel
         return choices;
     }
 
-    /// <summary>Puts what was typed on <paramref name="from"/> (and each card's own-copy choice) onto the same item's new cards; returns how many typed values had no place there.</summary>
+    /// <summary>
+    /// Puts what was typed on <paramref name="from"/> (and each card's own-copy choice) onto the same
+    /// item's new cards; returns how many typed values had no place there. A list entry (an
+    /// ingredient's amount, a bench) goes to the entry for the same thing, wherever it is in the new
+    /// list; ingredients and benches added here are added again; a recipe is never left made nowhere.
+    /// </summary>
     private static int CarryTyped(IReadOnlyList<GameItemSectionViewModel> from, IReadOnlyList<GameItemSectionViewModel> to)
     {
-        var typed = from.SelectMany(s => s.Fields.Where(f => f.IsTyped).Select(f => (Section: s.Section.Key, Path: f.Field.Path.Key, f.ValueText, f.IsDropped))).ToList();
-        var carried = 0;
-        foreach (var (section, path, text, dropped) in typed)
+        var dropped = 0;
+        foreach (var old in from)
         {
-            if (to.FirstOrDefault(s => s.Section.Key == section)?.Fields.FirstOrDefault(f => f.Field.Path.Key == path) is { } field)
+            var card = to.FirstOrDefault(s => s.Section.Key == old.Section.Key);
+            foreach (var field in old.Fields.Where(f => f.IsTyped).ToList())
             {
-                field.ValueText = text;
-                field.IsDropped = dropped && field.CanDrop;
-                carried++;
+                if (card is null)
+                {
+                    dropped++;
+                }
+                else if (field.AddedEntry is not null)
+                {
+                    dropped += card.CarryAdded(field) ? 0 : 1;
+                }
+                else if (card.SameFieldAs(old, field) is { } same)
+                {
+                    same.ValueText = field.ValueText;
+                    same.IsDropped = field.IsDropped && same.CanDrop;
+                }
+                else
+                {
+                    dropped++;
+                }
             }
         }
 
@@ -158,9 +177,11 @@ public sealed partial class GameEditorViewModel
             {
                 card.OwnCopy = before.OwnCopy;
             }
+
+            dropped += card.KeepABench();
         }
 
-        return typed.Count - carried;
+        return dropped;
     }
 
     /// <summary>Rebuilds every waiting item against <paramref name="target"/> (another Save to, refreshed game data, the mod changed elsewhere), keeping what was typed; returns how many typed values had no place.</summary>
