@@ -392,10 +392,13 @@
                             </StackPanel>
                             <Button Content="Reload" Command="{Binding RefreshTargetsCommand}"
                                     ToolTip="Read the files again (and find a UE4SS or servers added since)"/>
-                            <TextBox Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Width="200" Margin="16,0,0,0"
-                                     ToolTip="Show only settings whose name or description contains this"
-                                     AutomationProperties.Name="Filter settings"
-                                     Visibility="{Binding HasTargets, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            <StackPanel Orientation="Horizontal" Margin="16,0,0,0"
+                                        Visibility="{Binding HasTargets, Converter={StaticResource BoolToVisibilityConverter}}">
+                                <TextBlock Text="Find" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Width="200"
+                                         ToolTip="Show only settings whose name or description contains this"
+                                         AutomationProperties.Name="Filter settings"/>
+                            </StackPanel>
                         </StackPanel>
                     </StackPanel>
 
