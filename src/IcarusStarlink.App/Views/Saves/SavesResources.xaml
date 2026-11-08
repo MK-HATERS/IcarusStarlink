@@ -187,7 +187,11 @@
                 <ControlTemplate TargetType="ToggleButton">
                     <Border x:Name="Chip" MinWidth="30" Padding="4,1" CornerRadius="4" Background="Transparent"
                             BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <ContentPresenter.Resources>
+                                <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource ContainerForegroundTextStyle}"/>
+                            </ContentPresenter.Resources>
+                        </ContentPresenter>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
@@ -287,7 +291,11 @@
                 <ControlTemplate TargetType="RadioButton">
                     <Border x:Name="Frame" Padding="12,3" BorderThickness="1" BorderBrush="{DynamicResource BorderBrush}" Background="Transparent"
                             CornerRadius="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <ContentPresenter.Resources>
+                                <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource ContainerForegroundTextStyle}"/>
+                            </ContentPresenter.Resources>
+                        </ContentPresenter>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
