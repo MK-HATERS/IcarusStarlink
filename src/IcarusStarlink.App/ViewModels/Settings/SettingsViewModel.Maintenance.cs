@@ -114,7 +114,9 @@ public sealed partial class SettingsViewModel
     /// <summary>Backups to keep › Merged pak installs: kept on every install, for Restore previous install.</summary>
     public int MergedPakBackupsKept
     {
-        get => BackupLimits.MergedPakKept(_settingsService);
+        // The stored number, not MergedPakKept (which holds 50 while settings couldn't be loaded),
+        // so the box shows what Clean up backups uses and a typed value doesn't snap back.
+        get => BackupLimits.Clamp(_settingsService.Current.MergedPakBackupsKept);
         set => SetBackupsKept(value, s => s.MergedPakBackupsKept, (s, v) => s.MergedPakBackupsKept = v);
     }
 
@@ -128,7 +130,8 @@ public sealed partial class SettingsViewModel
     /// <summary>Backups to keep › Save backups (each slot): the automatic save backups kept per slot.</summary>
     public int SaveBackupsKept
     {
-        get => BackupLimits.SaveKept(_settingsService);
+        // The stored number (see MergedPakBackupsKept).
+        get => BackupLimits.Clamp(_settingsService.Current.SaveBackupsKept);
         set => SetBackupsKept(value, s => s.SaveBackupsKept, (s, v) => s.SaveBackupsKept = v);
     }
 

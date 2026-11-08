@@ -1,3 +1,4 @@
+using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Storage.Settings;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -35,10 +36,64 @@ public sealed class AppSettingsServiceTests : IDisposable
         }
 
         Assert.Null(service.Current.IcarusContentPath);
+        Assert.NotNull(((ISettingsService)service).LoadProblem);
         Assert.True(service.Save());
 
         var preserved = Assert.Single(Directory.GetFiles(_dir, "settings.json.unreadable-*.bak"));
         Assert.Equal(original, File.ReadAllText(preserved));
+    }
+
+    /// <summary>
+    /// Regression: a sync client or antivirus holding settings.json for half a second at start used
+    /// to make Starlink give up after about 0.3 s and run the whole session on default settings.
+    /// </summary>
+    [Fact]
+    public async Task Load_LockedForHalfASecond_StillReadsTheRealSettings()
+    {
+        Directory.CreateDirectory(_dir);
+        var settingsPath = Path.Combine(_dir, "settings.json");
+        File.WriteAllText(settingsPath, """{"ThemeName":"Dark"}""");
+
+        var stream = new FileStream(settingsPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        var release = Task.Run(async () =>
+        {
+            await Task.Delay(500);
+            stream.Dispose();
+        });
+
+        var service = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance);
+        await release;
+
+        Assert.Equal("Dark", service.Current.ThemeName);
+        Assert.Null(((ISettingsService)service).LoadProblem);
+    }
+
+    /// <summary>Regression: a settings.json with a stray comma loaded as defaults and nothing told the player.</summary>
+    [Fact]
+    public void Load_NotValidJson_SaysSoInLoadProblem()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "settings.json"), """{ "ThemeName": "Dark", }""");
+
+        var service = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance);
+
+        Assert.Contains("settings.json", ((ISettingsService)service).LoadProblem);
+    }
+
+    /// <summary>
+    /// Regression: with settings.json unusable at start, the automatic prunes used the default
+    /// counts (10 save backups, 3 merged paks), so a player who keeps 50 lost 40 at the next save.
+    /// </summary>
+    [Fact]
+    public void Load_NotValidJson_AutomaticPruningKeepsTheMost()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "settings.json"), """{"SaveBackupsKept":50,"MergedPakBackupsKept":20,""");
+
+        var service = new AppSettingsService(_dir, NullLogger<AppSettingsService>.Instance);
+
+        Assert.Equal(BackupLimits.Max, BackupLimits.SaveKept(service));
+        Assert.Equal(BackupLimits.Max, BackupLimits.MergedPakKept(service));
     }
 
     /// <summary>A settings.json that isn't valid JSON (a hand-edit gone wrong) used to load as defaults and be overwritten with no copy kept.</summary>

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using IcarusStarlink.Core.Settings;
 using Microsoft.Extensions.Logging;
 
@@ -17,13 +18,40 @@ public sealed class AppSettingsService : ISettingsService
 
     public AppSettings Current { get; }
 
+    /// <inheritdoc />
+    /// <remarks>Stays set for the whole session (unlike _originalCouldNotBeRead, which Save clears): Current still holds defaults after that save.</remarks>
+    public string? LoadProblem { get; }
+
     public AppSettingsService(string appDataDirectory, ILogger<AppSettingsService> logger)
     {
         _logger = logger;
         Directory.CreateDirectory(appDataDirectory);
         _settingsFilePath = Path.Combine(appDataDirectory, "settings.json");
         Current = JsonFileStore.Load(_settingsFilePath, () => new AppSettings(), _logger, out ListLoadProblem problem);
+
+        // A sync client or antivirus usually lets go within a second or two, so a locked file is
+        // tried again for up to 3 s. This runs on the startup thread behind the splash, so the
+        // wait never freezes the window, and a normal start doesn't wait at all.
+        var sinceFirstTry = Stopwatch.StartNew();
+        while (problem == ListLoadProblem.Unreadable && sinceFirstTry.Elapsed < TimeSpan.FromSeconds(3))
+        {
+            Thread.Sleep(250);
+            Current = JsonFileStore.Load(_settingsFilePath, () => new AppSettings(), _logger, out problem);
+        }
+
         _originalCouldNotBeRead = problem != ListLoadProblem.None;
+        LoadProblem = problem switch
+        {
+            ListLoadProblem.Unreadable =>
+                $"Starlink couldn't open its settings file ({_settingsFilePath}) because another program, such as OneDrive or antivirus, was using it, "
+                + "so it started with default settings. To get yours back, close Starlink and start it again. If settings were saved meanwhile, "
+                + "your old file is kept beside it as settings.json.unreadable-….bak: rename it to settings.json while Starlink is closed.",
+            ListLoadProblem.Corrupt =>
+                $"Starlink's settings file ({_settingsFilePath}) isn't valid JSON (edited by hand?), so it started with default settings. "
+                + "The first time settings are saved, your old file is kept beside it as settings.json.unreadable-….bak: fix it, then rename it "
+                + "to settings.json while Starlink is closed, or set things again in Settings.",
+            _ => null,
+        };
     }
 
     public bool Save()
