@@ -39,6 +39,12 @@ public class NexusCatalogViewModelTests
         /// <summary>The settings the page reads its "seen up to" from (null: built without settings, as before).</summary>
         public FakeSettingsService? Settings { get; set; }
 
+        /// <summary>The mods this user tracks.</summary>
+        public FakeNexusWatchlistStore Watchlist { get; } = new();
+
+        /// <summary>The Library the page compares Nexus versions with.</summary>
+        public FakeLibraryRepository Library { get; } = new();
+
         public NexusCatalogViewModel Build()
         {
             var settingsService = Settings ?? new FakeSettingsService();
@@ -51,7 +57,7 @@ public class NexusCatalogViewModelTests
                 Path.GetTempPath(), new FakePrebuiltPakImporter(), Path.GetTempPath());
 
             return new NexusCatalogViewModel(
-                NexusApiClient, CredentialStore, new FakeNexusWatchlistStore(), new FakeLibraryRepository(),
+                NexusApiClient, CredentialStore, Watchlist, Library,
                 new FakePendingDownloadStore(), downloads, new ActivityLog(), new FakeDialogService(), Settings);
         }
     }
@@ -206,6 +212,76 @@ public class NexusCatalogViewModelTests
         Assert.Single(vm.Mods);
     }
 
+    /// <summary>
+    /// Regression: Tracked only narrowed the 30 cards on screen, so a mod tracked from another page
+    /// of All never showed under Tracked ("Nothing matches the filters.").
+    /// </summary>
+    [Fact]
+    public async Task Tracked_ShowsEveryTrackedMod_NotOnlyThoseOnThisPage()
+    {
+        var harness = new Harness();
+        harness.NexusApiClient.AllModsPage = Task.FromResult(new NexusModPage([new NexusModInfo(1, "On page one", "a", null, "1.0", null)], 100));
+        harness.Watchlist.Items.Add(new NexusWatchlistEntry { NexusId = 999, Url = "https://www.nexusmods.com/icarus/mods/999", Name = "Tracked one" });
+        harness.NexusApiClient.ModsById[999] = new NexusModInfo(999, "Tracked one", "a", null, "1.0", null);
+        var vm = harness.Build();
+
+        vm.TrackedOnly = true;
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal(999, Assert.Single(vm.Mods).Mod.ModId);
+        Assert.False(vm.IsPagingShown);
+
+        vm.TrackedOnly = false;
+
+        Assert.Equal(1, Assert.Single(vm.Mods).Mod.ModId);
+        Assert.True(vm.IsPagingShown);
+    }
+
+    /// <summary>
+    /// Regression: the Library's Update all turns Updates only on and opens this page, but only mods
+    /// among the 30 on screen could show, so a Library mod with an update elsewhere on Nexus didn't.
+    /// </summary>
+    [Fact]
+    public async Task UpdatesOnly_ShowsEveryLibraryModWithAnUpdate()
+    {
+        var harness = new Harness();
+        harness.NexusApiClient.AllModsPage = Task.FromResult(new NexusModPage([new NexusModInfo(1, "On page one", "a", null, "1.0", null)], 100));
+        harness.Library.Entries.Add(new LibraryEntry
+        {
+            FolderName = "WirelessPower", Name = "Wireless Power", Author = "a", Version = "1.0",
+            Description = "", FileName = "WirelessPower", Source = "Nexus", NexusModId = 999,
+        });
+        harness.NexusApiClient.ModsById[999] = new NexusModInfo(999, "Wireless Power", "a", null, "2.0", null);
+        var vm = harness.Build();
+
+        vm.UpdatesOnly = true;
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        var row = Assert.Single(vm.Mods);
+        Assert.Equal(999, row.Mod.ModId);
+        Assert.True(row.HasUpdate);
+        Assert.Contains("newer version", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task Tracked_AsksForTheTrackedModsInBatches()
+    {
+        var harness = new Harness();
+        harness.NexusApiClient.AllModsPage = Task.FromResult(new NexusModPage([], 0));
+        for (var id = 1000; id < 1025; id++)
+        {
+            harness.Watchlist.Items.Add(new NexusWatchlistEntry { NexusId = id, Url = $"https://www.nexusmods.com/icarus/mods/{id}", Name = $"Mod {id}" });
+        }
+
+        var vm = harness.Build();
+
+        vm.TrackedOnly = true;
+        harness.NexusApiClient.ByIdBatchSizes.Clear();
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal([20, 5], harness.NexusApiClient.ByIdBatchSizes);
+    }
+
     private static NexusModInfo DatedMod(int id, string name, DateTimeOffset created, DateTimeOffset? updated = null) =>
         new(id, name, "a", null, "1.0", null, created, updated ?? created);
 
@@ -288,8 +364,14 @@ public class NexusCatalogViewModelTests
             return Task.FromResult<IReadOnlyList<NexusModInfo>>([new NexusModInfo(1, $"Name match for {searchText}", "a", null, "1.0", null)]);
         }
 
-        public Task<IReadOnlyList<NexusModInfo>> GetModsByIdAsync(string? apiKey, string gameDomain, IReadOnlyList<int> modIds, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<NexusModInfo>>([.. modIds.Where(ModsById.ContainsKey).Select(id => ModsById[id])]);
+        /// <summary>How many IDs each GetModsByIdAsync call asked for.</summary>
+        public List<int> ByIdBatchSizes { get; } = [];
+
+        public Task<IReadOnlyList<NexusModInfo>> GetModsByIdAsync(string? apiKey, string gameDomain, IReadOnlyList<int> modIds, CancellationToken cancellationToken = default)
+        {
+            ByIdBatchSizes.Add(modIds.Count);
+            return Task.FromResult<IReadOnlyList<NexusModInfo>>([.. modIds.Where(ModsById.ContainsKey).Select(id => ModsById[id])]);
+        }
         /// <summary>When set, what the All list's fetch returns (a never-finished task keeps a load in flight).</summary>
         public Task<NexusModPage>? AllModsPage { get; set; }
 
@@ -325,7 +407,8 @@ public class NexusCatalogViewModelTests
 
     private sealed class FakeLibraryRepository : ILibraryRepository
     {
-        public IReadOnlyList<LibraryEntry> GetAll() => [];
+        public List<LibraryEntry> Entries { get; } = [];
+        public IReadOnlyList<LibraryEntry> GetAll() => Entries;
         public IReadOnlyList<string> UnreadableFolders => [];
         public IReadOnlyList<LibraryEntry> Search(string query) => [];
         public LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null) =>
@@ -374,7 +457,8 @@ public class NexusCatalogViewModelTests
 
     private sealed class FakeNexusWatchlistStore : INexusWatchlistStore
     {
-        public IReadOnlyList<NexusWatchlistEntry> Entries => [];
+        public List<NexusWatchlistEntry> Items { get; } = [];
+        public IReadOnlyList<NexusWatchlistEntry> Entries => Items;
         public void Add(NexusWatchlistEntry entry) => throw new NotSupportedException("Not exercised by these tests.");
         public void Remove(int nexusId) => throw new NotSupportedException("Not exercised by these tests.");
         public void UpdateName(int nexusId, string name) => throw new NotSupportedException("Not exercised by these tests.");

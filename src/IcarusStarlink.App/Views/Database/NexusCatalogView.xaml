@@ -63,10 +63,10 @@
                       ToolTip="Hides mods already in your Library or on the Downloads page — what's left is what you don't have yet"/>
             <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Updates only"
                       IsChecked="{Binding UpdatesOnly}" Margin="0,0,16,4" VerticalAlignment="Center"
-                      ToolTip="Shows only mods where Nexus has a different version from your Library copy. Works best on the All list."/>
+                      ToolTip="Shows your Library's mods from Nexus that have a newer version there, in place of the list."/>
             <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="Tracked"
                       IsChecked="{Binding TrackedOnly}" Margin="0,0,16,4" VerticalAlignment="Center"
-                      ToolTip="Shows only mods you've tracked — click Track on a card to add one, click again to untrack"/>
+                      ToolTip="Shows every mod you track, in place of the list. Click Track on a card to add one, click again to untrack."/>
             <!-- Classic IMM's Show New: mods published on Nexus since your last visit. -->
             <StackPanel Orientation="Horizontal" Margin="0,0,16,4" VerticalAlignment="Center"
                         Visibility="{Binding HasNew, Converter={StaticResource BoolToVisibilityConverter}}">

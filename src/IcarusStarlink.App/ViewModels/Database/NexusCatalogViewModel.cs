@@ -89,19 +89,45 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     [ObservableProperty]
     private bool _hideOwned;
 
-    /// <summary>Shows only mods whose live Nexus version differs from the Library copy's — a "what can I update" view.</summary>
+    /// <summary>Shows your Library's mods from Nexus whose Nexus version is newer than your copy, fetched by ID in place of the list above; with a search, only those among the results.</summary>
     [ObservableProperty]
     private bool _updatesOnly;
 
-    /// <summary>Shows only mods you've tracked (added to Downloads' watchlist) — the Nexus page's own view of "my list", replacing a separate tracked-mods grid with a filter on the same live cards.</summary>
+    /// <summary>Shows every mod you track, fetched by ID in place of the list above; with a search, only the tracked ones among the results.</summary>
     [ObservableProperty]
     private bool _trackedOnly;
 
+    /// <summary>Your mods fetched by ID for the Tracked / Updates only view, in place of the list above.</summary>
+    private IReadOnlyList<NexusModInfo> _myMods = [];
+
+    /// <summary>How many mod IDs go in one lookup.</summary>
+    private const int MyModsBatch = 20;
+
+    /// <summary>Tracked or Updates only with no search: the page lists every mod you track (or every Library mod from Nexus, for Updates only), fetched by ID, in place of the list above. With a search, the two narrow the results instead.</summary>
+    private bool IsMyModsView => (TrackedOnly || UpdatesOnly) && SearchText.Trim().Length == 0;
+
     partial void OnHideOwnedChanged(bool value) => ApplyDisplayFilters();
 
-    partial void OnUpdatesOnlyChanged(bool value) => ApplyDisplayFilters();
+    partial void OnUpdatesOnlyChanged(bool value) => OnMyModsFilterChanged();
 
-    partial void OnTrackedOnlyChanged(bool value) => ApplyDisplayFilters();
+    partial void OnTrackedOnlyChanged(bool value) => OnMyModsFilterChanged();
+
+    /// <summary>
+    /// With a search the filters narrow its results (no fetch). Otherwise the page switches between
+    /// your mods and the list above: only the 30 cards on screen used to be narrowed, so a mod
+    /// tracked from another page never showed. LoadPageAsync keeps the list's page, so turning the
+    /// filter off returns to it.
+    /// </summary>
+    private void OnMyModsFilterChanged()
+    {
+        if (SearchText.Trim().Length > 0)
+        {
+            ApplyDisplayFilters();
+            return;
+        }
+
+        _ = LoadPageAsync();
+    }
 
     // --- New since your last visit (classic IMM's Show New) ---
 
@@ -334,6 +360,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         var searchText = SearchText.Trim();
         var isSearch = searchText.Length > 0;
         var isAll = !isSearch && SelectedKind == "All";
+        var isMyMods = !isSearch && (TrackedOnly || UpdatesOnly);
         CanGoToPreviousPage = false;
         CanGoToNextPage = false;
         PageDisplay = null;
@@ -348,8 +375,9 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         }
 
         // Search and the All list work even with no key (the v2 GraphQL endpoint answers
-        // unauthenticated — confirmed live); only the curated v1 lists genuinely require one.
-        if (apiKey is null && !isSearch && !isAll)
+        // unauthenticated — confirmed live); only the curated v1 lists genuinely require one. Your
+        // mods by ID (Tracked / Updates only) are looked up the same way as search.
+        if (apiKey is null && !isSearch && !isAll && !isMyMods)
         {
             // This load just superseded any one still in flight, whose finally then skips
             // clearing IsLoading because it's stale — so clear it here, or "Loading…" sticks.
@@ -364,7 +392,11 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         try
         {
             IReadOnlyList<NexusModInfo> mods;
-            if (isSearch)
+            if (isMyMods)
+            {
+                mods = await FetchMyModsAsync(apiKey);
+            }
+            else if (isSearch)
             {
                 // A mod ID ("123", "#123") or a pasted mod-page link finds that exact mod — Library's
                 // Update / Find on Nexus fill in the ID, since a Library name often isn't the Nexus
@@ -395,13 +427,22 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
 
             // A null Name means the mod is under moderation (Nexus's own documented shape) — a
             // card with no name, no summary, and nothing to open isn't worth rendering.
-            _lastFetched = [.. mods.Where(m => m.Name is not null)];
-            if (isAll)
+            var named = mods.Where(m => m.Name is not null).ToList();
+            if (isMyMods)
             {
-                CanGoToPreviousPage = _allPageOffset > 0;
-                CanGoToNextPage = _allPageOffset + AllPageSize < _allTotalCount;
-                var totalPages = Math.Max(1, (int)Math.Ceiling(_allTotalCount / (double)AllPageSize));
-                PageDisplay = $"Page {_allPageOffset / AllPageSize + 1} of {totalPages}";
+                // No paging here: every one of your mods is on the page, by name.
+                _myMods = [.. named.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase)];
+            }
+            else
+            {
+                _lastFetched = named;
+                if (isAll)
+                {
+                    CanGoToPreviousPage = _allPageOffset > 0;
+                    CanGoToNextPage = _allPageOffset + AllPageSize < _allTotalCount;
+                    var totalPages = Math.Max(1, (int)Math.Ceiling(_allTotalCount / (double)AllPageSize));
+                    PageDisplay = $"Page {_allPageOffset / AllPageSize + 1} of {totalPages}";
+                }
             }
 
             RebuildRows();
@@ -421,6 +462,26 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
                 IsLoading = false;
             }
         }
+    }
+
+    /// <summary>
+    /// Tracked: the watchlist's mods. Updates only: every Library mod linked to Nexus (RebuildRows
+    /// keeps those with a newer version). With both on, Tracked's IDs, narrowed by Updates only.
+    /// Asked for MyModsBatch IDs at a time.
+    /// </summary>
+    private async Task<IReadOnlyList<NexusModInfo>> FetchMyModsAsync(string? apiKey)
+    {
+        var ids = (TrackedOnly
+                ? _watchlistStore.Entries.Select(e => e.NexusId)
+                : _libraryRepository.GetAll().Where(e => e.NexusModId is not null).Select(e => e.NexusModId!.Value))
+            .Distinct().ToList();
+        var mods = new List<NexusModInfo>();
+        foreach (var batch in ids.Chunk(MyModsBatch))
+        {
+            mods.AddRange(await _nexusApiClient.GetModsByIdAsync(apiKey, NxmHandlerCommand.IcarusDomain, batch));
+        }
+
+        return mods;
     }
 
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
@@ -457,6 +518,18 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
             return;
         }
 
+        if (!isSearch && (TrackedOnly || UpdatesOnly))
+        {
+            StatusMessage = Mods.Count > 0
+                ? UpdatesOnly
+                    ? (Mods.Count == 1 ? "1 of your mods has a newer version on Nexus." : $"{Mods.Count} of your mods have a newer version on Nexus.")
+                    : (Mods.Count == 1 ? "1 tracked mod." : $"{Mods.Count} tracked mods.")
+                : TrackedOnly && _watchlistStore.Entries.Count == 0 ? "You aren't tracking any mods yet. Turn Tracked off, then click Track on a card."
+                : UpdatesOnly && !TrackedOnly && !HideOwned ? "None of your mods from Nexus has a newer version there."
+                : "Nothing matches the filters.";
+            return;
+        }
+
         var filtered = HideOwned || UpdatesOnly || TrackedOnly;
         StatusMessage = Mods.Count == 0
             ? (_lastFetched.Count > 0 && filtered ? "Nothing matches the filters."
@@ -480,9 +553,10 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         var seenUpTo = SeenUpToUtc;
         // New only shows the newest-published mods that arrived since your last visit, in place of
         // the list picked above (the All list is most-endorsed first, so new mods sit on its last pages).
+        // Tracked / Updates only with no search show your mods fetched by ID, also in place of it.
         var source = NewOnly
             ? _newestMods.Where(m => CatalogSeenTracker.ClassifyNexus(seenUpTo, m) == CatalogNewKind.New)
-            : _lastFetched;
+            : IsMyModsView ? _myMods : _lastFetched;
 
         var rows = new List<NexusCatalogRow>();
         foreach (var mod in source)
