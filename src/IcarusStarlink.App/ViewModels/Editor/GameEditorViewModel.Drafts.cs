@@ -196,7 +196,21 @@ public sealed partial class GameEditorViewModel
         var lookup = Game is { } current ? new GameItemLookup(current, target) : null;
         foreach (var (name, old) in _drafts.ToList())
         {
-            List<GameItemSectionViewModel> cards = lookup is not null && GameItemEditor.Describe(lookup.Game, target, name, lookup) is { } view ? BuildCards(lookup.Game, view) : [];
+            List<GameItemSectionViewModel> cards = [];
+            try
+            {
+                if (lookup is not null && GameItemEditor.Describe(lookup.Game, target, name, lookup) is { } view)
+                {
+                    cards = BuildCards(lookup.Game, view);
+                }
+            }
+            catch (Exception ex)
+            {
+                // A value of the wrong kind in the target (a link as plain text): its typed values
+                // have no place, as for an item that has gone, instead of closing the app.
+                Serilog.Log.Warning(ex, "The Editor page couldn't read item {Item}", name);
+            }
+
             dropped += CarryTyped(old, cards);
             if (cards.Any(c => c.HasTyped))
             {

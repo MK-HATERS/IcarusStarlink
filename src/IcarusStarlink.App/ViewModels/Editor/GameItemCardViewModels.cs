@@ -536,7 +536,10 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
 
     /// <summary>Every ingredient is taken out here: Save writes a recipe that takes nothing.</summary>
     internal bool TakesOutEveryIngredient =>
-        CanEditIngredients && Fields.Any(f => IsIngredient(f.Field.Path) && f.IsDropped) && !Fields.Any(f => IsIngredient(f.Field.Path) && !f.IsDropped);
+        CanEditIngredients && Fields.Any(f => IsIngredient(f.Field.Path) && TakenOut(f)) && !Fields.Any(f => IsIngredient(f.Field.Path) && !TakenOut(f));
+
+    // Taken out with ✕, or its box emptied (an entry Save leaves out of the list, added ones too).
+    private static bool TakenOut(GameItemFieldViewModel f) => f.IsDropped || f.IsEmptiedEntry;
 
     /// <summary>Every bench the recipe keeps is crafting by hand ("Character"), where a recipe that takes nothing is a free craft.</summary>
     internal bool MadeOnlyByHand => KeptBenches.All(f => string.Equals(f.ValueText.Trim(), "Character", StringComparison.OrdinalIgnoreCase));

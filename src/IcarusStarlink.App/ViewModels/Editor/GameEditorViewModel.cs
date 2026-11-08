@@ -475,6 +475,9 @@ public sealed partial class GameEditorViewModel : ObservableObject
             return;
         }
 
+        // The new mod this Save made, until its first write is done: a failed write deletes it, so
+        // Save again doesn't make <Name>_2 next to an empty one.
+        string? created = null;
         try
         {
             string folder;
@@ -521,6 +524,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
             if (target.IsNew)
             {
                 folder = _repository.CreateBlankMod(NewModName.Trim(), NewModAuthor.Trim()).FolderName;
+                created = folder;
             }
 
             // The mod editor may have saved into this mod since its values were shown here: the
@@ -534,7 +538,9 @@ public sealed partial class GameEditorViewModel : ObservableObject
                 backedUp = true;
             }
 
-            if (moved || !_writer.TrySave(folder, package, target.IsNew ? null : _shownStamp, out _))
+            var saved = !moved && _writer.TrySave(folder, package, target.IsNew ? null : _shownStamp, out _);
+            created = null; // written, or refused with the mod as it was: either way it stays
+            if (!saved)
             {
                 StatusMessage = null;
                 ReloadKeepingTyped("aren't in that mod's new version");
@@ -561,8 +567,20 @@ public sealed partial class GameEditorViewModel : ObservableObject
             _activityLog?.Log($"Saved {lines.Count} change(s) to '{name}'{items} in the Editor.", ActivityEntryKind.Success);
             SavedModFolder = folder;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException or System.Text.Json.JsonException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException or InvalidOperationException or System.Text.Json.JsonException)
         {
+            if (created is not null)
+            {
+                try
+                {
+                    _repository.Delete(created);
+                }
+                catch (Exception deleteEx) when (deleteEx is IOException or UnauthorizedAccessException)
+                {
+                    Serilog.Log.Warning(deleteEx, "The Editor page couldn't remove the empty mod {Folder} a failed save left", created);
+                }
+            }
+
             StatusMessage = $"Couldn't save: {ex.Message}";
             _activityLog?.Log($"Editor: couldn't save: {ex.Message}", ActivityEntryKind.Warning);
         }

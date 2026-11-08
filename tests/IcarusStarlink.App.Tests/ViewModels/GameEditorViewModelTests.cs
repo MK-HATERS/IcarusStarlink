@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
@@ -1204,7 +1205,9 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         Assert.Contains("backed up first", vm.StatusMessage);
         var folder = Assert.Single(_library.GetAll()).FolderName;
         var latest = Directory.GetFiles(_library.TryGetLatestModBackupPath(folder)!, "*.EXMOD", SearchOption.AllDirectories).Single();
-        Assert.Contains("40", File.ReadAllText(latest)); // the mod as it was right before this Save
+        // The mod as it was right before this Save.
+        var weight = ExmodJson.Parse(File.ReadAllText(latest)).Rows.Single(r => r.CurrentFile == "Traits-D_Itemable.json").FileItems.Single().Fields["Weight"]!;
+        Assert.Equal(40, weight.GetValue<double>());
     }
 
     /// <summary>Regression: "Put into Your changes" swapped a waiting item's typed cards for the cards an earlier preview built.</summary>
@@ -1594,9 +1597,131 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         var vm = Open();
         vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
 
-        Assert.Null(Record.Exception(() => vm.SelectedItem = Item(vm, "Envirosuit")));
+        // Stone shares Envirosuit's decay row: counting who uses it reads the bad link.
         Assert.Null(Record.Exception(() => vm.SelectedItem = Item(vm, "Stone")));
+        Assert.Empty(vm.Sections);
+        Assert.StartsWith("Couldn't show 'Stone'", vm.StatusMessage);
+        Assert.Null(Record.Exception(() => vm.SelectedItem = Item(vm, "Envirosuit")));
+        Assert.NotEmpty(vm.Sections);
+    }
 
-        Assert.True(vm.Sections.Count > 0 || vm.StatusMessage is { Length: > 0 });
+    /// <summary>Regression: a waiting item rebuilt against a Save-to mod with a value of the wrong kind for it made the app say it had to close.</summary>
+    [Fact]
+    public void AWaitingItem_RebuiltAgainstAModWithAValueOfTheWrongKind_DoesntCloseTheApp()
+    {
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        WriteIntoMod(mine.FolderName, ModRow("Items-D_ItemsStatic.json", "Envirosuit", """{"Decayable":"Item_X"}"""));
+        var vm = Open();
+        vm.SelectedItem = Item(vm, "Stone");
+        Weight(vm).ValueText = "5";
+        vm.SelectedItem = Item(vm, "Envirosuit"); // Stone's change waits
+
+        Assert.Null(Record.Exception(() => vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName)));
+
+        // Its typed value has no place in that mod's version, as for an item that has gone.
+        Assert.Equal(0, vm.EditedItemCount);
+        Assert.StartsWith("1 typed change(s)", vm.StatusMessage);
+        Assert.NotEmpty(vm.Sections);
+    }
+
+    /// <summary>Regression: a Save whose item couldn't be applied to the Save-to mod (a value of the wrong kind written there meanwhile) made the app say it had to close.</summary>
+    [Fact]
+    public void Save_IntoAModWithAValueOfTheWrongKind_SaysSo()
+    {
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        var vm = Open();
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
+        vm.SelectedItem = Item(vm, "Stone");
+        var decay = vm.Sections.Single(s => s.Section.Key == "Decayable");
+        decay.ChangeForAll = true;
+        decay.Fields.Single().ValueText = "600";
+        WriteIntoMod(mine.FolderName, ModRow("Items-D_ItemsStatic.json", "Envirosuit", """{"Decayable":"Item_X"}"""));
+
+        Assert.Null(Record.Exception(() => vm.SaveCommand.Execute(null)));
+        Assert.StartsWith("Couldn't save", vm.StatusMessage);
+    }
+
+    /// <summary>
+    /// Regression: a new mod's first save that failed after the mod was made (a locked Library_Meta
+    /// file) left an empty mod in Library while Save to still said "A new mod", so Save again made
+    /// a second one, &lt;Name&gt;_2.
+    /// </summary>
+    [Fact]
+    public void AFailedFirstSave_LeavesNoEmptyMod_AndSaveAgainUsesTheName()
+    {
+        var locked = DispatchProxy.Create<ILibraryRepository, LockedMetaRepository>();
+        ((LockedMetaRepository)(object)locked).Inner = _library;
+        var vm = new GameEditorViewModel(locked, DataFolder);
+        vm.EnsureLoaded();
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Weight(vm).ValueText = "50";
+        vm.NewModName = "Lighter";
+
+        vm.SaveCommand.Execute(null);
+
+        Assert.StartsWith("Couldn't save", vm.StatusMessage);
+        Assert.Empty(_library.GetAll());
+        Assert.Empty(Directory.GetDirectories(Path.Combine(_root, "Extracted_Mods")));
+        Assert.True(vm.SelectedTarget?.IsNew);
+        Assert.Equal(1, vm.PendingCount); // still typed, to save again
+
+        ((LockedMetaRepository)(object)locked).Locked = false;
+        vm.SaveCommand.Execute(null);
+
+        Assert.StartsWith("Saved", vm.StatusMessage);
+        Assert.Equal("Lighter", Assert.Single(_library.GetAll()).FolderName);
+    }
+
+    /// <summary>The Library, except that marking a mod edited fails as a locked Library_Meta file does, while <see cref="Locked"/>.</summary>
+    public class LockedMetaRepository : DispatchProxy
+    {
+        internal ILibraryRepository Inner { get; set; } = null!;
+
+        internal bool Locked { get; set; } = true;
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (Locked && targetMethod?.Name == nameof(ILibraryRepository.MarkLocallyEdited))
+            {
+                throw new IOException("Couldn't read the saved settings (the file is locked or unreadable right now) — nothing was changed; try again in a moment.");
+            }
+
+            try
+            {
+                return targetMethod!.Invoke(Inner, args);
+            }
+            catch (TargetInvocationException ex) when (ex.InnerException is { } inner)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(inner);
+                throw;
+            }
+        }
+    }
+
+    /// <summary>Regression: emptying the box of the last ingredient left (one the Save-to mod adds, the others taken out) saved a recipe with no inputs without the warning a machine-made recipe gets.</summary>
+    [Fact]
+    public void EmptyingTheLastIngredientsBox_WarnsLikeTakingItOut()
+    {
+        WriteEnvirosuitRecipe();
+        WriteBenches();
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        WriteIntoMod(mine.FolderName, ModRow("Crafting-D_ProcessorRecipes.json", "Envirosuit_Recipe", """
+            {"Inputs":[{"Element":{"RowName":"Stone","DataTableName":"D_ItemsStatic"},"Count":4},
+                       {"Element":{"RowName":"Leather","DataTableName":"D_ItemsStatic"},"Count":2},
+                       {"Element":{"RowName":"Fiber","DataTableName":"D_ItemsStatic"},"Count":3}]}
+            """));
+        var vm = Open();
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        Recipe(vm).BenchToAdd = Recipe(vm).BenchChoices!.Single(c => c.Name == "Fabricator");
+        Recipe(vm).AddBenchCommand.Execute(null);
+        Recipe(vm).Fields.Single(f => f.Label == "Needs Stone").DropCommand.Execute(null);
+        Recipe(vm).Fields.Single(f => f.Label == "Needs Leather").DropCommand.Execute(null);
+        Recipe(vm).Fields.Single(f => f.Label.Contains("Fiber", StringComparison.Ordinal)).ValueText = "";
+        vm.SaveCommand.Execute(null);
+
+        Assert.StartsWith("Saved", vm.StatusMessage);
+        Assert.Empty(SavedList(mine.FolderName, "Inputs"));
+        Assert.Contains("Xigo Envirosuit's recipe takes no ingredients", vm.StatusMessage);
     }
 }
