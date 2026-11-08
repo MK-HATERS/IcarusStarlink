@@ -4,7 +4,7 @@ using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.PakIO.Tests.Exmod;
 
-/// <summary>"What this mod changes" in a few lines — checked line-for-line against a real QoL mod (Deyvid's All-in-One) during development; these pin each pattern.</summary>
+/// <summary>"What this mod changes" in a few lines — checked line-for-line against a real QoL mod (Deyvid's All-in-One); these pin each pattern.</summary>
 public sealed class ModChangeSummarizerTests
 {
     /// <summary>Unreal row names ignore case: "item_bread" edits the game's Item_Bread, it doesn't add a row.</summary>
@@ -113,6 +113,81 @@ public sealed class ModChangeSummarizerTests
 
         Assert.Contains("D_Thermal · OuterRadius changed on 3 rows", lines);
         Assert.Contains("D_MapIcons · adds 2 new row(s), e.g. Cave", lines);
+    }
+
+    /// <summary>
+    /// Regression: an emptied list (laanp-WorkshopFree's ResearchCost) used to read as each of the
+    /// game's inner paths "changed" ("ResearchCost[].Meta.DataTableName changed on 339 rows").
+    /// </summary>
+    [Fact]
+    public void AnEmptiedList_ReadsAsEmptied_NotAsItsInnerPathsChanged()
+    {
+        static JsonNode Cost() => JsonNode.Parse("""[{"Meta":{"RowName":"Credits","DataTableName":"D_MetaCurrency"},"Amount":50}]""")!;
+        var lines = ModChangeSummarizer.Summarize(
+        [
+            Change("MetaWorkshop-D_WorkshopItems.json", "A", "ResearchCost", Cost(), new JsonArray()),
+            Change("MetaWorkshop-D_WorkshopItems.json", "B", "ResearchCost", Cost(), new JsonArray()),
+            Change("MetaWorkshop-D_WorkshopItems.json", "C", "ResearchCost", Cost(), new JsonArray()),
+        ]);
+
+        Assert.Equal(["D_WorkshopItems · ResearchCost emptied on 3 rows"], lines);
+    }
+
+    /// <summary>Regression: a field the mod takes out (null) used to read as its inner values changing.</summary>
+    [Fact]
+    public void ATakenOutField_SaysTheTablesDefaultApplies()
+    {
+        var lines = ModChangeSummarizer.Summarize([Change("Traits-D_Itemable.json", "Item_Wood", "Weight", 10, null)]);
+
+        Assert.Equal(["D_Itemable · Weight taken out on 1 row (the table's default applies)"], lines);
+    }
+
+    /// <summary>Regression: which table a link points into is noise ("OptimalBiomes[].DataTableName changed on 35 rows").</summary>
+    [Fact]
+    public void ALinksTableName_IsNotACountedChange()
+    {
+        var lines = ModChangeSummarizer.Summarize(
+        [
+            Change("Farming-D_FarmingSeeds.json", "Seed_Corn", "OptimalBiomes",
+                JsonNode.Parse("""[{"RowName":"Forest","DataTableName":"D_Biomes"}]"""), JsonNode.Parse("""[{"RowName":"Swamp","DataTableName":"D_BiomesX"}]""")),
+        ]);
+
+        Assert.Equal(["D_FarmingSeeds · OptimalBiomes[].RowName changed on 1 row"], lines);
+    }
+
+    /// <summary>Regression: rows of a table the game doesn't have used to be summed as edits, though the merge skips them.</summary>
+    [Fact]
+    public void SummarizePackage_RowsInATableTheGameDoesntHave_AreCountedApart()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "Summary_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            MiniGameData.Write(root);
+            var package = new ExmodPackage
+            {
+                Name = "m", Author = "a", Version = "1", Description = "", FileName = "m",
+                Rows =
+                [
+                    new ExmodFileRow
+                    {
+                        CurrentFile = "Nope-D_Nope.json",
+                        FileItems =
+                        [
+                            new ExmodFileItem { Name = "Row_A", Fields = new() { ["Weight"] = 5 } },
+                            new ExmodFileItem { Name = "Row_B", Fields = new() { ["Weight"] = 5 } },
+                        ],
+                    },
+                ],
+            };
+
+            var lines = ModChangeSummarizer.SummarizePackage(package, root);
+
+            Assert.Equal(["D_Nope · 2 row(s) in a table the game doesn't have (the merge skips them)"], lines);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

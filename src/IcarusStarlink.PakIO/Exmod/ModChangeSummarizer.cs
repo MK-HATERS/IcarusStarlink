@@ -35,6 +35,7 @@ public static partial class ModChangeSummarizer
     {
         var game = new GameTableIndex(dataFolder); // each table read once, even if the mod lists it twice
         var changes = new List<FieldChange>();
+        var rowsInUnknownTables = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in package.Rows)
         {
             if (ExmodSentinelFiles.IsEndOfModMarker(row.CurrentFile))
@@ -43,10 +44,23 @@ public static partial class ModChangeSummarizer
             }
 
             var baseRows = game.Rows(row.CurrentFile);
+            if (baseRows is null)
+            {
+                // The merge skips a table the game doesn't have, so these rows aren't edits.
+                var table = TableName(row.CurrentFile);
+                if (!rowsInUnknownTables.TryGetValue(table, out var names))
+                {
+                    rowsInUnknownTables[table] = names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                }
+
+                names.UnionWith(row.FileItems.Select(i => i.Name));
+                continue;
+            }
+
             var defaults = game.Defaults(row.CurrentFile);
             foreach (var item in row.FileItems)
             {
-                var baseRow = baseRows is null ? null : game.Row(row.CurrentFile, item.Name); // ignoring case, like the game
+                var baseRow = game.Row(row.CurrentFile, item.Name); // ignoring case, like the game
                 foreach (var (field, value) in item.Fields)
                 {
                     var before = baseRow is null ? null : baseRow[field] ?? defaults?[field];
@@ -55,18 +69,32 @@ public static partial class ModChangeSummarizer
                         continue;
                     }
 
-                    changes.Add(new FieldChange(row.CurrentFile, item.Name, field, before?.DeepClone(), value?.DeepClone(), ValueSemantic.Scalar, IsNewItem: baseRows is not null && baseRow is null));
+                    changes.Add(new FieldChange(row.CurrentFile, item.Name, field, before?.DeepClone(), value?.DeepClone(), ValueSemantic.Scalar, IsNewItem: baseRow is null));
                 }
             }
         }
 
-        return Summarize(changes);
+        return Summarize(changes, rowsInUnknownTables.ToDictionary(kv => kv.Key, kv => kv.Value.Count, StringComparer.OrdinalIgnoreCase));
     }
 
-    public static IReadOnlyList<string> Summarize(IReadOnlyList<FieldChange> changes)
+    /// <param name="rowsInUnknownTables">How many rows the mod has in each table the game doesn't have ("D_Nope" → 2), each read as one line.</param>
+    public static IReadOnlyList<string> Summarize(IReadOnlyList<FieldChange> changes, IReadOnlyDictionary<string, int>? rowsInUnknownTables = null)
     {
         var groups = new Dictionary<(string Table, string Path), Group>();
         var newRows = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+        // A whole field emptied or taken out reads as one line, not as each of the game's inner values changing.
+        var emptied = new Dictionary<(string Table, string Field), HashSet<string>>();
+        var takenOut = new Dictionary<(string Table, string Field), HashSet<string>>();
+        static void AddRow(Dictionary<(string, string), HashSet<string>> to, (string, string) key, string row)
+        {
+            if (!to.TryGetValue(key, out var rows))
+            {
+                to[key] = rows = new HashSet<string>(StringComparer.Ordinal);
+            }
+
+            rows.Add(row);
+        }
 
         foreach (var change in changes)
         {
@@ -83,13 +111,26 @@ public static partial class ModChangeSummarizer
                 continue;
             }
 
+            if (change.NewValue is JsonArray { Count: 0 } && change.OriginalValue is JsonArray { Count: > 0 })
+            {
+                AddRow(emptied, (table, change.FieldName), change.ItemName);
+                continue;
+            }
+
+            if (change.NewValue is null && change.OriginalValue is not null)
+            {
+                AddRow(takenOut, (table, change.FieldName), change.ItemName);
+                continue;
+            }
+
             var before = Flatten(change.OriginalValue, change.FieldName);
             var after = Flatten(change.NewValue, change.FieldName);
             foreach (var path in before.Keys.Union(after.Keys))
             {
                 before.TryGetValue(path, out var b);
                 after.TryGetValue(path, out var a);
-                if (JsonNode.DeepEquals(b, a))
+                // Which table a link points into is noise next to the row it names.
+                if (JsonNode.DeepEquals(b, a) || path.EndsWith(".DataTableName", StringComparison.Ordinal))
                 {
                     continue;
                 }
@@ -169,9 +210,24 @@ public static partial class ModChangeSummarizer
             lines.Add((rows, text));
         }
 
+        foreach (var ((table, field), rows) in emptied)
+        {
+            lines.Add((rows.Count, $"{table} · {field} emptied on {Rows(rows.Count)}"));
+        }
+
+        foreach (var ((table, field), rows) in takenOut)
+        {
+            lines.Add((rows.Count, $"{table} · {field} taken out on {Rows(rows.Count)} (the table's default applies)"));
+        }
+
         foreach (var (table, names) in newRows)
         {
             lines.Add((names.Count, $"{table} · adds {names.Count} new row(s), e.g. {names.OrderBy(n => n, StringComparer.Ordinal).First()}"));
+        }
+
+        foreach (var (table, count) in rowsInUnknownTables ?? new Dictionary<string, int>())
+        {
+            lines.Add((count, $"{table} · {count} row(s) in a table the game doesn't have (the merge skips them)"));
         }
 
         var ordered = lines.OrderByDescending(l => l.Weight).ThenBy(l => l.Text, StringComparer.Ordinal).Select(l => l.Text).ToList();

@@ -12,7 +12,7 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// </summary>
 public static class ExmodChangesFormatter
 {
-    // The default encoder escapes safe ASCII as \uXXXX (e.g. '"' -> ", '+' -> +) — a
+    // The default encoder escapes safe ASCII as \uXXXX (a quote becomes " and '+' becomes +) — a
     // sensible default for JSON embedded in HTML, actively unreadable here. Real EXMOD field
     // names use both characters constantly (the "(Value=\"Xxx_+\")" stat-name convention), so
     // this is the difference between this feature actually working and not.
@@ -90,7 +90,8 @@ public static class ExmodChangesFormatter
     {
         if (value is null)
         {
-            return "null";
+            // A null field takes the game's value out of the row; the table's default applies.
+            return "(taken out)";
         }
 
         // Scalars (numbers, strings, booleans) read fine on the same line as the field name;

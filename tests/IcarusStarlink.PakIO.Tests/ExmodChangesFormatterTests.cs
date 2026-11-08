@@ -63,7 +63,7 @@ public class ExmodChangesFormatterTests
     }
 
     [Fact]
-    public void Format_NullField_ShownAsNull()
+    public void Format_NullField_ShownAsTakenOut()
     {
         var package = MakePackage(new ExmodFileRow
         {
@@ -73,7 +73,7 @@ public class ExmodChangesFormatterTests
 
         var result = ExmodChangesFormatter.Format(package);
 
-        Assert.Contains("SomeField: null", result);
+        Assert.Contains("SomeField: (taken out)", result);
     }
 
     [Fact]
