@@ -82,6 +82,12 @@ public static class HttpFileDownloader
     }
 
     /// <summary>Copies the body chunk by chunk, throwing TimeoutException when no chunk arrives within idleTimeout.</summary>
+    /// <remarks>
+    /// Every await here is ConfigureAwait(false): callers start on the UI thread, and a chunk that
+    /// had to go back there would wait while the UI thread is busy, so the idle timer (re-armed per
+    /// chunk) could fire on a download that is still moving. The caller's own await still resumes
+    /// on its context.
+    /// </remarks>
     private static async Task CopyWithIdleTimeoutAsync(
         HttpContent content, Stream destination, TimeSpan idleTimeout, IProgress<DownloadProgress>? progress, CancellationToken cancellationToken)
     {
@@ -94,23 +100,26 @@ public static class HttpFileDownloader
         var reportedOnce = false;
         try
         {
-            await using var source = await content.ReadAsStreamAsync(idle.Token);
-            var buffer = new byte[81920];
-            int read;
-            while ((read = await source.ReadAsync(buffer, idle.Token)) > 0)
+            var source = await content.ReadAsStreamAsync(idle.Token).ConfigureAwait(false);
+            await using (source.ConfigureAwait(false))
             {
-                await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-                idle.CancelAfter(idleTimeout);
-                received += read;
-                if (progress is not null && (!reportedOnce || System.Diagnostics.Stopwatch.GetElapsedTime(lastReport) >= ProgressInterval))
+                var buffer = new byte[81920];
+                int read;
+                while ((read = await source.ReadAsync(buffer, idle.Token).ConfigureAwait(false)) > 0)
                 {
-                    reportedOnce = true;
-                    lastReport = System.Diagnostics.Stopwatch.GetTimestamp();
-                    progress.Report(new DownloadProgress(received, total));
+                    await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                    idle.CancelAfter(idleTimeout);
+                    received += read;
+                    if (progress is not null && (!reportedOnce || System.Diagnostics.Stopwatch.GetElapsedTime(lastReport) >= ProgressInterval))
+                    {
+                        reportedOnce = true;
+                        lastReport = System.Diagnostics.Stopwatch.GetTimestamp();
+                        progress.Report(new DownloadProgress(received, total));
+                    }
                 }
-            }
 
-            progress?.Report(new DownloadProgress(received, total));
+                progress?.Report(new DownloadProgress(received, total));
+            }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

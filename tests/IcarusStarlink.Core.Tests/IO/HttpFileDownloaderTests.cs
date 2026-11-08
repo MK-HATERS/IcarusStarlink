@@ -206,6 +206,103 @@ public class HttpFileDownloaderTests
         }
     }
 
+    /// <summary>
+    /// Regression: every chunk's read and write went back through the caller's context (the UI
+    /// thread), so a UI thread busy for a minute starved the idle timer's re-arm and a moving
+    /// download failed as "stalled".
+    /// </summary>
+    [Fact]
+    public async Task DownloadToFileAsync_ChunksDontEachGoThroughTheCallersContext()
+    {
+        var folder = Directory.CreateTempSubdirectory("HttpFileDownloaderTests").FullName;
+        try
+        {
+            using var client = new HttpClient(new StaticResponseHandler(() =>
+                new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new PoolChunkedStream(chunks: 30, chunkSize: 10)) }));
+            var context = new CountingContext();
+            var previous = SynchronizationContext.Current;
+            Task<string> download;
+            SynchronizationContext.SetSynchronizationContext(context);
+            try
+            {
+                download = HttpFileDownloader.DownloadToFileAsync(client, ["https://example.invalid/mod.zip"], Path.Combine(folder, "mod.zip"), TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+
+            await download;
+
+            Assert.Equal(300, new FileInfo(Path.Combine(folder, "mod.zip")).Length);
+            Assert.True(context.Posts < 10, $"{context.Posts} posts to the caller's context for 30 chunks");
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>Stands in for the UI thread: counts each continuation posted to it, then runs it on the pool with itself current.</summary>
+    private sealed class CountingContext : SynchronizationContext
+    {
+        private int _posts;
+
+        public int Posts => Volatile.Read(ref _posts);
+
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            Interlocked.Increment(ref _posts);
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                var before = Current;
+                SetSynchronizationContext(this);
+                try
+                {
+                    d(state);
+                }
+                finally
+                {
+                    SetSynchronizationContext(before);
+                }
+            });
+        }
+    }
+
+    /// <summary>Like ChunkedStream, but each read finishes later on a pool thread, as a socket read does.</summary>
+    private sealed class PoolChunkedStream(int chunks, int chunkSize) : Stream
+    {
+        private int _sent;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            new(Task.Run(() =>
+            {
+                if (_sent == chunks)
+                {
+                    return 0;
+                }
+
+                _sent++;
+                buffer.Span[..chunkSize].Fill(7);
+                return chunkSize;
+            }));
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override int Read(byte[] buffer, int offset, int count) => ReadAsync(buffer.AsMemory(offset, count)).AsTask().Result;
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     private sealed class InlineProgress(Action<DownloadProgress> report) : IProgress<DownloadProgress>
     {
         public void Report(DownloadProgress value) => report(value);
