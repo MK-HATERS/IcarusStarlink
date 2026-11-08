@@ -170,4 +170,21 @@ public sealed class Ue4ssModConfigCarryOverTests : IDisposable
 
         Assert.Equal(mine, File.ReadAllText(Path.Combine(updated, "config.lua")));
     }
+
+    /// <summary>
+    /// Regression: lines inside a long comment (--[==[ … ]==], or "--[[" opened after a value) were
+    /// read as settings, so a shared patch's commented-out "Keys = { os.execute(…) }" was written
+    /// into the mod's own Keys = { … } as Lua.
+    /// </summary>
+    [Theory]
+    [InlineData("return {\n--[==[\n    Keys = { os.execute('calc') },\n--]==]\n}\n")]
+    [InlineData("return {\n    Speed = 1, --[[\n    Keys = { os.execute('calc') },\n--]]\n}\n")]
+    public void ApplyValues_LinesInsideALongComment_NeverReachTheModsFile(string patchText)
+    {
+        var folder = Mod("game", ("config.lua", "return {\n    Speed = 1,\n    Keys = { \"F1\" },\n}\n"));
+
+        Ue4ssModConfigCarryOver.ApplyValues(folder, "config.lua", patchText, Path.Combine(_root, "Backups"));
+
+        Assert.DoesNotContain("os.execute", File.ReadAllText(Path.Combine(folder, "config.lua")));
+    }
 }
