@@ -43,7 +43,8 @@ public sealed class ThemeService(ICustomSkinStore customSkinStore) : IThemeServi
             // The Icarus theme goes underneath as the fallback layer: any token the skin file
             // doesn't define — or defines with an unparseable hex — still resolves, so a
             // hand-edited file can degrade colors but never break the UI.
-            mergedDictionaries.Add(new ResourceDictionary { Source = ThemeUris[DefaultTheme] });
+            var baseTheme = new ResourceDictionary { Source = ThemeUris[DefaultTheme] };
+            mergedDictionaries.Add(baseTheme);
 
             var skin = customSkinStore.Load();
             if (skin is null)
@@ -52,18 +53,25 @@ public sealed class ThemeService(ICustomSkinStore customSkinStore) : IThemeServi
                 // "edit the skin" always means editing real, complete content rather than
                 // guessing token names into an empty file.
                 skin = new CustomSkin { Colors = new Dictionary<string, string>(GetThemeColors(DefaultTheme)) };
-                customSkinStore.Save(skin);
+                try
+                {
+                    customSkinStore.Save(skin);
+                }
+                catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+                {
+                    // Applied from memory; the file is written the next time the skin is saved.
+                }
             }
 
+            // Only the theme's colour keys: a hand-added key named like a style would otherwise
+            // replace that style with a brush.
+            var knownKeys = baseTheme.Keys.OfType<string>().Where(key => baseTheme[key] is SolidColorBrush).ToHashSet();
             var overlay = new ResourceDictionary();
-            foreach (var (key, hex) in skin.Colors)
+            foreach (var (key, color) in SkinColorsToApply(skin, knownKeys))
             {
-                if (TryParseColor(hex, out var color))
-                {
-                    var brush = new SolidColorBrush(color);
-                    brush.Freeze();
-                    overlay[key] = brush;
-                }
+                var brush = new SolidColorBrush(color);
+                brush.Freeze();
+                overlay[key] = brush;
             }
 
             mergedDictionaries.Add(overlay);
@@ -111,21 +119,54 @@ public sealed class ThemeService(ICustomSkinStore customSkinStore) : IThemeServi
         return colors;
     }
 
-    public static bool TryParseColor(string hex, out Color color)
+    /// <summary>
+    /// The skin colours that go into the overlay: only keys the theme has as colours, and only
+    /// values that parse. A skin file is hand-editable, so <see cref="CustomSkin.Colors"/> can be null.
+    /// </summary>
+    internal static IReadOnlyList<KeyValuePair<string, Color>> SkinColorsToApply(CustomSkin skin, IReadOnlyCollection<string> knownKeys)
     {
+        var colors = new List<KeyValuePair<string, Color>>();
+        foreach (var (key, text) in skin.Colors ?? [])
+        {
+            if (knownKeys.Contains(key) && TryParseColor(text, out var color))
+            {
+                colors.Add(new(key, color));
+            }
+        }
+
+        return colors;
+    }
+
+    /// <summary>A colour as a skin holds it ("#RRGGBB", "#AARRGGBB", a colour name); false for anything else, never a throw.</summary>
+    public static bool TryParseColor(string? text, out Color color)
+    {
+        color = default;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var trimmed = text.Trim();
+
+        // A skin never needs a colour profile, and WPF would load one from any path or URL.
+        if (trimmed.StartsWith("ContextColor", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         try
         {
-            if (ColorConverter.ConvertFromString(hex) is Color parsed)
+            if (ColorConverter.ConvertFromString(trimmed) is Color parsed)
             {
                 color = parsed;
                 return true;
             }
         }
-        catch (FormatException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            // An unfinished scRGB value such as sc#1 throws InvalidOperationException, not FormatException.
         }
 
-        color = default;
         return false;
     }
 
