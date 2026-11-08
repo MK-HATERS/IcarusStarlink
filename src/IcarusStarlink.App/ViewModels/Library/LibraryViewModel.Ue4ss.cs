@@ -276,10 +276,11 @@ public sealed partial class LibraryViewModel
             {
                 // Backed up first, as the game copy is above and every Library part is: a mod that
                 // was off (only in staging) used to go for good, while the question said the parts
-                // are backed up. One that can't be backed up isn't deleted.
+                // are backed up. One that can't be backed up isn't deleted. Backups\UE4SS, where
+                // turning a mod off and replacing it keep their copies too.
                 if (!backedUp)
                 {
-                    IcarusStarlink.PakIO.Install.FolderBackup.BackupFolder(_ue4ssModRepository.GetFolderPath(folderName), _backupDirectory);
+                    FolderBackup.BackupFolder(_ue4ssModRepository.GetFolderPath(folderName), Path.Combine(_backupDirectory, "UE4SS"));
                 }
 
                 _ue4ssModRepository.Delete(folderName);
@@ -294,7 +295,7 @@ public sealed partial class LibraryViewModel
         }
     }
 
-    /// <summary>The UE4SS tab's own Delete — the verb that was missing entirely (a real report: "I can't delete UE4SS mods inside ISL"). A package member is deleted together with its Library paks via DeleteMods, so one confirmation names every part.</summary>
+    /// <summary>The UE4SS tab's own Delete — the verb that was missing entirely (a real report: "I can't delete UE4SS mods inside ISL"). A package member, or a row linked to a data mod by name, goes through DeleteMods, so one question names every part and asks which halves go.</summary>
     [RelayCommand]
     private void DeleteUe4ssMod(Ue4ssModRowViewModel? item)
     {
@@ -323,6 +324,14 @@ public sealed partial class LibraryViewModel
                 DeleteMods(libraryParts);
                 return;
             }
+        }
+
+        // Linked to a data row by name only: the same question as from the data row (DeleteMods
+        // adds this half through the link). It used to delete this half alone.
+        if (item.LinkedPartner is { } data && AllLibraryItems().Contains(data))
+        {
+            DeleteMods([data]);
+            return;
         }
 
         // Not asked at all while the game holds its Mods folder: the delete would fail after the Yes.

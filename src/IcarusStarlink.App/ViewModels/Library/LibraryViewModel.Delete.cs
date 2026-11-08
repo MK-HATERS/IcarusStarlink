@@ -4,6 +4,7 @@ using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Core.Activity;
+using IcarusStarlink.Core.Ue4ss;
 
 namespace IcarusStarlink.App.ViewModels;
 
@@ -67,6 +68,20 @@ public sealed partial class LibraryViewModel
             items = [.. items, .. siblingItems];
         }
 
+        // A UE4SS half linked only by name (no shared Nexus download: a local, own-build or
+        // Database import) is a linked half too, so the same question asks which halves go. It
+        // used to get a plain Yes/No and its Lua half stayed in the game.
+        var nameLinkedParts = items
+            .Select(i => i.LinkedPartner)
+            .OfType<Ue4ssModRowViewModel>()
+            .Where(r => !r.IsBuiltIn && !Ue4ssModStart.IsFrameworkFolder(r.Name))
+            .Select(r => r.Name)
+            .Where(n => !ue4ssParts.Contains(n, StringComparer.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        ue4ssParts = [.. ue4ssParts, .. nameLinkedParts];
+        var downloadParts = ue4ssParts.Except(nameLinkedParts, StringComparer.OrdinalIgnoreCase).ToList();
+
         // Not while a check or fix pass rewrites mods, one of them is being converted again, or its
         // editor is open (the fix window's guards): asked to delete, it would race the pass, and the
         // editor's next Save would bring the deleted mod back half-made.
@@ -79,10 +94,10 @@ public sealed partial class LibraryViewModel
         // Deleting removes each mod's real folder from disk and can't be undone from here — and a
         // right-click menu is far easier to hit by accident than a dedicated button, so this always
         // asks first, matching how every other irreversible action in this app behaves. Names the
-        // real count rather than a generic "these mods" so a fat-fingered bulk selection is obvious
-        // before it's too late to back out.
+        // real count and the mods rather than a generic "these mods" so a fat-fingered bulk
+        // selection is obvious before it's too late to back out.
         string message;
-        var whole = packages.Count == 1 && items.Count + ue4ssParts.Count == packages[0].PartCount;
+        var whole = packages.Count == 1 && nameLinkedParts.Count == 0 && items.Count + ue4ssParts.Count == packages[0].PartCount;
         if (whole)
         {
             var package = packages[0];
@@ -94,10 +109,17 @@ public sealed partial class LibraryViewModel
         {
             message = items.Count == 1
                 ? $"Delete '{items[0].Name}' from your Library?\n\nIts folder is removed from disk (a backup is kept under Backups\\Mods). Run Merge & Install afterwards to drop it from the game."
-                : $"Delete {items.Count} mods from your Library?\n\nTheir folders are removed from disk (each is backed up first, under Backups\\Mods). Run Merge & Install afterwards to drop them from the game.";
-            if (ue4ssParts.Count > 0)
+                : $"Delete {items.Count} mods from your Library?\n\n{NameSome(items)}\n\nTheir folders are removed from disk (each is backed up first, under Backups\\Mods). Run Merge & Install afterwards to drop them from the game.";
+            if (downloadParts.Count > 0)
             {
-                message += $"\n\nThese came with UE4SS mods from the same download: {string.Join(", ", ue4ssParts)}.";
+                message += $"\n\nThese came with UE4SS mods from the same download: {string.Join(", ", downloadParts)}.";
+            }
+
+            if (nameLinkedParts.Count > 0)
+            {
+                message += items.Count == 1 && nameLinkedParts.Count == 1
+                    ? $"\n\nIt's linked to the UE4SS mod {nameLinkedParts[0]}."
+                    : $"\n\nLinked UE4SS mods: {string.Join(", ", nameLinkedParts)}.";
             }
         }
 
@@ -208,12 +230,21 @@ public sealed partial class LibraryViewModel
         {
             0 when items.Count == 0 => $"Deleted the UE4SS mod {string.Join(", ", ue4ssParts)}.{keptHalf}",
             0 when deletedCount == 1 && ue4ssParts.Count == 0 => $"Deleted '{items[0].Name}'.{nextStep}{keptHalf}",
-            0 when packages.Count == 1 && ue4ssParts.Count > 0 => $"Deleted '{packages[0].DisplayName}' ({deletedCount + ue4ssParts.Count} parts).{nextStep}",
+            0 when packages.Count == 1 && nameLinkedParts.Count == 0 && ue4ssParts.Count > 0 => $"Deleted '{packages[0].DisplayName}' ({deletedCount + ue4ssParts.Count} parts).{nextStep}",
+            0 when ue4ssParts.Count > 0 => $"Deleted {deletedCount} mod(s) and the UE4SS mod {string.Join(", ", ue4ssParts)}.{nextStep}",
             0 => $"Deleted {deletedCount} mod(s).{nextStep}{keptHalf}",
             _ => $"Deleted {deletedCount} of {items.Count + ue4ssParts.Count} — {string.Join("; ", failures)}",
         };
         // Its own handler reloads both panels (the UE4SS parts too): no Reload of its own here.
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+    }
+
+    /// <summary>The several-mods question names them, so a selection that grew past what the list shows is caught: five names, then "and N more".</summary>
+    private static string NameSome(IReadOnlyList<LibraryItemViewModel> items)
+    {
+        const int Shown = 5;
+        var lines = string.Join("\n", items.Take(Shown).Select(i => $"  • {i.Name}"));
+        return items.Count > Shown ? $"{lines}\n  and {items.Count - Shown} more" : lines;
     }
 
     /// <summary>Which of these UE4SS mods are in the game's Mods folder (none without a game path, or when it can't be read).</summary>
@@ -226,7 +257,7 @@ public sealed partial class LibraryViewModel
 
         try
         {
-            var inGame = _ue4ssModRepository.ListInstalledInGame(IcarusStarlink.Core.Ue4ss.Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath));
+            var inGame = _ue4ssModRepository.ListInstalledInGame(Ue4ssGamePaths.ResolveModsFolder(_settingsService.Current.IcarusContentPath));
             return [.. names.Where(n => inGame.Contains(n, StringComparer.OrdinalIgnoreCase))];
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
