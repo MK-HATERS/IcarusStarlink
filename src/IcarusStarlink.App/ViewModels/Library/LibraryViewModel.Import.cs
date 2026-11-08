@@ -109,6 +109,22 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
+    /// What the classifier imported, in the Activity panel: the primary mod, the lint warnings, and
+    /// the batch summary's hint when a UE4SS half was staged (it lands unticked).
+    /// </summary>
+    private void LogClassifiedImport(string path, ClassifiedImport result)
+    {
+        _activityLog.Log(
+            result.Kind == PendingDownloadActivationKind.Library ? $"Imported '{result.EntryName}'." : $"Imported '{result.FolderName}' as a UE4SS mod.",
+            ActivityEntryKind.Success);
+        LogImportWarnings(path, result.Warnings);
+        if (result.Items.Any(i => i.Kind == PendingDownloadActivationKind.Ue4ssMod))
+        {
+            _importNote = "UE4SS mods land unticked: tick them, then Apply UE4SS changes.";
+        }
+    }
+
+    /// <summary>
     /// Imports one already-known path — a real folder, a bare .pak, or (falling through to the
     /// same auto-detection ImportFile's own dialog already uses) any other file, sniffed as an
     /// archive by its actual content rather than trusted by extension. Shared by drag-and-drop and
@@ -119,10 +135,17 @@ public sealed partial class LibraryViewModel
     {
         if (Directory.Exists(path))
         {
+            // An EXMOD-shaped folder goes through the classifier like an archive does: it also
+            // stages the download's loose Lua half (MyMod\Scripts\main.lua) as its own UE4SS row,
+            // runs the lints and takes back a half-done import. It used to go straight to the EXMOD
+            // import and the Lua half was lost. No copy needed: the classifier's EXMOD branch only
+            // reads the folder (the imports copy from it) and never unpacks anything into it.
             if (Directory.EnumerateFiles(path, "*.EXMOD", SearchOption.AllDirectories).Any())
             {
-                var entry = _repository.Import(path);
-                _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
+                var exmodResult = await ExtractedModClassifier.ClassifyAndImport(
+                    path, path, _repository, _ue4ssModRepository,
+                    _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, chooseArchive: Downloads.ChooseArchive);
+                LogClassifiedImport(path, exmodResult);
                 return;
             }
 
@@ -136,11 +159,7 @@ public sealed partial class LibraryViewModel
                 var folderResult = await ExtractedModClassifier.ClassifyAndImport(
                     tempCopy, path, _repository, _ue4ssModRepository,
                     _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, chooseArchive: Downloads.ChooseArchive);
-                var (folderEntryName, folderFolderName, folderKind, _) = folderResult;
-                _activityLog.Log(
-                    folderKind == PendingDownloadActivationKind.Library ? $"Imported '{folderEntryName}'." : $"Imported '{folderFolderName}' as a UE4SS mod.",
-                    ActivityEntryKind.Success);
-                LogImportWarnings(path, folderResult.Warnings);
+                LogClassifiedImport(path, folderResult);
             }
             finally
             {
@@ -188,11 +207,7 @@ public sealed partial class LibraryViewModel
                 throw;
             }
 
-            var (entryName, folderName, kind, _) = archiveResult;
-            _activityLog.Log(
-                kind == PendingDownloadActivationKind.Library ? $"Imported '{entryName}'." : $"Imported '{folderName}' as a UE4SS mod.",
-                ActivityEntryKind.Success);
-            LogImportWarnings(path, archiveResult.Warnings);
+            LogClassifiedImport(path, archiveResult);
         }
         finally
         {
