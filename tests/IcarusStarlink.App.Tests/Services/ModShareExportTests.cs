@@ -93,24 +93,84 @@ public sealed class ModShareExportTests : IDisposable
         Assert.Contains(zip.Entries, e => e.FullName == "Textures/T_MySmelter.uasset");
     }
 
+    /// <summary>
+    /// The write itself fails part way (the zip writer refuses two assets at one path), so this
+    /// checks the temp file: a file already at the path is kept, and no temp file is left beside it.
+    /// </summary>
     [Fact]
-    public async Task ExportAsync_ModFolderUnreadable_KeepsTheFileAlreadyThere()
+    public void WriteZip_FailsWhileWriting_KeepsTheFileAlreadyThereAndLeavesNoTempFile()
     {
-        var output = Path.Combine(_root, "shared.EXMODZ");
+        var outDir = Path.Combine(_root, "out");
+        Directory.CreateDirectory(outDir);
+        var output = Path.Combine(outDir, "shared.EXMODZ");
         File.WriteAllBytes(output, [9, 9, 9]);
-        var brokenFolder = Path.Combine(_root, "NoExmodHere");
-        Directory.CreateDirectory(brokenFolder);
+        var good = OwnModWithAsset();
+        var clashing = good with { Assets = [new ExmodAssetEntry("Textures/A.uasset", [1]), new ExmodAssetEntry("textures/a.uasset", [2])] };
 
-        await Assert.ThrowsAnyAsync<Exception>(() => ModShareExport.ExportAsync(brokenFolder, output));
+        Assert.ThrowsAny<Exception>(() => ModShareExport.WriteZip(clashing, output));
 
         Assert.Equal([9, 9, 9], File.ReadAllBytes(output));
-        Assert.Single(Directory.GetFiles(_root));
+        Assert.Equal([output], Directory.GetFiles(outDir));
     }
+
+    /// <summary>The scale rules are Starlink's own key; the rows they built are already in the file, so a friend's copy doesn't need them.</summary>
+    [Fact]
+    public async Task ExportAsync_ModWithScaleRules_LeavesTheRulesOutAndKeepsTheRows()
+    {
+        var contents = OwnModWithAsset();
+        contents.Package.ScaleRules.Add(new ScaleRule { Label = "Stack sizes", CurrentFile = "Traits-D_Itemable.json", Field = "MaxStack", Value = 2 });
+        var folder = ModFolder(contents);
+        Assert.Contains("starlinkScaleRules", File.ReadAllText(Directory.GetFiles(folder, "*.EXMOD", SearchOption.AllDirectories).Single()));
+        var output = Path.Combine(_root, "shared.EXMODZ");
+
+        await ModShareExport.ExportAsync(folder, output);
+
+        using var zip = ZipFile.OpenRead(output);
+        using var reader = new StreamReader(zip.Entries.Single(e => e.FullName.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase)).Open());
+        var exmodText = reader.ReadToEnd();
+        Assert.DoesNotContain("starlinkScaleRules", exmodText);
+        Assert.Contains("SmelterRecipe", exmodText);
+    }
+
+    [Fact]
+    public void ForSharing_LeavesTheModsOwnPackageAlone()
+    {
+        var contents = OwnModWithAsset();
+        contents.Package.ScaleRules.Add(new ScaleRule { CurrentFile = "Traits-D_Itemable.json", Field = "MaxStack", Value = 2 });
+
+        var shared = ModShareExport.ForSharing(contents);
+
+        Assert.Empty(shared.Package.ScaleRules);
+        Assert.Single(contents.Package.ScaleRules);
+    }
+
+    [Theory]
+    [InlineData(@"C:\Lib\MyMod\x.EXMODZ", @"C:\Lib", true)]
+    [InlineData(@"C:\Lib\x.EXMODZ", @"C:\Lib", true)]
+    [InlineData(@"c:\lib\MyMod\Textures\x.EXMODZ", @"C:\Lib\", true)]
+    [InlineData(@"C:\Library2\x.EXMODZ", @"C:\Lib", false)]
+    [InlineData(@"C:\Users\Me\Documents\x.EXMODZ", @"C:\Lib", false)]
+    public void IsInsideFolder_MatchesTheFolderAndEverythingUnderIt(string path, string folder, bool expected) =>
+        Assert.Equal(expected, ModShareExport.IsInsideFolder(path, folder));
+
+    [Theory]
+    [InlineData(@"C:\Out\Thing.EXMODZ", @"C:\Out\Thing.EXMODZ")]
+    [InlineData(@"C:\Out\Thing.exmodz", @"C:\Out\Thing.exmodz")]
+    [InlineData(@"C:\Out\Thing.EXMOD", @"C:\Out\Thing.EXMODZ")]
+    [InlineData(@"C:\Out\My Mod 1.0", @"C:\Out\My Mod 1.0.EXMODZ")]
+    [InlineData(@"C:\Out\Thing.zip", @"C:\Out\Thing.zip.EXMODZ")]
+    public void WithShareExtension_AlwaysEndsInExmodz(string path, string expected) =>
+        Assert.Equal(expected, ModShareExport.WithShareExtension(path));
 
     [Theory]
     [InlineData("My Mod", "1.0", "My Mod 1.0.EXMODZ")]
     [InlineData("Bad: name?", "", "Bad_ name_.EXMODZ")]
     [InlineData("", "2", "My mod 2.EXMODZ")]
+    [InlineData("Thing.", "", "Thing.EXMODZ")]
+    [InlineData("Thing ", " ", "Thing.EXMODZ")]
+    [InlineData("...", "", "My mod.EXMODZ")]
+    [InlineData("CON", "", "_CON.EXMODZ")]
+    [InlineData("nul", "", "_nul.EXMODZ")]
     public void DefaultFileName_UsesNameAndVersion_WithoutCharactersWindowsRefuses(string name, string version, string expected) =>
         Assert.Equal(expected, ModShareExport.DefaultFileName(name, version));
 }

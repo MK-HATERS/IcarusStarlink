@@ -417,7 +417,7 @@ public sealed partial class HelpViewModel : ObservableObject
 
             **Sharing your mod**
 
-            Right-click a mod you made in Starlink in the Library and pick **Export for sharing…** to save it as one .EXMODZ file. Give it to friends or post it on Nexus: they add it with **Import** in Starlink or in the classic mod manager. Only the mod goes in, not your notes or Library settings. Mods from Nexus or the IMM Database can't be exported this way, since they aren't yours. If your mod uses parts of someone else's mod, give them credit and check they allow it before you post it.
+            Right-click a mod you made in Starlink in the Library and pick **Export for sharing…** to save it as one .EXMODZ file. Give it to friends or post it on Nexus: they add it with **Import** in Starlink or in the classic mod manager. Save it outside the Library folder, such as in Documents. Only the mod goes in, not your notes or Library settings. Mods from Nexus or the IMM Database can't be exported this way, since they aren't yours. If your mod uses parts of someone else's mod, give them credit and check they allow it before you post it.
 
             **Check references**
 

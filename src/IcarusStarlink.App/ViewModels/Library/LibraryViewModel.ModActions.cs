@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -175,7 +176,7 @@ public sealed partial class LibraryViewModel
         }
     }
 
-    /// <summary>Set while an export for sharing runs, so a second click doesn't start another.</summary>
+    /// <summary>Set while an export for sharing runs, so a second export (of any mod) waits for it.</summary>
     private bool _isExportingForSharing;
 
     /// <summary>
@@ -187,8 +188,14 @@ public sealed partial class LibraryViewModel
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ExportModForSharing(LibraryItemViewModel? item)
     {
-        if (item is null || _isExportingForSharing)
+        if (item is null)
         {
+            return;
+        }
+
+        if (_isExportingForSharing)
+        {
+            StatusMessage = "An export is already running. Try again when it's done.";
             return;
         }
 
@@ -204,7 +211,24 @@ public sealed partial class LibraryViewModel
             return;
         }
 
-        if (_dialogService.PickSaveFile("Export for sharing", ModShareExport.FileFilter, ModShareExport.DefaultFileName(item.Name, item.Version)) is not { } path)
+        if (_dialogService.PickSaveFile("Export for sharing", ModShareExport.FileFilter, ModShareExport.DefaultFileName(item.Name, item.Version)) is not { } picked)
+        {
+            return;
+        }
+
+        // Inside the Library the file would be read as part of a mod next time (and go into the
+        // game's pak), or replace a mod's own files.
+        var modFolder = _repository.GetFolderPath(item.FolderName);
+        if (Path.GetDirectoryName(Path.GetFullPath(modFolder)) is { } libraryFolder && ModShareExport.IsInsideFolder(picked, libraryFolder))
+        {
+            ReportProblem("That folder is part of your Library, so the file would end up inside a mod. Pick a folder outside the Library, such as Documents.");
+            return;
+        }
+
+        // The picker only asked about replacing the name as typed, so ask again when the name changed.
+        var path = ModShareExport.WithShareExtension(picked);
+        if (!string.Equals(path, picked, StringComparison.OrdinalIgnoreCase) && File.Exists(path)
+            && !_dialogService.Confirm($"'{Path.GetFileName(path)}' is already there. Replace it?", "Export for sharing", ThemedConfirmSeverity.Warning))
         {
             return;
         }
@@ -213,7 +237,7 @@ public sealed partial class LibraryViewModel
         _isExportingForSharing = true;
         try
         {
-            await ModShareExport.ExportAsync(_repository.GetFolderPath(item.FolderName), path);
+            await ModShareExport.ExportAsync(modFolder, path);
             StatusMessage = $"Exported '{name}' to '{path}'. Friends can add it with Import on the Library page, or in the classic mod manager. "
                 + "If it uses parts of someone else's mod, give them credit and check they allow it before you post it.";
             _activityLog.Log($"Exported '{name}' for sharing to '{path}'.", ActivityEntryKind.Success);
