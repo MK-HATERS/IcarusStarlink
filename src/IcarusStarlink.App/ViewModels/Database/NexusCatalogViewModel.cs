@@ -274,7 +274,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         // badges from the cached fetch, deliberately with no network involved (this VM is a
         // singleton that hears the message even while the page isn't shown, so a network refetch
         // here would silently fire on every import anywhere in the app).
-        messenger.Register<LibraryChangedMessage>(this,(recipient, _) => ((NexusCatalogViewModel)recipient).RebuildRows());
+        messenger.Register<LibraryChangedMessage>(this, (recipient, _) => ((NexusCatalogViewModel)recipient).RebuildRows());
 
         // "Find on Nexus" (SearchNexusMessage) is handled by MainViewModel, not here: this VM is
         // only built the first time the Database page opens, so a handler here missed the search
@@ -283,7 +283,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         // Settings' own Authorize/Sign out is the only place the saved key changes — re-check
         // Premium status right then instead of only on next launch, so a user who signs in while
         // already on this page sees Download/Open page's prominence update immediately.
-        messenger.Register<NexusAccountChangedMessage>(this,(recipient, message) =>
+        messenger.Register<NexusAccountChangedMessage>(this, (recipient, message) =>
         {
             _ = ((NexusCatalogViewModel)recipient).RefreshPremiumStatusAsync();
         });

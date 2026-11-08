@@ -28,7 +28,7 @@ public sealed partial class DatabaseViewModel : ObservableObject
     {
         Nexus = nexus;
         Library = library;
-        (messenger ?? WeakReferenceMessenger.Default).Register<NavigateToPageMessage>(this,(recipient, message) =>
+        (messenger ?? WeakReferenceMessenger.Default).Register<NavigateToPageMessage>(this, (recipient, message) =>
         {
             var page = (DatabaseViewModel)recipient;
             if (message.NavItemId == "nexus")
