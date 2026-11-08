@@ -33,6 +33,49 @@ public class MultiFileMergerTests
         Assert.StartsWith("Mod B: 'Sord'", note);
     }
 
+    /// <summary>
+    /// The game numbers seeds by their place in D_FarmingSeeds, and new rows go in queue order: with
+    /// two mods adding seeds, moving one in the queue renumbers both mods' seeds, so the build says so.
+    /// </summary>
+    [Fact]
+    public void Apply_TwoModsAddingSeeds_NotesThatMovingThemRenumbersTheirSeeds()
+    {
+        const string seeds = "Farming-D_FarmingSeeds.json";
+        var baseTables = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase)
+        {
+            [seeds] = JsonNode.Parse("""{"Wheat": {"GrowthTime": 10}}""")!.AsObject(),
+        };
+        FieldChange Seed(string row, string field) => new(seeds, row, field, null, JsonValue.Create(1), ValueSemantic.Scalar, IsNewItem: true);
+        var fromModA = new[] { Seed("Grape", "GrowthTime"), Seed("Grape", "Yield"), Seed("Grape", "Plant"), Seed("Grape", "Mesh") };
+        var fromModB = new[] { Seed("Cactus", "GrowthTime"), Seed("Cactus", "Yield"), Seed("Cactus", "Plant"), Seed("Cactus", "Mesh") };
+        var report = new MergeReport();
+
+        MultiFileMerger.Apply(baseTables, [.. fromModA, .. fromModB], report, c => fromModA.Contains(c) ? "Grapes" : "Cacti");
+
+        var note = Assert.Single(report.Notes);
+        Assert.Contains("Grapes and Cacti", note);
+        Assert.Contains("moving these mods in the queue renumbers their seeds", note);
+        Assert.Contains("crops already planted can change", note);
+    }
+
+    /// <summary>One mod adding seeds has nothing to be reordered against.</summary>
+    [Fact]
+    public void Apply_OneModAddingSeeds_HasNoSeedNote()
+    {
+        const string seeds = "Farming-D_FarmingSeeds.json";
+        var baseTables = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase)
+        {
+            [seeds] = JsonNode.Parse("""{"Wheat": {"GrowthTime": 10}}""")!.AsObject(),
+        };
+        FieldChange Seed(string row, string field) => new(seeds, row, field, null, JsonValue.Create(1), ValueSemantic.Scalar, IsNewItem: true);
+        var report = new MergeReport();
+
+        MultiFileMerger.Apply(baseTables, [Seed("Grape", "GrowthTime"), Seed("Grape", "Yield"), Seed("Grape", "Plant"), Seed("Grape", "Mesh"),
+            Seed("Wheat", "GrowthTime")], report, _ => "Grapes");
+
+        Assert.Empty(report.Notes);
+    }
+
     [Fact]
     public void Apply_TwoModsAcrossTwoFiles_ProducesMergedTablesForEachFile()
     {

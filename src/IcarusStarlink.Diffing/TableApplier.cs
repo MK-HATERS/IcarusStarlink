@@ -90,6 +90,26 @@ public static class TableApplier
             report?.AddNote(StaleItemHeuristic.BuildNote(currentFile, itemName, fieldCount, mod));
         }
 
+        // New rows go in queue order. Where a row's place is its number, two mods adding rows
+        // there renumber each other's when the queue changes.
+        foreach (var byFile in createdItemInfo.Values.Where(c => IsNumberedByPosition(c.CurrentFile)).GroupBy(c => c.CurrentFile, StringComparer.OrdinalIgnoreCase))
+        {
+            var mods = byFile.Select(c => c.Mod).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+            if (mods.Count >= 2)
+            {
+                report?.AddNote($"{string.Join(", ", mods.Take(mods.Count - 1))} and {mods[^1]} add new seeds. The game numbers seeds by their place in "
+                    + "its seed table and Starlink adds new ones in queue order, so moving these mods in the queue renumbers their seeds; "
+                    + "crops already planted can change.");
+            }
+        }
+
         return result;
     }
+
+    /// <summary>
+    /// D_FarmingSeeds: the game refers to a seed by its row's place in the table (a seed item's
+    /// number), not by its name.
+    /// </summary>
+    private static bool IsNumberedByPosition(string currentFile) =>
+        string.Equals(Path.GetFileNameWithoutExtension(currentFile.Split('-')[^1]), "D_FarmingSeeds", StringComparison.OrdinalIgnoreCase);
 }
