@@ -14,8 +14,11 @@ public interface ISteamCmdService
     /// <summary>Downloads SteamCMD from Valve into OwnInstallFolder and lets it update itself. Throws on a download failure.</summary>
     Task InstallOwnCopyAsync(Action<string> onLine, CancellationToken cancellationToken = default);
 
-    /// <summary>Installs (or updates, or switches branch of) the server into <paramref name="installFolder"/>. Every output line goes to <paramref name="onLine"/>. Throws when no SteamCMD is set up.</summary>
-    Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, Action<string> onLine, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Installs (or updates, or switches branch of) the server into <paramref name="installFolder"/>. Every output line goes to <paramref name="onLine"/>. Throws when no SteamCMD is set up.
+    /// <paramref name="validate"/> makes SteamCMD re-check every file of the install and repair what differs, which takes much longer than the download alone.
+    /// </summary>
+    Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, bool validate, Action<string> onLine, CancellationToken cancellationToken = default);
 
     /// <summary>The newest build id Steam lists for the branch, or null when SteamCMD couldn't tell. Throws when no SteamCMD is set up.</summary>
     Task<int?> GetLatestBuildIdAsync(string branch, CancellationToken cancellationToken = default);

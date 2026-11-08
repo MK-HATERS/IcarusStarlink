@@ -55,6 +55,9 @@ public sealed partial class LocalServerViewModel
 
         /// <summary>The newest build Steam named for this server's branch (a check, or the build an update installed), so selecting it shows what its hourly check found.</summary>
         public (string Branch, int Build)? LatestKnown { get; set; }
+
+        /// <summary>The last SteamCMD update of this server failed or was cancelled: the next one validates, in case it left files half-written.</summary>
+        public bool UpdateFailed { get; set; }
     }
 
     /// <summary>The watch whose log, players and events the panels show (the selected server's, once its first read is in).</summary>

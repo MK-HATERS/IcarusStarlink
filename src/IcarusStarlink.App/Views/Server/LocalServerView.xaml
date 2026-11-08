@@ -173,7 +173,9 @@
                             <Button Content="Check for update" Command="{Binding CheckForUpdateCommand}" Margin="12,0,0,0" Padding="8,2" FontSize="11.5"
                                     ToolTip="Asks Steam whether a newer server build is out on this server's branch. No Steam login needed."/>
                             <Button Content="Update" Command="{Binding UpdateServerCommand}" Margin="6,0,0,0" Padding="8,2" FontSize="11.5"
-                                    ToolTip="Stops the server if it's running, backs up its worlds and settings, then updates it with SteamCMD — also how a branch switch is applied"/>
+                                    ToolTip="Stops the server if it's running, backs up its worlds and settings, then updates it with SteamCMD and starts it again — also how a branch switch is applied"/>
+                            <Button Content="Verify files" Command="{Binding VerifyServerFilesCommand}" Margin="6,0,0,0" Padding="8,2" FontSize="11.5"
+                                    ToolTip="Has SteamCMD check every server file and download again any that is damaged or missing. Slower than Update, since it reads the whole install. Your worlds, settings and mods are not touched."/>
                         </StackPanel>
                     </StackPanel>
                 </DockPanel>

@@ -419,6 +419,7 @@ public sealed partial class LocalServerViewModel
         StopCommand.NotifyCanExecuteChanged();
         RestartCommand.NotifyCanExecuteChanged();
         UpdateServerCommand.NotifyCanExecuteChanged();
+        VerifyServerFilesCommand.NotifyCanExecuteChanged();
         // Check for update greys out with Update (CanUpdate): it must come back with it too.
         CheckForUpdateCommand.NotifyCanExecuteChanged();
         RemoveProfileCommand.NotifyCanExecuteChanged();
@@ -586,7 +587,8 @@ public sealed partial class LocalServerViewModel
         }
 
         var backup = await TryBackupAsync(p, "before-update");
-        var result = await RunSteamCmdAsync($"Updating '{p.Name}'", p.Id, p.InstallFolder, token => _steamCmd.InstallOrUpdateAsync(p.InstallFolder, SteamCmd.NormalizeBranch(p.Branch), line => OnSteamCmdLineFor(p.Id, line), token));
+        var result = await RunSteamCmdAsync($"Updating '{p.Name}'", p.Id, p.InstallFolder, token => _steamCmd.InstallOrUpdateAsync(p.InstallFolder, SteamCmd.NormalizeBranch(p.Branch), ValidateOnUpdate(p), line => OnSteamCmdLineFor(p.Id, line), token));
+        watch.UpdateFailed = !result.Success;
         watch.Automation.NoteUpdateFinished();
         if (result.Success)
         {

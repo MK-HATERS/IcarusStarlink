@@ -163,7 +163,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
     // Check for update, Update and the two firewall buttons need a server too: without them here,
     // adding the first server left them greyed out.
     [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand), nameof(SaveSettingsCommand), nameof(RemoveProfileCommand),
-        nameof(CheckForUpdateCommand), nameof(UpdateServerCommand), nameof(OpenFirewallPortsCommand), nameof(RemoveFirewallRulesCommand))]
+        nameof(CheckForUpdateCommand), nameof(UpdateServerCommand), nameof(VerifyServerFilesCommand), nameof(OpenFirewallPortsCommand), nameof(RemoveFirewallRulesCommand))]
     private DedicatedServerProfile? _selectedProfile;
 
     public bool HasProfile => SelectedProfile is not null;
@@ -208,7 +208,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RunStateText), nameof(IsNotBusy))]
-    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand), nameof(UpdateServerCommand),
+    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand), nameof(UpdateServerCommand), nameof(VerifyServerFilesCommand),
         nameof(CheckForUpdateCommand), nameof(InstallNewServerCommand), nameof(InstallSteamCmdCommand),
         nameof(AddExistingServerCommand), nameof(RemoveProfileCommand))]
     private bool _isBusy;

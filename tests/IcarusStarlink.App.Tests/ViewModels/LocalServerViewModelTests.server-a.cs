@@ -526,4 +526,106 @@ public sealed partial class LocalServerViewModelTests
         Assert.Empty(processes.Started);
         Assert.DoesNotContain("stopped for the update", vm.StatusMessage);
     }
+
+    // ---- SteamCMD's "validate": repairs only, not every routine update ----
+
+    /// <summary>Regression: every Update re-checked the whole ~10 GB install, keeping the server down far longer than the download needs.</summary>
+    [Fact]
+    public async Task Update_OnTheSameBranch_SkipsValidate()
+    {
+        WriteManifest(buildId: 1);
+        var (vm, _, _, _) = BuildWithServer();
+
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+
+        Assert.Equal([false], SteamCmd.Validates);
+    }
+
+    /// <summary>Regression: the automatic update (daily restart with update) validated too.</summary>
+    [Fact]
+    public async Task AutomaticUpdate_SkipsValidate()
+    {
+        WriteManifest(buildId: 1);
+        SteamCmd.LatestBuild = 2;
+        var (vm, _, processes, _) = BuildWithServer();
+        vm.DailyRestartEnabled = true;
+        vm.DailyRestartTime = "05:00";
+        vm.UpdateOnRestart = true;
+        vm.Clock = () => DateTime.Today.AddHours(5).AddSeconds(10);
+        processes.Running = new RunningServer(9, DateTime.Today.AddHours(2));
+
+        await vm.RunAutomationBeatAsync();
+
+        Assert.Equal([false], SteamCmd.Validates);
+    }
+
+    /// <summary>A branch switch replaces many files: SteamCMD checks them all.</summary>
+    [Fact]
+    public async Task Update_ThatSwitchesBranch_Validates()
+    {
+        WriteManifest(buildId: 1);
+        var (vm, _, _, _) = BuildWithServer();
+        vm.Branch = "experimental";
+
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+
+        Assert.Equal([(_install, "experimental")], SteamCmd.Installs);
+        Assert.Equal([true], SteamCmd.Validates);
+    }
+
+    /// <summary>A server SteamCMD left no record in can't be told apart from a damaged one: it is validated.</summary>
+    [Fact]
+    public async Task Update_WithNoSteamRecord_Validates()
+    {
+        var (vm, _, _, _) = BuildWithServer();
+
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+
+        Assert.Equal([true], SteamCmd.Validates);
+    }
+
+    /// <summary>Regression: a retry after a failed update didn't validate either, so files the failed run left half-written stayed that way.</summary>
+    [Fact]
+    public async Task Update_AfterAFailedUpdate_ValidatesTheRetry()
+    {
+        WriteManifest(buildId: 1);
+        var (vm, _, _, _) = BuildWithServer();
+        SteamCmd.FailWith = "ERROR! Failed to install app '2089300' (Disk write failure)";
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+        SteamCmd.FailWith = null;
+
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+        await vm.UpdateServerCommand.ExecuteAsync(null);
+
+        Assert.Equal([false, true, false], SteamCmd.Validates);
+    }
+
+    [Fact]
+    public async Task InstallNewServer_Validates()
+    {
+        SteamCmd.CreateServerOnInstall = true;
+        var (vm, _, _, _) = Build(pick: Path.Combine(_root, "NewServer"));
+
+        await vm.InstallNewServerCommand.ExecuteAsync(null);
+
+        Assert.Equal([true], SteamCmd.Validates);
+    }
+
+    /// <summary>Verify files runs SteamCMD's validate on the same branch; a running server is stopped for it and started again.</summary>
+    [Fact]
+    public async Task VerifyFiles_ValidatesAndStartsARunningServerAgain()
+    {
+        WriteManifest(buildId: 1);
+        var (vm, _, processes, dialogs) = BuildWithServer();
+        processes.Running = new RunningServer(9, DateTime.Now);
+        await vm.TickAsync();
+
+        await vm.VerifyServerFilesCommand.ExecuteAsync(null);
+
+        Assert.Contains(dialogs.Messages, m => m.Contains("check its files", StringComparison.Ordinal));
+        Assert.Equal([(_install, "public")], SteamCmd.Installs);
+        Assert.Equal([true], SteamCmd.Validates);
+        Assert.Equal([9], processes.Stopped);
+        Assert.Single(processes.Started);
+    }
 }

@@ -132,8 +132,9 @@ public sealed partial class LocalServerViewModel
 
     partial void OnIsBackupBusyChanged(bool value)
     {
-        // Check for update greys out during a backup, like Update (CanUpdate), and comes back after it.
+        // Check for update and Verify files grey out during a backup, like Update (CanUpdate), and come back after it.
         CheckForUpdateCommand.NotifyCanExecuteChanged();
+        VerifyServerFilesCommand.NotifyCanExecuteChanged();
         RaiseServerFilesChanged();
     }
 }

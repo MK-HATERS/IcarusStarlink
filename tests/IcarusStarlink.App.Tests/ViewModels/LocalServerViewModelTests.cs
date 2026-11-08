@@ -1268,9 +1268,13 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         /// <summary>Makes the next install run until it is cancelled, like a long download.</summary>
         public bool WaitForCancel { get; set; }
 
-        public async Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, Action<string> onLine, CancellationToken cancellationToken = default)
+        /// <summary>Whether each install or update in Installs asked SteamCMD to validate, in the same order.</summary>
+        public List<bool> Validates { get; } = [];
+
+        public async Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, bool validate, Action<string> onLine, CancellationToken cancellationToken = default)
         {
             Installs.Add((installFolder, branch));
+            Validates.Add(validate);
             DuringInstall?.Invoke();
             onLine(" Update state (0x61) downloading, progress: 50.00 (1 / 2)");
             if (WaitForCancel)

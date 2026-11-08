@@ -54,4 +54,13 @@ public sealed partial class ServerFilesTests
 
         Assert.Equal("Who?", Assert.Single(events.Online).PlayerId);
     }
+
+    /// <summary>A routine update leaves out "validate" (it re-reads the whole install); a repair keeps it.</summary>
+    [Fact]
+    public void InstallArguments_WithoutValidate_LeaveItOut()
+    {
+        Assert.Equal("+force_install_dir \"G:\\S\" +login anonymous +app_update 2089300 -beta public +quit",
+            SteamCmd.BuildInstallArguments(@"G:\S", "public", validate: false));
+        Assert.EndsWith(" validate +quit", SteamCmd.BuildInstallArguments(@"G:\S", "public", validate: true));
+    }
 }

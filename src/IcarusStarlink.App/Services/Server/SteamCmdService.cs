@@ -45,14 +45,14 @@ public sealed class SteamCmdService(HttpClient httpClient, Core.Settings.ISettin
         await RunAsync(OwnExe, "+quit", onLine, cancellationToken);
     }
 
-    public async Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, Action<string> onLine, CancellationToken cancellationToken = default)
+    public async Task<SteamCmdResult> InstallOrUpdateAsync(string installFolder, string branch, bool validate, Action<string> onLine, CancellationToken cancellationToken = default)
     {
         var exe = RequireExe();
         Directory.CreateDirectory(installFolder);
 
         string? lastError = null;
         var sawSuccess = false;
-        var exitCode = await RunAsync(exe, SteamCmd.BuildInstallArguments(installFolder, branch), line =>
+        var exitCode = await RunAsync(exe, SteamCmd.BuildInstallArguments(installFolder, branch, validate), line =>
         {
             if (SteamCmd.IsErrorLine(line))
             {

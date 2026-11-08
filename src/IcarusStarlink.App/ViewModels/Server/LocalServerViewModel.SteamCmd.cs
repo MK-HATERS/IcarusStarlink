@@ -33,7 +33,7 @@ public sealed partial class LocalServerViewModel
     private int? _latestBuildId;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand), nameof(UpdateServerCommand),
+    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand), nameof(UpdateServerCommand), nameof(VerifyServerFilesCommand),
         nameof(CheckForUpdateCommand), nameof(InstallNewServerCommand), nameof(InstallSteamCmdCommand), nameof(CancelSteamCmdCommand))]
     private bool _isSteamCmdBusy;
 
@@ -358,7 +358,7 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        var result = await RunSteamCmdAsync("Installing a new server", null, target, token => _steamCmd.InstallOrUpdateAsync(target, "public", OnSteamCmdLine, token));
+        var result = await RunSteamCmdAsync("Installing a new server", null, target, token => _steamCmd.InstallOrUpdateAsync(target, "public", validate: true, OnSteamCmdLine, token));
         if (!result.Success)
         {
             StatusMessage = $"Install failed: {result.Message}";
@@ -472,7 +472,27 @@ public sealed partial class LocalServerViewModel
 
     /// <summary>Stops the server if needed, backs up its worlds and settings, then runs SteamCMD for the profile's branch (also how a branch switch happens).</summary>
     [RelayCommand(CanExecute = nameof(CanUpdate))]
-    private async Task UpdateServerAsync()
+    private Task UpdateServerAsync() => UpdateServerCoreAsync(verify: false);
+
+    /// <summary>Update with SteamCMD's validate: every file of the install is checked and a damaged or missing one is downloaded again.</summary>
+    [RelayCommand(CanExecute = nameof(CanUpdate))]
+    private Task VerifyServerFilesAsync() => UpdateServerCoreAsync(verify: true);
+
+    /// <summary>
+    /// SteamCMD's validate re-reads the whole ~10 GB install, which keeps the server down far longer
+    /// than the download, so a routine update (by hand or automatic) skips it. It still runs for a
+    /// branch switch, for a server SteamCMD left no record in, and for the first update after one
+    /// that failed or was cancelled. Verify files always runs it.
+    /// </summary>
+    private bool ValidateOnUpdate(DedicatedServerProfile p)
+    {
+        var (_, installedBranch) = ReadManifest(p);
+        return installedBranch is null
+            || !string.Equals(installedBranch, SteamCmd.NormalizeBranch(p.Branch), StringComparison.OrdinalIgnoreCase)
+            || GetWatch(p).UpdateFailed;
+    }
+
+    private async Task UpdateServerCoreAsync(bool verify)
     {
         if (SelectedProfile is not { } profile || _steamCmd is null)
         {
@@ -495,7 +515,7 @@ public sealed partial class LocalServerViewModel
 
         // The server build is shared by every profile on this install: another one running there
         // would have its files replaced under it.
-        if (DescribeRunningSiblings(profile, await OffUiThread(() => RunningSiblings(profile)), "update it") is { } refusal)
+        if (DescribeRunningSiblings(profile, await OffUiThread(() => RunningSiblings(profile)), verify ? "check its files" : "update it") is { } refusal)
         {
             StatusMessage = refusal;
             return;
@@ -507,8 +527,8 @@ public sealed partial class LocalServerViewModel
         if (wasRunning)
         {
             if (!_dialogService.Confirm(
-                    $"'{profile.Name}' is running. Stop it, update, then start it again?\n\nConnected players are disconnected. {ServerShutdownNotes.DescribeSaving(ReadIniSettings(profile))}",
-                    "Update server", ThemedConfirmSeverity.Warning)
+                    $"'{profile.Name}' is running. Stop it, {(verify ? "check its files" : "update")}, then start it again?\n\nConnected players are disconnected. {ServerShutdownNotes.DescribeSaving(ReadIniSettings(profile))}",
+                    verify ? "Verify server files" : "Update server", ThemedConfirmSeverity.Warning)
                 || !await StopCoreAsync(profile, ask: false))
             {
                 return;
@@ -518,13 +538,15 @@ public sealed partial class LocalServerViewModel
         // Busy until SteamCMD is done: the server list stays locked on this server, so the build
         // read back and SteamCMD's log lines below are this server's (they used to land on
         // whichever server was selected by the end of a minutes-long update).
-        _busyWith = "UPDATING";
+        _busyWith = verify ? "CHECKING FILES" : "UPDATING";
         IsBusy = true;
         try
         {
             var backup = await TryBackupAsync(profile, "before-update");
-            var result = await RunSteamCmdAsync($"Updating '{profile.Name}'", profile.Id, profile.InstallFolder,
-                token => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, line => OnSteamCmdLineFor(profile.Id, line), token));
+            var validate = verify || ValidateOnUpdate(profile);
+            var result = await RunSteamCmdAsync(verify ? $"Checking the files of '{profile.Name}'" : $"Updating '{profile.Name}'", profile.Id, profile.InstallFolder,
+                token => _steamCmd.InstallOrUpdateAsync(profile.InstallFolder, profile.Branch, validate, line => OnSteamCmdLineFor(profile.Id, line), token));
+            GetWatch(profile).UpdateFailed = !result.Success;
             if (result.Success)
             {
                 // Clears the pending update the hourly check found: otherwise automation would stop
@@ -542,10 +564,15 @@ public sealed partial class LocalServerViewModel
                 }
             }
 
-            StatusMessage = result.Success
-                ? $"Updated '{profile.Name}' ({BuildSummary}).{(backup is null ? "" : " Worlds and settings were backed up first.")}"
-                : $"Update failed: {result.Message}";
-            RecordEventLine(GetWatch(profile), $"{Clock():HH:mm}  {(result.Success ? "Update installed" : "Update failed")}");
+            var backedUp = backup is null ? "" : " Worlds and settings were backed up first.";
+            StatusMessage = (verify, result.Success) switch
+            {
+                (true, true) => $"Checked the files of '{profile.Name}': any that were damaged or missing were downloaded again ({BuildSummary}).{backedUp}",
+                (true, false) => $"File check failed: {result.Message}",
+                (false, true) => $"Updated '{profile.Name}' ({BuildSummary}).{backedUp}",
+                (false, false) => $"Update failed: {result.Message}",
+            };
+            RecordEventLine(GetWatch(profile), $"{Clock():HH:mm}  {(verify ? result.Success ? "Files checked" : "File check failed" : result.Success ? "Update installed" : "Update failed")}");
             _activityLog.Log(StatusMessage, result.Success ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
         }
         finally
