@@ -97,7 +97,7 @@ Change the game's own items without writing a mod by hand: every one of the game
 its icon, sorted into the categories the game files them under, with filters (what it has, the bench
 that makes it, what the mod you save to already changes). Each item shows the game rows it uses as
 cards: numbers, on/off settings, drop-downs for links (what food spoils into, a recipe's bench),
-storage slots, a recipe's ingredients (add or take out), a workshop price. Change as many items as you
+storage slots, a recipe's ingredients and benches (add or take out), a workshop price. Change as many items as you
 like and save them all into one mod; only what you changed goes in. A shared row (one decay row is
 used by 1,895 items) gets the item's own copy unless you choose to change it for all. **Change many
 at once**: tick items (or a Quick pick: stack size, weight, durability, storage slots…), set,
@@ -326,7 +326,12 @@ keys or tokens) makes it much faster to track down.
 
 ## Changelog
 
-### 4.4.1 (latest)
+### 4.4.2 (latest)
+
+**Added**
+- Editor: a recipe card has **Add bench**: make the recipe at another bench too (the Fabricator as well as the Manufacturer, say). ✕ beside a bench takes it out; the last bench stays, since a recipe needs one. To move a recipe to another bench, add the new one and ✕ the old one, or pick the new one in its **Made at** drop-down.
+
+### 4.4.1
 
 **Fixed**
 - Some antivirus programs (BitDefender and the ones that use its engine: Emsisoft, GData, VIPRE, Arcabit) flagged Starlink's updater, `IcarusStarlink.Updater.exe`, as a trojan. It wasn't one: a new generic signature matched the way the updater was packed, and older Starlink versions are flagged too. The updater is now built as a plain Windows program and none of them flag it. Nothing else changed.
