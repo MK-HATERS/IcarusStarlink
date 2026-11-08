@@ -261,18 +261,24 @@ public sealed partial class LocalServerViewModel
             return false;
         }
 
-        var updated = BuildProfileFromForm(current, strict: true);
-        var settings = updated is null ? null : BuildSettingsFromForm();
-        if (updated is null || settings is null)
+        if (!ValidateFormForSave(current, out var updated, out var settings))
         {
             return false;
         }
 
-        if (Profiles.Any(p => p.Id != updated.Id
-                && string.Equals(p.InstallFolder, updated.InstallFolder, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(p.SavedDirSuffix, updated.SavedDirSuffix, StringComparison.OrdinalIgnoreCase)))
+        // The running server keeps the Saved folder and log it was started with. Saved now, every
+        // later look (running state, log, players, crash detection) would follow the new ones and
+        // lose it: it showed as stopped and crash restart started a second copy on the same ports.
+        // Restart still applies them: its stop comes first, so Running is null by then.
+        var savedFolderChanged =
+            !string.Equals(updated.SavedDirSuffix, (current.SavedDirSuffix ?? "").Trim(), StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(
+                DedicatedServerLayout.LogPath(updated.InstallFolder, updated.SavedDirSuffix, updated.LogFileName),
+                DedicatedServerLayout.LogPath(current.InstallFolder, current.SavedDirSuffix, current.LogFileName),
+                StringComparison.OrdinalIgnoreCase);
+        if (savedFolderChanged && (Running is not null || IsBusy || IsAutomationBusy))
         {
-            ValidationMessage = "Another profile already uses this install with the same Saved suffix — give this one its own suffix (e.g. _2) so their worlds and settings don't collide.";
+            ValidationMessage = "Stop the server first to change the Saved folder suffix or log file name, or click Restart: it saves them and starts the server with them. The running server keeps the old ones until then.";
             return false;
         }
 
@@ -321,6 +327,35 @@ public sealed partial class LocalServerViewModel
             StatusMessage = (Running is not null ? "Saved. Restart the server to apply." : "Saved.")
                 + (ini == IniReconcile.Reloaded ? " ServerSettings.ini had been changed outside Starlink, so its settings were loaded into the form first." : "");
         }
+        return true;
+    }
+
+    /// <summary>
+    /// The form's checks, without writing anything: the profile and settings it would save, or
+    /// false with ValidationMessage set. Restart asks this before it stops the server, so a form
+    /// that can't be saved doesn't leave the server stopped.
+    /// </summary>
+    private bool ValidateFormForSave(
+        DedicatedServerProfile current,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out DedicatedServerProfile? updated,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out DedicatedServerSettings? settings)
+    {
+        updated = BuildProfileFromForm(current, strict: true);
+        settings = updated is null ? null : BuildSettingsFromForm();
+        if (updated is null || settings is null)
+        {
+            return false;
+        }
+
+        var candidate = updated;
+        if (Profiles.Any(p => p.Id != candidate.Id
+                && string.Equals(p.InstallFolder, candidate.InstallFolder, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(p.SavedDirSuffix, candidate.SavedDirSuffix, StringComparison.OrdinalIgnoreCase)))
+        {
+            ValidationMessage = "Another profile already uses this install with the same Saved suffix — give this one its own suffix (e.g. _2) so their worlds and settings don't collide.";
+            return false;
+        }
+
         return true;
     }
 

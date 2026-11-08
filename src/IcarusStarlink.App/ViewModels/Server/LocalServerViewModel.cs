@@ -160,9 +160,10 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasProfile), nameof(HasNoProfile))]
-    // Check for update and Update need a server too: without them here, adding the first server left both greyed out.
+    // Check for update, Update and the two firewall buttons need a server too: without them here,
+    // adding the first server left them greyed out.
     [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(RestartCommand), nameof(SaveSettingsCommand), nameof(RemoveProfileCommand),
-        nameof(CheckForUpdateCommand), nameof(UpdateServerCommand))]
+        nameof(CheckForUpdateCommand), nameof(UpdateServerCommand), nameof(OpenFirewallPortsCommand), nameof(RemoveFirewallRulesCommand))]
     private DedicatedServerProfile? _selectedProfile;
 
     public bool HasProfile => SelectedProfile is not null;
@@ -452,7 +453,26 @@ public sealed partial class LocalServerViewModel : ObservableObject
     {
         // The server being restarted, from the first click to the start: an update on restart takes
         // minutes, and the start at the end used to launch whichever server was selected by then.
-        if (SelectedProfile is not { } profile || !await StopCoreAsync(profile, ask: true))
+        if (SelectedProfile is not { } profile)
+        {
+            return;
+        }
+
+        // The form is checked before anything is stopped: a value it can't save used to show up
+        // only after the stop, and the server (stopped by the owner, so never restarted) stayed down.
+        if (_iniUnreadable)
+        {
+            StatusMessage = $"'{profile.Name}' wasn't restarted: its ServerSettings.ini couldn't be read. Click Save settings first.";
+            return;
+        }
+
+        if (!ValidateFormForSave(profile, out _, out _))
+        {
+            StatusMessage = $"'{profile.Name}' wasn't restarted: fix the settings first ({ValidationMessage}). It is still running.";
+            return;
+        }
+
+        if (!await StopCoreAsync(profile, ask: true))
         {
             return;
         }
@@ -481,10 +501,20 @@ public sealed partial class LocalServerViewModel : ObservableObject
             }
         }
 
-        if (SelectedProfile?.Id == profile.Id && TrySave() && SelectedProfile is { } saved)
+        if (SelectedProfile?.Id != profile.Id)
         {
-            await StartCoreAsync(saved);
+            return;
         }
+
+        if (!TrySave() || SelectedProfile is not { } saved)
+        {
+            // Stopped, but the save before the start failed (the ini question was cancelled, or the
+            // write failed): say so, or the status line read as if the restart had worked.
+            StatusMessage += $" It wasn't started again: {ValidationMessage ?? "its settings couldn't be saved."} Fix that, then click Start.";
+            return;
+        }
+
+        await StartCoreAsync(saved);
     }
 
     /// <summary>
@@ -518,7 +548,18 @@ public sealed partial class LocalServerViewModel : ObservableObject
 
             StatusMessage = $"Stopping '{profile.Name}'…";
             GetWatch(profile).Automation.NoteOwnerStop(running.ProcessId);
-            var clean = await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
+            bool clean;
+            try
+            {
+                clean = await _processes.StopAsync(running, TimeSpan.FromSeconds(60));
+            }
+            catch
+            {
+                // It still runs: a crash of it later is a crash, not this stop.
+                GetWatch(profile).Automation.CancelOwnerStop(running.ProcessId);
+                throw;
+            }
+
             await TickAsync();
             StatusMessage = clean ? $"'{profile.Name}' stopped." : $"'{profile.Name}' didn't close within 60 seconds and was ended. The last autosave is intact.";
             _activityLog.Log(StatusMessage, clean ? ActivityEntryKind.Info : ActivityEntryKind.Warning);
