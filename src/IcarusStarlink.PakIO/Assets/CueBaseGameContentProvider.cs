@@ -30,8 +30,8 @@ namespace IcarusStarlink.PakIO.Assets;
 /// Never throws out of construction (it does no I/O at all until the first TryLoadExport call) or
 /// out of a failed mount (IcarusContentPath unset, the Paks folder missing, or the mount itself
 /// throwing all collapse to a cached null task). A failed mount isn't final, though (at first
-/// launch the game path can still be empty): it's tried again once the Content path changes, or after RetryFailedMountAfter —
-/// never on every call, so a doomed mount isn't redone per lookup.
+/// launch the game path can still be empty): it's tried again once the Content path changes, or
+/// after RetryFailedMountAfter — never on every call, so a doomed mount isn't redone per lookup.
 /// </summary>
 public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGameAssetCatalog, IIdleReleasable
 {

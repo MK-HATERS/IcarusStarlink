@@ -4,8 +4,9 @@ namespace IcarusStarlink.PakIO.Assets;
 /// Real preview support for a .uasset packed inside an opaque/prebuilt-imported pak — unlike a
 /// regular EXMOD mod's own loose files (already sitting on disk, so CueAssetProviderLocator can
 /// index them directly), an opaque pak's own contents only exist packed inside the .pak file that
-/// holds the asset (a bundle has several). This extracts that pak (cached — see the implementation's own doc comment on why, and
-/// what it costs) into a real folder on disk, then runs it through the exact same five decoders
+/// holds the asset (a bundle has several). This extracts that pak (cached — see the
+/// implementation's own doc comment on why, and what it costs) into a real folder on disk, then
+/// runs it through the exact same five decoders
 /// (IUassetTextureDecoder/IUassetStaticMeshDecoder/IUassetSkeletalMeshDecoder/IUassetSoundDecoder/
 /// IUassetMaterialDecoder) a loose EXMOD mod's own preview already uses, in the same order
 /// (LibraryItemViewModel.DecodeCompiledAsset).

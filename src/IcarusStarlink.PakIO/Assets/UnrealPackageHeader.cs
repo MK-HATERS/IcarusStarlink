@@ -124,10 +124,9 @@ public sealed class UnrealPackageHeader
         }
 
         // A count the file's bytes can't hold is refused before anything is allocated for it: a
-        // name takes at least 4 bytes, an import MinImportSize, an export (read only in the 4.27
-        // layout) ExportSize.
+        // name takes at least 4 bytes, an import MinImportSize, an export ExportSize.
         if (nameCount > data.Length / 4 || importCount > data.Length / MinImportSize
-            || (version >= 511 && exportCount > data.Length / ExportSize))
+            || exportCount > data.Length / ExportSize)
         {
             return null;
         }
