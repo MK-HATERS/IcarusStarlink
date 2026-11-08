@@ -25,6 +25,7 @@ internal static class SharedViewChecks
         ("Plain-text tooltip", PlainTextTooltip),
         ("Selected grid row", SelectedGridRow),
         ("Double-click off a row", DoubleClickOffARow),
+        ("Restore picker rows", RestorePickerRows),
         ("Busy bar", BusyBar),
         ("Primary button label", PrimaryButtonLabel),
         ("Primary button with its own TextBlock", PrimaryButtonOwnTextBlock),
@@ -305,6 +306,33 @@ internal static class SharedViewChecks
             }
 
             return dialog.SelectedFile is { } picked ? $"a double-click off the rows picked '{picked.Name}'" : null;
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    /// <summary>The Restore previous install picker builds, starts on the newest build, and says each build's mods (or that its list wasn't saved).</summary>
+    private static string? RestorePickerRows()
+    {
+        var newest = new IcarusStarlink.PakIO.Install.PreviousInstall("b.pak", "b.txt", DateTime.UtcNow, ["A", "B", "C", "D", "E", "F", "G"]);
+        var older = new IcarusStarlink.PakIO.Install.PreviousInstall("a.pak", null, DateTime.UtcNow.AddDays(-1));
+        var dialog = new PickPreviousInstallDialog([newest, older], keptSetting: 3);
+        try
+        {
+            var rows = dialog.InstallsListBox.Items.OfType<PreviousInstallRow>().ToList();
+            if (rows.Count != 2 || dialog.InstallsListBox.SelectedItem is not PreviousInstallRow { Install.PakBackupPath: "b.pak" })
+            {
+                return "the picker didn't list both builds starting on the newest";
+            }
+
+            if (rows[0].Mods != "7 mods: A, B, C, D, E and 2 more" || !rows[0].When.EndsWith("(newest)", StringComparison.Ordinal))
+            {
+                return $"the newest row reads '{rows[0].When}' / '{rows[0].Mods}'";
+            }
+
+            return rows[1].Mods == "Mod list not saved" ? null : $"a build with no list reads '{rows[1].Mods}'";
         }
         finally
         {

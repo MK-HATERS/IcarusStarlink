@@ -1,6 +1,7 @@
 using System.Windows;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog.Nexus;
+using IcarusStarlink.PakIO.Install;
 
 namespace IcarusStarlink.App.Services;
 
@@ -81,6 +82,12 @@ public sealed class WpfDialogService : IDialogService
     {
         var dialog = new PickNexusFileDialog(modName, files, preselect) { Owner = OwnerWindow() };
         return dialog.ShowDialog() == true ? dialog.SelectedFile : null;
+    }
+
+    public PreviousInstall? PickPreviousInstall(IReadOnlyList<PreviousInstall> kept, int keptSetting)
+    {
+        var dialog = new PickPreviousInstallDialog(kept, keptSetting) { Owner = OwnerWindow() };
+        return dialog.ShowDialog() == true ? dialog.SelectedInstall : null;
     }
 
     public void ShowNexusChangelog(string modName, IReadOnlyList<ChangelogVersionEntry> versions) =>

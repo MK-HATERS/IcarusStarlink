@@ -426,7 +426,7 @@
                                 </StackPanel>
                             </Button>
                             <Button Command="{Binding RestorePreviousInstallCommand}" Content="Restore previous install" Margin="8,0,0,4"
-                                    ToolTip="Puts back the merged pak that was installed before the current one. What's installed now is backed up first, so you can switch back. Your ticks stay as they are, so the next Install builds from them again."/>
+                                    ToolTip="Lists the earlier installs Starlink kept, with their date and mods, and puts back the one you pick. What's installed now is backed up first, so you can switch back. Your ticks stay as they are, so the next Install builds from them again."/>
                         </WrapPanel>
                     </StackPanel>
                 </Expander>

@@ -45,6 +45,19 @@ public interface IInstallService
         string icarusContentPath, string backupDirectory,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Every kept backup of the merged pak, newest first, each with its mod list and the mod names in it (BackupCleanup.ListMergedPakBackups). Empty when there's none.</summary>
+    Task<IReadOnlyList<PreviousInstall>> ListPreviousInstallsAsync(string backupDirectory, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// As RestorePreviousInstallAsync, but puts back the build the player chose from
+    /// ListPreviousInstallsAsync, newest or not. What's installed now is backed up first, and the
+    /// chosen backup is kept by the prune after, whatever its age. Null (nothing changed) when the
+    /// chosen pak backup is no longer there.
+    /// </summary>
+    Task<PreviousInstall?> RestoreInstallAsync(
+        string icarusContentPath, string backupDirectory, PreviousInstall chosen,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Reads this app's own manifest back from the real game folder — mod names from the pak's ISL-Merged.txt — for the "installed vs this list" comparison. Empty (never throws) if the manifest, or the game folder itself, doesn't exist yet.</summary>
     Task<InstalledState> GetInstalledStateAsync(string icarusContentPath, CancellationToken cancellationToken = default);
 

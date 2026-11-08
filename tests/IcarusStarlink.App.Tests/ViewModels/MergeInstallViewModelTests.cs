@@ -238,6 +238,12 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
             string title = "", string fieldLabel = "") => throw new NotSupportedException("Not exercised by these tests.");
 
         public string? PickFile(string title, string filter, string? initialDirectory = null) => OnPickFile();
+
+        /// <summary>The Restore previous install picker: gets the kept builds and the Backups to keep count, returns the one chosen (null = Cancel).</summary>
+        public Func<IReadOnlyList<PreviousInstall>, int, PreviousInstall?> OnPickPreviousInstall { get; set; } =
+            (_, _) => throw new InvalidOperationException("Unexpected restore picker.");
+
+        public PreviousInstall? PickPreviousInstall(IReadOnlyList<PreviousInstall> kept, int keptSetting) => OnPickPreviousInstall(kept, keptSetting);
     }
 
     private sealed class FakeGameProcessChecker(bool running) : IGameProcessChecker
@@ -1786,27 +1792,65 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         Assert.Contains("Icarus is running", vm.InstallStatusMessage);
     }
 
-    /// <summary>Restore previous install asks first, then puts the backup back.</summary>
+    /// <summary>
+    /// Restore previous install lists every kept build in a picker (with the Backups to keep count
+    /// for its note). Cancel changes nothing; choosing an older build puts that one back.
+    /// </summary>
     [Fact]
-    public async Task RestorePreviousInstall_AsksThenRestores()
+    public async Task RestorePreviousInstall_PickerCancelChangesNothing_ChoosingPutsThatBuildBack()
     {
         var settings = new FakeSettingsService();
         settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
+        settings.Current.MergedPakBackupsKept = 4;
         var install = new FakeInstallService();
         var vm = CreateViewModel(installService: install, settingsService: settings);
 
         await vm.RestorePreviousInstallCommand.ExecuteAsync(null);
         Assert.Contains("no earlier install", vm.InstallStatusMessage);
 
-        install.Previous = new PreviousInstall("old.pak", "old.txt", DateTime.UtcNow);
-        _dialogs.OnConfirm = (_, _) => false;
+        var newest = new PreviousInstall("new.pak", "new.txt", DateTime.UtcNow, ["Mod B"]);
+        var older = new PreviousInstall("old.pak", null, DateTime.UtcNow.AddDays(-1));
+        install.Kept = [newest, older];
+        IReadOnlyList<PreviousInstall>? offered = null;
+        var offeredCount = 0;
+        _dialogs.OnPickPreviousInstall = (kept, keptSetting) =>
+        {
+            offered = kept;
+            offeredCount = keptSetting;
+            return null;
+        };
         await vm.RestorePreviousInstallCommand.ExecuteAsync(null);
+        Assert.Equal([newest, older], offered!);
+        Assert.Equal(4, offeredCount);
         Assert.Equal(0, install.RestoreCallCount);
 
-        _dialogs.OnConfirm = (_, _) => true;
+        _dialogs.OnPickPreviousInstall = (kept, _) => kept[1];
         await vm.RestorePreviousInstallCommand.ExecuteAsync(null);
-        Assert.Equal(1, install.RestoreCallCount);
+        Assert.Equal([older], install.Restored);
         Assert.Contains("Restored", vm.InstallStatusMessage);
+        // That build's mod list wasn't kept: the message says so.
+        Assert.Contains("mod list", vm.InstallStatusMessage);
+    }
+
+    /// <summary>Icarus started while the picker was open: nothing is restored.</summary>
+    [Fact]
+    public async Task RestorePreviousInstall_GameStartsWhilePickerIsOpen_RestoresNothing()
+    {
+        var settings = new FakeSettingsService();
+        settings.Current.IcarusContentPath = Path.Combine(_tempRoot, "Content");
+        var install = new FakeInstallService { Previous = new PreviousInstall("old.pak", "old.txt", DateTime.UtcNow, ["Mod A"]) };
+        var game = new FakeGameProcessChecker(running: false);
+        var vm = CreateViewModel(installService: install, settingsService: settings, game: game);
+        _dialogs.OnPickPreviousInstall = (kept, _) =>
+        {
+            game.Running = true;
+            return kept[0];
+        };
+
+        await vm.RestorePreviousInstallCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, install.RestoreCallCount);
+        Assert.Contains("Icarus started", vm.InstallStatusMessage);
     }
 
     /// <summary>
@@ -2941,6 +2985,22 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         {
             RestoreCallCount++;
             return Task.FromResult(Previous);
+        }
+
+        /// <summary>Every kept build, newest first; just Previous when not set.</summary>
+        public IReadOnlyList<PreviousInstall>? Kept { get; set; }
+
+        /// <summary>The build each RestoreInstallAsync was asked to put back.</summary>
+        public List<PreviousInstall> Restored { get; } = [];
+
+        public Task<IReadOnlyList<PreviousInstall>> ListPreviousInstallsAsync(string backupDirectory, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Kept ?? (Previous is null ? [] : [Previous]));
+
+        public Task<PreviousInstall?> RestoreInstallAsync(string icarusContentPath, string backupDirectory, PreviousInstall chosen, CancellationToken cancellationToken = default)
+        {
+            RestoreCallCount++;
+            Restored.Add(chosen);
+            return Task.FromResult<PreviousInstall?>(chosen);
         }
 
         public IReadOnlyList<string> InstalledModNames { get; set; } = [];

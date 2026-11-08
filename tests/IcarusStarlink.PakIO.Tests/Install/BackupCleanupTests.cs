@@ -307,6 +307,49 @@ public class BackupCleanupTests : IDisposable
         Assert.Null(BackupCleanup.FindNewestMergedPakBackup(Path.Combine(_tempDir, "nowhere")));
     }
 
+    /// <summary>Every kept build is listed newest first, each with the mod list backed up with it; a build whose list wasn't kept has none.</summary>
+    [Fact]
+    public void ListMergedPakBackups_NewestFirst_EachWithItsModList()
+    {
+        var oldest = WriteFile("zz_zz_ISL-Merged_9999_P_20261014-100000.pak");
+        var middle = WriteFile("ISL-Merged_P_20261015-100000.pak");
+        var newest = WriteFile("ISL-Merged_P_20261016-100000.pak");
+        File.WriteAllText(Path.Combine(_backups, "ISL-Merged_20261014-100002.txt"), "Includes the following mods:\nMod A\nMod B");
+        // The middle build's list is gone; the next one's (a day later) mustn't be taken for it.
+        var newestList = Path.Combine(_backups, "ISL-Merged_20261016-100001.txt");
+        File.WriteAllText(newestList, "Includes the following mods:\nMod C\nGameplay options applied:\nStacks x2");
+
+        var all = BackupCleanup.ListMergedPakBackups(_backups);
+
+        Assert.Equal([newest, middle, oldest], all.Select(p => p.PakBackupPath));
+        Assert.Equal(newestList, all[0].ManifestBackupPath);
+        Assert.Equal(["Mod C"], all[0].ModNames!);
+        Assert.Null(all[1].ManifestBackupPath);
+        Assert.Null(all[1].ModNames);
+        Assert.Equal(["Mod A", "Mod B"], all[2].ModNames!);
+        Assert.Equal(newest, BackupCleanup.FindNewestMergedPakBackup(_backups)!.PakBackupPath);
+        Assert.Empty(BackupCleanup.ListMergedPakBackups(Path.Combine(_tempDir, "nowhere")));
+    }
+
+    /// <summary>A build the player is restoring is kept by the prune even when it's older than the count kept.</summary>
+    [Fact]
+    public void PruneMergedPakBackups_KeepsAPinnedOlderBackup()
+    {
+        var chosenPak = WriteFile("ISL-Merged_P_20261014-100000.pak");
+        var chosenList = WriteFile("ISL-Merged_20261014-100001.txt");
+        WriteFile("ISL-Merged_P_20261015-100000.pak");
+        WriteFile("ISL-Merged_20261015-100001.txt");
+        WriteFile("ISL-Merged_P_20261016-100000.pak");
+        WriteFile("ISL-Merged_20261016-100001.txt");
+
+        BackupCleanup.PruneMergedPakBackups(_backups, keep: 1, pinned: [chosenPak, chosenList]);
+
+        Assert.Equal(
+            ["ISL-Merged_20261014-100001.txt", "ISL-Merged_20261016-100001.txt",
+             "ISL-Merged_P_20261014-100000.pak", "ISL-Merged_P_20261016-100000.pak"],
+            RootFileNames().Order(StringComparer.Ordinal));
+    }
+
     /// <summary>Two installs in one second: the pak backup numbered _2 pairs with the mod list numbered _2, not the first one's.</summary>
     [Fact]
     public void FindNewestMergedPakBackup_TwoInstallsInOneSecond_PairsTheSameNumber()

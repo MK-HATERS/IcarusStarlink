@@ -513,7 +513,7 @@ public class InstallServiceTests : IDisposable
         Assert.Equal(["staged pak v2 bytes"], PakBackupContents());
     }
 
-    /// <summary>With only 1 kept, Restore previous install still has the backup it restores: backing up what's installed first must not trim it away.</summary>
+    /// <summary>With only 1 kept, Restore previous install still has the backup it restores: backing up what's installed first must not trim it away. The restored build stays kept too, beside the newest.</summary>
     [Fact]
     public async Task RestorePreviousInstallAsync_KeepingOne_StillRestoresThePreviousPak()
     {
@@ -526,7 +526,75 @@ public class InstallServiceTests : IDisposable
 
         Assert.NotNull(restored);
         Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(TargetPakPath));
-        Assert.Equal(["staged pak v2 bytes"], PakBackupContents());
+        Assert.Equal(["staged pak v1 bytes", "staged pak v2 bytes"], PakBackupContents());
+    }
+
+    /// <summary>Installs builds 1..count (mod list "Mod 1".."Mod n"), a second apart as in real use, so each list pairs with its pak by time.</summary>
+    private async Task InstallBuildsAsync(InstallService service, int count)
+    {
+        for (var i = 1; i <= count; i++)
+        {
+            await File.WriteAllTextAsync(_stagedPakPath, $"build {i}");
+            await File.WriteAllTextAsync(_stagedManifestPath, $"Includes the following mods:\nMod {i}");
+            await service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
+            await Task.Delay(1100);
+        }
+    }
+
+    /// <summary>The player picks a kept build that isn't the newest: that one goes in, with its own mod list, and what was installed is backed up.</summary>
+    [Fact]
+    public async Task RestoreInstallAsync_AnOlderBuild_PutsThatOneBack()
+    {
+        await InstallBuildsAsync(_service, 3);
+        var kept = await _service.ListPreviousInstallsAsync(_backupDirectory);
+        Assert.Equal(["Mod 2", "Mod 1"], kept.Select(p => p.ModNames!.Single()));
+
+        var restored = await _service.RestoreInstallAsync(_fakeContentPath, _backupDirectory, kept[1]);
+
+        Assert.NotNull(restored);
+        Assert.Equal("build 1", await File.ReadAllTextAsync(TargetPakPath));
+        Assert.Equal(["Mod 1"], (await _service.GetInstalledStateAsync(_fakeContentPath)).ModNames);
+        var now = await _service.ListPreviousInstallsAsync(_backupDirectory);
+        Assert.Equal("build 3", await File.ReadAllTextAsync(now[0].PakBackupPath));
+        Assert.Equal(["Mod 3"], now[0].ModNames!);
+    }
+
+    /// <summary>
+    /// The chosen build is the oldest one kept: backing up what's installed (and the prune after)
+    /// must not delete it first, at the default 3 and at 1. It stays kept after the restore too.
+    /// </summary>
+    [Theory]
+    [InlineData(3)]
+    [InlineData(1)]
+    public async Task RestoreInstallAsync_TheOldestKeptBuild_SurvivesThePrune(int keep)
+    {
+        var service = ServiceKeeping(keep);
+        await InstallBuildsAsync(service, keep + 1);
+        var kept = await service.ListPreviousInstallsAsync(_backupDirectory);
+        Assert.Equal(keep, kept.Count);
+        var chosen = kept[^1];
+
+        var restored = await service.RestoreInstallAsync(_fakeContentPath, _backupDirectory, chosen);
+
+        Assert.NotNull(restored);
+        Assert.Equal("build 1", await File.ReadAllTextAsync(TargetPakPath));
+        Assert.Equal(["Mod 1"], (await service.GetInstalledStateAsync(_fakeContentPath)).ModNames);
+        Assert.True(File.Exists(chosen.PakBackupPath));
+        Assert.True(File.Exists(chosen.ManifestBackupPath));
+        Assert.Contains($"build {keep + 1}", PakBackupContents());
+    }
+
+    /// <summary>A build whose backup was deleted since the list was read: nothing is changed.</summary>
+    [Fact]
+    public async Task RestoreInstallAsync_BackupGone_ReturnsNullAndTouchesNothing()
+    {
+        await InstallBuildsAsync(_service, 2);
+        var chosen = (await _service.ListPreviousInstallsAsync(_backupDirectory))[0];
+        File.Delete(chosen.PakBackupPath);
+
+        Assert.Null(await _service.RestoreInstallAsync(_fakeContentPath, _backupDirectory, chosen));
+        Assert.Equal("build 2", await File.ReadAllTextAsync(TargetPakPath));
+        Assert.Empty(PakBackupContents());
     }
 
     // ---- backUpWhatsThere (Find the broken mod: only the first round backs up) ----

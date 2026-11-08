@@ -7,7 +7,8 @@ namespace IcarusStarlink.PakIO.Install;
 public sealed record BackupCleanupResult(int DeletedCount, long FreedBytes, int FailedCount);
 
 /// <summary>A merged pak backup and the backup of its mod list (ISL-Merged.txt) made with it, if there is one.</summary>
-public sealed record PreviousInstall(string PakBackupPath, string? ManifestBackupPath, DateTime BackedUpAtUtc);
+/// <param name="ModNames">The mods in that list, read by ListMergedPakBackups; null when the list wasn't kept or couldn't be read.</param>
+public sealed record PreviousInstall(string PakBackupPath, string? ManifestBackupPath, DateTime BackedUpAtUtc, IReadOnlyList<string>? ModNames = null);
 
 /// <summary>
 /// Keeps the app's Backups folder from growing without end. Two jobs: the merged pak's backups
@@ -189,7 +190,8 @@ public static class BackupCleanup
     /// The merged pak's backups in backupDirectory, under its current and every earlier name,
     /// trimmed to the newest keep overall. Called after Install backs up the game's merged pak.
     /// </summary>
-    public static void PruneMergedPakBackups(string backupDirectory, int keep = MergedPakBackupsKept)
+    /// <param name="pinned">Backups kept whatever their age (the build Restore previous install just put back), on top of the newest keep.</param>
+    public static void PruneMergedPakBackups(string backupDirectory, int keep = MergedPakBackupsKept, IReadOnlyCollection<string>? pinned = null)
     {
         if (!Directory.Exists(backupDirectory))
         {
@@ -201,10 +203,78 @@ public static class BackupCleanup
         var entries = ParseEntries(backupDirectory);
         foreach (var setKey in new[] { MergedPakSetKey, MergedManifestSetKey })
         {
-            foreach (var stale in StaleEntries(entries.Where(e => e.SetKey == setKey), Math.Max(1, keep)))
+            var stale = StaleEntries(entries.Where(e => e.SetKey == setKey), Math.Max(1, keep))
+                .Where(e => pinned is null || !pinned.Contains(e.Path, StringComparer.OrdinalIgnoreCase));
+            foreach (var entry in stale)
             {
-                TryDelete(stale);
+                TryDelete(entry);
             }
+        }
+    }
+
+    /// <summary>
+    /// Every merged pak backup in backupDirectory (under its current or an earlier name), newest
+    /// first, each with the ISL-Merged.txt backup made by the same install or remove (paired as
+    /// FindNewestMergedPakBackup does) and the mod names read from it. Empty when there's none.
+    /// Reads small text files: call it off the UI thread.
+    /// </summary>
+    public static IReadOnlyList<PreviousInstall> ListMergedPakBackups(string backupDirectory)
+    {
+        if (!Directory.Exists(backupDirectory))
+        {
+            return [];
+        }
+
+        var entries = ParseEntries(backupDirectory);
+        var manifests = entries
+            .Where(e => e.SetKey == MergedManifestSetKey)
+            .Select(e => (Entry: e, Ok: TryParseStamp(e.SortStamp, out var t), Time: t))
+            .Where(m => m.Ok)
+            .ToList();
+        var result = new List<PreviousInstall>();
+        foreach (var pak in NewestFirst(entries.Where(e => e.SetKey == MergedPakSetKey)))
+        {
+            if (!TryParseStamp(pak.SortStamp, out var pakTime))
+            {
+                continue;
+            }
+
+            var manifest = PairedManifest(pak, pakTime, manifests);
+            result.Add(new PreviousInstall(pak.Path, manifest, pakTime, ReadModNames(manifest)));
+        }
+
+        return result;
+    }
+
+    /// <summary>The ISL-Merged.txt backup made by the same install as this pak backup: the list is backed up a few seconds after the pak.</summary>
+    private static string? PairedManifest(BackupEntry pak, DateTime pakTime, IEnumerable<(BackupEntry Entry, bool Ok, DateTime Time)> manifests) =>
+        manifests
+            .Where(m => m.Time >= pakTime - TimeSpan.FromMinutes(1) && m.Time <= pakTime + ManifestPairWindow)
+            .OrderBy(m => (m.Time - pakTime).Duration())
+            // On a tie, the list made at or after the pak is its pair: every install, remove and
+            // restore backs up the pak first. Only a tie-break: a list from minutes later must not
+            // beat one from a second before.
+            .ThenBy(m => m.Time >= pakTime ? 0 : 1)
+            // Two installs in one second: the list with the pak's own collision number is its pair.
+            .ThenBy(m => m.Entry.Suffix == pak.Suffix ? 0 : 1)
+            .ThenByDescending(m => m.Entry.Suffix)
+            .Select(m => m.Entry.Path)
+            .FirstOrDefault();
+
+    private static IReadOnlyList<string>? ReadModNames(string? manifestPath)
+    {
+        if (manifestPath is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return IcarusStarlink.Core.Library.ModListText.ParseNames(File.ReadAllText(manifestPath));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 
@@ -213,43 +283,14 @@ public static class BackupCleanup
     /// the ISL-Merged.txt backup made by the same install or remove, paired by time: the list is
     /// backed up a few seconds after the pak. Null when there's no pak backup.
     /// </summary>
-    public static PreviousInstall? FindNewestMergedPakBackup(string backupDirectory)
-    {
-        if (!Directory.Exists(backupDirectory))
-        {
-            return null;
-        }
+    public static PreviousInstall? FindNewestMergedPakBackup(string backupDirectory) =>
+        ListMergedPakBackups(backupDirectory).FirstOrDefault();
 
-        var entries = ParseEntries(backupDirectory);
-        var newestPak = Newest(entries.Where(e => e.SetKey == MergedPakSetKey));
-        if (newestPak is null || !TryParseStamp(newestPak.SortStamp, out var pakTime))
-        {
-            return null;
-        }
-
-        var manifest = entries
-            .Where(e => e.SetKey == MergedManifestSetKey)
-            .Select(e => (Entry: e, Ok: TryParseStamp(e.SortStamp, out var t), Time: t))
-            .Where(m => m.Ok && m.Time >= pakTime - TimeSpan.FromMinutes(1) && m.Time <= pakTime + ManifestPairWindow)
-            .OrderBy(m => (m.Time - pakTime).Duration())
-            // On a tie, the list made at or after the pak is its pair: every install, remove and
-            // restore backs up the pak first. Only a tie-break: a list from minutes later must not
-            // beat one from a second before.
-            .ThenBy(m => m.Time >= pakTime ? 0 : 1)
-            // Two installs in one second: the list with the pak's own collision number is its pair.
-            .ThenBy(m => m.Entry.Suffix == newestPak.Suffix ? 0 : 1)
-            .ThenByDescending(m => m.Entry.Suffix)
-            .Select(m => m.Entry.Path)
-            .FirstOrDefault();
-        return new PreviousInstall(newestPak.Path, manifest, pakTime);
-    }
-
-    private static BackupEntry? Newest(IEnumerable<BackupEntry> entries) =>
+    private static IEnumerable<BackupEntry> NewestFirst(IEnumerable<BackupEntry> entries) =>
         entries
             .OrderByDescending(e => e.SortStamp, StringComparer.Ordinal)
             .ThenByDescending(e => e.Suffix)
-            .ThenByDescending(e => Path.GetFileName(e.Path), StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
+            .ThenByDescending(e => Path.GetFileName(e.Path), StringComparer.OrdinalIgnoreCase);
 
     private static bool TryParseStamp(string sortStamp, out DateTime time) =>
         DateTime.TryParseExact(sortStamp, "yyyyMMddHHmmss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out time);

@@ -865,9 +865,9 @@ public sealed partial class MergeInstallViewModel
     }
 
     /// <summary>
-    /// Puts the install before the current one back: the newest merged pak backup and the mod list
-    /// backed up with it (Install and Remove back both up first). What's installed now is backed up
-    /// first, so running this again undoes it.
+    /// Puts an earlier install back: the player picks one of the kept merged pak backups (newest
+    /// first, each with the mod list backed up with it; Install and Remove back both up first).
+    /// What's installed now is backed up first, so running this again undoes it.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private Task RestorePreviousInstallAsync() => RunInstallStepAsync(RestorePreviousInstallCoreAsync);
@@ -887,33 +887,37 @@ public sealed partial class MergeInstallViewModel
 
         try
         {
-            if (await _installService.FindPreviousInstallAsync(_backupDirectory) is not { } previous)
+            var kept = await _installService.ListPreviousInstallsAsync(_backupDirectory);
+            if (kept.Count == 0)
             {
                 InstallStatusMessage = "There's no earlier install backed up to restore.";
                 return;
             }
 
-            var listNote = previous.ManifestBackupPath is null
-                ? "\n\nIts mod list wasn't backed up with it, so the Library won't show which mods are in the game until the next Merge & Install."
-                : "";
-            if (!ConfirmWithGameClosed(
-                $"This puts back the merged pak that was installed before (backed up {previous.BackedUpAtUtc.ToLocalTime():g}), with its mod list.{listNote}\n\n"
-                + "What's installed now is backed up first, so you can switch back the same way.\n\nContinue?",
-                "Restore previous install", retry: "try again"))
+            // The picker is the question: its Restore button is the yes, Cancel changes nothing.
+            if (_dialogs.PickPreviousInstall(kept, BackupLimits.MergedPakKept(_settingsService)) is not { } chosen)
+            {
+                return;
+            }
+
+            if (RefuseWhileGameRunning("Icarus started while the window was open — close it, then try again."))
             {
                 return;
             }
 
             InstallStatusMessage = "Restoring…";
-            var restored = await _installService.RestorePreviousInstallAsync(
-                _settingsService.Current.IcarusContentPath!, _backupDirectory);
+            var restored = await _installService.RestoreInstallAsync(
+                _settingsService.Current.IcarusContentPath!, _backupDirectory, chosen);
             if (restored is null)
             {
-                InstallStatusMessage = "There's no earlier install backed up to restore.";
+                InstallStatusMessage = "That backup isn't there any more, so nothing was changed. Click Restore previous install to pick again.";
                 return;
             }
 
-            InstallStatusMessage = $"Restored the install from {restored.BackedUpAtUtc.ToLocalTime():g}. What was installed is backed up. Your ticks stay as they are: the next Install builds from them again.";
+            var listNote = restored.ManifestBackupPath is null
+                ? " Its mod list wasn't saved, so the Library won't show which mods are in the game until the next Install."
+                : "";
+            InstallStatusMessage = $"Restored the install from {restored.BackedUpAtUtc.ToLocalTime():g}. What was installed is backed up.{listNote} Your ticks stay as they are: the next Install builds from them again.";
             _activityLog.Log($"Restored the previous install ({Path.GetFileName(restored.PakBackupPath)}).", ActivityEntryKind.Success);
             SetHasExistingInstall(true);
             await RefreshInstalledModNamesAsync();

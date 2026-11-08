@@ -1,5 +1,6 @@
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog.Nexus;
+using IcarusStarlink.PakIO.Install;
 
 namespace IcarusStarlink.App.Services;
 
@@ -69,6 +70,13 @@ public interface IDialogService
 
     /// <summary>Which of a Nexus mod's files to download, <paramref name="preselect"/> chosen to start with; null when cancelled.</summary>
     NexusModFile? PickNexusFile(string modName, IReadOnlyList<NexusModFile> files, NexusModFile? preselect) => null;
+
+    /// <summary>
+    /// Restore previous install's picker: the kept builds (newest first) with their date and mods,
+    /// and a note that Settings' Backups to keep (<paramref name="keptSetting"/>) sets how many
+    /// are kept. Returns the build to put back; null when cancelled (the default).
+    /// </summary>
+    PreviousInstall? PickPreviousInstall(IReadOnlyList<PreviousInstall> kept, int keptSetting) => null;
 
     /// <summary>Shows a Nexus mod's changelog in its own window, without waiting for it to close.</summary>
     void ShowNexusChangelog(string modName, IReadOnlyList<ChangelogVersionEntry> versions)
