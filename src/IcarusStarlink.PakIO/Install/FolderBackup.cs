@@ -15,7 +15,19 @@ public static class FolderBackup
 {
     private const int MaxBackups = 5;
 
-    /// <summary>Copies sourceFolder into backupBaseDirectory under a timestamped name, then prunes older backups of the same folder name beyond MaxBackups. No-op if sourceFolder doesn't exist.</summary>
+    /// <summary>
+    /// Put between a folder backup's own name and a random id while it is being copied:
+    /// "{name}_yyyyMMdd-HHmmss.partial-{32 hex}". No backup lookup matches that name, and
+    /// BackupCleanup removes one left by a crash.
+    /// </summary>
+    internal const string PartialMarker = ".partial-";
+
+    /// <summary>
+    /// Copies sourceFolder into backupBaseDirectory under a timestamped name, then prunes older
+    /// backups of the same folder name beyond MaxBackups. No-op if sourceFolder doesn't exist. A
+    /// copy that fails throws and leaves no backup behind; a stale backup that can't be pruned
+    /// doesn't throw.
+    /// </summary>
     public static void BackupFolder(string sourceFolder, string backupBaseDirectory)
     {
         if (!Directory.Exists(sourceFolder))
@@ -26,11 +38,25 @@ public static class FolderBackup
         Directory.CreateDirectory(backupBaseDirectory);
         var name = Path.GetFileName(sourceFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         var backupPath = MakeUniqueTimestampedPath(backupBaseDirectory, name, DateTimeOffset.UtcNow);
-        CopyDirectory(sourceFolder, backupPath);
+
+        // Copied under a name no backup lookup matches and renamed only once whole: a copy that stops
+        // partway (a full disk, a locked file) must never become the "latest backup" a restore puts back.
+        var partialPath = backupPath + PartialMarker + Guid.NewGuid().ToString("N");
+        try
+        {
+            CopyDirectory(sourceFolder, partialPath);
+            Directory.Move(partialPath, backupPath);
+        }
+        catch
+        {
+            Directories.TryDelete(partialPath);
+            throw;
+        }
+
         PruneOldFolderBackups(backupBaseDirectory, name);
     }
 
-    /// <summary>Copies sourceFile into backupDirectory under a timestamped name, then prunes older backups of the same base name beyond maxBackups (MaxBackups if not specified). No-op if sourceFile doesn't exist. Returns the backup path, or null if there was nothing to back up.</summary>
+    /// <summary>Copies sourceFile into backupDirectory under a timestamped name, then prunes older backups of the same base name beyond maxBackups (MaxBackups if not specified). No-op if sourceFile doesn't exist. Returns the backup path, or null if there was nothing to back up. A failed copy throws; a stale backup that can't be pruned doesn't.</summary>
     public static string? BackupFile(string sourceFile, string backupDirectory, int maxBackups = MaxBackups)
     {
         if (!File.Exists(sourceFile))
@@ -155,23 +181,36 @@ public static class FolderBackup
             .Select(b => b.Path)
             .ToList();
 
+    /// <summary>
+    /// Best effort, like BackupCleanup.PruneMergedPakBackups: the new backup is already made, and
+    /// one old backup held open (FModel) or read-only must not turn it into a failed backup that
+    /// stops an install or a save. What's left goes on the next backup's trim or Clean up backups.
+    /// </summary>
     private static void PruneOldFolderBackups(string backupDirectory, string name)
     {
         var backups = EnumerateFolderBackups(backupDirectory, name);
 
         foreach (var stale in backups.Skip(MaxBackups))
         {
-            Directory.Delete(stale, recursive: true);
+            Directories.TryDelete(stale);
         }
     }
 
+    /// <summary>Best effort, for the same reason as PruneOldFolderBackups.</summary>
     private static void PruneOldFileBackups(string backupDirectory, string baseName, string extension, int maxBackups)
     {
         var backups = EnumerateFileBackups(backupDirectory, baseName, extension);
 
         foreach (var stale in backups.Skip(maxBackups))
         {
-            File.Delete(stale);
+            try
+            {
+                File.Delete(stale);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Left for the next backup's trim or Clean up backups.
+            }
         }
     }
 }

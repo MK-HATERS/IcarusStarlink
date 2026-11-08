@@ -87,4 +87,100 @@ public class FolderBackupTests
         Assert.False(FolderBackup.IsTimestampedBackupOf("Foo_2_20261020-130509", "Foo"));
         Assert.False(FolderBackup.IsTimestampedBackupOf("Foo_20261020-130509.pak", "Foo"));
     }
+
+    /// <summary>
+    /// Regression: a copy that stopped partway (a full disk, a file locked with no sharing) used to
+    /// stay as the newest "Mod_stamp" backup, and Restore latest backup then put that partial copy
+    /// over the whole mod.
+    /// </summary>
+    [Fact]
+    public void BackupFolder_CopyFailsPartway_LeavesNoBackup()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(directory, "Mod");
+        var backups = Path.Combine(directory, "Backups");
+        Directory.CreateDirectory(Path.Combine(source, "sub"));
+        File.WriteAllText(Path.Combine(source, "a.txt"), "a");
+        File.WriteAllText(Path.Combine(source, "sub", "b.txt"), "b");
+        try
+        {
+            using (new FileStream(Path.Combine(source, "sub", "b.txt"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Assert.ThrowsAny<IOException>(() => FolderBackup.BackupFolder(source, backups));
+            }
+
+            Assert.Empty(FolderBackup.EnumerateFolderBackups(backups, "Mod"));
+            Assert.Empty(Directory.GetFileSystemEntries(backups));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Regression: an old backup held open (FModel) or read-only made the trim after a backup throw,
+    /// and Install failed with "the pak is in use" although the new backup had been made.
+    /// </summary>
+    [Fact]
+    public void BackupFile_AnOldBackupIsHeld_StillBacksUp()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+        var backups = Path.Combine(directory, "Backups");
+        Directory.CreateDirectory(backups);
+        var source = Path.Combine(directory, "X.pak");
+        File.WriteAllText(source, "new");
+        var oldest = Path.Combine(backups, "X_20261001-120000.pak");
+        var older = Path.Combine(backups, "X_20261002-120000.pak");
+        File.WriteAllText(oldest, "1");
+        File.WriteAllText(older, "2");
+        try
+        {
+            string? backup;
+            using (new FileStream(oldest, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                backup = FolderBackup.BackupFile(source, backups, maxBackups: 1);
+            }
+
+            Assert.NotNull(backup);
+            Assert.Equal("new", File.ReadAllText(backup));
+            Assert.False(File.Exists(older));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>Same as the file case: one held old folder backup must not make the new backup fail.</summary>
+    [Fact]
+    public void BackupFolder_AnOldBackupFolderIsHeld_StillBacksUp()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(directory, "Mod");
+        var backups = Path.Combine(directory, "Backups");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(Path.Combine(source, "a.txt"), "new");
+        for (var day = 1; day <= 6; day++)
+        {
+            var old = Path.Combine(backups, $"Mod_2026100{day}-120000");
+            Directory.CreateDirectory(old);
+            File.WriteAllText(Path.Combine(old, "a.txt"), "old");
+        }
+
+        try
+        {
+            using (new FileStream(Path.Combine(backups, "Mod_20261001-120000", "a.txt"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                FolderBackup.BackupFolder(source, backups);
+            }
+
+            var newest = FolderBackup.EnumerateFolderBackups(backups, "Mod")[0];
+            Assert.Equal("new", File.ReadAllText(Path.Combine(newest, "a.txt")));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }

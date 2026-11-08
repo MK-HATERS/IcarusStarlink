@@ -281,6 +281,43 @@ public class BackupCleanupTests : IDisposable
         Assert.Equal(paired, found.ManifestBackupPath);
     }
 
+    /// <summary>
+    /// Regression: when the clock ticked between the pak copy and the list copy, the previous
+    /// action's list (1 s before the pak) tied with this action's list (1 s after it), and the
+    /// older one won by name order, so Restore previous install put the right pak back with the
+    /// wrong mod list.
+    /// </summary>
+    [Fact]
+    public void FindNewestMergedPakBackup_ListsOneSecondEitherSide_PairsTheOneAfter()
+    {
+        WriteFile("zz_zz_ISL-Merged_9999_P_20261016-220125.pak");
+        WriteFile("ISL-Merged_20261016-220124.txt");
+        var after = WriteFile("ISL-Merged_20261016-220126.txt");
+
+        var found = BackupCleanup.FindNewestMergedPakBackup(_backups)!;
+
+        Assert.Equal(after, found.ManifestBackupPath);
+    }
+
+    /// <summary>
+    /// A backup copy cut off by a crash leaves its ".partial-" scratch folder behind. Clean up
+    /// removes one that has sat for a while, and leaves one that may still be being written.
+    /// </summary>
+    [Fact]
+    public void CleanUp_RemovesAnOldPartialBackup_KeepsAFreshOne()
+    {
+        var old = WriteFolder(Path.Combine("Mods", "Foo_20261020-130509.partial-" + Guid.NewGuid().ToString("N")));
+        Directory.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-2));
+        var fresh = WriteFolder(Path.Combine("Mods", "Foo_20261020-130510.partial-" + Guid.NewGuid().ToString("N")));
+
+        var result = BackupCleanup.CleanUp(_backups);
+
+        Assert.False(Directory.Exists(old));
+        Assert.True(Directory.Exists(fresh));
+        Assert.Equal(1, result.DeletedCount);
+        Assert.Equal(10, result.FreedBytes);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))

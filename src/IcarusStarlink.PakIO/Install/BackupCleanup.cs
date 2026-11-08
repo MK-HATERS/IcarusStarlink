@@ -49,6 +49,14 @@ public static class BackupCleanup
         AttributesToSkip = FileAttributes.ReparsePoint,
     };
 
+    // A folder backup still being copied (FolderBackup.PartialMarker): "{name}_yyyyMMdd-HHmmss[_N].partial-{32 hex}".
+    private static readonly Regex PartialBackup = new(
+        @"^.+_\d{8}-\d{6}(?:_\d+)?\.partial-[0-9a-f]{32}$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>A partial folder backup untouched this long was left by a crash, not one still being copied.</summary>
+    private static readonly TimeSpan PartialBackupAge = TimeSpan.FromHours(1);
+
     /// <summary>A manifest backup this long after a pak backup was made by the same install (the pak copy in between takes a few seconds).</summary>
     private static readonly TimeSpan ManifestPairWindow = TimeSpan.FromMinutes(10);
 
@@ -83,7 +91,8 @@ public static class BackupCleanup
     /// Keeps only the newest keepPerSet backups of each mod and server under backupsRoot, and the
     /// newest keepMergedPak of the merged pak and its mod list (keepPerSet when not given, so
     /// Clean up never trims Restore previous install below its own setting), and deletes the
-    /// rest. Never fewer than 1, so the newest backup of anything stays.
+    /// rest. Never fewer than 1, so the newest backup of anything stays. Also removes folder
+    /// backups a crash cut off mid-copy (see AbandonedPartialBackups).
     /// </summary>
     public static BackupCleanupResult CleanUp(string backupsRoot, int keepPerSet = KeptPerSetOnCleanUp, int? keepMergedPak = null)
     {
@@ -99,10 +108,12 @@ public static class BackupCleanup
 
         foreach (var directory in BackupDirectories(backupsRoot, 0))
         {
-            foreach (var stale in StaleEntries(ParseEntries(directory), keepPerSet, mergedKeep))
+            var stale = StaleEntries(ParseEntries(directory), keepPerSet, mergedKeep)
+                .Concat(AbandonedPartialBackups(directory));
+            foreach (var entry in stale)
             {
-                var size = stale.IsFolder ? MeasureBytes(stale.Path) : SafeLength(stale.Path);
-                if (TryDelete(stale))
+                var size = entry.IsFolder ? MeasureBytes(entry.Path) : SafeLength(entry.Path);
+                if (TryDelete(entry))
                 {
                     deleted++;
                     freed += size;
@@ -115,6 +126,33 @@ public static class BackupCleanup
         }
 
         return new BackupCleanupResult(deleted, freed, failed);
+    }
+
+    /// <summary>
+    /// Folder backups a crash cut off mid-copy (a failed copy removes its own): never a backup, so
+    /// no restore uses them, but they hold space. One written to within the last hour is left, as
+    /// it may still be being copied.
+    /// </summary>
+    private static List<BackupEntry> AbandonedPartialBackups(string directory)
+    {
+        var abandoned = new List<BackupEntry>();
+        try
+        {
+            foreach (var folder in Directory.GetDirectories(directory))
+            {
+                if (PartialBackup.IsMatch(Path.GetFileName(folder)) && !IsReparsePoint(folder)
+                    && DateTime.UtcNow - Directory.GetLastWriteTimeUtc(folder) > PartialBackupAge)
+                {
+                    abandoned.Add(new BackupEntry(folder, IsFolder: true, SetKey: "", SortStamp: "", Suffix: 0));
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Unreadable folder: nothing in it is touched.
+        }
+
+        return abandoned;
     }
 
     /// <summary>
@@ -164,6 +202,10 @@ public static class BackupCleanup
             .Select(e => (Entry: e, Ok: TryParseStamp(e.SortStamp, out var t), Time: t))
             .Where(m => m.Ok && m.Time >= pakTime - TimeSpan.FromMinutes(1) && m.Time <= pakTime + ManifestPairWindow)
             .OrderBy(m => (m.Time - pakTime).Duration())
+            // On a tie, the list made at or after the pak is its pair: every install, remove and
+            // restore backs up the pak first. Only a tie-break: a list from minutes later must not
+            // beat one from a second before.
+            .ThenBy(m => m.Time >= pakTime ? 0 : 1)
             // Two installs in one second: the list with the pak's own collision number is its pair.
             .ThenBy(m => m.Entry.Suffix == newestPak.Suffix ? 0 : 1)
             .ThenByDescending(m => m.Entry.Suffix)
@@ -216,7 +258,8 @@ public static class BackupCleanup
 
         foreach (var subdirectory in subdirectories)
         {
-            if (IsReparsePoint(subdirectory) || Parse(subdirectory, isFolder: true) is not null)
+            if (IsReparsePoint(subdirectory) || Parse(subdirectory, isFolder: true) is not null
+                || PartialBackup.IsMatch(Path.GetFileName(subdirectory)))
             {
                 continue;
             }
