@@ -30,15 +30,25 @@ public sealed class SingleInstanceService : IDisposable
     public const string ActivateMessage = "activate";
 
     private readonly Mutex _mutex;
+    private readonly string _pipeName;
     private CancellationTokenSource? _listenerCts;
 
-    public SingleInstanceService()
+    public SingleInstanceService() : this(MutexName, PipeName)
     {
-        _mutex = new Mutex(initiallyOwned: true, MutexName, out var createdNew);
+    }
+
+    /// <summary>Tests pass their own unique names so they never reach a real running Starlink.</summary>
+    internal SingleInstanceService(string mutexName, string pipeName)
+    {
+        _pipeName = pipeName;
+        _mutex = new Mutex(initiallyOwned: true, mutexName, out var createdNew);
         IsFirstInstance = createdNew;
     }
 
     public bool IsFirstInstance { get; }
+
+    /// <summary>How long a connected client gets to send its line before the listener drops it and waits for the next one.</summary>
+    internal TimeSpan ReadTimeout { get; init; } = TimeSpan.FromSeconds(5);
 
     /// <summary>Only meaningful when IsFirstInstance is true. onMessageReceived runs on a background thread — the caller must marshal back to the UI thread itself.</summary>
     public void StartListening(Action<string> onMessageReceived)
@@ -52,7 +62,11 @@ public sealed class SingleInstanceService : IDisposable
             {
                 try
                 {
-                    using var server = new NamedPipeServerStream(PipeName, PipeDirection.In, maxNumberOfServerInstances: 1);
+                    // CurrentUserOnly: only this Windows account can connect (nxm:// links carry a
+                    // download key). Asynchronous: the read timeout and the shutdown cancel end real
+                    // overlapped I/O instead of a blocking call on a pool thread.
+                    using var server = new NamedPipeServerStream(_pipeName, PipeDirection.In, maxNumberOfServerInstances: 1,
+                        PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                     await server.WaitForConnectionAsync(token);
 
                     // A client that connects but never writes (crashes between Connect and
@@ -61,7 +75,7 @@ public sealed class SingleInstanceService : IDisposable
                     // nxm:// handoff for the rest of this app's life, since no new server could ever
                     // be created to accept them.
                     using var readTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-                    readTimeoutCts.CancelAfter(TimeSpan.FromSeconds(5));
+                    readTimeoutCts.CancelAfter(ReadTimeout);
                     using var reader = new StreamReader(server);
                     var message = await reader.ReadLineAsync(readTimeoutCts.Token);
                     if (!string.IsNullOrWhiteSpace(message))
@@ -90,7 +104,14 @@ public sealed class SingleInstanceService : IDisposable
     }
 
     /// <summary>Call only when IsFirstInstance is false. Best-effort: if the already-running instance genuinely can't be reached, there's nothing more this about-to-exit process can usefully do instead.</summary>
-    public static void SendToRunningInstance(string message)
+    // The 8 s connect wait is generous even though the first instance starts listening right at
+    // launch (before its own DI host build/window show): a cold Debug-build start (JIT warm-up,
+    // disk cache cold) can still take a few seconds, and waiting longer costs nothing, since this
+    // process is about to exit either way.
+    public static void SendToRunningInstance(string message) =>
+        SendToRunningInstance(PipeName, message, connectTimeoutMs: 8000);
+
+    internal static void SendToRunningInstance(string pipeName, string message, int connectTimeoutMs)
     {
         // Windows only lets the process the user just clicked bring a window to the front; this
         // passes that right on, or the running app's Activate() just flashes in the taskbar.
@@ -98,12 +119,10 @@ public sealed class SingleInstanceService : IDisposable
 
         try
         {
-            using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
-            // Generous even though the first instance now starts listening immediately on launch
-            // (before its own DI host build/window show) — a genuinely cold Debug-build start
-            // (JIT warm-up, disk cache cold) can still take a few seconds, and there's no real
-            // downside to waiting longer here: this process is about to exit either way.
-            client.Connect(timeout: 8000);
+            // CurrentUserOnly: refuse a pipe of this name that another Windows account created first,
+            // so the link (and its download key) only ever goes to this account's Starlink.
+            using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.Out, PipeOptions.CurrentUserOnly);
+            client.Connect(connectTimeoutMs);
             using var writer = new StreamWriter(client) { AutoFlush = true };
             writer.WriteLine(message);
         }
@@ -117,7 +136,15 @@ public sealed class SingleInstanceService : IDisposable
         _listenerCts?.Cancel();
         if (IsFirstInstance)
         {
-            _mutex.ReleaseMutex();
+            try
+            {
+                _mutex.ReleaseMutex();
+            }
+            catch (ApplicationException)
+            {
+                // Only the thread that created the mutex can release it. The app always disposes
+                // on its UI thread; anything else lets Windows release it when the handle closes.
+            }
         }
 
         _mutex.Dispose();
