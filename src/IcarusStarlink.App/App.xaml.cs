@@ -36,10 +36,10 @@ public partial class App : Application
         // I/O, so there's no cost to doing this first) — every one of those handlers calls
         // CrashReportWriter.Write(_logsDirectory, ...), and _logsDirectory's own field initializer
         // default is "". CrashReportWriter.Write's own Directory.CreateDirectory("") throws
-        // ArgumentException, caught internally and swallowed — so a crash in the real, throwable code
-        // below (SingleInstanceService construction/StartListening, both real OS-resource calls)
-        // used to silently write NO crash report at all, while OnDispatcherUnhandledException's own
-        // MessageBox still claimed "A crash report was written to the Logs folder" regardless.
+        // ArgumentException, caught internally and swallowed, and returns null — so a crash in the
+        // real, throwable code below (SingleInstanceService construction/StartListening, both real
+        // OS-resource calls) would write no crash report at all. The crash boxes name the file
+        // Write returns, or say no report could be saved when it returns null.
         _logsDirectory = Path.Combine(AppContext.BaseDirectory, "Logs");
 
         // Wired up before anything else below has a chance to throw; all three write a crash
@@ -195,11 +195,11 @@ public partial class App : Application
             }
             catch (Exception ex)
             {
-                CrashReportWriter.Write(_logsDirectory, ex, "Startup", TryGetActivityLog());
+                var report = CrashReportWriter.Write(_logsDirectory, ex, "Startup", TryGetActivityLog());
                 Dispatcher.Invoke(() =>
                 {
                     MessageBox.Show(
-                        $"Icarus Starlink couldn't start:\n\n{ex.Message}\n\nA crash report was saved in:\n{_logsDirectory}\n\n"
+                        $"Icarus Starlink couldn't start:\n\n{ex.Message}\n\n{CrashReportLine(report)}\n\n"
                         + "You can attach it to a bug report on Starlink's Nexus page.",
                         "Icarus Starlink — startup failed", MessageBoxButton.OK, MessageBoxImage.Error);
                     splash.Close();
@@ -371,12 +371,16 @@ public partial class App : Application
     /// </summary>
     private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
     {
-        CrashReportWriter.Write(_logsDirectory, e.Exception, "UI thread (DispatcherUnhandledException)", TryGetActivityLog());
+        var report = CrashReportWriter.Write(_logsDirectory, e.Exception, "UI thread (DispatcherUnhandledException)", TryGetActivityLog());
         MessageBox.Show(
-            $"Icarus Starlink hit an unexpected error and needs to close:\n\n{e.Exception.Message}\n\nA crash report was saved in:\n{_logsDirectory}\n\n"
+            $"Icarus Starlink hit an unexpected error and needs to close:\n\n{e.Exception.Message}\n\n{CrashReportLine(report)}\n\n"
             + "To report it: Settings › Maintenance › Export diagnostics zip… puts it in one zip for a bug report on Starlink's Nexus page.",
             "Icarus Starlink — unexpected error", MessageBoxButton.OK, MessageBoxImage.Error);
     }
+
+    /// <summary>The crash box's line about the report: the file CrashReportWriter.Write wrote, or that none could be written (its null).</summary>
+    private static string CrashReportLine(string? reportPath) =>
+        reportPath is null ? "No crash report could be saved." : $"A crash report was saved:\n{reportPath}";
 
     /// <summary>
     /// Fires immediately before the process actually terminates for a truly unhandled exception
