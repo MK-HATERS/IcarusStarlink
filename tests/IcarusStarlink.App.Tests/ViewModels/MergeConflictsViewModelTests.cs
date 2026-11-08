@@ -150,4 +150,13 @@ public sealed class MergeConflictsViewModelTests
         Assert.Contains("+5 \\\"fast\\\" Speed", modA);
         Assert.DoesNotContain("\\u00", modA);
     }
+
+    /// <summary>Regression: the copied report lost the space after "Conflict:", so a line read "Conflict:Wood.Weight".</summary>
+    [Fact]
+    public void CopyReport_WritesEachConflictAsCodeConflictThenRowAndField()
+    {
+        var vm = new MergeConflictsViewModel([Conflict(Items, "Wood", "Weight", 10, ("Mod A", 5), ("Mod B", 20))], [], null);
+
+        Assert.Contains("[ISL-301] Conflict: Wood.Weight (D_ItemsStatic) changed by ", vm.BuildReportText());
+    }
 }

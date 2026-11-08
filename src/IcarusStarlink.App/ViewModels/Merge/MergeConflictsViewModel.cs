@@ -326,7 +326,7 @@ public sealed partial class MergeConflictsViewModel : ObservableObject
         text.AppendLine($"Icarus Starlink merge check: {Tally.NeedsDecision} conflict(s), {BetweenMods.Count} clash(es) between mods, {ModsWithProblems.Count} mod(s) with problems.");
         foreach (var conflict in _all)
         {
-            text.AppendLine($"[{BetweenModsFinding.ConflictCode}] Conflict:{conflict.Row}.{conflict.Field} ({GameTableIndex.TableNameOf(conflict.Conflict.CurrentFile)}) changed by {conflict.ModsText}");
+            text.AppendLine($"[{BetweenModsFinding.ConflictCode}] Conflict: {conflict.Row}.{conflict.Field} ({GameTableIndex.TableNameOf(conflict.Conflict.CurrentFile)}) changed by {conflict.ModsText}");
         }
 
         foreach (var finding in BetweenMods)
