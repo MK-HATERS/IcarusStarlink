@@ -163,6 +163,30 @@ public class DaedalusCatalogClientTests
         Assert.Equal("https://github.com/o/r/raw/main/a.EXMODZ", entry.PakUrl ?? entry.ExmodzUrl);
     }
 
+    /// <summary>Regression: a plain http download link was kept, so the mod file installed into the game could be swapped on the way (public Wi-Fi).</summary>
+    [Fact]
+    public async Task FetchAsync_PlainHttpDownloadLink_IsUpgradedForGitHubAndDroppedElsewhere()
+    {
+        const string mods = """
+            [
+              { "id": "a", "name": "On GitHub", "author": "Someone", "files": { "pak": "http://github.com/o/r/releases/download/v1/a.pak" } },
+              { "id": "b", "name": "Elsewhere", "author": "Someone", "files": { "pak": "http://example.com/b.pak", "exmodz": "http://example.com/b.EXMODZ" } }
+            ]
+            """;
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/mods.json"] = mods,
+            ["https://agentkush.github.io/daedalus-static-poc/api/v1/tags.json"] = "[]",
+        });
+
+        var entries = await new DaedalusCatalogClient(new HttpClient(handler)).FetchAsync();
+
+        Assert.Equal("https://github.com/o/r/releases/download/v1/a.pak", entries.Single(e => e.Id == "a").PakUrl);
+        var elsewhere = entries.Single(e => e.Id == "b");
+        Assert.Null(elsewhere.PakUrl);
+        Assert.Null(elsewhere.ExmodzUrl);
+    }
+
     /// <summary>One null in a tag's mod list (other people's JSON) used to throw, and the whole Daedalus catalog read as "unavailable".</summary>
     [Fact]
     public async Task FetchAsync_NullInATagsModList_IsSkippedNotFatal()

@@ -23,4 +23,27 @@ public static class WebLink
 
         return text;
     }
+
+    /// <summary>
+    /// A download link: kept only when it is https, because the file is installed into the game and a
+    /// plain http download can be swapped by anyone on the network path. A plain http link to GitHub
+    /// (github.com, raw.githubusercontent.com) is upgraded, since GitHub serves the same file over
+    /// https; any other http link, and anything that isn't a web link, is null (no download offered).
+    /// </summary>
+    public static string? HttpsOrNull(string? link)
+    {
+        if (HttpOrNull(link) is not { } web || !Uri.TryCreate(web, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        if (uri.Scheme == Uri.UriSchemeHttps)
+        {
+            return web;
+        }
+
+        return GitHub.GitHubRepoKey.IsGitHubHost(uri.Host)
+            ? new UriBuilder(uri) { Scheme = Uri.UriSchemeHttps, Port = -1 }.Uri.AbsoluteUri
+            : null;
+    }
 }

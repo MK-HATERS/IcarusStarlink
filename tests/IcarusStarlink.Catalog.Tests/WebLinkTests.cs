@@ -23,6 +23,23 @@ public class WebLinkTests
     [InlineData("readme.md")]
     public void HttpOrNull_AnythingElse_IsNull(string? link) => Assert.Null(WebLink.HttpOrNull(link));
 
+    [Theory]
+    [InlineData("https://example.com/a.pak", "https://example.com/a.pak")]
+    [InlineData("http://github.com/o/r/releases/download/v1/a.pak", "https://github.com/o/r/releases/download/v1/a.pak")]
+    [InlineData("http://raw.githubusercontent.com/o/r/main/a.EXMODZ", "https://raw.githubusercontent.com/o/r/main/a.EXMODZ")]
+    public void HttpsOrNull_HttpsIsKept_AndGitHubHttpIsUpgraded(string link, string expected) =>
+        Assert.Equal(expected, WebLink.HttpsOrNull(link));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("http://example.com/a.pak")]
+    [InlineData("http://github.com.evil.example/o/r/a.pak")]
+    [InlineData(@"\\evil-host\share\a.pak")]
+    [InlineData("file:///C:/a.pak")]
+    [InlineData("ftp://example.com/a.pak")]
+    public void HttpsOrNull_PlainHttpOffGitHub_OrNotAWebLink_IsNull(string? link) => Assert.Null(WebLink.HttpsOrNull(link));
+
     [Fact]
     public void NexusModInfo_PictureThatIsNotAWebLink_IsDropped()
     {

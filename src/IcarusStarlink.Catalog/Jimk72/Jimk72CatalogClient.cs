@@ -36,6 +36,6 @@ public sealed class Jimk72CatalogClient(HttpClient httpClient) : IJimk72CatalogC
         dto.ImageUrl,
         dto.ReadmeUrl,
         null,
-        dto.Files?.Exmodz,
+        WebLink.HttpsOrNull(dto.Files?.Exmodz),
         []);
 }

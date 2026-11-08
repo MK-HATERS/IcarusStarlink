@@ -100,8 +100,8 @@ public sealed class DaedalusCatalogClient(HttpClient httpClient) : IDaedalusCata
             CompatibilityWeekParser.Parse(dto.Compatibility),
             dto.ImageUrl,
             dto.ReadmeUrl,
-            dto.Files?.Pak,
-            dto.Files?.Exmodz,
+            WebLink.HttpsOrNull(dto.Files?.Pak),
+            WebLink.HttpsOrNull(dto.Files?.Exmodz),
             categories);
     }
 }

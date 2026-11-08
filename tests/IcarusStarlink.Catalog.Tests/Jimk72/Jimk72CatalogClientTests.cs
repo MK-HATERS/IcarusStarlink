@@ -112,6 +112,23 @@ public class Jimk72CatalogClientTests
         Assert.Equal("Jimk Cupboard Signs", Assert.Single(entries).Name);
     }
 
+    /// <summary>Regression: a plain http download link was kept, so the mod file installed into the game could be swapped on the way.</summary>
+    [Fact]
+    public async Task FetchAsync_PlainHttpDownloadLinkOffGitHub_IsNoLink()
+    {
+        const string json = """
+            { "mods": [ { "name": "Signs", "author": "Jimk72", "files": { "exmodz": "http://example.com/signs.EXMODZ" } } ] }
+            """;
+        var handler = new FakeHttpMessageHandler(new Dictionary<string, string>
+        {
+            ["https://raw.githubusercontent.com/Jimk72/Icarus_Mods/main/modinfo.json"] = json,
+        });
+
+        var entries = await new Jimk72CatalogClient(new HttpClient(handler)).FetchAsync();
+
+        Assert.Null(Assert.Single(entries).ExmodzUrl);
+    }
+
     [Fact]
     public async Task FetchAsync_IdIsSynthesizedFromNameAndAuthor()
     {
