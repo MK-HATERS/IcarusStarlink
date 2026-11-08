@@ -4,7 +4,11 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:utilities="clr-namespace:IcarusStarlink.App.Utilities"
+             xmlns:converters="clr-namespace:IcarusStarlink.App.Converters"
              mc:Ignorable="d">
+    <UserControl.Resources>
+        <converters:WebPictureConverter x:Key="WebPictureConverter" DecodePixelWidth="640"/>
+    </UserControl.Resources>
 
     <!-- The whole Nexus page: a native mod list driven by the API key saved in Settings. There is
          deliberately no embedded web browser — signing in here as well as in Settings would be a
@@ -123,9 +127,10 @@
                                     <Path Data="{StaticResource IconMountains}" Stroke="{DynamicResource FaintForegroundBrush}" StrokeThickness="1.6"
                                           StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                           Width="30" Height="30" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <!-- A string URL binds straight to Source — WPF downloads it async itself; a null
-                                         or failed URL just leaves the placeholder behind it showing. -->
-                                    <Image Source="{Binding Mod.PictureUrl}" Stretch="UniformToFill"/>
+                                    <!-- Decoded at card size (WebPictureConverter), not the header's full size;
+                                         WPF downloads it in the background. No URL or a failed one leaves the
+                                         placeholder behind it showing. -->
+                                    <Image Source="{Binding Mod.PictureUrl, Converter={StaticResource WebPictureConverter}}" Stretch="UniformToFill"/>
 
                                     <!-- This machine's own status, computed locally — Nexus's API exposes no
                                          site-notification feed to sync the website's own badges from. Overlaid

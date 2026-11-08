@@ -3,19 +3,24 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:converters="clr-namespace:IcarusStarlink.App.Converters"
         mc:Ignorable="d"
         Title="{Binding Name}" Width="440" SizeToContent="Height" MaxHeight="720" MinWidth="380"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         Background="{DynamicResource WindowBackgroundBrush}"
         Foreground="{DynamicResource ForegroundBrush}">
 
+    <Window.Resources>
+        <!-- A catalog's image link can name a picture of any size: decoded at window size. -->
+        <converters:WebPictureConverter x:Key="WebPictureConverter" DecodePixelWidth="800"/>
+    </Window.Resources>
+
     <!--
     "Show more details" — non-modal, same shape as ModDetailWindow's own pop-out, opened from the
     IMM Database tab's compact side panel (which only has room for name/author/version/a truncated
-    description). DataContext is the CatalogEntryViewModel row directly. The two action buttons are
-    page-level DownloadsViewModel commands (they act on Downloads.SelectedCatalogEntry, the same
-    convention the compact panel's own identical buttons already use — this window only ever opens
-    for whatever's already selected in the grid), reached via the Window's own Downloads property.
+    description). DataContext is the CatalogEntryViewModel row directly. The two buttons run
+    DownloadsViewModel's commands (through the window's Downloads property) with this row as their
+    parameter, not the grid's selection: the selection can move while this window stays open.
     -->
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="20">
@@ -27,7 +32,7 @@
                 </Border>
                 <!-- Sits on top of the placeholder above and only becomes visible once a real
                      ImageUrl exists, rather than needing an inverse-condition second element. -->
-                <Image Source="{Binding Entry.ImageUrl}" Stretch="UniformToFill"
+                <Image Source="{Binding Entry.ImageUrl, Converter={StaticResource WebPictureConverter}}" Stretch="UniformToFill"
                        Visibility="{Binding Entry.ImageUrl, Converter={StaticResource NullToVisibilityConverter}}"/>
             </Grid>
 

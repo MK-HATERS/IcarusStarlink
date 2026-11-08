@@ -5,12 +5,15 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:vm="clr-namespace:IcarusStarlink.App.ViewModels"
              xmlns:utilities="clr-namespace:IcarusStarlink.App.Utilities"
+             xmlns:converters="clr-namespace:IcarusStarlink.App.Converters"
              mc:Ignorable="d">
     <!-- The IMM Database browser (moved from Library to the Database page). DataContext is
          LibraryViewModel: every binding here targets its Downloads (DownloadsViewModel). -->
     <UserControl.Resources>
         <!-- DataGridColumn.Visibility can't reach a nested VM via ElementName (see BindingProxy). -->
         <utilities:BindingProxy x:Key="ViewModelProxy" Data="{Binding Downloads}"/>
+        <!-- A catalog's image link can name a picture of any size: decoded at panel size. -->
+        <converters:WebPictureConverter x:Key="WebPictureConverter" DecodePixelWidth="640"/>
     </UserControl.Resources>
 
                 <!-- Same title and edges as the Nexus tab beside it (that view sits at -12 inside the tab). -->
@@ -276,7 +279,7 @@
                                          real Image element before, just the placeholder unconditionally,
                                          even though the same real per-mod image already renders
                                          correctly in the "More details…" pop-out below. -->
-                                    <Image Source="{Binding Downloads.SelectedCatalogEntry.Entry.ImageUrl}" Stretch="UniformToFill"
+                                    <Image Source="{Binding Downloads.SelectedCatalogEntry.Entry.ImageUrl, Converter={StaticResource WebPictureConverter}}" Stretch="UniformToFill"
                                            Visibility="{Binding Downloads.SelectedCatalogEntry.Entry.ImageUrl, Converter={StaticResource NullToVisibilityConverter}}"/>
                                 </Grid>
                                 <TextBlock Text="{Binding Downloads.SelectedCatalogEntry.Name}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
