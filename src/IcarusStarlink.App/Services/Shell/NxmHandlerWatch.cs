@@ -21,8 +21,12 @@ namespace IcarusStarlink.App.Services;
 /// takeover. Runs at start, when the window is brought forward, and — while Starlink runs — the
 /// moment the registry changes (StartWatching). While Starlink is closed another app can still win.
 /// </summary>
-public sealed class NxmHandlerWatch(INxmProtocolRegistrar registrar, ISettingsService settingsService, IActivityLog activityLog, Func<DateTimeOffset>? now = null)
+public sealed class NxmHandlerWatch(
+    INxmProtocolRegistrar registrar, ISettingsService settingsService, IActivityLog activityLog,
+    Func<DateTimeOffset>? now = null, Func<string, bool>? fileExists = null)
 {
+    private readonly Func<string, bool> _fileExists = fileExists ?? File.Exists;
+
     /// <summary>More take-backs than this inside FightWindow means another app is taking them back too: stop instead of trading the key forever.</summary>
     public const int MaxTakeBacks = 3;
 
@@ -75,9 +79,14 @@ public sealed class NxmHandlerWatch(INxmProtocolRegistrar registrar, ISettingsSe
 
         var current = registrar.CurrentHandlerCommand();
 
+        // The app the links point at was deleted or moved (another Starlink copy, or this one's
+        // old exe): Windows can't start it, so the links do nothing at all.
+        var exe = NxmHandlerCommand.ExePathOf(current);
+        var gone = exe is not null && !_fileExists(exe);
+
         // Another Starlink install has them (two installs open at once): links still open in a
         // Starlink, and taking them back would trade the key between the two forever.
-        if (NxmHandlerCommand.IsStarlink(current))
+        if (NxmHandlerCommand.IsStarlink(current) && !gone)
         {
             return;
         }
@@ -89,7 +98,9 @@ public sealed class NxmHandlerWatch(INxmProtocolRegistrar registrar, ISettingsSe
             _warnedAbout = null;
             activityLog.Log(current is null
                 ? "Nexus download links weren't set up any more — Starlink handles them again."
-                : $"Took Nexus download links back from {owner}. Links for its games are passed on to it.");
+                : gone
+                    ? $"Nexus download links pointed at {owner}, which isn't there any more — Starlink handles them again."
+                    : $"Took Nexus download links back from {owner}. Links for its games are passed on to it.");
             WeakReferenceMessenger.Default.Send(new NxmHandlerChangedMessage());
             return;
         }
@@ -105,7 +116,9 @@ public sealed class NxmHandlerWatch(INxmProtocolRegistrar registrar, ISettingsSe
                 ? $"{owner} keeps taking Nexus download links back, so Starlink stopped taking them for now. Settings › Nexus › Take them back."
                 : current is null
                     ? "Nexus \"Mod Manager Download\" links no longer open Starlink. Settings › Nexus › Register sets them up again."
-                    : $"Nexus \"Mod Manager Download\" links now open {owner}, not Starlink. Settings › Nexus › Take them back (or turn on Take them back automatically).",
+                    : gone
+                        ? $"Nexus \"Mod Manager Download\" links point at {owner}, which isn't there any more, so they do nothing. Settings › Nexus › Take them back."
+                        : $"Nexus \"Mod Manager Download\" links now open {owner}, not Starlink. Settings › Nexus › Take them back (or turn on Take them back automatically).",
             ActivityEntryKind.Warning);
         WeakReferenceMessenger.Default.Send(new NxmHandlerChangedMessage());
     }

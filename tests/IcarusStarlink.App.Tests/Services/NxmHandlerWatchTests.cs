@@ -44,7 +44,54 @@ public class NxmHandlerWatchTests
 
     private DateTimeOffset _time = new(2026, 10, 23, 12, 0, 0, TimeSpan.Zero);
 
-    private NxmHandlerWatch Watch() => new(_registrar, _settings, _log, () => _time);
+    private NxmHandlerWatch Watch(bool exesExist = true) => new(_registrar, _settings, _log, () => _time, fileExists: _ => exesExist);
+
+    private const string GoneStarlink = "\"F:\\Gone\\IcarusStarlink.exe\" \"%1\"";
+
+    /// <summary>Links pointed at a Starlink copy that was deleted did nothing, and this Starlink never took them back or said why.</summary>
+    [Fact]
+    public void ADeletedStarlinkHasTheLinks_TakesThemBackAndSaysItIsGone()
+    {
+        var watch = Watch(exesExist: false);
+        watch.Check();
+        _registrar.Current = GoneStarlink;
+
+        watch.Check();
+
+        Assert.Equal(1, _registrar.RegisterCalls);
+        Assert.Contains("isn't there any more", _log.Entries[^1].Message);
+        Assert.DoesNotContain("passed on", _log.Entries[^1].Message);
+    }
+
+    [Fact]
+    public void ADeletedStarlinkHasTheLinks_TakeBackOff_WarnsOnce()
+    {
+        _settings.Current.KeepNxmHandler = false;
+        var watch = Watch(exesExist: false);
+        watch.Check();
+        _registrar.Current = GoneStarlink;
+
+        watch.Check();
+        watch.Check();
+
+        Assert.Equal(0, _registrar.RegisterCalls);
+        Assert.Equal(1, Warnings);
+        Assert.Contains("isn't there any more", _log.Entries.First(e => e.Kind == ActivityEntryKind.Warning).Message);
+    }
+
+    /// <summary>Two Starlink installs open at once: the links stay with the other one, without a warning.</summary>
+    [Fact]
+    public void AnotherStarlinkThatExistsHasTheLinks_LeavesThemAlone()
+    {
+        var watch = Watch(exesExist: true);
+        watch.Check();
+        _registrar.Current = GoneStarlink;
+
+        watch.Check();
+
+        Assert.Equal(0, _registrar.RegisterCalls);
+        Assert.Equal(0, Warnings);
+    }
 
     private int Warnings => _log.Entries.Count(e => e.Kind == ActivityEntryKind.Warning);
 
