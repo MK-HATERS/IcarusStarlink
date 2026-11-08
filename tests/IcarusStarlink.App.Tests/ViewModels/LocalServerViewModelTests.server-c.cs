@@ -328,6 +328,14 @@ public sealed partial class LocalServerViewModelTests
             ImportOnUiThread = UiThreadMarker.OnUiThread;
             return Task.FromResult(import ?? throw new NotSupportedException("No import set."));
         }
+
+        public bool? ReadManifestOnUiThread { get; private set; }
+
+        public Task<PatchManifest> ReadManifestAsync(string patchFilePath, CancellationToken cancellationToken = default)
+        {
+            ReadManifestOnUiThread = UiThreadMarker.OnUiThread;
+            return Task.FromResult((import ?? throw new NotSupportedException("No import set.")).Manifest);
+        }
     }
 
     /// <summary>Notes whether building the patch (it reads each UE4SS mod's Nexus link here) ran on the UI thread.</summary>
@@ -415,6 +423,6 @@ public sealed partial class LocalServerViewModelTests
         await StartOnUiThread(() => vm.ComparePatchCommand.ExecuteAsync(null));
 
         Assert.True(vm.HasPatchCompare);
-        Assert.Equal(false, patches.ImportOnUiThread);
+        Assert.Equal(false, patches.ReadManifestOnUiThread);
     }
 }

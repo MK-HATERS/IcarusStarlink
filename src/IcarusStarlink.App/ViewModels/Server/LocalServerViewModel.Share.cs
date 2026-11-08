@@ -430,8 +430,7 @@ public sealed partial class LocalServerViewModel
         try
         {
             var patchService = _patchService;
-            using var contents = await OffUiThreadAsync(() => patchService.ImportAsync(patchPath));
-            var manifest = contents.Manifest;
+            var manifest = await OffUiThreadAsync(() => patchService.ReadManifestAsync(patchPath));
             var gameNames = GamePaksModsFolder() is { } gamePaks ? InstalledModNames(gamePaks) : [];
             var serverNames = InstalledModNames(DedicatedServerLayout.PakModsFolder(p.InstallFolder));
             var library = _library?.GetAll() ?? [];

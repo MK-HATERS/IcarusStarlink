@@ -1215,6 +1215,30 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Equal(("Pak mod", "installed", "—"), (row.Kind, row.GameText, row.ServerText));
     }
 
+    /// <summary>Compare needs only the names in the manifest: nothing bundled is unpacked to disk.</summary>
+    [Fact]
+    public async Task ComparePatch_ReadsOnlyTheManifest()
+    {
+        var patches = new FakePatchService
+        {
+            ImportResult = new PatchImportContents(
+                new PatchManifest
+                {
+                    FormatVersion = 2, ProfileName = "S",
+                    Mods = [new PatchModEntry { FolderName = "M", Name = "Some Mod", Author = "A", Version = "1", Bundled = false }],
+                },
+                new Dictionary<string, IcarusStarlink.PakIO.Container.ExmodPackageContents>()),
+        };
+        var (vm, _, _, dialogs) = Build(pick: _install, library: new FakeLibrary(), patches: patches);
+        vm.AddExistingServerCommand.Execute(null);
+        dialogs.OpenFilePath = Path.Combine(_root, "patch.zip");
+
+        await vm.ComparePatchCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasPatchCompare);
+        Assert.Equal(0, patches.ImportCalls);
+    }
+
     private string MakeGameWithUe4ss(params (string Name, bool Enabled)[] mods)
     {
         var win64 = Path.Combine(_root, "Game", "Icarus", "Binaries", "Win64");
@@ -1501,8 +1525,17 @@ public sealed partial class LocalServerViewModelTests : IDisposable
             return Task.CompletedTask;
         }
 
-        public Task<PatchImportContents> ImportAsync(string patchFilePath, CancellationToken cancellationToken = default) =>
-            Task.FromResult(ImportResult ?? throw new NotSupportedException("Set ImportResult first."));
+        /// <summary>How many times the whole patch was unpacked.</summary>
+        public int ImportCalls { get; private set; }
+
+        public Task<PatchImportContents> ImportAsync(string patchFilePath, CancellationToken cancellationToken = default)
+        {
+            ImportCalls++;
+            return Task.FromResult(ImportResult ?? throw new NotSupportedException("Set ImportResult first."));
+        }
+
+        public Task<PatchManifest> ReadManifestAsync(string patchFilePath, CancellationToken cancellationToken = default) =>
+            Task.FromResult((ImportResult ?? throw new NotSupportedException("Set ImportResult first.")).Manifest);
     }
 
     /// <summary>Stands in for Merge &amp; Install's Library-side import.</summary>
