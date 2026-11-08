@@ -22,6 +22,7 @@ public sealed class KnownGameBehaviourEditorTests
         card.Picker.AddStatCommand.Execute(null);
 
         Assert.StartsWith("Changes nothing", card.Picker.StatError);
+        AssertCreditFree(card.Picker.StatError!);
         Assert.Empty(card.Fields);
 
         card.Picker.SelectedStat = Slots;
@@ -42,6 +43,14 @@ public sealed class KnownGameBehaviourEditorTests
         field.Picker.AddStatCommand.Execute(null);
 
         Assert.Contains("no aura", field.Picker.StatError);
+        AssertCreditFree(field.Picker.StatError!);
         Assert.DoesNotContain(field.Stats, s => s.Key.Contains("GrantedAura", StringComparison.Ordinal));
+    }
+
+    /// <summary>What players read names no tool and carries no date.</summary>
+    private static void AssertCreditFree(string text)
+    {
+        Assert.DoesNotContain("Hook Scout", text);
+        Assert.DoesNotMatch(@"\d{4}-\d{2}-\d{2}", text);
     }
 }

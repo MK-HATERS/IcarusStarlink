@@ -829,7 +829,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         Assert.True(Item(vm, "Envirosuit").HasUnsavedChanges);
     }
 
-    /// <summary>Regression:changing "Save to" with typed changes showed one mod's values and saved into another.</summary>
+    /// <summary>Regression: changing "Save to" with typed changes showed one mod's values and saved into another.</summary>
     [Fact]
     public void ChangingWhereToSave_KeepsTheTypedChanges()
     {
@@ -904,7 +904,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         Assert.Null(Weight(vm).Error);
     }
 
-    /// <summary>Regression:every Library change rebuilt the targets and reloaded the item, dropping a stat added here and not saved yet.</summary>
+    /// <summary>Regression: every Library change rebuilt the targets and reloaded the item, dropping a stat added here and not saved yet.</summary>
     [Fact]
     public void AnAddedStat_SurvivesALibraryChange()
     {
@@ -932,7 +932,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         Assert.True(vm.IsNewTarget);
     }
 
-    /// <summary>Regression:↺ on a stat the target mod adds emptied the box ("Needs a number") and blocked saving; it now takes the stat out.</summary>
+    /// <summary>Regression: ↺ on a stat the target mod adds emptied the box ("Needs a number") and blocked saving; it now takes the stat out.</summary>
     [Fact]
     public void UseGameValue_OnAStatTheModAdds_TakesItOut()
     {
@@ -958,7 +958,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         Assert.DoesNotContain("ColdResistance", ExmodJson.Serialize(Read(_library, mine.FolderName)));
     }
 
-    /// <summary>Regression:"Open in Editor" from a mod kept the page's own target, so it showed (and saved) the game's values.</summary>
+    /// <summary>Regression: "Open in Editor" from a mod kept the page's own target, so it showed (and saved) the game's values.</summary>
     [Fact]
     public void OpenFromAMod_MakesThatModTheTarget()
     {
@@ -996,7 +996,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         Assert.Contains("typed changes on the Editor page", IcarusStarlink.App.Services.AppBusyCheck.UnsavedEdits());
     }
 
-    /// <summary>Regression:Refresh game data reloaded the item and threw away every typed value.</summary>
+    /// <summary>Regression: Refresh game data reloaded the item and threw away every typed value.</summary>
     [Fact]
     public void RefreshGameData_KeepsTheTypedChanges()
     {
