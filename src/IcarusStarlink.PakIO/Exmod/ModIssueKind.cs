@@ -85,4 +85,11 @@ public enum ModIssueKind
 
     /// <summary>A new item nothing in the mod hands out (no recipe, workshop item, reward…), or with no item template at all. Only listed.</summary>
     NothingGivesItem,
+
+    /// <summary>
+    /// A note from the game's code, not tested in game (KnownGameBehaviour.FromGameCode): repair
+    /// needs a hammer repair ignores, new seeds the game numbers by place. Never a problem; only
+    /// from ModHealthChecker.GameCodeNotes, not Check.
+    /// </summary>
+    GameCodeNote,
 }

@@ -99,6 +99,80 @@ public static partial class ModHealthChecker
         }
     }
 
+    private const string DurableTable = "D_Durable";
+    private const string SeedsTable = "D_FarmingSeeds";
+
+    /// <summary>
+    /// Notes from the game's code, not tested in game (KnownGameBehaviour.FromGameCode): repair
+    /// needs the mod changes on durability rows that placed items or building pieces use (a hammer
+    /// repair ignores them), and seed rows it adds (the game numbers seeds by place). Kept out of
+    /// Check: they are things to know, never problems.
+    /// </summary>
+    public static IReadOnlyList<ModIssue> GameCodeNotes(ExmodPackage package, GameTableIndex game)
+    {
+        var notes = new List<ModIssue>();
+        var rows = package.Rows.Where(r => !ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile)).ToList();
+        HashSet<string>? placedDurables = null;
+        foreach (var row in rows)
+        {
+            var table = GameTableIndex.TableNameOf(row.CurrentFile);
+            if (string.Equals(table, SeedsTable, StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var item in ExmodFileItem.CombineByName(row.FileItems).Where(i => !game.HasRow(row.CurrentFile, i.Name)))
+                {
+                    notes.Add(new ModIssue(ModIssueKind.GameCodeNote, row.CurrentFile, item.Name, null, null, null, null, null,
+                        ModIssueFix.KeepMod, IsSure: false, KnownGameBehaviour.SeedNumbers.Note));
+                }
+            }
+            else if (string.Equals(table, DurableTable, StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var item in ExmodFileItem.CombineByName(row.FileItems))
+                {
+                    var field = item.Fields.Keys.FirstOrDefault(f => string.Equals(f, KnownGameBehaviour.HammerRepairs.Field, StringComparison.OrdinalIgnoreCase));
+                    if (field is null || JsonNode.DeepEquals(item.Fields[field], game.Row(row.CurrentFile, item.Name)?[KnownGameBehaviour.HammerRepairs.Field!]))
+                    {
+                        continue;
+                    }
+
+                    placedDurables ??= DurablesOfPlacedThings(rows, game);
+                    if (placedDurables.Contains(item.Name))
+                    {
+                        notes.Add(new ModIssue(ModIssueKind.GameCodeNote, row.CurrentFile, item.Name, field, item.Fields[field]?.DeepClone(), null, null, null,
+                            ModIssueFix.KeepMod, IsSure: false, KnownGameBehaviour.HammerRepairs.Note));
+                    }
+                }
+            }
+        }
+
+        return notes;
+    }
+
+    /// <summary>
+    /// The durability rows (D_Durable) of items placed in the world or built (a Deployable or
+    /// Buildable link): the game's items, with the mod's own D_ItemsStatic rows over them.
+    /// </summary>
+    private static HashSet<string> DurablesOfPlacedThings(IReadOnlyList<ExmodFileRow> rows, GameTableIndex game)
+    {
+        var items = new Dictionary<string, (JsonNode? Durable, bool Placed)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, value) in game.Rows(ItemsStaticFile) ?? [])
+        {
+            if (value is JsonObject item)
+            {
+                items[name] = (item["Durable"], LinkedRow(item["Deployable"]) is not null || LinkedRow(item["Buildable"]) is not null);
+            }
+        }
+
+        foreach (var item in rows.Where(r => string.Equals(r.CurrentFile, ItemsStaticFile, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(r => ExmodFileItem.CombineByName(r.FileItems)))
+        {
+            var gameRow = game.Row(ItemsStaticFile, item.Name);
+            JsonNode? Field(string name) => item.Fields.TryGetValue(name, out var mine) ? mine : gameRow?[name];
+            items[item.Name] = (Field("Durable"), LinkedRow(Field("Deployable")) is not null || LinkedRow(Field("Buildable")) is not null);
+        }
+
+        return items.Values.Where(i => i.Placed).Select(i => LinkedRow(i.Durable)).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <summary>The item is placed in the world: it has a Deployable row (the mod's link, else the game's).</summary>
     private static bool IsPlacedItem(ExmodFileItem item, JsonObject? gameRow) =>
         LinkedRow(item.Fields.TryGetValue("Deployable", out var mine) ? mine : gameRow?["Deployable"]) is not null;

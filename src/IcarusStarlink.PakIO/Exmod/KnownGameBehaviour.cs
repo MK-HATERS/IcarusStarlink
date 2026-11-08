@@ -5,7 +5,8 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// <summary>
 /// What the game really does with some data, tested in game, so warnings can tell an edit that breaks something or does nothing from
 /// one that works. One place for these facts: the health check, the Editor page and the mod editor
-/// all read them. A fact only read from the game's code or tables says so in its words.
+/// all read them. A fact only read from the game's code or tables says so in its words; the ones
+/// not tested in game at all are kept apart (FromGameCode) and only ever shown as notes.
 /// </summary>
 public static partial class KnownGameBehaviour
 {
@@ -56,6 +57,41 @@ public static partial class KnownGameBehaviour
 
         return null;
     }
+
+    /// <summary>How every fact read from the game's code, but not tested in game, starts (FromGameCode).</summary>
+    public const string FromGameCodePrefix = "From the game's code, not tested in game: ";
+
+    /// <summary>
+    /// A fact read from the game's code, not tested in game. Kept apart from the tested facts
+    /// above: it's only ever shown as a note, never as a warning or a problem.
+    /// </summary>
+    /// <param name="Table">"D_Durable".</param>
+    /// <param name="Field">The field it's about (an Editor field note), or null for the table's rows as a whole.</param>
+    /// <param name="Note">The words players read; starts with FromGameCodePrefix.</param>
+    public sealed record CodeFact(string Table, string? Field, string Note);
+
+    /// <summary>
+    /// D_Durable.ItemsForRepair ("Repair needs"): the hammer's repair of a placed item or a building
+    /// piece only calls RepairObject and takes no materials; only the Repair Bench, for equipment,
+    /// reads this list (Stone_Axe: 1 Stone).
+    /// </summary>
+    public static readonly CodeFact HammerRepairs = new("D_Durable", "ItemsForRepair", FromGameCodePrefix
+        + "a hammer repair of a placed item or a building piece costs nothing and doesn't use these repair needs. "
+        + "Only repairs at the Repair Bench (tools, weapons, armour) use them.");
+
+    /// <summary>D_FarmingSeeds: the game refers to a seed by its row's place in the table (a seed item's number), not by its name.</summary>
+    public static readonly CodeFact SeedNumbers = new("D_FarmingSeeds", null, FromGameCodePrefix
+        + "the game numbers seeds by their place in the seed table. A game update that adds seeds can give this mod's new seeds "
+        + "other numbers, so crops already planted in a world can turn into another crop.");
+
+    /// <summary>Every fact from the game's code that isn't tested in game.</summary>
+    public static readonly IReadOnlyList<CodeFact> FromGameCode = [HammerRepairs, SeedNumbers];
+
+    /// <summary>A note for this field of this table from the game's code (not tested in game), or null.</summary>
+    /// <param name="table">"D_Durable".</param>
+    /// <param name="field">"ItemsForRepair".</param>
+    public static string? FieldNoteFromGameCode(string table, string field) =>
+        FromGameCode.FirstOrDefault(f => f.Field is not null && IsTable(table, f.Table) && IsField(field, f.Field))?.Note;
 
     private static bool IsTable(string table, string name) => string.Equals(table, name, StringComparison.OrdinalIgnoreCase);
 

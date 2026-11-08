@@ -870,6 +870,65 @@ public sealed class ModHealthCheckerTests : IDisposable
         Assert.Empty(KnownGameBehaviour.ReadLoggedMismatches(Path.Combine(_data, "missing.log")));
     }
 
+    /// <summary>
+    /// From the game's code (not tested in game): a hammer repair of a placed item or building
+    /// piece ignores its repair needs, so changing them there gets a note; a tool's doesn't. Notes
+    /// are never problems: Check leaves them out.
+    /// </summary>
+    [Fact]
+    public void GameCodeNotes_RepairNeedsOfABuildingPiece_GetANote_AToolsDont()
+    {
+        Write("Items/D_ItemsStatic.json", new JsonArray
+        {
+            new JsonObject { ["Name"] = "Stone_Wall", ["Buildable"] = new JsonObject { ["RowName"] = "Stone_Wall" }, ["Durable"] = new JsonObject { ["RowName"] = "Stone_Building" } },
+            new JsonObject { ["Name"] = "Stone_Axe", ["Durable"] = new JsonObject { ["RowName"] = "Stone_Axe" } },
+            new JsonObject { ["Name"] = "Kit_Lamp", ["Durable"] = new JsonObject { ["RowName"] = "Basic" } },
+        });
+        Write("Traits/D_Durable.json", new JsonArray
+        {
+            new JsonObject { ["Name"] = "Stone_Building", ["ItemsForRepair"] = new JsonArray { Repair("Stone", 1) } },
+            new JsonObject { ["Name"] = "Stone_Axe", ["ItemsForRepair"] = new JsonArray { Repair("Stone", 1) } },
+            new JsonObject { ["Name"] = "Basic" },
+        });
+        const string durable = "Traits-D_Durable.json";
+        var package = Mod(
+            (durable, "Stone_Building", "ItemsForRepair", new JsonArray { Repair("Stone", 5) }),
+            (durable, "Stone_Axe", "ItemsForRepair", new JsonArray { Repair("Stone", 5) }),
+            (durable, "Basic", "ItemsForRepair", new JsonArray { Repair("Wood", 2) }),
+            (Items, "Kit_Lamp", "Deployable", new JsonObject { ["RowName"] = "Lamp" }));
+
+        var notes = ModHealthChecker.GameCodeNotes(package, new GameTableIndex(_data));
+
+        Assert.Equal(["Basic", "Stone_Building"], notes.Select(n => n.ItemName).Order());
+        Assert.All(notes, n =>
+        {
+            Assert.Equal(ModIssueKind.GameCodeNote, n.Kind);
+            Assert.True(n.IsNote);
+            Assert.Equal("ItemsForRepair", n.FieldName);
+            Assert.Equal([ModIssueFix.KeepMod], n.Choices);
+            Assert.StartsWith(KnownGameBehaviour.FromGameCodePrefix, n.Why, StringComparison.Ordinal);
+        });
+        Assert.DoesNotContain(ModHealthChecker.Check(package, _data).Issues, i => i.Kind == ModIssueKind.GameCodeNote);
+    }
+
+    /// <summary>From the game's code (not tested in game): seeds are numbered by place, so a mod's new seed rows get a note; editing a game seed doesn't.</summary>
+    [Fact]
+    public void GameCodeNotes_NewSeedRows_GetANote()
+    {
+        Write("Farming/D_FarmingSeeds.json", new JsonArray { new JsonObject { ["Name"] = "Wheat", ["GrowthTime"] = 10 } });
+        const string seeds = "Farming-D_FarmingSeeds.json";
+        var package = Mod((seeds, "Grape", "GrowthTime", 5), (seeds, "wheat", "GrowthTime", 5));
+
+        var note = Assert.Single(ModHealthChecker.GameCodeNotes(package, new GameTableIndex(_data)));
+
+        Assert.Equal("Grape", note.ItemName);
+        Assert.Equal(KnownGameBehaviour.SeedNumbers.Note, note.Why);
+        Assert.Equal("ISL-118", note.Code);
+    }
+
+    private static JsonObject Repair(string item, int amount) =>
+        new() { ["Item"] = new JsonObject { ["RowName"] = item, ["DataTableName"] = "D_ItemsStatic" }, ["Amount"] = amount };
+
     private ExmodPackage Mod(params (string File, string Row, string Field, JsonNode? Value)[] changes)
     {
         var package = new ExmodPackage { Name = "Test", Author = "Me", Version = "1", Description = "", FileName = "Test" };

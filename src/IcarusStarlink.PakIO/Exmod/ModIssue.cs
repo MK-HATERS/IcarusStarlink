@@ -34,7 +34,7 @@ public sealed record ModIssue(
         ModIssueKind.MisspeltRow => [ModIssueFix.RenameRow, ModIssueFix.RemoveRow, ModIssueFix.KeepMod],
         ModIssueKind.RowsInBuiltInTable => [ModIssueFix.RemoveRow, ModIssueFix.KeepMod],
         // Known from the game, but only the mod's author can do it another way (a UE4SS part, a recipe, the tags).
-        ModIssueKind.NoEffect or ModIssueKind.NothingGivesItem => [ModIssueFix.KeepMod],
+        ModIssueKind.NoEffect or ModIssueKind.NothingGivesItem or ModIssueKind.GameCodeNote => [ModIssueFix.KeepMod],
         // A link inside a field, or in the mod's own row: no game value to go back to, only to look at.
         ModIssueKind.BrokenLink when GameValue is null => [ModIssueFix.KeepMod],
         _ when MergedValue is not null => [ModIssueFix.Merge, ModIssueFix.UseGame, ModIssueFix.KeepMod],
@@ -43,6 +43,9 @@ public sealed record ModIssue(
 
     /// <summary>Changes nothing in game either way: taking it out only makes the mod smaller.</summary>
     public bool IsTidyOnly => Kind is ModIssueKind.SameAsGame or ModIssueKind.OldGameRow;
+
+    /// <summary>Only something to know (a fact from the game's code, not tested in game): never a problem, never fixed.</summary>
+    public bool IsNote => Kind == ModIssueKind.GameCodeNote;
 
     /// <summary>A short fixed code for this kind of finding, for bug reports and searching (never renumber one).</summary>
     public string Code => Kind switch
@@ -64,6 +67,7 @@ public sealed record ModIssue(
         ModIssueKind.RowsInBuiltInTable => "ISL-115",
         ModIssueKind.NoEffect => "ISL-116",
         ModIssueKind.NothingGivesItem => "ISL-117",
+        ModIssueKind.GameCodeNote => "ISL-118",
         _ => "ISL-100",
     };
 
