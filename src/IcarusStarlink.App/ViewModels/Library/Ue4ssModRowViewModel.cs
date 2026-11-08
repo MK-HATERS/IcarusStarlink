@@ -239,7 +239,7 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     /// <summary>The update a check found, before "Keep this version" is applied: what turning it on skips.</summary>
     internal bool HasUpdateIgnoringKept =>
         HasNexusLink && !IsAheadOfNexus && (NexusFileId is { } installedFile && LatestNexusFileId is { } newestFile
-            ? newestFile != installedFile
+            ? newestFile != installedFile && !UpdateVersionComparer.AreEquivalent(LatestVersion, LocalVersion)
             : !string.IsNullOrEmpty(InstalledVersion) && UpdateVersionComparer.HasUpdate(LatestVersion, InstalledVersion, KnownVersion));
 
     /// <summary>The installed copy's version: its own main.lua's, else the one recorded at download.</summary>

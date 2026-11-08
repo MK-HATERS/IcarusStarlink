@@ -161,6 +161,25 @@ public sealed partial class LibraryItemViewModelTests : IDisposable
         Assert.True(item.HasUpdateAvailable);
     }
 
+    /// <summary>Regression: a copy already at Nexus's newest version, recorded against an older file of the same mod, showed "Update" to the version it has.</summary>
+    [Fact]
+    public void ANewerFileAtTheVersionTheCopyAlreadyHas_IsNotAnUpdate()
+    {
+        var entry = MakeEntry();
+        entry.Source = "Nexus";
+        entry.NexusModId = 339;
+        entry.NexusFileId = 100;
+        entry.Version = "2.2.1";
+        var item = CreateViewModel(entry: entry);
+        item.LatestVersion = "2.2.1";
+        item.LatestNexusFileId = 200;
+
+        Assert.False(item.HasUpdateAvailable);
+
+        item.LatestVersion = "2.3";
+        Assert.True(item.HasUpdateAvailable);
+    }
+
     /// <summary>Keep this version hides the file it skipped; a newer file in the same chain shows again, and turning it off brings the badge back.</summary>
     [Fact]
     public void KeptVersion_HidesTheSkippedFile_ANewerFileOrTurningItOff_BringsTheUpdateBack()

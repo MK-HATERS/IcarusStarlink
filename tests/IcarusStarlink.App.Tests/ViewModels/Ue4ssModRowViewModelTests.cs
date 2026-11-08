@@ -103,6 +103,24 @@ public class Ue4ssModRowViewModelTests
         Assert.True(row.HasUpdateAvailable);
     }
 
+    /// <summary>Regression: a copy whose main.lua already says Nexus's newest version, recorded against an older file, showed "Update v2.2.1" over v2.2.1.</summary>
+    [Fact]
+    public void ANewerFileAtTheVersionTheCopyAlreadyHas_IsNotAnUpdate()
+    {
+        var row = new Ue4ssModRowViewModel("MkHatersAnimalTalents", true, false, nexusModId: 370, knownVersion: "2.1.1", null, null, () => { })
+        {
+            NexusFileId = 1,
+            LocalVersion = "2.2.1",
+            LatestNexusFileId = 2,
+            LatestVersion = "2.2.1",
+        };
+
+        Assert.False(row.HasUpdateAvailable);
+
+        row.LatestVersion = "2.3";
+        Assert.True(row.HasUpdateAvailable);
+    }
+
     /// <summary>A mod that is on but that UE4SS didn't start last time counts as a problem; one it started, or one not run since, doesn't.</summary>
     [Fact]
     public void AModUe4ssDidntStart_CountsInTheProblemsFilter()

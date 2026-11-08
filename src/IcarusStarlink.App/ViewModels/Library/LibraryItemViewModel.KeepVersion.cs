@@ -23,7 +23,7 @@ public sealed partial class LibraryItemViewModel
 
     /// <summary>The update a check found, before the switch is applied: what turning the switch on skips.</summary>
     internal bool HasUpdateIgnoringKept => HasSource && !IsAheadOfNexus && (NexusFileId is { } installedFile && LatestNexusFileId is { } newestFile
-        ? newestFile != installedFile
+        ? newestFile != installedFile && !UpdateVersionComparer.AreEquivalent(LatestVersion, Version)
         : UpdateVersionComparer.HasUpdate(LatestVersion, Version, NexusVersion));
 
     /// <summary>Sets the switch after the repository saved it (or from a rescan).</summary>
