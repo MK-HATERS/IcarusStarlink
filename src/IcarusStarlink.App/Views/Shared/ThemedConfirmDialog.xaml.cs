@@ -7,11 +7,10 @@ namespace IcarusStarlink.App.Views;
 public enum ThemedConfirmSeverity { Question, Warning, Information }
 
 /// <summary>
-/// This app's own themed replacement for MessageBox.Show(message, title, MessageBoxButton.YesNo,
-/// icon) — every one of the 21 real confirmation dialogs across this app used exactly that shape
-/// (verified directly, not assumed), so the static Show() below only needs to support Yes/No, not
-/// MessageBox's full button/result surface. Returns a plain bool (true = Yes) rather than
-/// MessageBoxResult, since every call site only ever compared against Yes/No anyway.
+/// The app's themed question box, used instead of MessageBox: Yes/No (Show), the caller's words on
+/// the two buttons (ShowWithWords), the same plus Cancel (ShowWithCancel), or three answers plus
+/// Cancel (ShowChoice). The severity picks the title colour and icon; Warning starts on the safe
+/// answer.
 /// </summary>
 public partial class ThemedConfirmDialog : Window
 {
@@ -48,7 +47,7 @@ public partial class ThemedConfirmDialog : Window
         Loaded += (_, _) => (severity == ThemedConfirmSeverity.Warning ? NoButton : YesButton).Focus();
     }
 
-    /// <summary>Modal, matching MessageBox.Show's own blocking behavior — every real call site awaits/branches on this return value immediately, the same way it did on MessageBoxResult before.</summary>
+    /// <summary>Modal; true when the answer is Yes.</summary>
     public static bool Show(Window? owner, string message, string title, ThemedConfirmSeverity severity)
     {
         var dialog = new ThemedConfirmDialog(owner, message, title, severity);

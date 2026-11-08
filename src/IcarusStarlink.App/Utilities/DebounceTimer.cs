@@ -3,10 +3,9 @@ using System.Windows.Threading;
 namespace IcarusStarlink.App.Utilities;
 
 /// <summary>
-/// Wraps a DispatcherTimer's "stop, then start on every change; run the action once nothing's
-/// changed for `interval`" pattern, previously hand-rolled independently in LibraryItemViewModel
-/// (notes save), NexusWatchlistItemViewModel (name save), LibraryViewModel and DownloadsViewModel
-/// (both search) — same shape, four separate copies.
+/// Runs an action once a value has stopped changing for `interval`: call Restart on every change;
+/// Cancel drops a pending run and Flush runs it now. The timer runs on the UI thread's dispatcher
+/// (see the constructor).
 /// </summary>
 public sealed class DebounceTimer
 {

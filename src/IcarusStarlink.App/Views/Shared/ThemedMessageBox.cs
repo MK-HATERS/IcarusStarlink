@@ -2,10 +2,10 @@ using System.Windows;
 
 namespace IcarusStarlink.App.Views;
 
-/// <summary>Thin static entry point mirroring MessageBox.Show's own call shape for this app's 21 real Yes/No confirmation dialogs — see ThemedConfirmDialog for the actual themed window.</summary>
+/// <summary>MessageBox.Show's call shape for a Yes/No question in the themed dialog (ThemedConfirmDialog).</summary>
 public static class ThemedMessageBox
 {
-    /// <summary>Defaults to the main window as owner (every real call site is a ViewModel with no Window reference of its own) — WindowStartupLocation.CenterOwner degrades to CenterScreen automatically if that's ever null (e.g. during a very early/late app lifecycle moment).</summary>
+    /// <summary>Owned by the main window; with none (very early or late in the app's life) it centres on the screen.</summary>
     public static bool Show(string message, string title, ThemedConfirmSeverity severity) =>
         ThemedConfirmDialog.Show(Application.Current?.MainWindow, message, title, severity);
 }

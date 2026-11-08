@@ -1,9 +1,9 @@
 namespace IcarusStarlink.App.Messages;
 
 /// <summary>
-/// Broadcast whenever SettingsViewModel's Update data folder finishes successfully — WeeklyChangesViewModel
-/// is a DI singleton constructed once on first navigation to that page, so without this it would
-/// keep showing whatever report existed (or didn't) at that moment forever, the same staleness
-/// LibraryChangedMessage exists to solve for Library/Downloads.
+/// Sent when Settings' Refresh game data (UpdateDataFolderAsync) finishes: the extracted game data
+/// and the weekly change report are new. View models and caches built from the old data (Weekly
+/// changes, Library, the editors, Merge &amp; Install, Saves, Local server, GameDataIndexCache)
+/// listen for it and reload or drop what they hold, since they are built once and live on.
 /// </summary>
 public sealed record WeeklyChangeReportUpdatedMessage;
