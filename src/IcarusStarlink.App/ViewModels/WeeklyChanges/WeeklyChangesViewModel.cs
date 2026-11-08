@@ -21,11 +21,9 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
 
     public string Title => "Weekly Changes";
 
-    /// <summary>Exposed so this page's own "Refresh game data" shortcut can run the exact same
-    /// command Settings' own button does, rather than duplicating the extraction logic here —
-    /// the same reuse pattern NexusCatalogViewModel.Downloads already uses for a sibling page's
-    /// command. SettingsViewModel is a DI singleton constructed eagerly at app startup, so this
-    /// is never the thing that first brings it into existence.</summary>
+    /// <summary>Settings' view model, so this page's Refresh game data button runs the same command
+    /// as Settings' own (no second copy of the extraction). SettingsViewModel is a DI singleton built
+    /// at app start, so this is never what first creates it.</summary>
     public SettingsViewModel Settings { get; }
 
     public ObservableCollection<WeeklyChangeReportSummary> ReportHistory { get; } = [];

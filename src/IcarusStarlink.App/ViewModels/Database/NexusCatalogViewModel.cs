@@ -35,10 +35,8 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     private readonly IDialogService _dialogService;
 
     /// <summary>
-    /// Exposed so the Nexus page's own XAML can reach DownloadsViewModel's Track-by-URL (for a mod
-    /// that hasn't shown up in search/All yet) and its batch Check-for-updates — reusing those
-    /// commands directly instead of duplicating them here, since tracking a mod not found by the
-    /// live API is the one genuine case per-card Track can't cover.
+    /// The Downloads page's view model: a card's Download runs its download pipeline
+    /// (ResolvePrimaryFileAndFetchAsync), so a Nexus download goes through the same steps wherever it starts.
     /// </summary>
     public DownloadsViewModel Downloads { get; }
 
@@ -251,8 +249,9 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     public NexusCatalogViewModel(
         INexusApiClient nexusApiClient, ICredentialStore credentialStore, INexusWatchlistStore watchlistStore,
         ILibraryRepository libraryRepository, IPendingDownloadStore pendingDownloadStore, DownloadsViewModel downloads,
-        IActivityLog activityLog, IDialogService dialogService, ISettingsService? settingsService = null)
+        IActivityLog activityLog, IDialogService dialogService, ISettingsService? settingsService = null, IMessenger? messenger = null)
     {
+        messenger ??= WeakReferenceMessenger.Default;
         _settingsService = settingsService;
         // The first time ever: everything published until now counts as seen (no wall of "new").
         if (settingsService is not null && (settingsService.Current.CatalogSeen ??= new CatalogSeenState()).NexusSeenUpToUtc is null)
@@ -275,7 +274,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         // badges from the cached fetch, deliberately with no network involved (this VM is a
         // singleton that hears the message even while the page isn't shown, so a network refetch
         // here would silently fire on every import anywhere in the app).
-        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) => ((NexusCatalogViewModel)recipient).RebuildRows());
+        messenger.Register<LibraryChangedMessage>(this,(recipient, _) => ((NexusCatalogViewModel)recipient).RebuildRows());
 
         // "Find on Nexus" (SearchNexusMessage) is handled by MainViewModel, not here: this VM is
         // only built the first time the Database page opens, so a handler here missed the search
@@ -284,7 +283,7 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
         // Settings' own Authorize/Sign out is the only place the saved key changes — re-check
         // Premium status right then instead of only on next launch, so a user who signs in while
         // already on this page sees Download/Open page's prominence update immediately.
-        WeakReferenceMessenger.Default.Register<NexusAccountChangedMessage>(this, (recipient, message) =>
+        messenger.Register<NexusAccountChangedMessage>(this,(recipient, message) =>
         {
             _ = ((NexusCatalogViewModel)recipient).RefreshPremiumStatusAsync();
         });
@@ -687,10 +686,8 @@ public sealed partial class NexusCatalogViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Toggles the mod's membership in Downloads' Nexus watchlist — Track adds it (with its real
-    /// name straight away, unlike the Add-mod-URL path's "Nexus mod #N" placeholder, since the API
-    /// already told us the name here); clicking again on an already-tracked mod removes it. One
-    /// command for both directions, so the same card button works whichever state it's in.
+    /// Tracks the mod, or stops tracking it (the Nexus watchlist): one command for both, so the
+    /// card's button works whichever state it's in. A new entry gets the mod's real name from the card.
     /// </summary>
     [RelayCommand]
     private void TrackMod(NexusModInfo? mod)

@@ -43,10 +43,7 @@ public sealed partial class GameUpdateStepRow(GameUpdateStep step) : ObservableO
     private GameUpdateStepState _state;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasText))]
     private string _text = "";
-
-    public bool HasText => Text.Length > 0;
 
     public bool IsFailed => State == GameUpdateStepState.Failed;
 
@@ -124,7 +121,7 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
     private bool _showSteps;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanRollBack), nameof(IsNotRunning), nameof(IsAllClear))]
+    [NotifyPropertyChangedFor(nameof(CanRollBack), nameof(IsAllClear))]
     [NotifyCanExecuteChangedFor(nameof(RollBackCommand), nameof(ActCommand))]
     private bool _isRunning;
 
@@ -133,8 +130,6 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
 
     /// <summary>The run on screen stopped before its last step: the groups weren't checked against all of it.</summary>
     private bool _runIncomplete;
-
-    public bool IsNotRunning => !IsRunning;
 
     /// <summary>The run's outcome, or what the review is of.</summary>
     [ObservableProperty]

@@ -13,12 +13,12 @@ namespace IcarusStarlink.App.ViewModels;
 /// where LocalBadge shows the stronger "In Library" but the Track toggle still needs to know it's
 /// tracked), so the Tracked filter and the card's Track/Untrack button both key off this instead.
 /// </summary>
-/// <summary>
-/// DisplayName is the tracked watchlist entry's own stored Name when IsTracked (which
-/// RenameTrackedEntry can override), falling back to the live Mod.Name otherwise — distinct from
-/// Mod.Name so a rename is actually visible: without this, the card would always show the live
-/// Nexus name regardless of any stored override.
-/// </summary>
+/// <param name="DisplayName">
+/// The tracked watchlist entry's own stored Name when IsTracked (which RenameTrackedEntry can
+/// override), falling back to the live Mod.Name otherwise — distinct from Mod.Name so a rename is
+/// actually visible: without this, the card would always show the live Nexus name regardless of
+/// any stored override.
+/// </param>
 public sealed record NexusCatalogRow(NexusModInfo Mod, string? LocalBadge, bool HasUpdate, bool IsTracked, string DisplayName, string? NewTag = null)
 {
     /// <summary>What a screen reader says for the card (the record's own text, the whole mod summary, otherwise).</summary>

@@ -24,11 +24,11 @@ public sealed partial class DatabaseViewModel : ObservableObject
     private bool _nexusLookedAt;
     private bool _immDatabaseLookedAt;
 
-    public DatabaseViewModel(NexusCatalogViewModel nexus, LibraryViewModel library)
+    public DatabaseViewModel(NexusCatalogViewModel nexus, LibraryViewModel library, IMessenger? messenger = null)
     {
         Nexus = nexus;
         Library = library;
-        WeakReferenceMessenger.Default.Register<NavigateToPageMessage>(this, (recipient, message) =>
+        (messenger ?? WeakReferenceMessenger.Default).Register<NavigateToPageMessage>(this,(recipient, message) =>
         {
             var page = (DatabaseViewModel)recipient;
             if (message.NavItemId == "nexus")

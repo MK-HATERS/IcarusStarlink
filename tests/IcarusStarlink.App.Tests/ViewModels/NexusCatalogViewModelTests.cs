@@ -24,10 +24,9 @@ using CommunityToolkit.Mvvm.Messaging;
 namespace IcarusStarlink.App.Tests.ViewModels;
 
 /// <summary>
-/// Only covers IsPremium/IsKnownNonPremium — the flag driving whether the Nexus page's Download
-/// button (which can never succeed for a non-Premium account, see FetchAndDownloadAsync's own doc
-/// comment) is shown as available. Everything else on this large VM (browse/search/track/badges)
-/// isn't exercised here.
+/// The Nexus page: IsPremium/IsKnownNonPremium (whether Download is shown as available, since it
+/// can never succeed for a non-Premium account), search by mod ID or link, the New tags, and the
+/// Tracked and Updates only views (every tracked mod, every Library mod with an update).
 /// </summary>
 public class NexusCatalogViewModelTests
 {
@@ -45,6 +44,9 @@ public class NexusCatalogViewModelTests
         /// <summary>The Library the page compares Nexus versions with.</summary>
         public FakeLibraryRepository Library { get; } = new();
 
+        /// <summary>This test's own messenger, so its messages reach no other test's view models.</summary>
+        public WeakReferenceMessenger Messenger { get; } = new();
+
         public NexusCatalogViewModel Build()
         {
             var settingsService = Settings ?? new FakeSettingsService();
@@ -58,7 +60,7 @@ public class NexusCatalogViewModelTests
 
             return new NexusCatalogViewModel(
                 NexusApiClient, CredentialStore, Watchlist, Library,
-                new FakePendingDownloadStore(), downloads, new ActivityLog(), new FakeDialogService(), Settings);
+                new FakePendingDownloadStore(), downloads, new ActivityLog(), new FakeDialogService(), Settings, Messenger);
         }
     }
 
@@ -133,7 +135,7 @@ public class NexusCatalogViewModelTests
         harness.CredentialStore.Save(CredentialTargets.NexusApiKey, "free-account-key");
         harness.NexusApiClient.UserToReturn = new NexusUserInfo(1, "SomeUser", IsPremium: false, IsSupporter: false, "u@example.test", "https://example.test");
         harness.NexusApiClient.ValidateKeyCompletion = new TaskCompletionSource();
-        WeakReferenceMessenger.Default.Send(new NexusAccountChangedMessage());
+        harness.Messenger.Send(new NexusAccountChangedMessage());
         await harness.NexusApiClient.ValidateKeyCompletion.Task;
 
         Assert.True(vm.IsKnownNonPremium);
@@ -151,7 +153,7 @@ public class NexusCatalogViewModelTests
 
         harness.CredentialStore.Delete(CredentialTargets.NexusApiKey);
         harness.NexusApiClient.ValidateKeyCompletion = new TaskCompletionSource();
-        WeakReferenceMessenger.Default.Send(new NexusAccountChangedMessage());
+        harness.Messenger.Send(new NexusAccountChangedMessage());
         await Task.Yield();
 
         Assert.Null(vm.IsPremium);
