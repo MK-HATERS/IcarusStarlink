@@ -8,16 +8,16 @@ namespace IcarusStarlink.App.Services;
 public sealed class WpfDialogService : IDialogService
 {
     public bool Confirm(string message, string title, ThemedConfirmSeverity severity) =>
-        ThemedMessageBox.Show(message, title, severity);
+        ThemedConfirmDialog.Show(OwnerWindow(), message, title, severity);
 
     public bool? ConfirmWithCancel(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText) =>
-        ThemedConfirmDialog.ShowWithCancel(Application.Current?.MainWindow, message, title, severity, yesText, noText);
+        ThemedConfirmDialog.ShowWithCancel(OwnerWindow(), message, title, severity, yesText, noText);
 
     public int? Choose(string message, string title, ThemedConfirmSeverity severity, string first, string second, string third) =>
-        ThemedConfirmDialog.ShowChoice(Application.Current?.MainWindow, message, title, severity, first, second, third);
+        ThemedConfirmDialog.ShowChoice(OwnerWindow(), message, title, severity, first, second, third);
 
     public bool ConfirmWithWords(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText) =>
-        ThemedConfirmDialog.ShowWithWords(Application.Current?.MainWindow, message, title, severity, yesText, noText);
+        ThemedConfirmDialog.ShowWithWords(OwnerWindow(), message, title, severity, yesText, noText);
 
     public RenamePromptResult PromptRename(
         string currentName,
@@ -30,7 +30,7 @@ public sealed class WpfDialogService : IDialogService
     {
         var dialog = new RenameModDialog(currentName, description, resetValue, resetLabel, resetTooltip, title, fieldLabel)
         {
-            Owner = Application.Current?.MainWindow,
+            Owner = OwnerWindow(),
         };
 
         return dialog.ShowDialog() == true
@@ -88,7 +88,13 @@ public sealed class WpfDialogService : IDialogService
 
     private static bool? Show(Microsoft.Win32.CommonDialog dialog) => OwnerWindow() is { } owner ? dialog.ShowDialog(owner) : dialog.ShowDialog();
 
-    /// <summary>The active window (an editor window over the main one), so a picker opens over what the user is looking at.</summary>
+    /// <summary>
+    /// The active window (the Find the broken mod window, an editor over the main one), so a
+    /// question or picker opens over what the user is looking at; else the main window. Only a
+    /// window that is loaded and still has its handle: a closed window must never be an owner.
+    /// Null when neither is usable, and the dialog then opens in the middle of the screen.
+    /// </summary>
     private static Window? OwnerWindow() =>
-        Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? Application.Current?.MainWindow;
+        Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive && w.IsLoaded && PresentationSource.FromVisual(w) is not null)
+        ?? (Application.Current?.MainWindow is { IsLoaded: true } main ? main : null);
 }
