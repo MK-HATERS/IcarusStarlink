@@ -69,7 +69,7 @@ public static partial class WorldFeatureReader
     }
 
     /// <summary>What one export is, with its world position and what's needed from it; null for anything else.</summary>
-    private sealed record Found(string Class, FVector At)
+    internal sealed record Found(string Class, FVector At)
     {
         public string Name { get; init; } = "";
         public string? Tag { get; init; }
@@ -119,7 +119,7 @@ public static partial class WorldFeatureReader
         }
     }
 
-    private static WorldFeatures Build(IReadOnlyList<Found> found, WorldExtent extent)
+    internal static WorldFeatures Build(IReadOnlyList<Found> found, WorldExtent extent)
     {
         WorldMapPoint P(FVector v) => extent.ToMap(v.X, v.Y);
         var features = new List<WorldFeature>();
@@ -139,8 +139,12 @@ public static partial class WorldFeatureReader
                 .FirstOrDefault(s => s is not null);
 
         // The same actor can sit in more than one level file (a big cave in two generated levels): one each.
+        // Only true copies merge (same class, tag, row and spot), so two different quest markers a step
+        // apart are both kept. Sorted first, so the kept copy doesn't depend on which level was read first.
         var unique = found
-            .GroupBy(f => (f.Class, X: Math.Round(f.At.X / 100), Y: Math.Round(f.At.Y / 100)))
+            .OrderBy(f => f.Class, StringComparer.Ordinal).ThenBy(f => f.Tag, StringComparer.Ordinal).ThenBy(f => f.Row, StringComparer.Ordinal)
+            .ThenBy(f => f.At.X).ThenBy(f => f.At.Y).ThenBy(f => f.At.Z).ThenBy(f => f.Name, StringComparer.Ordinal)
+            .GroupBy(f => (f.Class, f.Tag, f.Row, X: Math.Round(f.At.X / 100), Y: Math.Round(f.At.Y / 100), Z: Math.Round(f.At.Z / 100)))
             .Select(g => g.First())
             .ToList();
         foreach (var f in unique)
@@ -151,7 +155,25 @@ public static partial class WorldFeatureReader
                 continue;
             }
 
-            WorldFeature? feature = f.Class switch
+            WorldFeature? feature;
+            try
+            {
+                feature = Feature(f, at);
+            }
+            catch (Exception)
+            {
+                // One odd actor leaves out only itself, like an unreadable level leaves out only what's in it.
+                feature = null;
+            }
+
+            if (feature is not null)
+            {
+                features.Add(feature);
+            }
+        }
+
+        // What one actor shows as on the map; null for those that aren't markers (water, spawners, entrances).
+        WorldFeature? Feature(Found f, WorldMapPoint at) => f.Class switch
             {
                 "BP_CaveInstance_C" => CaveFeature(WorldFeatureKind.Cave, "Cave", at, WormsNear([f.At], SpawnerReach), f.LengthUnits,
                     StyleNear([f.At], SpawnerReach * 3), null),
@@ -161,7 +183,8 @@ public static partial class WorldFeatureReader
                 "BP_OilGeyser_C" => new(WorldFeatureKind.OilGeyser, "Oil geyser", at),
                 "BP_EnzymeGeyser_C" => new(WorldFeatureKind.EnzymeGeyser, "Enzyme geyser", at) { Category = f.Row is { } row ? WorldMapCatalog.Humanize(row) : null },
                 _ when f.Class.StartsWith("BP_GH_DenEntrance_", StringComparison.Ordinal) =>
-                    new(WorldFeatureKind.HuntDen, SplitWords(f.Class["BP_GH_DenEntrance_".Length..^2].Replace('_', ' ')) + " den", at),
+                    new(WorldFeatureKind.HuntDen,
+                        DenClass().Match(f.Class) is { Success: true } den ? SplitWords(den.Groups[1].Value.Replace('_', ' ')) + " den" : "Great Hunt den", at),
                 "BP_QuestMarker_C" when f.Tag?.StartsWith("WorldBoss.SpawnLocation.", StringComparison.OrdinalIgnoreCase) == true =>
                     new(WorldFeatureKind.BossSpawn, SplitWords(f.Tag["WorldBoss.SpawnLocation.".Length..]) + " spawn spot", at),
                 "BP_QuestMarker_C" => new(WorldFeatureKind.MissionSpot, MissionName(f.Tag, f.Name), at) { Category = MissionCategory(f.Tag) },
@@ -172,17 +195,12 @@ public static partial class WorldFeatureReader
                     Category = f.Row is { } meta ? WorldMapCatalog.Humanize(meta.Replace("MetaDeposit_", "")) : null,
                 },
                 _ when f.Class.StartsWith("BP_MetaDeposit_", StringComparison.Ordinal) =>
-                    new(WorldFeatureKind.ExoticSpot, SplitWords(f.Class["BP_MetaDeposit_".Length..^2].Replace('_', ' ')) + " deposit", at),
+                    new(WorldFeatureKind.ExoticSpot,
+                        MetaDepositClass().Match(f.Class) is { Success: true } deposit ? SplitWords(deposit.Groups[1].Value.Replace('_', ' ')) + " deposit" : "Exotic deposit", at),
                 "BP_ExoticPlantSpawn_C" => new(WorldFeatureKind.ExoticSpot, "Possible exotic plant spot", at) { Category = "Plant" },
                 "BP_FishVolume_C" => new(WorldFeatureKind.FishingSpot, "Fishing spot", at),
                 _ => null,
             };
-
-            if (feature is not null)
-            {
-                features.Add(feature);
-            }
-        }
 
         var water = new List<WorldWater>();
         foreach (var f in unique.Where(f => f.Class is "BP_InteractableLake_C" or "BP_InteractableRiver_C"))
@@ -212,6 +230,14 @@ public static partial class WorldFeatureReader
     /// <summary>BP_CaveEntrance_CF_SML_01_C → "CF".</summary>
     [GeneratedRegex(@"^BP_CaveEntrance_([A-Z]{2})_")]
     private static partial Regex EntranceStyle();
+
+    /// <summary>BP_GH_DenEntrance_RockGolem_C → "RockGolem"; the bare base class BP_GH_DenEntrance_C has no name.</summary>
+    [GeneratedRegex(@"^BP_GH_DenEntrance_(\w+)_C$")]
+    private static partial Regex DenClass();
+
+    /// <summary>BP_MetaDeposit_Ice_C → "Ice"; the bare base class BP_MetaDeposit_C has no name.</summary>
+    [GeneratedRegex(@"^BP_MetaDeposit_(\w+)_C$")]
+    private static partial Regex MetaDepositClass();
 
     /// <summary>Cave worms placed by a cave spawner's CaveActorSpawnMap (fewest, most), all creature kinds added up.</summary>
     private static (int Min, int Max)? WormCount(JArray spawns)

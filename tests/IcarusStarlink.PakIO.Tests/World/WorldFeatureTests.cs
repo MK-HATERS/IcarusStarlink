@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CUE4Parse.UE4.Objects.Core.Math;
 using IcarusStarlink.PakIO.World;
 
 namespace IcarusStarlink.PakIO.Tests.World;
@@ -65,5 +66,40 @@ public sealed class WorldFeatureTests
         Assert.Equal(2, cave.Tier);
         Assert.Equal([new WorldMapPoint(0.1, 0.5), new WorldMapPoint(0.3, 0.7)], cave.Entrances);
         Assert.True(Assert.Single(back.Water).IsRiver);
+    }
+
+    private static readonly WorldExtent Square = new(-1000, -1000, 2000, 2000);
+
+    /// <summary>
+    /// Regression: two different quest markers within a metre (a mission spot and a world boss spot)
+    /// merged into one, and which one was kept changed from one draw to the next.
+    /// </summary>
+    [Fact]
+    public void TwoDifferentQuestMarkersInOneSpot_AreBothKept_OneActorInTwoLevelsIsOne()
+    {
+        var mission = new WorldFeatureReader.Found("BP_QuestMarker_C", new FVector(100, 100, 0)) { Tag = "Objective.BaseLocation" };
+        var boss = new WorldFeatureReader.Found("BP_QuestMarker_C", new FVector(130, 120, 0)) { Tag = "WorldBoss.SpawnLocation.RockGolem" };
+
+        var features = WorldFeatureReader.Build([mission, boss, mission with { }], Square).Features;
+
+        Assert.Equal(2, features.Count);
+        Assert.Single(features, f => f.Kind == WorldFeatureKind.BossSpawn);
+        Assert.Single(features, f => f.Kind == WorldFeatureKind.MissionSpot);
+    }
+
+    /// <summary>Regression: a placed base class "BP_GH_DenEntrance_C" or "BP_MetaDeposit_C" threw, and the whole world failed to draw.</summary>
+    [Fact]
+    public void ABareDenOrDepositClass_IsNamedPlainly_AndDoesntStopTheWorld()
+    {
+        var features = WorldFeatureReader.Build(
+        [
+            new("BP_GH_DenEntrance_C", new FVector(0, 0, 0)),
+            new("BP_MetaDeposit_C", new FVector(500, 0, 0)),
+            new("BP_GH_DenEntrance_RockGolem_C", new FVector(-500, 0, 0)),
+        ], Square).Features;
+
+        Assert.Contains(features, f => f.Name == "Rock Golem den");
+        Assert.Contains(features, f => f.Kind == WorldFeatureKind.HuntDen && f.Name == "Great Hunt den");
+        Assert.Contains(features, f => f.Kind == WorldFeatureKind.ExoticSpot && f.Name == "Exotic deposit");
     }
 }
