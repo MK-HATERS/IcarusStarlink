@@ -57,6 +57,9 @@ public sealed class LibraryEntry
 
     public string? NexusFileVersion { get; set; }
 
+    /// <summary>"Keep this version" is on for this mod (see KeptVersion); null when it's off.</summary>
+    public KeptVersion? KeptVersion { get; set; }
+
     /// <summary>The community catalog's own stable entry ID, set at Download &amp; extract time for a Source == "Database" entry — the Database counterpart of NexusModId, so the Downloaded badge and update-checking survive a Rename the way name-matching can't. Null for older imports and anything not Database-sourced (those fall back to name-matching).</summary>
     public string? CatalogEntryId { get; set; }
 

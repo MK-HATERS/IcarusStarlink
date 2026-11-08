@@ -94,6 +94,28 @@ public interface ILibraryRepository
     /// <summary>Snapshots this mod's whole folder before a risky edit — a real point-in-time backup, independent of the EXMOD editor's own transient per-field preview. Keeps the last 5. Returns the backup's own path.</summary>
     string BackupMod(string folderName);
 
+    /// <summary>
+    /// BackupMod with a label kept beside the backup: why it was made (in plain words, shown in the
+    /// mod's version history) plus the mod's version and Nexus file at that moment. The label is
+    /// best effort: a backup whose label can't be written is still a good backup.
+    /// </summary>
+    string BackupMod(string folderName, string? reason) => BackupMod(folderName);
+
+    /// <summary>Every whole backup of this mod, newest first, with its label when it has one. Empty when there are none.</summary>
+    IReadOnlyList<ModBackupInfo> ListModBackups(string folderName) => [];
+
+    /// <summary>
+    /// Puts back one backup from ListModBackups (an older version): the mod's current copy is backed
+    /// up first, so the version history can switch back. Returns false when that backup isn't one of
+    /// this mod's. The default does nothing, for repositories that keep no backups.
+    /// </summary>
+    bool RestoreModBackup(string folderName, string backupPath) => false;
+
+    /// <summary>Turns "Keep this version" on (a KeptVersion) or off (null) for this mod. The default does nothing, for repositories that don't persist metadata.</summary>
+    void SetKeptVersion(string folderName, KeptVersion? kept)
+    {
+    }
+
     /// <summary>Whether at least one backup exists for this mod — for a UI to gray out Restore when there's nothing to restore from.</summary>
     bool HasModBackup(string folderName);
 

@@ -284,9 +284,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     // A tracked Nexus file: an update means a newer file replaced the one installed — versions of
     // OTHER files of the same mod (its other variants) never count.
     // A copy newer than Nexus's latest (the author's own build) has no update, whichever file it came from.
-    public bool HasUpdateAvailable => HasSource && !IsAheadOfNexus && (NexusFileId is { } installedFile && LatestNexusFileId is { } newestFile
-        ? newestFile != installedFile
-        : UpdateVersionComparer.HasUpdate(LatestVersion, Version, NexusVersion));
+    // "Keep this version" hides the update it skipped (LibraryItemViewModel.KeepVersion.cs).
+    public bool HasUpdateAvailable => HasUpdateIgnoringKept && !KeptVersion.Hides(KeptVersion, LatestNexusFileId, LatestVersion);
 
     partial void OnLatestVersionChanged(string? value)
     {
@@ -534,6 +533,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         NexusModId = entry.NexusModId;
         NexusVersion = entry.NexusVersion;
         NexusFileId = entry.NexusFileId;
+        KeptVersion = entry.KeptVersion;
         CatalogEntryId = entry.CatalogEntryId;
         MergedPackModNames = entry.MergedPackModNames;
         MergedPackOptionDescriptions = entry.MergedPackOptionDescriptions;
@@ -587,7 +587,7 @@ public sealed partial class LibraryItemViewModel : ObservableObject
         AbstainCommand.NotifyCanExecuteChanged();
         NexusVersion = entry.NexusVersion;
         NexusFileId = entry.NexusFileId;
-        OnPropertyChanged(nameof(HasUpdateAvailable));
+        SetKeptVersion(entry.KeptVersion);
         CatalogEntryId = entry.CatalogEntryId;
         MergedPackModNames = entry.MergedPackModNames;
         MergedPackOptionDescriptions = entry.MergedPackOptionDescriptions;

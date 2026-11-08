@@ -1529,6 +1529,121 @@ public class FolderLibraryRepositoryTests : IDisposable
         Assert.Empty(repo.Search("Gone"));
     }
 
+    [Fact]
+    public void BackupMod_WithAReason_ListModBackups_ShowsTheReasonVersionAndFile()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        repo.SetNexusFile(folderName, 77, "1.0");
+        ILibraryRepository library = repo;
+
+        library.BackupMod(folderName, "Before an update");
+
+        var backup = Assert.Single(library.ListModBackups(folderName));
+        Assert.Equal("Before an update", backup.Reason);
+        Assert.Equal("1.0", backup.Version);
+        Assert.Equal(77, backup.NexusFileId);
+        Assert.NotNull(backup.TakenAtUtc);
+    }
+
+    /// <summary>Only the newest 5 backups are kept: a pruned backup's label goes with it, and every label stays with its own backup.</summary>
+    [Fact]
+    public void BackupMod_PastTheKeptCount_PrunedBackupsLoseTheirLabels_AndEachLabelStaysWithItsBackup()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        ILibraryRepository library = repo;
+
+        for (var i = 1; i <= 7; i++)
+        {
+            library.BackupMod(folderName, $"Backup {i}");
+        }
+
+        var backups = library.ListModBackups(folderName);
+        Assert.Equal(["Backup 7", "Backup 6", "Backup 5", "Backup 4", "Backup 3"], backups.Select(b => b.Reason));
+        Assert.Equal(5, Directory.GetFiles(_backupsDir, "*.label.json").Length);
+    }
+
+    [Fact]
+    public void RestoreModBackup_TheOldestOfAFullHistory_PutsItBack_AfterBackingUpTheCurrentCopy()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        var exmodPath = Directory.GetFiles(repo.GetFolderPath(folderName), "*.EXMOD", SearchOption.AllDirectories).Single();
+        ILibraryRepository library = repo;
+
+        // Five versions kept, the history is full: the extra backup taken before the restore must not prune the one being put back.
+        for (var i = 1; i <= 5; i++)
+        {
+            File.WriteAllText(exmodPath, $"version {i}");
+            library.BackupMod(folderName, $"Version {i}");
+        }
+
+        File.WriteAllText(exmodPath, "what I have now");
+        var oldest = library.ListModBackups(folderName).Single(b => b.Reason == "Version 1");
+
+        Assert.True(library.RestoreModBackup(folderName, oldest.Path));
+
+        Assert.Equal("version 1", File.ReadAllText(exmodPath));
+        var history = library.ListModBackups(folderName);
+        var before = history.First();
+        Assert.Equal(ModBackupReasons.BeforeRestore, before.Reason);
+        Assert.Contains(history, b => b.Reason == "Version 1");
+
+        // And back again: the copy taken before the restore is a whole version too.
+        Assert.True(library.RestoreModBackup(folderName, before.Path));
+        Assert.Equal("what I have now", File.ReadAllText(exmodPath));
+    }
+
+    [Fact]
+    public void RestoreModBackup_APathThatIsNotOneOfThisModsBackups_ReturnsFalseAndChangesNothing()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        using var repo = CreateRepository();
+        var folderName = repo.Import(_sourceDir).FolderName;
+        var exmodPath = Directory.GetFiles(repo.GetFolderPath(folderName), "*.EXMOD", SearchOption.AllDirectories).Single();
+        File.WriteAllText(exmodPath, "mine");
+        ILibraryRepository library = repo;
+
+        Assert.False(library.RestoreModBackup(folderName, _sourceDir));
+
+        Assert.Equal("mine", File.ReadAllText(exmodPath));
+        Assert.Empty(library.ListModBackups(folderName));
+    }
+
+    [Fact]
+    public void SetKeptVersion_IsReadBackByANewRepository_AndNullTurnsItOff()
+    {
+        ExmodFolder.Write(_sourceDir, BuildFixture());
+        string folderName;
+        using (var repo = CreateRepository())
+        {
+            folderName = repo.Import(_sourceDir).FolderName;
+            ILibraryRepository library = repo;
+            library.SetKeptVersion(folderName, new KeptVersion { SkippedFileId = 12, SkippedVersion = "2.0" });
+            Assert.Equal(12, repo.GetAll().Single().KeptVersion?.SkippedFileId);
+        }
+
+        using (var repo = CreateRepository())
+        {
+            var kept = repo.GetAll().Single().KeptVersion;
+            Assert.NotNull(kept);
+            Assert.Equal("2.0", kept.SkippedVersion);
+
+            ILibraryRepository library = repo;
+            library.SetKeptVersion(folderName, null);
+            Assert.Null(repo.GetAll().Single().KeptVersion);
+        }
+
+        using (var repo = CreateRepository())
+        {
+            Assert.Null(repo.GetAll().Single().KeptVersion);
+        }
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_extractedModsDir))

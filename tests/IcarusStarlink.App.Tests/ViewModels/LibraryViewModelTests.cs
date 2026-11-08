@@ -2512,6 +2512,39 @@ public sealed partial class LibraryViewModelTests
 
         public bool HasModBackup(string folderName) => _backups.ContainsKey(folderName);
 
+        /// <summary>What ListModBackups answers, per folder (the version history).</summary>
+        public Dictionary<string, List<ModBackupInfo>> VersionHistory { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public List<(string FolderName, string BackupPath)> RestoreModBackupCalls { get; } = [];
+
+        public List<(string FolderName, KeptVersion? Kept)> SetKeptVersionCalls { get; } = [];
+
+        public IReadOnlyList<ModBackupInfo> ListModBackups(string folderName) =>
+            VersionHistory.TryGetValue(folderName, out var list) ? [.. list] : [];
+
+        /// <summary>Like the real one: the current copy goes to the top of the history first.</summary>
+        public bool RestoreModBackup(string folderName, string backupPath)
+        {
+            RestoreModBackupCalls.Add((folderName, backupPath));
+            if (!VersionHistory.TryGetValue(folderName, out var list) || !list.Any(b => b.Path == backupPath))
+            {
+                return false;
+            }
+
+            list.Insert(0, new ModBackupInfo($"{folderName}_before-restore", DateTime.UtcNow, ModBackupReasons.BeforeRestore, null, null));
+            return true;
+        }
+
+        public void SetKeptVersion(string folderName, KeptVersion? kept)
+        {
+            SetKeptVersionCalls.Add((folderName, kept));
+            var entry = _entries.FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+            if (entry is not null)
+            {
+                entry.KeptVersion = kept;
+            }
+        }
+
         public bool RestoreLatestModBackup(string folderName)
         {
             RestoreLatestModBackupCalls.Add(folderName);

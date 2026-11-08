@@ -24,7 +24,7 @@ public sealed partial class LibraryViewModel
 
         try
         {
-            _repository.BackupMod(item.FolderName);
+            _repository.BackupMod(item.FolderName, IcarusStarlink.Core.Library.ModBackupReasons.MadeByYou);
             item.NotifyBackupStateChanged();
             StatusMessage = $"Backed up '{item.Name}'.";
             _activityLog.Log(StatusMessage, ActivityEntryKind.Success);

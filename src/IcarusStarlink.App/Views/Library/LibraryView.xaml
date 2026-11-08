@@ -215,6 +215,11 @@
                                   CommandParameter="{Binding}" IsEnabled="{Binding IsUserAdded}"
                                   ToolTip="Set the oldest UE4SS version this mod works with, so Starlink can warn you when yours is older. Greyed out: one of UE4SS's own built-in mods."
                                   ToolTipService.ShowOnDisabled="True"/>
+                        <MenuItem Header="Keep this version" IsChecked="{Binding IsVersionKept, Mode=OneWay}"
+                                  Command="{Binding PlacementTarget.Tag.ToggleKeepUe4ssVersionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}" IsEnabled="{Binding HasNexusLink}"
+                                  ToolTip="Stay on the version you have: hides the Update badge and leaves this mod out of Update all, until a newer update comes out. Click again to turn it off. Greyed out: not linked to Nexus, so there are no updates to skip."
+                                  ToolTipService.ShowOnDisabled="True"/>
                         <Separator/>
                         <MenuItem Header="Delete"
                                   Command="{Binding PlacementTarget.Tag.DeleteUe4ssModCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
@@ -331,6 +336,12 @@
                             <Run Text="Update "/><Run Text="{Binding LatestVersionText, Mode=OneWay}"/>
                         </TextBlock>
                     </Button>
+                    <!-- Keep this version is on: says why no Update badge shows. -->
+                    <Border Margin="6,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" BorderThickness="1"
+                            BorderBrush="{DynamicResource BorderBrush}" ToolTip="{Binding KeptMarkTooltip}"
+                            Visibility="{Binding ShowsKeptMark, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock Text="Kept" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    </Border>
                     <!-- Your own build, newer than Nexus's latest: no update badge; a click offers a Nexus version instead. -->
                     <Button Style="{StaticResource PillButtonStyle}" Background="{DynamicResource InfoBrush}" Margin="6,0,0,0"
                             Command="{Binding DataContext.ReplaceOwnUe4ssBuildCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -514,6 +525,14 @@
                                   CommandParameter="{Binding}" IsEnabled="{Binding HasModBackup}"
                                   ToolTip="Shows which values and files the author changed between your previous copy and this one. It only shows them; nothing is put back. Greyed out: no previous copy kept yet."
                                   ToolTipService.ShowOnDisabled="True"/>
+                        <MenuItem Header="Versions…"
+                                  Command="{Binding PlacementTarget.Tag.ShowVersionHistoryCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  ToolTip="Lists every copy of this mod Starlink kept (before updates, fixes and reinstalls), so you can compare one with now or put it back"/>
+                        <MenuItem Header="Keep this version" IsChecked="{Binding IsVersionKept, Mode=OneWay}"
+                                  Command="{Binding PlacementTarget.Tag.ToggleKeepVersionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                  CommandParameter="{Binding}"
+                                  ToolTip="Stay on the version you have: hides the Update badge and leaves this mod out of Update all, until a newer update comes out. Click again to turn it off."/>
                         <MenuItem Header="Find in Database"
                                   Command="{Binding PlacementTarget.Tag.FindInDatabaseCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
                                   CommandParameter="{Binding}"
@@ -675,6 +694,12 @@
                         </Button.ToolTip>
                         <TextBlock Text="Update" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource AccentForegroundBrush}"/>
                     </Button>
+                    <!-- Keep this version is on: says why no Update badge shows. -->
+                    <Border Margin="8,0,0,0" CornerRadius="8" Padding="7,2" VerticalAlignment="Center" BorderThickness="1"
+                            BorderBrush="{DynamicResource BorderBrush}" ToolTip="{Binding KeptMarkTooltip}"
+                            Visibility="{Binding ShowsKeptMark, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <TextBlock Text="Kept" FontSize="9" FontFamily="Consolas" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    </Border>
                     <!-- Your own build, newer than Nexus's latest: no update badge; a click offers a Nexus version instead. -->
                     <Button Style="{StaticResource PillButtonStyle}" Background="{DynamicResource InfoBrush}" Margin="8,0,0,0"
                             Command="{Binding DataContext.ReplaceOwnBuildCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"

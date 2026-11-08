@@ -11,6 +11,29 @@ public class Ue4ssModRowViewModelTests
             minUe4ssVersion: minUe4ssVersion, installedLoaderVersion: installedLoaderVersion, onDirtyChanged: () => { });
 
     [Fact]
+    public void KeptVersion_HidesTheSkippedUpdate_ANewerOneOrTurningItOff_BringsItBack()
+    {
+        var row = new Ue4ssModRowViewModel(
+            name: "SomeMod", realIsEnabled: true, isBuiltIn: false, nexusModId: 55, knownVersion: "1.0",
+            minUe4ssVersion: null, installedLoaderVersion: "3.0.1", onDirtyChanged: () => { });
+        row.LatestVersion = "1.1";
+        Assert.True(row.HasUpdateAvailable);
+
+        row.KeptVersion = new IcarusStarlink.Core.Library.KeptVersion { SkippedVersion = "1.1" };
+        Assert.False(row.HasUpdateAvailable);
+        Assert.True(row.IsVersionKept);
+        Assert.True(row.ShowsKeptMark);
+
+        row.LatestVersion = "1.2";
+        Assert.True(row.HasUpdateAvailable);
+
+        row.LatestVersion = "1.1";
+        row.KeptVersion = null;
+        Assert.True(row.HasUpdateAvailable);
+        Assert.False(row.IsVersionKept);
+    }
+
+    [Fact]
     public void HasVersionWarning_InstalledLoaderBelowDeclaredMinimum_IsTrue()
     {
         var row = MakeRow(minUe4ssVersion: "3.0.5", installedLoaderVersion: "3.0.1");

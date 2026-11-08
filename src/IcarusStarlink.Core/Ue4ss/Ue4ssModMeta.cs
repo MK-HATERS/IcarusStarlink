@@ -13,6 +13,9 @@ public sealed class Ue4ssModMeta
 
     public string? NexusFileVersion { get; set; }
 
+    /// <summary>"Keep this version" is on for this mod (see Library.KeptVersion); null when it's off.</summary>
+    public IcarusStarlink.Core.Library.KeptVersion? KeptVersion { get; set; }
+
     /// <summary>The mod page's own title, recorded at the same Nexus lookup as NexusVersion — the Library's UE4SS panel shows it under the folder name so a staged mod reads as the thing the user downloaded, not just a folder.</summary>
     public string? NexusName { get; set; }
 

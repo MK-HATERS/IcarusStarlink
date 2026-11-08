@@ -467,12 +467,174 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     /// keep-last-5 timestamped-copy algorithm InstallService/Ue4ssLoaderInstallService already use
     /// for the real game folder) rather than a second implementation of the same thing.
     /// </summary>
-    public string BackupMod(string folderName)
+    public string BackupMod(string folderName) => BackupMod(folderName, reason: null);
+
+    /// <summary>
+    /// The backup, then its label ("&lt;backup&gt;.label.json" beside it: why, the version, the Nexus
+    /// file) for the version history. The trim that keeps the newest 5 doesn't know about labels, so
+    /// labels whose backup is gone are removed here too; a label is only ever read by its own
+    /// backup's exact name, so one left behind can't attach to another backup.
+    /// </summary>
+    public string BackupMod(string folderName, string? reason) => BackupMod(folderName, reason, removeOrphanedLabels: true);
+
+    /// <param name="removeOrphanedLabels">False while RestoreModBackup holds a backup under another name: its label would look orphaned.</param>
+    private string BackupMod(string folderName, string? reason, bool removeOrphanedLabels)
     {
         var folder = ResolveFolder(folderName);
         FolderBackup.BackupFolder(folder, _modBackupsDirectory);
-        return FindLatestModBackupPath(folderName)!;
+        var backupPath = FindLatestModBackupPath(folderName)!;
+        WriteBackupLabel(folderName, backupPath, reason);
+        if (removeOrphanedLabels)
+        {
+            RemoveOrphanedBackupLabels(folderName);
+        }
+
+        return backupPath;
     }
+
+    private const string BackupLabelSuffix = ".label.json";
+
+    private static string BackupLabelPath(string backupPath) =>
+        backupPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + BackupLabelSuffix;
+
+    /// <summary>Best effort: the backup is already whole, and a missing label only means the history shows less about it.</summary>
+    private void WriteBackupLabel(string folderName, string backupPath, string? reason)
+    {
+        try
+        {
+            var entry = _cachedEntries.Find(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+            var label = new ModBackupLabel
+            {
+                Reason = string.IsNullOrWhiteSpace(reason) ? null : reason,
+                Version = string.IsNullOrWhiteSpace(entry?.Version) ? null : entry.Version,
+                NexusFileId = entry?.NexusFileId,
+                NexusFileVersion = entry?.NexusFileVersion,
+            };
+            AtomicFile.WriteAllText(BackupLabelPath(backupPath), JsonSerializer.Serialize(label));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Couldn't write the label for backup {Backup}", backupPath);
+        }
+    }
+
+    private void RemoveOrphanedBackupLabels(string folderName)
+    {
+        try
+        {
+            foreach (var label in Directory.EnumerateFiles(_modBackupsDirectory, "*" + BackupLabelSuffix))
+            {
+                var backupName = Path.GetFileName(label)[..^BackupLabelSuffix.Length];
+                if (FolderBackup.IsTimestampedBackupOf(backupName, folderName)
+                    && !Directory.Exists(Path.Combine(_modBackupsDirectory, backupName)))
+                {
+                    File.Delete(label);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Left for the next backup: an extra label is a few bytes and is never read.
+        }
+    }
+
+    private static ModBackupLabel? ReadBackupLabel(string backupPath)
+    {
+        try
+        {
+            var path = BackupLabelPath(backupPath);
+            return File.Exists(path) ? JsonSerializer.Deserialize<ModBackupLabel>(File.ReadAllText(path)) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    public IReadOnlyList<ModBackupInfo> ListModBackups(string folderName) =>
+        [.. FolderBackup.EnumerateFolderBackups(_modBackupsDirectory, folderName)
+            .Where(HoldsAModFile)
+            .Select(path =>
+            {
+                var label = ReadBackupLabel(path);
+                return new ModBackupInfo(path, BackupTimeUtc(path), label?.Reason, label?.Version, label?.NexusFileId);
+            })];
+
+    /// <summary>When a backup was taken, from the stamp in its name (not the folder's creation time, see FolderBackup.NewestFirst).</summary>
+    private static DateTime? BackupTimeUtc(string backupPath)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(backupPath), @"_(?<stamp>\d{8}-\d{6})(?:_\d+)?$");
+        return match.Success && DateTime.TryParseExact(match.Groups["stamp"].Value, "yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var when)
+            ? when
+            : null;
+    }
+
+    /// <summary>
+    /// Puts back an older backup. The chosen backup is renamed out of the way first (a cheap move in
+    /// the same folder), so the backup of the current copy taken next can't trim it when the history
+    /// is full, then copied into place and renamed back. A copy that fails puts the current copy
+    /// back from the backup just taken.
+    /// </summary>
+    public bool RestoreModBackup(string folderName, string backupPath)
+    {
+        var chosen = ListModBackups(folderName).FirstOrDefault(b => string.Equals(
+            Path.GetFullPath(b.Path).TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(backupPath).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase));
+        if (chosen is null)
+        {
+            return false;
+        }
+
+        var folder = Path.Combine(_extractedModsDirectory, folderName);
+        var held = chosen.Path + ".partial-" + Guid.NewGuid().ToString("N");
+        Directory.Move(chosen.Path, held);
+        try
+        {
+            string? currentBackup = null;
+            if (Directory.Exists(folder))
+            {
+                currentBackup = BackupMod(folderName, ModBackupReasons.BeforeRestore, removeOrphanedLabels: false);
+            }
+
+            try
+            {
+                if (Directory.Exists(folder))
+                {
+                    Directory.Delete(folder, recursive: true);
+                }
+
+                FolderBackup.CopyDirectory(held, folder);
+            }
+            catch when (currentBackup is not null)
+            {
+                Directories.TryDelete(folder);
+                FolderBackup.CopyDirectory(currentBackup, folder);
+                RescanAll();
+                throw;
+            }
+        }
+        finally
+        {
+            if (!Directory.Exists(chosen.Path))
+            {
+                try
+                {
+                    Directory.Move(held, chosen.Path);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(ex, "Couldn't rename backup {Held} back to {Backup}", held, chosen.Path);
+                }
+            }
+        }
+
+        ClearFixedMarkIfBackupIsOlder(folderName, chosen.Path);
+        RescanAll();
+        return true;
+    }
+
+    public void SetKeptVersion(string folderName, KeptVersion? kept) =>
+        UpdateMeta(folderName, meta => meta.KeptVersion = kept, entry => entry.KeptVersion = kept);
 
     public bool HasModBackup(string folderName) => FindLatestModBackupPath(folderName) is not null;
 
@@ -502,17 +664,23 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
 
         FolderBackup.CopyDirectory(backupPath, folder);
 
-        // A backup taken before the mod fixer first changed this mod holds none of its fixes. The
-        // Library info lives outside the mod's folder, so the restore itself doesn't undo it.
+        ClearFixedMarkIfBackupIsOlder(folderName, backupPath);
+        RescanAll();
+        return true;
+    }
+
+    /// <summary>
+    /// A backup taken before the mod fixer first changed this mod holds none of its fixes. The
+    /// Library info lives outside the mod's folder, so the restore itself doesn't undo it.
+    /// </summary>
+    private void ClearFixedMarkIfBackupIsOlder(string folderName, string backupPath)
+    {
         var meta = LoadMetaForWrite(folderName);
         if (meta.FixedByIslAtUtc is { } fixedAt && Directory.GetCreationTimeUtc(backupPath) <= fixedAt.UtcDateTime)
         {
             meta.FixedByIslAtUtc = null;
             _metaStore.Save(folderName, meta);
         }
-
-        RescanAll();
-        return true;
     }
 
     private string? FindLatestModBackupPath(string folderName)
@@ -801,6 +969,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         NexusVersion = meta.NexusVersion,
         NexusFileId = meta.NexusFileId,
         NexusFileVersion = meta.NexusFileVersion,
+        KeptVersion = meta.KeptVersion,
         CatalogEntryId = meta.CatalogEntryId,
         DisplayNameOverride = meta.DisplayNameOverride,
     };
@@ -857,6 +1026,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             NexusVersion = meta.NexusVersion,
             NexusFileId = meta.NexusFileId,
             NexusFileVersion = meta.NexusFileVersion,
+            KeptVersion = meta.KeptVersion,
             CatalogEntryId = meta.CatalogEntryId,
             DisplayNameOverride = meta.DisplayNameOverride,
             MergedPackModNames = meta.MergedPackModNames,

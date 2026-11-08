@@ -161,6 +161,79 @@ public sealed partial class LibraryItemViewModelTests : IDisposable
         Assert.True(item.HasUpdateAvailable);
     }
 
+    /// <summary>Keep this version hides the file it skipped; a newer file in the same chain shows again, and turning it off brings the badge back.</summary>
+    [Fact]
+    public void KeptVersion_HidesTheSkippedFile_ANewerFileOrTurningItOff_BringsTheUpdateBack()
+    {
+        var entry = MakeEntry();
+        entry.Source = "Nexus";
+        entry.NexusModId = 339;
+        entry.NexusFileId = 100;
+        var item = CreateViewModel(entry: entry);
+        item.LatestVersion = "2.0";
+        item.LatestNexusFileId = 200;
+        Assert.True(item.HasUpdateAvailable);
+
+        item.SetKeptVersion(new KeptVersion { SkippedFileId = 200, SkippedVersion = "2.0" });
+        Assert.False(item.HasUpdateAvailable);
+        Assert.True(item.IsVersionKept);
+        Assert.True(item.ShowsKeptMark);
+
+        item.LatestNexusFileId = 300;
+        Assert.True(item.HasUpdateAvailable);
+        Assert.False(item.ShowsKeptMark);
+
+        item.LatestNexusFileId = 200;
+        item.SetKeptVersion(null);
+        Assert.True(item.HasUpdateAvailable);
+        Assert.False(item.IsVersionKept);
+    }
+
+    /// <summary>Without file IDs the versions decide: the skipped version stays hidden, a newer one shows. Kept before any check, every update stays hidden.</summary>
+    [Fact]
+    public void KeptVersion_ByVersion_HidesTheSkippedVersionOnly_AndKeptBeforeAnyCheck_HidesAll()
+    {
+        var entry = MakeEntry();
+        entry.Source = "Nexus";
+        entry.NexusModId = 339;
+        entry.KeptVersion = new KeptVersion { SkippedVersion = "2.0" };
+        var item = CreateViewModel(entry: entry);
+
+        item.LatestVersion = "2.0";
+        Assert.False(item.HasUpdateAvailable);
+
+        item.LatestVersion = "2.1";
+        Assert.True(item.HasUpdateAvailable);
+
+        var keptEarly = MakeEntry("Other");
+        keptEarly.Source = "Nexus";
+        keptEarly.NexusModId = 340;
+        keptEarly.KeptVersion = new KeptVersion();
+        var early = CreateViewModel(entry: keptEarly);
+        early.LatestVersion = "9.0";
+        Assert.False(early.HasUpdateAvailable);
+    }
+
+    /// <summary>A rescan (Update) reads the switch from the Library entry.</summary>
+    [Fact]
+    public void Update_TakesKeptVersionFromTheEntry()
+    {
+        var entry = MakeEntry();
+        entry.Source = "Nexus";
+        entry.NexusModId = 339;
+        var item = CreateViewModel(entry: entry);
+        item.LatestVersion = "2.0";
+        Assert.True(item.HasUpdateAvailable);
+
+        var rescanned = MakeEntry();
+        rescanned.Source = "Nexus";
+        rescanned.NexusModId = 339;
+        rescanned.KeptVersion = new KeptVersion { SkippedVersion = "2.0" };
+        item.Update(rescanned);
+
+        Assert.False(item.HasUpdateAvailable);
+    }
+
     [Fact]
     public void NexusLinkActionLabel_OffersRelinkOnceLinked()
     {

@@ -352,6 +352,25 @@ public sealed class ModFixService(
     }
 
     /// <summary>
+    /// Puts back one backup from the mod's version history (ILibraryRepository.RestoreModBackup:
+    /// the current copy is backed up first), under the same lock as every other writer of the mod.
+    /// When that backup is the one a fix was made after, the choices remembered with it come back too.
+    /// </summary>
+    public bool RestoreBackup(string folderName, string backupPath)
+    {
+        lock (_gate)
+        {
+            if (!repository.RestoreModBackup(folderName, backupPath))
+            {
+                return false;
+            }
+
+            PutChoicesBack(folderName, Path.GetFileName(backupPath.TrimEnd('\\', '/')));
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Puts the mod back as it was before its last change (each fix, rename or refresh backs it up
     /// first), and the choices remembered with that change are put back as they were.
     /// </summary>
@@ -504,7 +523,7 @@ public sealed class ModFixService(
         // isn't newer than it. The choices as they are now go with it (a restore puts them back).
         if (backUp)
         {
-            var backup = repository.BackupMod(folderName);
+            var backup = repository.BackupMod(folderName, ModBackupReasons.BeforeFix);
             RememberChoicesBefore(folderName, Path.GetFileName(backup.TrimEnd('\\', '/')));
         }
 

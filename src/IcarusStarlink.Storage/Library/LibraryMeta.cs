@@ -34,6 +34,9 @@ internal sealed class LibraryMeta
 
     public string? NexusFileVersion { get; set; }
 
+    /// <summary>See LibraryEntry.KeptVersion.</summary>
+    public IcarusStarlink.Core.Library.KeptVersion? KeptVersion { get; set; }
+
     /// <summary>The real Nexus mod ID, set at import time for a Nexus-sourced entry — see LibraryEntry.NexusModId.</summary>
     public int? NexusModId { get; set; }
 

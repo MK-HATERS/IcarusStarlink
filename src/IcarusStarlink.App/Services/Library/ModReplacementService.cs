@@ -206,7 +206,7 @@ public sealed class ModReplacementService(
         {
             try
             {
-                library.BackupMod(entry.FolderName);
+                library.BackupMod(entry.FolderName, ModBackupReasons.BeforeReplace);
             }
             catch (Exception ex)
             {

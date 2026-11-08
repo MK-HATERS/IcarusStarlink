@@ -113,6 +113,7 @@ public sealed partial class LibraryViewModel
                 row.LoaderMissing = !IsUe4ssLoaderInstalled;
                 row.NotStartedReason = state.IsSwitchedOffInGame ? state.WhyNotStarted : null;
                 row.NexusFileId = meta.NexusFileId;
+                row.KeptVersion = meta.KeptVersion;
                 row.HasConfig = ModHasConfig(state);
                 row.ConfigNeedsReview = row.HasConfig && meta.ConfigReviews is { Count: > 0 };
                 row.LocalVersion = ModLocalVersion(state);

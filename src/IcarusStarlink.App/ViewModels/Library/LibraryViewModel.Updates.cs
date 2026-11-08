@@ -625,6 +625,12 @@ public sealed partial class LibraryViewModel
             return;
         }
 
+        await CompareWithBackupAsync(modName, previousVersionPath, currentFolderName);
+    }
+
+    /// <summary>Opens the comparison of one kept copy of the mod (a backup folder) with the copy in the Library now.</summary>
+    private async Task CompareWithBackupAsync(string modName, string previousVersionPath, string currentFolderName)
+    {
         StatusMessage = $"Comparing '{modName}' against its previous version…";
         try
         {

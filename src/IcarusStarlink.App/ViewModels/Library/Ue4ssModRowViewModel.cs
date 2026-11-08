@@ -232,7 +232,11 @@ public sealed partial class Ue4ssModRowViewModel : ObservableObject
     // A copy newer than Nexus's latest (the author's own build) has no update, whichever file it came from.
     // The copy's own main.lua version counts first: a build copied in over a Nexus download keeps
     // the Nexus version recorded at download (KnownVersion), which said "Update v0.7.0" over v0.8.0.
-    public bool HasUpdateAvailable =>
+    // "Keep this version" hides the update it skipped (Ue4ssModRowViewModel.KeepVersion.cs).
+    public bool HasUpdateAvailable => HasUpdateIgnoringKept && !KeptVersion.Hides(KeptVersion, LatestNexusFileId, LatestVersion);
+
+    /// <summary>The update a check found, before "Keep this version" is applied: what turning it on skips.</summary>
+    internal bool HasUpdateIgnoringKept =>
         HasNexusLink && !IsAheadOfNexus && (NexusFileId is { } installedFile && LatestNexusFileId is { } newestFile
             ? newestFile != installedFile
             : !string.IsNullOrEmpty(InstalledVersion) && UpdateVersionComparer.HasUpdate(LatestVersion, InstalledVersion, KnownVersion));
