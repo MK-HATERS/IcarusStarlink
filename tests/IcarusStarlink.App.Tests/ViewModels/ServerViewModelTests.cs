@@ -23,7 +23,10 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// against": SelectedSite alone doesn't answer that (see ServerViewModel's own _connectedSite doc
 /// comment), so these assertions would have silently used the wrong site's path if ServerViewModel
 /// still resolved off SelectedSite instead.
+/// ServerViewModel answers BackgroundWorkRequestMessage on the app-wide messenger while a test holds
+/// it busy, so this class runs in the messenger collection, never beside another page's tests.
 /// </summary>
+[Collection(MessengerCollection.Name)]
 public sealed class ServerViewModelTests
 {
     private static FtpSiteProfile MakeSite(Guid id, string? modsPath = null, string? win64Path = null) => new()
