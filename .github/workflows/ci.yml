@@ -56,14 +56,63 @@ jobs:
           path: '**/TestResults/*.trx'
           retention-days: 14
 
-      # The app's own Release build output — not a packaged release (that's still a deliberate,
-      # separate manual step: dotnet publish + zip + a GitHub release with real notes), just a
-      # downloadable sanity check that a given commit still produces a working build. UnrealPak.exe
-      # itself is never part of this output either way — the app fetches it separately, on first
-      # launch, from its own small dedicated GitHub release (see UnrealPakInstaller.cs).
-      - name: Upload build output
+  # The release files only exist after a publish: the single-file IcarusStarlink.exe, the Native
+  # AOT updater beside it, Uninstall.bat and 8 native DLLs, 11 files in all (README, Building).
+  # Checked on every push to master and kept as that commit's build. Packaging a release (zip,
+  # release.json, GitHub release) stays a separate manual step. UnrealPak.exe is never part of
+  # this output: the app fetches it itself (UnrealPakInstaller.cs).
+  publish-check:
+    if: github.event_name != 'pull_request'
+    needs: build-and-test
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      # The updater's Native AOT link runs Visual Studio's vcvarsall, which calls vswhere.exe
+      # from PATH.
+      - name: Put vswhere on PATH
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_PATH -Value "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer"
+
+      - name: Publish
+        run: dotnet publish src/IcarusStarlink.App/IcarusStarlink.App.csproj -c Release -r win-x64 --self-contained true -o out/IcarusStarlink
+
+      - name: Check the release files
+        shell: pwsh
+        run: |
+          $dir = (Resolve-Path 'out/IcarusStarlink').Path
+          $expected = 'IcarusStarlink.exe', 'IcarusStarlink.Updater.exe', 'Uninstall.bat',
+            'blake3_dotnet.dll', 'D3DCompiler_47_cor3.dll', 'e_sqlite3.dll', 'libSkiaSharp.dll',
+            'PenImc_cor3.dll', 'PresentationNative_cor3.dll', 'vcruntime140_cor3.dll', 'wpfgfx_cor3.dll'
+          $actual = @(Get-ChildItem -LiteralPath $dir -Recurse -Force | ForEach-Object { $_.FullName.Substring($dir.Length + 1) })
+          $diff = Compare-Object -ReferenceObject $expected -DifferenceObject $actual
+          if ($diff) {
+            $diff | ForEach-Object { Write-Host "$($_.SideIndicator) $($_.InputObject)" }
+            throw "The publish output isn't the 11 release files (=> extra, <= missing)."
+          }
+          $updater = Get-Item -LiteralPath (Join-Path $dir 'IcarusStarlink.Updater.exe')
+          $updaterMb = [math]::Round($updater.Length / 1MB, 1)
+          if ($updater.Length -gt 5MB) { throw "IcarusStarlink.Updater.exe is $updaterMb MB: not the Native AOT build (about 2 MB)." }
+          $version = (dotnet msbuild src/IcarusStarlink.App/IcarusStarlink.App.csproj -nologo -getProperty:Version | Select-Object -Last 1).Trim()
+          $product = (Get-Item -LiteralPath (Join-Path $dir 'IcarusStarlink.exe')).VersionInfo.ProductVersion
+          if ($product -ne $version) { throw "IcarusStarlink.exe says $product; the csproj says $version." }
+          $alone = Join-Path $env:RUNNER_TEMP 'IcarusStarlink.Updater.exe'
+          Copy-Item -LiteralPath $updater.FullName -Destination $alone
+          & $alone 2>$null
+          if ($LASTEXITCODE -ne 2) { throw "The updater run on its own exited $LASTEXITCODE; expected 2 (its usage line)." }
+          Write-Host "Release files OK: 11 files, updater $updaterMb MB, version $version."
+          exit 0
+
+      - name: Upload the release files
         uses: actions/upload-artifact@v6
         with:
-          name: IcarusStarlink-build-${{ github.sha }}
-          path: src/IcarusStarlink.App/bin/Release/net10.0-windows/
-          retention-days: 14
+          name: IcarusStarlink-${{ github.sha }}
+          path: out/IcarusStarlink/
+          retention-days: 7

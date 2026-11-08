@@ -752,6 +752,9 @@ To build the release files (the same 11 files as the release zip):
 dotnet publish src/IcarusStarlink.App/IcarusStarlink.App.csproj -c Release -r win-x64 --self-contained true -o out\IcarusStarlink
 ```
 
+CI runs the same publish on every push to master, checks these 11 files and keeps them as that
+commit's download.
+
 Publishing compiles the updater (`IcarusStarlink.Updater.exe`) with Native AOT, which also needs
 Visual Studio's "Desktop development with C++" tools. If the publish fails with "'vswhere.exe' is
 not recognized", add `C:\Program Files (x86)\Microsoft Visual Studio\Installer` to PATH.

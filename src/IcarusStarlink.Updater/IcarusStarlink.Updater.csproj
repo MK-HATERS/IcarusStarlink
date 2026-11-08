@@ -9,6 +9,11 @@
          access-denied self-update failure found live against a "\\?\..." extended-length path;
          this is the process that actually does the file copying during a self-update. -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The updater ships as a Native AOT program (App.csproj publishes it that way): show AOT,
+         trim and single-file problems on every build instead of only at publish. -->
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
   </PropertyGroup>
 
 </Project>
