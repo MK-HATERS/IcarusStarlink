@@ -55,12 +55,16 @@ public static class AppUpdateInstaller
     /// <param name="unpacking">Called when the unpacking starts and when the updater is being readied, for the progress window.</param>
     /// <param name="busyNow">Asked again right before the updater starts: the download took a while, and work may have started meanwhile.</param>
     /// <param name="skipOldExe">The user was moved over to IcarusStarlink.exe (AppSettings.ExeRenameDone): don't copy the old-name launcher back.</param>
+    /// <param name="cancellationToken">The update window's Cancel: honoured until the updater is started (OperationCanceledException).</param>
     public static async Task<string?> InstallFromZipAsync(AppUpdateRelease release, string zipPath, string workDirectory, Action<AppUpdateStep> unpacking,
-        Func<string?> busyNow, bool skipOldExe = false)
+        Func<string?> busyNow, bool skipOldExe = false, CancellationToken cancellationToken = default)
     {
         unpacking(AppUpdateStep.Unpack);
         var extractDirectory = Path.Combine(workDirectory, "new");
-        await Task.Run(() => System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, extractDirectory));
+        await Task.Run(() => System.IO.Compression.ZipFile.ExtractToDirectoryAsync(zipPath, extractDirectory, cancellationToken), cancellationToken);
+
+        // A Cancel that lands as the unpacking ends still stops it here.
+        cancellationToken.ThrowIfCancellationRequested();
 
         // Tolerate a release zip that wraps everything in a single top-level folder — a common
         // way zips get built — as long as the app exe is findable one level down.
@@ -90,6 +94,17 @@ public static class AppUpdateInstaller
         {
             return $"v{release.Version} is from before Starlink's exe was renamed, so it can't be installed over this version. "
                 + "Download it from GitHub into a new folder if you need it.";
+        }
+
+        // The updater copies every file of the new build over the install: a build carrying
+        // Starlink's own data would replace the user's.
+        var userData = UserDataFiles.Where(name => File.Exists(Path.Combine(newFilesRoot, name)))
+            .Concat(UserDataFolders.Where(name => Directory.Exists(Path.Combine(newFilesRoot, name))))
+            .ToList();
+        if (userData.Count > 0)
+        {
+            return $"The v{release.Version} download holds Starlink's own data ({string.Join(", ", userData)}), so installing it would replace yours. "
+                + "Nothing was changed. Please report this on Starlink's Nexus page.";
         }
 
         unpacking(AppUpdateStep.Handover);
@@ -142,7 +157,19 @@ public static class AppUpdateInstaller
             updater.ArgumentList.Add(StarlinkExe.OldFileName);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         Process.Start(updater);
         return null;
     }
+
+    /// <summary>
+    /// Names Starlink creates beside its exe for the user's data. A release never ships them, and
+    /// a zip made from a folder the app has run in always has Logs and settings.json. A list of
+    /// names rather than "no subfolders": the check runs in the version already installed, so it
+    /// must never refuse a future release that adds a folder of its own.
+    /// </summary>
+    private static readonly string[] UserDataFiles = ["settings.json", "custom_skin.json", "find_broken_mod.json", "dedicated_servers.json", "ftp_sites.json"];
+
+    private static readonly string[] UserDataFolders =
+        ["Logs", "Extracted_Mods", "Library_Meta", "Profiles", "Profiles_Backups", "Pending_Downloads", "Staged_UE4SS", "Ue4ss_Meta", "PrebuiltPakSources"];
 }
