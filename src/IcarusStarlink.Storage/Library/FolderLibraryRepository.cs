@@ -17,8 +17,9 @@ namespace IcarusStarlink.Storage.Library;
 /// metadata (pin/favorite/notes) lives in a separate metadata directory, keyed by folder name —
 /// see LibraryMetaStore for why it can't live inside the mod's own folder. The in-memory entry
 /// cache and FTS5 index are both derived from these, never the other way around. A full folder
-/// scan only happens once, at construction — Import/Delete/UpdateMetadata each update just the
-/// one entry they touched afterward.
+/// scan runs at construction and on Refresh, a restore from backup, a rename and a Library info
+/// snapshot write; Import/Delete/UpdateMetadata/RefreshEntry each update just the one entry
+/// they touched.
 /// </summary>
 public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageImporter, IDisposable
 {
@@ -367,10 +368,45 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
         RescanAll();
     }
 
-    public void LinkToNexus(string folderName, int nexusModId) =>
+    public void LinkToNexus(string folderName, int nexusModId)
+    {
+        // The recorded file belongs to the mod the folder was linked to before: keeping it after a
+        // link to another ID kept comparing against that old mod's files (an old Update pill).
+        var otherMod = false;
         UpdateMeta(folderName,
-            meta => { meta.NexusModId = nexusModId; meta.Source = "Nexus"; },
-            entry => { entry.NexusModId = nexusModId; entry.Source = "Nexus"; });
+            meta =>
+            {
+                otherMod = meta.NexusModId != nexusModId;
+                if (otherMod)
+                {
+                    meta.NexusFileId = null;
+                    meta.NexusFileVersion = null;
+                }
+
+                meta.NexusModId = nexusModId;
+                meta.Source = "Nexus";
+            },
+            entry =>
+            {
+                if (otherMod)
+                {
+                    entry.NexusFileId = null;
+                    entry.NexusFileVersion = null;
+                    // Same version a rescan shows once the file is gone (ToOpaquePakEntry/ToEntry).
+                    if (entry.IsOpaquePak)
+                    {
+                        entry.Version = entry.NexusVersion ?? "";
+                    }
+                    else if (entry.ConvertedFromPrebuiltPak)
+                    {
+                        entry.Version = entry.NexusVersion ?? entry.Version;
+                    }
+                }
+
+                entry.NexusModId = nexusModId;
+                entry.Source = "Nexus";
+            });
+    }
 
     public void SetCatalogEntry(string folderName, string catalogEntryId) =>
         // Same surgical cached-entry update LinkToNexus does — nothing about the mod's own files
@@ -624,12 +660,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
             }
             catch (Exception ex) when (ex is FormatException or JsonException or IOException or UnauthorizedAccessException)
             {
-                // This runs during construction, which the app's default nav page resolves
-                // before the main window is even shown — one locked/permission-denied/
-                // mid-write/malformed folder must not be able to crash the whole app at launch.
-                // (JsonException found the hard way: a single .EXMOD containing invalid JSON
-                // crashed startup outright, discovered live while testing the updater's relaunch
-                // against a copied-aside install seeded with a deliberately-fake mod file.)
+                // One unreadable folder must not stop the scan: the Library loads before the main window shows.
                 _logger.LogWarning(ex, "Skipped '{Folder}' while scanning the library — could not read it", folder);
                 unreadable.Add(Path.GetFileName(folder));
             }

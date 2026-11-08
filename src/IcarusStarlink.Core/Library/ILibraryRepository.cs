@@ -76,10 +76,10 @@ public interface ILibraryRepository
     /// Retroactively links an already-imported mod (however it originally got here — a manual
     /// Import folder/EXMODZ/.pak, or an unrecognized entry from a bulk import) to a real Nexus mod
     /// ID, setting Source to "Nexus" so it participates in update-checking exactly like a mod
-    /// activated through the real nxm:// pipeline. Unlike SetNexusMetadata (display-field
-    /// enrichment for an opaque pak only, set once at Activate time), this only ever sets the ID
-    /// and Source — a caller that also wants real name/author/version from the API calls
-    /// SetNexusMetadata separately afterward, same as Activate's own two-step flow.
+    /// activated through the real nxm:// pipeline. It sets the ID and Source; a link to another
+    /// mod ID also forgets the old mod's recorded file (NexusFileId, NexusFileVersion), while a
+    /// link to the same ID keeps it. A caller that also wants real name/author/version from the
+    /// API calls SetNexusMetadata separately afterward, same as Activate's own two-step flow.
     /// </summary>
     void LinkToNexus(string folderName, int nexusModId);
 

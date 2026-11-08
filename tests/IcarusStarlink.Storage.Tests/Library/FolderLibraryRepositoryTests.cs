@@ -633,6 +633,49 @@ public class FolderLibraryRepositoryTests : IDisposable
     }
 
     /// <summary>
+    /// Re-linking a mod to another Nexus ID used to keep the old mod's file ID and version, so the
+    /// row kept comparing against a file of a mod it no longer belongs to and an old Update pill
+    /// could come back on every reload. A link to the same ID keeps the recorded file.
+    /// </summary>
+    [Fact]
+    public void LinkToNexus_ToADifferentId_ForgetsTheOldFile()
+    {
+        var pakPath = WriteFixturePakFile();
+        try
+        {
+            string folderName;
+            using (var repo = CreateRepository())
+            {
+                folderName = repo.ImportPak(pakPath, source: "Nexus", nexusModId: 223).FolderName;
+                repo.SetNexusFile(folderName, 4242, "1.7");
+
+                repo.LinkToNexus(folderName, 223);
+                var sameId = repo.GetAll().Single(e => e.FolderName == folderName);
+                Assert.Equal(4242, sameId.NexusFileId);
+                Assert.Equal("1.7", sameId.NexusFileVersion);
+
+                repo.LinkToNexus(folderName, 999);
+                var cached = repo.GetAll().Single(e => e.FolderName == folderName);
+                Assert.Equal(999, cached.NexusModId);
+                Assert.Null(cached.NexusFileId);
+                Assert.Null(cached.NexusFileVersion);
+                Assert.Equal("", cached.Version);
+            }
+
+            using var reopened = CreateRepository();
+            var reloaded = reopened.GetAll().Single(e => e.FolderName == folderName);
+            Assert.Equal(999, reloaded.NexusModId);
+            Assert.Null(reloaded.NexusFileId);
+            Assert.Null(reloaded.NexusFileVersion);
+            Assert.Equal("", reloaded.Version);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(pakPath)!, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// Nexus enrichment that runs after a rename or after the exact file was recorded (a later
     /// update check) used to put the Nexus page's name and headline version on the row until the
     /// next restart, where the rescan showed the rename and the file's version again.
