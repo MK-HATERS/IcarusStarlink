@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Settings;
 using Microsoft.Extensions.Logging;
 
@@ -116,7 +117,7 @@ public sealed class AppSettingsService : ISettingsService
     {
         try
         {
-            IcarusStarlink.Core.IO.AtomicFile.Copy(_settingsFilePath, _backupFilePath);
+            AtomicFile.Copy(_settingsFilePath, _backupFilePath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
