@@ -358,6 +358,25 @@ public sealed partial class LibraryViewModel
             failure is null ? ActivityEntryKind.Info : ActivityEntryKind.Warning);
     }
 
+    /// <summary>
+    /// The Del key on the UE4SS panel: one selected row is deleted (with the usual question);
+    /// with several it says to pick one, as Del with two rows used to do nothing at all.
+    /// </summary>
+    public void DeleteSelectedUe4ssMods()
+    {
+        switch (BulkSelectedUe4ssRows.Count)
+        {
+            case 0:
+                return;
+            case 1:
+                DeleteUe4ssModCommand.Execute(BulkSelectedUe4ssRows[0]);
+                return;
+            default:
+                Ue4ssStatusMessage = "Del deletes one UE4SS mod at a time: select just one, or use its ⋯ menu.";
+                return;
+        }
+    }
+
     /// <summary>The servers Starlink runs (the Server page's local servers): a UE4SS mod's config can be saved to its copy there too.</summary>
     public Func<IReadOnlyList<IcarusStarlink.Core.Server.DedicatedServerProfile>>? ServerProfiles { get; init; }
 
@@ -628,7 +647,10 @@ public sealed partial class LibraryViewModel
         };
     }
 
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    /// <summary>The thumb is greyed out once endorsed (it stayed clickable and did nothing), and never shown for the user's own upload.</summary>
+    private static bool CanEndorseUe4ssMod(Ue4ssModRowViewModel? row) => row is { HasNexusLink: true, IsOwnNexusMod: false, IsEndorsed: false };
+
+    [RelayCommand(FlowExceptionsToTaskScheduler = true, CanExecute = nameof(CanEndorseUe4ssMod))]
     private async Task EndorseUe4ssMod(Ue4ssModRowViewModel? row)
     {
         if (row?.NexusModId is not { } modId || row.IsEndorsed || row.IsOwnNexusMod)
@@ -653,6 +675,7 @@ public sealed partial class LibraryViewModel
             }
 
             row.EndorsementStatus = await _nexusApiClient.SetEndorsementAsync(apiKey, NxmHandlerCommand.IcarusDomain, modId, info.Version, endorse: true);
+            EndorseUe4ssModCommand.NotifyCanExecuteChanged();
             StatusMessage = $"Endorsed '{row.Name}' on Nexus.";
             _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
         }

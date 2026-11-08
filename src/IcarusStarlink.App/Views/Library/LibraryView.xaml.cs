@@ -67,6 +67,13 @@ public partial class LibraryView : UserControl
                 tree.SizeChanged += (_, _) => UpdateColumnWidths();
                 tree.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, e) =>
                 {
+                    // Only the list's own scrolling: ScrollChanged bubbles up from any ScrollViewer
+                    // inside a row too.
+                    if (!ScrollSyncHelper.IsHostsOwn(tree, e.OriginalSource))
+                    {
+                        return;
+                    }
+
                     if (e.ExtentWidthChange != 0 || e.ViewportWidthChange != 0)
                     {
                         UpdateColumnWidths();
@@ -385,10 +392,10 @@ public partial class LibraryView : UserControl
     // it. Walking up from the raw hit-test source to the nearest TreeViewItem and selecting it
     // is the standard WPF workaround for TreeView's missing select-on-right-click behavior.
     //
-    // Also ensures the right-clicked row is part of the bulk (Ctrl/Shift-click) selection before
-    // the context menu's own "Add to merge queue" item evaluates PlacementTarget.Tag.BulkSelectedCount
-    // — a row already part of a multi-selection stays part of it, one clicked fresh replaces it,
-    // matching Explorer's own right-click convention.
+    // Also ensures the right-clicked row is part of the click (Ctrl/Shift-click) selection before
+    // the context menu opens, so its Delete acts on that selection — a row already part of a
+    // multi-selection stays part of it, one clicked fresh replaces it, matching Explorer's own
+    // right-click convention.
     private void LibraryTree_PreviewMouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         var element = FindTreeViewItemAncestor(e.OriginalSource as DependencyObject);
@@ -406,7 +413,7 @@ public partial class LibraryView : UserControl
     }
 
     /// <summary>
-    /// Ctrl-click toggles a row's own bulk-selection membership (for "Add to merge queue");
+    /// Ctrl-click toggles a row's own selection membership (the selection feeds the "On" tick, Delete and the selection bar);
     /// Shift-click selects the whole range from the last plain/Ctrl-clicked row to this one; a
     /// plain click clears whatever was previously bulk-selected, so a fresh click always starts a
     /// new selection rather than silently adding to a stale one. Deliberately doesn't set
@@ -556,8 +563,8 @@ public partial class LibraryView : UserControl
             case System.Windows.Input.Key.Delete when viewModel.HasDataSelection:
                 viewModel.DeleteItemCommand.Execute(null);
                 break;
-            case System.Windows.Input.Key.Delete when viewModel.BulkSelectedUe4ssRows.Count == 1:
-                viewModel.DeleteUe4ssModCommand.Execute(viewModel.BulkSelectedUe4ssRows[0]);
+            case System.Windows.Input.Key.Delete when viewModel.BulkSelectedUe4ssRows.Count > 0:
+                viewModel.DeleteSelectedUe4ssMods();
                 break;
             case System.Windows.Input.Key.Enter when viewModel.SelectedItem is { } item:
                 new ModDetailWindow(item, viewModel) { Owner = Window.GetWindow(this) }.Show();
