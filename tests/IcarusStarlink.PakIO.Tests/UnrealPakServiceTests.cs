@@ -446,7 +446,7 @@ public class UnrealPakServiceTests : IDisposable
         LogPakFile: Display: "Rada_CheatMenu/BP/BP_CheatMenuDummy.uasset" offset: 0, size: 9662 bytes, sha1: 3FE5A7055CEC10EA2198733BFF5C3C7BC4663A71, compression: Zlib.
         LogPakFile: Display: "Rada_CheatMenu/E_CheatCategory.uasset" offset: 14978, size: 922 bytes, sha1: 828E50FFA55669064C48DA8CC19B8DECAEC9BF27, compression: None.
         LogPakFile: Display: "UI/Components/UMG_RevisionNumber.uexp" offset: 585314, size: 881 bytes, sha1: 42FD3B56E56771A4BD99C420AAAF0EEB91585F98, compression: Zlib.
-        LogPakFile: Display: 3 files (11465 bytes), (0 filtered bytes).
+        LogPakFile: Display: 291 files (567550 bytes), (0 filtered bytes).
         LogPakFile: Display: Unreal pak executed in 0.005162 seconds
         """;
 
