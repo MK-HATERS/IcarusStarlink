@@ -186,6 +186,9 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
     /// <summary>A value the game doesn't have (a stat the mod adds), emptied by ↺: it comes out of the mod again.</summary>
     private bool IsRemoved => Field.GameValue is null && ValueText.Trim().Length == 0;
 
+    /// <summary>A list entry the game doesn't have (one the target mod adds, or one added here), its box emptied: saved as taken out, never as an entry with no amount.</summary>
+    internal bool IsEmptiedEntry => (CanDrop || AddedEntry is not null) && IsRemoved;
+
     // A link left as the Save-to mod has it (a row that mod adds itself) isn't something typed here,
     // and isn't written again; only a value picked here must be a row the list offers.
     public string? Error =>
@@ -213,6 +216,13 @@ public sealed partial class GameItemFieldViewModel : ObservableObject
         if (Field.GameValue is null && RemoveAdded is { } remove)
         {
             remove(this);
+            return;
+        }
+
+        if (Field.GameValue is null && CanDrop && !IsLastOfList)
+        {
+            // An ingredient or bench only the target mod adds: the game's list doesn't have it, so it comes out.
+            IsDropped = true;
             return;
         }
 
@@ -537,7 +547,7 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
     /// </summary>
     internal IEnumerable<GameItemChange> Changes()
     {
-        var rewritten = Fields.Where(f => f.IsDropped || f.AddedEntry is not null).Select(f => f.Field.Path.Top).ToHashSet(StringComparer.Ordinal);
+        var rewritten = Fields.Where(f => f.IsDropped || f.IsEmptiedEntry || f.AddedEntry is not null).Select(f => f.Field.Path.Top).ToHashSet(StringComparer.Ordinal);
         foreach (var field in Fields.Where(f => f.IsPending && !rewritten.Contains(f.Field.Path.Top)))
         {
             yield return new GameItemChange(Section.Key, field.Field.Path, field.NewValue());
@@ -556,7 +566,7 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
         for (var i = 0; i < current.Count; i++)
         {
             var entryFields = Fields.Where(f => f.Field.Path.Top == top && f.AddedEntry is null && f.Field.Path.Steps.Count == 2 && f.Field.Path.Steps[0] is int at && at == i).ToList();
-            if (entryFields.Any(f => f.IsDropped) || current[i]?.DeepClone() is not JsonObject entry)
+            if (entryFields.Any(f => f.IsDropped || f.IsEmptiedEntry) || current[i]?.DeepClone() is not JsonObject entry)
             {
                 continue;
             }
@@ -569,7 +579,7 @@ public sealed partial class GameItemSectionViewModel : ObservableObject
             list.Add(entry);
         }
 
-        foreach (var added in Fields.Where(f => f.Field.Path.Top == top && f.AddedEntry is not null))
+        foreach (var added in Fields.Where(f => f.Field.Path.Top == top && f.AddedEntry is not null && !f.IsEmptiedEntry))
         {
             var (row, table) = added.AddedEntry!.Value;
             // A bench is a link itself ({"RowName", "DataTableName"}), its drop-down can repoint it;

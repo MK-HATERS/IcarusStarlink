@@ -1535,4 +1535,68 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         vm.FlushFilter();
         Assert.Equal(["Stone"], Names(vm));
     }
+
+    /// <summary>
+    /// Regression: ↺ (or emptying the box) on an ingredient only the Save-to mod adds left it in the
+    /// recipe with no amount (or "Count": null when the list was written whole), hidden on the card
+    /// while the game still got it. Back to the game's means out of the recipe.
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void ResettingAnIngredientTheModAdds_TakesItOut(bool emptyTheBox, bool alsoTakeOutLeather)
+    {
+        WriteEnvirosuitRecipe();
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        WriteIntoMod(mine.FolderName, ModRow("Crafting-D_ProcessorRecipes.json", "Envirosuit_Recipe", """
+            {"Inputs":[{"Element":{"RowName":"Stone","DataTableName":"D_ItemsStatic"},"Count":4},
+                       {"Element":{"RowName":"Leather","DataTableName":"D_ItemsStatic"},"Count":2},
+                       {"Element":{"RowName":"Fiber","DataTableName":"D_ItemsStatic"},"Count":3}]}
+            """));
+        var vm = Open();
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
+        vm.SelectedItem = Item(vm, "Envirosuit");
+        var fiber = Recipe(vm).Fields.Single(f => f.Label.Contains("Fiber", StringComparison.Ordinal));
+
+        if (emptyTheBox)
+        {
+            fiber.ValueText = "";
+        }
+        else
+        {
+            fiber.UseGameValueCommand.Execute(null);
+        }
+
+        if (alsoTakeOutLeather)
+        {
+            Recipe(vm).Fields.Single(f => f.Label == "Needs Leather").DropCommand.Execute(null);
+        }
+
+        vm.SaveCommand.Execute(null);
+
+        // Back to the game's whole list: the mod no longer writes the recipe's ingredients at all.
+        var saved = Read(_library, mine.FolderName).Rows.SingleOrDefault(r => r.CurrentFile == "Crafting-D_ProcessorRecipes.json")?.FileItems.SingleOrDefault()?.Fields["Inputs"];
+        var inputs = saved as JsonArray ?? JsonNode.Parse("""
+            [{"Element":{"RowName":"Stone"},"Count":4},{"Element":{"RowName":"Leather"},"Count":2}]
+            """)!.AsArray();
+        Assert.Equal(alsoTakeOutLeather ? ["Stone:4"] : ["Stone:4", "Leather:2"], inputs.Select(e => $"{e!["Element"]!["RowName"]}:{e["Count"]}"));
+        Assert.All(inputs, e => Assert.NotNull(e!["Count"]));
+    }
+
+    /// <summary>Regression: a link the Save-to mod writes as plain text ("Decayable": "Item_X") made reading the item throw, and the app said it had to close.</summary>
+    [Fact]
+    public void AValueOfTheWrongKindInTheMod_DoesntCloseTheApp()
+    {
+        var mine = _library.CreateBlankMod("Mine", "Me");
+        WriteIntoMod(mine.FolderName, ModRow("Items-D_ItemsStatic.json", "Envirosuit", """{"Decayable":"Item_X"}"""));
+        var vm = Open();
+        vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName);
+
+        Assert.Null(Record.Exception(() => vm.SelectedItem = Item(vm, "Envirosuit")));
+        Assert.Null(Record.Exception(() => vm.SelectedItem = Item(vm, "Stone")));
+
+        Assert.True(vm.Sections.Count > 0 || vm.StatusMessage is { Length: > 0 });
+    }
 }

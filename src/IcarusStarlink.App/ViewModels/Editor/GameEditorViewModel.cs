@@ -89,7 +89,7 @@ public sealed partial class GameEditorViewModel : ObservableObject
 
     public ObservableCollection<EditorSaveTarget> Targets { get; } = [];
 
-    /// <summary>Row names (D_ItemsStatic) offered on the empty state, checked against the 2026 game data; one missing from the loaded data is just left out.</summary>
+    /// <summary>Row names (D_ItemsStatic) offered on the empty state, checked against the game's own D_ItemsStatic; one missing from the loaded data is just left out.</summary>
     internal static readonly IReadOnlyList<(string Name, string Hint)> QuickStartItems =
     [
         ("Envirosuit", "weight, armour, temperature"),
@@ -659,14 +659,32 @@ public sealed partial class GameEditorViewModel : ObservableObject
         var dropped = 0;
         if (Game is { } game && SelectedItem is { } item)
         {
-            var view = GameItemEditor.Describe(game, target, item.Name);
-            if (view is null)
+            GameItemView? view = null;
+            var unreadable = false;
+            try
+            {
+                view = GameItemEditor.Describe(game, target, item.Name);
+            }
+            catch (Exception ex)
+            {
+                // A mod can write a value of the wrong kind (a link as plain text, a number for a row
+                // name): say so instead of letting it close the app.
+                Serilog.Log.Warning(ex, "The Editor page couldn't read item {Item}", item.Name);
+                unreadable = true;
+                StatusMessage = target is null
+                    ? $"Couldn't show '{item.Name}': the game data has a value this page can't read. Refresh game data in Settings may fix it."
+                    : $"Couldn't show '{item.Name}': '{SelectedTarget?.Display}' has a value of the wrong kind for it (like a link written as plain text). Fix that value in the mod editor.";
+                dropped = carryFrom?.Sum(s => s.Fields.Count(f => f.IsTyped)) ?? 0;
+            }
+
+            // Unreadable: nothing is shown, and what was typed for it before still waits.
+            if (view is null && !unreadable)
             {
                 StatusMessage = $"'{item.Name}' isn't in the game data any more.";
                 _drafts.Remove(item.Name);
                 dropped = carryFrom?.Sum(s => s.Fields.Count(f => f.IsTyped)) ?? 0;
             }
-            else
+            else if (view is not null)
             {
                 ItemTitle = view.DisplayName is { Length: > 0 } d ? $"{d}  ({item.Name})" : item.Name;
                 ItemDescription = item.Info.Description is { Length: > 0 } about ? $"{item.Category} · {about}" : item.Category;
