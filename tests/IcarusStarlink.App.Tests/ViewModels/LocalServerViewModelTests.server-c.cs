@@ -262,4 +262,154 @@ public sealed partial class LocalServerViewModelTests
         Assert.Equal("192.168.1.20:17777", vm.LanJoinAddress);
         Assert.Equal("192.168.1.20:17777", vm.LanAddressText);
     }
+
+    // ---- Share tab: patch work off the UI thread ----
+
+    /// <summary>
+    /// Stands in for the window's dispatcher: code that sees it as the current context ran on the
+    /// UI thread. Like a dispatcher, it runs posted continuations with itself as the context.
+    /// </summary>
+    private sealed class UiThreadMarker : SynchronizationContext
+    {
+        public static bool OnUiThread => Current is UiThreadMarker;
+
+        public override void Post(SendOrPostCallback d, object? state) =>
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                var previous = Current;
+                SetSynchronizationContext(this);
+                try
+                {
+                    d(state);
+                }
+                finally
+                {
+                    SetSynchronizationContext(previous);
+                }
+            });
+
+        public override SynchronizationContext CreateCopy() => this;
+    }
+
+    /// <summary>Starts a command the way a click does: its synchronous part runs with the UI context current.</summary>
+    private static Task StartOnUiThread(Func<Task> start)
+    {
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(new UiThreadMarker());
+        try
+        {
+            return start();
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+    }
+
+    /// <summary>Notes whether each patch export or import ran on the UI thread.</summary>
+    private sealed class ThreadNotingPatchService(PatchImportContents? import = null) : IPatchService
+    {
+        public bool? ExportOnUiThread { get; private set; }
+        public bool? ImportOnUiThread { get; private set; }
+
+        public Task ExportAsync(PatchManifest manifest, PatchBundle bundle, string outputPath, CancellationToken cancellationToken = default)
+        {
+            ExportOnUiThread = UiThreadMarker.OnUiThread;
+            return Task.CompletedTask;
+        }
+
+        public Task<PatchImportContents> ImportAsync(string patchFilePath, CancellationToken cancellationToken = default)
+        {
+            ImportOnUiThread = UiThreadMarker.OnUiThread;
+            return Task.FromResult(import ?? throw new NotSupportedException("No import set."));
+        }
+    }
+
+    /// <summary>Notes whether building the patch (it reads each UE4SS mod's Nexus link here) ran on the UI thread.</summary>
+    private sealed class ThreadNotingMetaStore : IUe4ssModMetaStore
+    {
+        public bool? LoadOnUiThread { get; private set; }
+
+        public Ue4ssModMeta Load(string folderName)
+        {
+            LoadOnUiThread = UiThreadMarker.OnUiThread;
+            return new Ue4ssModMeta();
+        }
+
+        public void Save(string folderName, Ue4ssModMeta meta) => throw new NotSupportedException();
+        public void Delete(string folderName) => throw new NotSupportedException();
+        public IReadOnlyList<string> ListFolderNames() => [];
+    }
+
+    /// <summary>A server added and set up inline; the patch command under test then runs its work as the app does.</summary>
+    private (LocalServerViewModel Vm, FakeDialogs Dialogs) BuildForShare(IPatchService patches, IUe4ssModMetaStore? meta = null)
+    {
+        var dialogs = new FakeDialogs(confirmResult: true);
+        var vm = new LocalServerViewModel(new FakeStore(), new FakeProcesses(), dialogs, new ActivityLog(), SteamCmd, Settings, MergedPakPath, BackupsRoot, _ => _install, () => null, startTimer: false, firewall: Firewall,
+            library: new FakeLibrary(), patchService: patches, ue4ssMetaStore: meta, network: Network)
+        {
+            StartPollDelay = TimeSpan.Zero,
+            RunWorkInline = true,
+            CopyToClipboard = Copied.Add,
+        };
+        SteamCmd.Chosen = () => Settings.Current.SteamCmdExePath;
+        vm.AddExistingServerCommand.Execute(null);
+        return (vm, dialogs);
+    }
+
+    private static PatchImportContents EmptyPatch() =>
+        new(new PatchManifest { FormatVersion = 2, ProfileName = "P" }, new Dictionary<string, IcarusStarlink.PakIO.Container.ExmodPackageContents>());
+
+    /// <summary>
+    /// Regression: Export for players built the patch and wrote it (bundled UE4SS folders, paks of
+    /// hundreds of MB) on the UI thread, so the window froze until the file was written.
+    /// </summary>
+    [Fact]
+    public async Task ExportServerPatch_BuildsAndWritesThePatchOffTheUiThread()
+    {
+        var gameWin64 = MakeGameWithUe4ss(("MkHatersTools", true));
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        var patches = new ThreadNotingPatchService();
+        var meta = new ThreadNotingMetaStore();
+        var (vm, dialogs) = BuildForShare(patches, meta);
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+        vm.MatchServerToGameCommand.Execute(null);
+        dialogs.SaveFilePath = Path.Combine(_root, "ISL-Patch-server.zip");
+        vm.RunWorkInline = false;
+
+        await StartOnUiThread(() => vm.ExportServerPatchCommand.ExecuteAsync(null));
+
+        Assert.StartsWith("Exported", vm.ShareStatusMessage);
+        Assert.Equal(false, meta.LoadOnUiThread);
+        Assert.Equal(false, patches.ExportOnUiThread);
+    }
+
+    /// <summary>Regression: Apply a patch unpacked it (every bundled pak and UE4SS folder) on the UI thread.</summary>
+    [Fact]
+    public async Task ApplyPatchToServer_UnpacksThePatchOffTheUiThread()
+    {
+        var patches = new ThreadNotingPatchService(EmptyPatch());
+        var (vm, dialogs) = BuildForShare(patches);
+        dialogs.OpenFilePath = Path.Combine(_root, "patch.zip");
+        vm.RunWorkInline = false;
+
+        await StartOnUiThread(() => vm.ApplyPatchToServerCommand.ExecuteAsync(null));
+
+        Assert.Equal(false, patches.ImportOnUiThread);
+    }
+
+    /// <summary>Regression: Compare a patch unpacked the whole patch on the UI thread just to read its list.</summary>
+    [Fact]
+    public async Task ComparePatch_UnpacksThePatchOffTheUiThread()
+    {
+        var patches = new ThreadNotingPatchService(EmptyPatch());
+        var (vm, dialogs) = BuildForShare(patches);
+        dialogs.OpenFilePath = Path.Combine(_root, "patch.zip");
+        vm.RunWorkInline = false;
+
+        await StartOnUiThread(() => vm.ComparePatchCommand.ExecuteAsync(null));
+
+        Assert.True(vm.HasPatchCompare);
+        Assert.Equal(false, patches.ImportOnUiThread);
+    }
 }

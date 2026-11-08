@@ -41,6 +41,14 @@ public sealed partial class LocalServerViewModel
     private IUe4ssModMetaStore? _ue4ssMetaStore;
     private IPatchImporter? _patchImporter;
 
+    /// <summary>
+    /// OffUiThread for work that is itself a task (a patch export or import): Task.Run unwraps it, so
+    /// the caller awaits the work, not a task of a task. Inline in tests, like OffUiThread.
+    /// </summary>
+    private Task<T> OffUiThreadAsync<T>(Func<Task<T>> work) => RunWorkInline ? work() : Task.Run(work);
+
+    private Task OffUiThreadAsync(Func<Task> work) => RunWorkInline ? work() : Task.Run(work);
+
     [ObservableProperty]
     private string? _shareStatusMessage;
 
@@ -106,18 +114,23 @@ public sealed partial class LocalServerViewModel
                 return;
             }
 
-            var (manifest, bundle, skipped) = new PatchBuilder(_library, _ue4ssMetaStore)
-                .Build(p.Name, match.Matched, new GameplayOptions(), ue4ss, ServerExportIncludesConfigs, new HashSet<(string Name, string Author)>());
+            // Build reads every bundled EXMOD and lists each mod's files: off the UI thread.
+            var library = _library;
+            var includeConfigs = ServerExportIncludesConfigs;
+            var (manifest, bundle, skipped) = await OffUiThread(() => new PatchBuilder(library, _ue4ssMetaStore)
+                .Build(p.Name, match.Matched, new GameplayOptions(), ue4ss, includeConfigs, new HashSet<(string Name, string Author)>()));
             var extension = bundle.IsEmpty ? "json" : "zip";
             if (_dialogService.PickSaveFile(
                     "Export patch for players",
-                    extension == "json" ? "IcarusStarlink patch (*.json)|*.json" : "IcarusStarlink patch (*.zip)|*.zip",
+                    extension == "json" ? "Icarus Starlink patch (*.json)|*.json" : "Icarus Starlink patch (*.zip)|*.zip",
                     $"ISL-Patch-{p.Name}.{extension}") is not { } exportPath)
             {
                 return;
             }
 
-            await _patchService.ExportAsync(manifest, bundle, exportPath);
+            // The export zips bundled EXMODs, paks and UE4SS folders: off the UI thread.
+            var patchService = _patchService;
+            await OffUiThreadAsync(() => patchService.ExportAsync(manifest, bundle, exportPath));
 
             var parts = new List<string> { $"{manifest.Mods.Count} data mod(s)" };
             if (manifest.Ue4ssMods.Count > 0)
@@ -166,14 +179,17 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        if (_dialogService.PickFile("Apply a patch to this server", "IcarusStarlink patch (*.json;*.zip)|*.json;*.zip") is not { } patchPath)
+        if (_dialogService.PickFile("Apply a patch to this server", "Icarus Starlink patch (*.json;*.zip)|*.json;*.zip") is not { } patchPath)
         {
             return;
         }
 
         try
         {
-            using var contents = await _patchService.ImportAsync(patchPath);
+            // The import unpacks every bundled pak and UE4SS folder: off the UI thread. The Library
+            // import below stays on it.
+            var patchService = _patchService;
+            using var contents = await OffUiThreadAsync(() => patchService.ImportAsync(patchPath));
             var manifest = contents.Manifest;
             string? libraryLine = null;
             if (_patchImporter is not null)
@@ -405,14 +421,15 @@ public sealed partial class LocalServerViewModel
             return;
         }
 
-        if (_dialogService.PickFile("Compare a patch", "IcarusStarlink patch (*.json;*.zip)|*.json;*.zip") is not { } patchPath)
+        if (_dialogService.PickFile("Compare a patch", "Icarus Starlink patch (*.json;*.zip)|*.json;*.zip") is not { } patchPath)
         {
             return;
         }
 
         try
         {
-            using var contents = await _patchService.ImportAsync(patchPath);
+            var patchService = _patchService;
+            using var contents = await OffUiThreadAsync(() => patchService.ImportAsync(patchPath));
             var manifest = contents.Manifest;
             var gameNames = GamePaksModsFolder() is { } gamePaks ? InstalledModNames(gamePaks) : [];
             var serverNames = InstalledModNames(DedicatedServerLayout.PakModsFolder(p.InstallFolder));
