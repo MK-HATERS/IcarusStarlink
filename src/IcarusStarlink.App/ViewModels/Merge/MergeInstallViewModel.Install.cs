@@ -887,7 +887,8 @@ public sealed partial class MergeInstallViewModel
 
         try
         {
-            var kept = await _installService.ListPreviousInstallsAsync(_backupDirectory);
+            // Given the game folder, the build in the game now (the one last restored) is marked.
+            var kept = await _installService.ListPreviousInstallsAsync(_backupDirectory, _settingsService.Current.IcarusContentPath);
             if (kept.Count == 0)
             {
                 InstallStatusMessage = "There's no earlier install backed up to restore.";

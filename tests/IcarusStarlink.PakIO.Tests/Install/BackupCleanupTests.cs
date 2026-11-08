@@ -331,6 +331,26 @@ public class BackupCleanupTests : IDisposable
         Assert.Empty(BackupCleanup.ListMergedPakBackups(Path.Combine(_tempDir, "nowhere")));
     }
 
+    /// <summary>
+    /// Two builds 2 minutes apart where only the newer one's list was kept (an IMM pak, or a
+    /// Remove with no list): the newer build's list is its own, so the older one has none.
+    /// </summary>
+    [Fact]
+    public void ListMergedPakBackups_AListGoesOnlyToThePakItIsClosestTo()
+    {
+        var older = WriteFile("ISL-Merged_P_20261016-100000.pak");
+        var newer = WriteFile("ISL-Merged_P_20261016-100200.pak");
+        var newerList = Path.Combine(_backups, "ISL-Merged_20261016-100201.txt");
+        File.WriteAllText(newerList, "Includes the following mods:\nMod C");
+
+        var all = BackupCleanup.ListMergedPakBackups(_backups);
+
+        Assert.Equal([newer, older], all.Select(p => p.PakBackupPath));
+        Assert.Equal(newerList, all[0].ManifestBackupPath);
+        Assert.Null(all[1].ManifestBackupPath);
+        Assert.Null(all[1].ModNames);
+    }
+
     /// <summary>A build the player is restoring is kept by the prune even when it's older than the count kept.</summary>
     [Fact]
     public void PruneMergedPakBackups_KeepsAPinnedOlderBackup()

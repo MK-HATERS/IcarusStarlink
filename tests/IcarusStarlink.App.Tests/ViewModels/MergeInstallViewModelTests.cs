@@ -1822,6 +1822,7 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         await vm.RestorePreviousInstallCommand.ExecuteAsync(null);
         Assert.Equal([newest, older], offered!);
         Assert.Equal(4, offeredCount);
+        Assert.Equal(settings.Current.IcarusContentPath, install.ListedContentPath);
         Assert.Equal(0, install.RestoreCallCount);
 
         _dialogs.OnPickPreviousInstall = (kept, _) => kept[1];
@@ -2978,23 +2979,20 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
 
         public int RestoreCallCount { get; private set; }
 
-        public Task<PreviousInstall?> FindPreviousInstallAsync(string backupDirectory, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Previous);
-
-        public Task<PreviousInstall?> RestorePreviousInstallAsync(string icarusContentPath, string backupDirectory, CancellationToken cancellationToken = default)
-        {
-            RestoreCallCount++;
-            return Task.FromResult(Previous);
-        }
-
         /// <summary>Every kept build, newest first; just Previous when not set.</summary>
         public IReadOnlyList<PreviousInstall>? Kept { get; set; }
 
         /// <summary>The build each RestoreInstallAsync was asked to put back.</summary>
         public List<PreviousInstall> Restored { get; } = [];
 
-        public Task<IReadOnlyList<PreviousInstall>> ListPreviousInstallsAsync(string backupDirectory, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Kept ?? (Previous is null ? [] : [Previous]));
+        /// <summary>The game folder the last ListPreviousInstallsAsync was given, to mark the build in the game.</summary>
+        public string? ListedContentPath { get; private set; }
+
+        public Task<IReadOnlyList<PreviousInstall>> ListPreviousInstallsAsync(string backupDirectory, string? icarusContentPath = null, CancellationToken cancellationToken = default)
+        {
+            ListedContentPath = icarusContentPath;
+            return Task.FromResult(Kept ?? (Previous is null ? [] : [Previous]));
+        }
 
         public Task<PreviousInstall?> RestoreInstallAsync(string icarusContentPath, string backupDirectory, PreviousInstall chosen, CancellationToken cancellationToken = default)
         {

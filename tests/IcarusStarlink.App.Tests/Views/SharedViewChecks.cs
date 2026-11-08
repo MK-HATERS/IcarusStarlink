@@ -332,11 +332,34 @@ internal static class SharedViewChecks
                 return $"the newest row reads '{rows[0].When}' / '{rows[0].Mods}'";
             }
 
-            return rows[1].Mods == "Mod list not saved" ? null : $"a build with no list reads '{rows[1].Mods}'";
+            if (rows[1].Mods != "Mod list not saved")
+            {
+                return $"a build with no list reads '{rows[1].Mods}'";
+            }
         }
         finally
         {
             dialog.Close();
+        }
+
+        // The build in the game (the one last restored) says so, and the picker starts on another.
+        var inGame = newest with { IsInGame = true };
+        var restoredDialog = new PickPreviousInstallDialog([inGame, older], keptSetting: 3);
+        try
+        {
+            var first = restoredDialog.InstallsListBox.Items.OfType<PreviousInstallRow>().First();
+            if (!first.When.EndsWith("(in the game now)", StringComparison.Ordinal))
+            {
+                return $"the build in the game reads '{first.When}'";
+            }
+
+            return restoredDialog.InstallsListBox.SelectedItem is PreviousInstallRow { Install.PakBackupPath: "a.pak" }
+                ? null
+                : "the picker started on the build already in the game";
+        }
+        finally
+        {
+            restoredDialog.Close();
         }
     }
 

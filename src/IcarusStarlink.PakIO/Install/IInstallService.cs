@@ -32,27 +32,23 @@ public interface IInstallService
         string stagedPakPath, string icarusContentPath, string backupDirectory,
         CancellationToken cancellationToken = default, bool keepArcFissionDataPak = true, bool backUpWhatsThere = true);
 
-    /// <summary>The newest backup of the installed merged pak and its mod list, as Restore previous install would put back; null when there's none.</summary>
-    Task<PreviousInstall?> FindPreviousInstallAsync(string backupDirectory, CancellationToken cancellationToken = default);
-
     /// <summary>
-    /// Puts the newest merged pak backup (and the ISL-Merged.txt backup made with it) back into
-    /// Content\Paks\mods, after backing up what's installed now, so it can be undone the same way.
-    /// Returns what was restored, or null when there's no backup to restore. The installed name is
-    /// worked out from the game folder (InstallManifestNames.InstalledMergedPakFileName).
+    /// Every kept backup of the merged pak, newest first, each with its mod list and the mod names
+    /// in it (BackupCleanup.ListMergedPakBackups). Empty when there's none. Given the game folder,
+    /// a backup with the same bytes as the merged pak installed there is marked IsInGame (only a
+    /// backup of the same size is read).
     /// </summary>
-    Task<PreviousInstall?> RestorePreviousInstallAsync(
-        string icarusContentPath, string backupDirectory,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>Every kept backup of the merged pak, newest first, each with its mod list and the mod names in it (BackupCleanup.ListMergedPakBackups). Empty when there's none.</summary>
-    Task<IReadOnlyList<PreviousInstall>> ListPreviousInstallsAsync(string backupDirectory, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PreviousInstall>> ListPreviousInstallsAsync(
+        string backupDirectory, string? icarusContentPath = null, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// As RestorePreviousInstallAsync, but puts back the build the player chose from
-    /// ListPreviousInstallsAsync, newest or not. What's installed now is backed up first, and the
-    /// chosen backup is kept by the prune after, whatever its age. Null (nothing changed) when the
-    /// chosen pak backup is no longer there.
+    /// Puts back the merged pak backup the player chose from ListPreviousInstallsAsync (newest or
+    /// not) and the ISL-Merged.txt backup made with it, into Content\Paks\mods. What's installed
+    /// now is backed up first, so it can be undone the same way, and the chosen backup is kept by
+    /// the prune after, whatever its age. Returns what was restored, its ManifestBackupPath null
+    /// when that list is gone; null (nothing changed) when the chosen pak backup is no longer
+    /// there or isn't in backupDirectory. The installed name is worked out from the game folder
+    /// (InstallManifestNames.InstalledMergedPakFileName).
     /// </summary>
     Task<PreviousInstall?> RestoreInstallAsync(
         string icarusContentPath, string backupDirectory, PreviousInstall chosen,

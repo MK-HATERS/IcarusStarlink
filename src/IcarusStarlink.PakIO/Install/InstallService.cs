@@ -200,20 +200,32 @@ public sealed class InstallService(ISettingsService? settings = null) : IInstall
         return removedAnything;
     }, cancellationToken);
 
-    public Task<PreviousInstall?> FindPreviousInstallAsync(string backupDirectory, CancellationToken cancellationToken = default) =>
-        Task.Run(() => BackupCleanup.FindNewestMergedPakBackup(backupDirectory), cancellationToken);
+    public Task<IReadOnlyList<PreviousInstall>> ListPreviousInstallsAsync(
+        string backupDirectory, string? icarusContentPath = null, CancellationToken cancellationToken = default) => Task.Run(() =>
+    {
+        var kept = BackupCleanup.ListMergedPakBackups(backupDirectory);
+        if (icarusContentPath is null)
+        {
+            return kept;
+        }
 
-    public Task<IReadOnlyList<PreviousInstall>> ListPreviousInstallsAsync(string backupDirectory, CancellationToken cancellationToken = default) =>
-        Task.Run(() => BackupCleanup.ListMergedPakBackups(backupDirectory), cancellationToken);
+        var installed = Path.Combine(icarusContentPath, "Paks", "mods", InstallManifestNames.InstalledMergedPakFileName(icarusContentPath));
+        return kept.Select(p => SameBytes(p.PakBackupPath, installed) ? p with { IsInGame = true } : p).ToList();
+    }, cancellationToken);
 
-    public Task<PreviousInstall?> RestorePreviousInstallAsync(
-        string icarusContentPath, string backupDirectory,
-        CancellationToken cancellationToken = default) => Task.Run(() =>
-        // Chosen before anything is backed up, or the copy of what's installed now would be
-        // the newest backup and "restore" would put the same build straight back.
-        BackupCleanup.FindNewestMergedPakBackup(backupDirectory) is { } previous
-            ? Restore(icarusContentPath, backupDirectory, previous)
-            : null, cancellationToken);
+    /// <summary>Whether the two files hold the same bytes; false when either is missing or can't be read. Only reads them when their sizes match.</summary>
+    private static bool SameBytes(string first, string second)
+    {
+        try
+        {
+            return File.Exists(first) && File.Exists(second)
+                && IcarusStarlink.PakIO.Compare.FileContentComparer.AreIdentical(first, second);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 
     public Task<PreviousInstall?> RestoreInstallAsync(
         string icarusContentPath, string backupDirectory, PreviousInstall chosen,
@@ -222,7 +234,8 @@ public sealed class InstallService(ISettingsService? settings = null) : IInstall
 
     private PreviousInstall? Restore(string icarusContentPath, string backupDirectory, PreviousInstall previous)
     {
-        if (!File.Exists(previous.PakBackupPath))
+        // Only one of this service's own backups is ever copied into the game.
+        if (!File.Exists(previous.PakBackupPath) || !IsDirectlyIn(previous.PakBackupPath, backupDirectory))
         {
             return null;
         }
@@ -251,7 +264,9 @@ public sealed class InstallService(ISettingsService? settings = null) : IInstall
         BackUp(targetManifestPath, backupDirectory, atLeast: int.MaxValue);
 
         AtomicFile.Copy(previous.PakBackupPath, targetPakPath);
-        var manifestBackup = previous.ManifestBackupPath is { } listPath && File.Exists(listPath) ? listPath : null;
+        var manifestBackup = previous.ManifestBackupPath is { } listPath && File.Exists(listPath) && IsDirectlyIn(listPath, backupDirectory)
+            ? listPath
+            : null;
         if (manifestBackup is not null)
         {
             AtomicFile.Copy(manifestBackup, targetManifestPath);
@@ -267,6 +282,14 @@ public sealed class InstallService(ISettingsService? settings = null) : IInstall
         BackupCleanup.PruneMergedPakBackups(backupDirectory, MergedKept,
             manifestBackup is null ? [previous.PakBackupPath] : [previous.PakBackupPath, manifestBackup]);
 
-        return previous;
+        // A list gone since the picker read it wasn't put back: the caller's message says so.
+        return previous with { ManifestBackupPath = manifestBackup };
     }
+
+    /// <summary>Whether path is a file right inside directory (where ListMergedPakBackups finds the merged pak's backups).</summary>
+    private static bool IsDirectlyIn(string path, string directory) =>
+        string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetDirectoryName(Path.GetFullPath(path)) ?? ""),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)),
+            StringComparison.OrdinalIgnoreCase);
 }

@@ -12,7 +12,9 @@ public sealed record PreviousInstallRow(PreviousInstall Install, string When, st
 
     public static PreviousInstallRow From(PreviousInstall install, bool isNewest)
     {
-        var when = install.BackedUpAtUtc.ToLocalTime().ToString("g") + (isNewest ? " (newest)" : "");
+        var when = install.BackedUpAtUtc.ToLocalTime().ToString("g")
+            + (isNewest ? " (newest)" : "")
+            + (install.IsInGame ? " (in the game now)" : "");
         if (install.ModNames is not { } names)
         {
             return new PreviousInstallRow(install, when, "Mod list not saved", "Mod list not saved");
@@ -43,9 +45,11 @@ public partial class PickPreviousInstallDialog : Window
     {
         InitializeComponent();
         InstallsListBox.ItemsSource = kept.Select((install, i) => PreviousInstallRow.From(install, i == 0)).ToList();
-        InstallsListBox.SelectedIndex = 0;
-        var builds = keptSetting == 1 ? "1 earlier install" : $"{keptSetting} earlier installs";
-        KeptNoteText.Text = $"Starlink keeps {builds}. To keep more or fewer, change Backups to keep › Merged pak installs in Settings › Maintenance.";
+        // Starts on the newest build that isn't already in the game: picking that one changes nothing.
+        var firstOther = kept.ToList().FindIndex(install => !install.IsInGame);
+        InstallsListBox.SelectedIndex = Math.Max(0, firstOther);
+        var builds = keptSetting == 1 ? "the newest earlier install" : $"the newest {keptSetting} earlier installs";
+        KeptNoteText.Text = $"Starlink keeps {builds}, plus the one you last restored. To keep more or fewer, change Backups to keep › Merged pak installs in Settings › Maintenance.";
     }
 
     private void Restore_Click(object sender, RoutedEventArgs e)

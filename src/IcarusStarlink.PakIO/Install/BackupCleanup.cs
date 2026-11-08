@@ -8,7 +8,8 @@ public sealed record BackupCleanupResult(int DeletedCount, long FreedBytes, int 
 
 /// <summary>A merged pak backup and the backup of its mod list (ISL-Merged.txt) made with it, if there is one.</summary>
 /// <param name="ModNames">The mods in that list, read by ListMergedPakBackups; null when the list wasn't kept or couldn't be read.</param>
-public sealed record PreviousInstall(string PakBackupPath, string? ManifestBackupPath, DateTime BackedUpAtUtc, IReadOnlyList<string>? ModNames = null);
+/// <param name="IsInGame">The same bytes as the merged pak in the game now (the build last restored, say): set by IInstallService.ListPreviousInstallsAsync when given the game folder.</param>
+public sealed record PreviousInstall(string PakBackupPath, string? ManifestBackupPath, DateTime BackedUpAtUtc, IReadOnlyList<string>? ModNames = null, bool IsInGame = false);
 
 /// <summary>
 /// Keeps the app's Backups folder from growing without end. Two jobs: the merged pak's backups
@@ -214,8 +215,8 @@ public static class BackupCleanup
 
     /// <summary>
     /// Every merged pak backup in backupDirectory (under its current or an earlier name), newest
-    /// first, each with the ISL-Merged.txt backup made by the same install or remove (paired as
-    /// FindNewestMergedPakBackup does) and the mod names read from it. Empty when there's none.
+    /// first, each with the ISL-Merged.txt backup made by the same install or remove (paired by
+    /// time, one list per pak: see PairManifests) and the mod names read from it. Empty when there's none.
     /// Reads small text files: call it off the UI thread.
     /// </summary>
     public static IReadOnlyList<PreviousInstall> ListMergedPakBackups(string backupDirectory)
@@ -231,35 +232,55 @@ public static class BackupCleanup
             .Select(e => (Entry: e, Ok: TryParseStamp(e.SortStamp, out var t), Time: t))
             .Where(m => m.Ok)
             .ToList();
-        var result = new List<PreviousInstall>();
-        foreach (var pak in NewestFirst(entries.Where(e => e.SetKey == MergedPakSetKey)))
-        {
-            if (!TryParseStamp(pak.SortStamp, out var pakTime))
+        var paks = NewestFirst(entries.Where(e => e.SetKey == MergedPakSetKey))
+            .Select(e => (Entry: e, Ok: TryParseStamp(e.SortStamp, out var t), Time: t))
+            .Where(p => p.Ok)
+            .ToList();
+        var paired = PairManifests(paks.Select(p => (p.Entry, p.Time)).ToList(), manifests.Select(m => (m.Entry, m.Time)).ToList());
+        return paks
+            .Select(p =>
             {
-                continue;
-            }
-
-            var manifest = PairedManifest(pak, pakTime, manifests);
-            result.Add(new PreviousInstall(pak.Path, manifest, pakTime, ReadModNames(manifest)));
-        }
-
-        return result;
+                var manifest = paired.GetValueOrDefault(p.Entry.Path);
+                return new PreviousInstall(p.Entry.Path, manifest, p.Time, ReadModNames(manifest));
+            })
+            .ToList();
     }
 
-    /// <summary>The ISL-Merged.txt backup made by the same install as this pak backup: the list is backed up a few seconds after the pak.</summary>
-    private static string? PairedManifest(BackupEntry pak, DateTime pakTime, IEnumerable<(BackupEntry Entry, bool Ok, DateTime Time)> manifests) =>
-        manifests
-            .Where(m => m.Time >= pakTime - TimeSpan.FromMinutes(1) && m.Time <= pakTime + ManifestPairWindow)
-            .OrderBy(m => (m.Time - pakTime).Duration())
+    /// <summary>
+    /// Each pak backup's path to the ISL-Merged.txt backup made by the same install (the list is
+    /// backed up a few seconds after the pak). One to one: a list goes to the pak it is closest to,
+    /// so a pak whose own list wasn't kept (an IMM pak, a Remove with no list) gets none rather
+    /// than the next install's.
+    /// </summary>
+    private static Dictionary<string, string> PairManifests(
+        IReadOnlyList<(BackupEntry Entry, DateTime Time)> paks, IReadOnlyList<(BackupEntry Entry, DateTime Time)> manifests)
+    {
+        var candidates =
+            from pak in paks
+            from manifest in manifests
+            where manifest.Time >= pak.Time - TimeSpan.FromMinutes(1) && manifest.Time <= pak.Time + ManifestPairWindow
+            select (Pak: pak.Entry, Manifest: manifest.Entry, Gap: manifest.Time - pak.Time);
+        var paired = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ordered = candidates
+            .OrderBy(c => c.Gap.Duration())
             // On a tie, the list made at or after the pak is its pair: every install, remove and
             // restore backs up the pak first. Only a tie-break: a list from minutes later must not
             // beat one from a second before.
-            .ThenBy(m => m.Time >= pakTime ? 0 : 1)
+            .ThenBy(c => c.Gap >= TimeSpan.Zero ? 0 : 1)
             // Two installs in one second: the list with the pak's own collision number is its pair.
-            .ThenBy(m => m.Entry.Suffix == pak.Suffix ? 0 : 1)
-            .ThenByDescending(m => m.Entry.Suffix)
-            .Select(m => m.Entry.Path)
-            .FirstOrDefault();
+            .ThenBy(c => c.Manifest.Suffix == c.Pak.Suffix ? 0 : 1)
+            .ThenByDescending(c => c.Manifest.Suffix);
+        foreach (var (pak, manifest, _) in ordered)
+        {
+            if (!paired.ContainsKey(pak.Path) && taken.Add(manifest.Path))
+            {
+                paired[pak.Path] = manifest.Path;
+            }
+        }
+
+        return paired;
+    }
 
     private static IReadOnlyList<string>? ReadModNames(string? manifestPath)
     {

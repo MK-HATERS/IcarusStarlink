@@ -430,6 +430,12 @@ public class InstallServiceTests : IDisposable
         Assert.Equal("ArcFissionLibrary-1.3.0", InstallManifestNames.MisnamedArcFissionLibraryFolder(_fakeContentPath));
     }
 
+    /// <summary>Lists the kept builds and restores the newest, as the picker does when the player takes its first row; null when none is kept.</summary>
+    private async Task<PreviousInstall?> RestoreNewestAsync(InstallService service) =>
+        (await service.ListPreviousInstallsAsync(_backupDirectory)) is [var newest, ..]
+            ? await service.RestoreInstallAsync(_fakeContentPath, _backupDirectory, newest)
+            : null;
+
     /// <summary>Restore previous install puts the last pak and its mod list back, after backing up what's installed now, and can be undone the same way.</summary>
     [Fact]
     public async Task RestorePreviousInstallAsync_PutsTheLastBuildBack_AndBacksUpTheCurrentOne()
@@ -442,7 +448,7 @@ public class InstallServiceTests : IDisposable
         await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
         await Task.Delay(1100);
 
-        var restored = await _service.RestorePreviousInstallAsync(_fakeContentPath, _backupDirectory);
+        var restored = await RestoreNewestAsync(_service);
 
         Assert.NotNull(restored);
         Assert.NotNull(restored.ManifestBackupPath);
@@ -450,7 +456,7 @@ public class InstallServiceTests : IDisposable
         Assert.Equal(["Mod A"], (await _service.GetInstalledStateAsync(_fakeContentPath)).ModNames);
 
         // Again: the copy of v2 made just now is the newest backup, so it comes back.
-        await _service.RestorePreviousInstallAsync(_fakeContentPath, _backupDirectory);
+        await RestoreNewestAsync(_service);
         Assert.Equal("staged pak v2 bytes", await File.ReadAllTextAsync(TargetPakPath));
         Assert.Equal(["Mod B"], (await _service.GetInstalledStateAsync(_fakeContentPath)).ModNames);
     }
@@ -522,7 +528,7 @@ public class InstallServiceTests : IDisposable
         await File.WriteAllTextAsync(_stagedPakPath, "staged pak v2 bytes");
         await service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory);
 
-        var restored = await service.RestorePreviousInstallAsync(_fakeContentPath, _backupDirectory);
+        var restored = await RestoreNewestAsync(service);
 
         Assert.NotNull(restored);
         Assert.Equal("staged pak v1 bytes", await File.ReadAllTextAsync(TargetPakPath));
@@ -597,6 +603,37 @@ public class InstallServiceTests : IDisposable
         Assert.Empty(PakBackupContents());
     }
 
+    /// <summary>Only the chosen build's mod list was deleted since the list was read: the pak goes in, and what's returned says it has no list.</summary>
+    [Fact]
+    public async Task RestoreInstallAsync_ModListGone_RestoresThePakAndSaysThereIsNoList()
+    {
+        await InstallBuildsAsync(_service, 2);
+        var chosen = (await _service.ListPreviousInstallsAsync(_backupDirectory))[0];
+        File.Delete(chosen.ManifestBackupPath!);
+
+        var restored = await _service.RestoreInstallAsync(_fakeContentPath, _backupDirectory, chosen);
+
+        Assert.NotNull(restored);
+        Assert.Null(restored.ManifestBackupPath);
+        Assert.Equal("build 1", await File.ReadAllTextAsync(TargetPakPath));
+        Assert.False(File.Exists(TargetManifestPath));
+    }
+
+    /// <summary>After a restore, the build put back is still listed (it's kept), marked as the one in the game; the others aren't.</summary>
+    [Fact]
+    public async Task ListPreviousInstallsAsync_MarksTheBuildInTheGame()
+    {
+        await InstallBuildsAsync(_service, 3);
+        var chosen = (await _service.ListPreviousInstallsAsync(_backupDirectory, _fakeContentPath))[1];
+        Assert.False(chosen.IsInGame);
+        await _service.RestoreInstallAsync(_fakeContentPath, _backupDirectory, chosen);
+
+        var now = await _service.ListPreviousInstallsAsync(_backupDirectory, _fakeContentPath);
+
+        Assert.Equal([chosen.PakBackupPath], now.Where(p => p.IsInGame).Select(p => p.PakBackupPath));
+        Assert.All(await _service.ListPreviousInstallsAsync(_backupDirectory), p => Assert.False(p.IsInGame));
+    }
+
     // ---- backUpWhatsThere (Find the broken mod: only the first round backs up) ----
 
     [Fact]
@@ -661,17 +698,29 @@ public class InstallServiceTests : IDisposable
         await _service.InstallAsync(_stagedPakPath, _fakeContentPath, _backupDirectory, backUpWhatsThere: false);
 
         Assert.Equal(["player's real pak"], PakBackupContents());
-        var previous = await _service.FindPreviousInstallAsync(_backupDirectory);
-        Assert.NotNull(previous);
+        var previous = (await _service.ListPreviousInstallsAsync(_backupDirectory))[0];
         Assert.Equal("player's real pak", await File.ReadAllTextAsync(previous.PakBackupPath));
         Assert.Equal("Includes the following mods:\nReal", await File.ReadAllTextAsync(previous.ManifestBackupPath!));
     }
 
     [Fact]
-    public async Task RestorePreviousInstallAsync_NoBackup_ReturnsNullAndTouchesNothing()
+    public async Task ListPreviousInstallsAsync_NoBackup_IsEmpty()
     {
-        Assert.Null(await _service.RestorePreviousInstallAsync(_fakeContentPath, _backupDirectory));
+        Assert.Empty(await _service.ListPreviousInstallsAsync(_backupDirectory, _fakeContentPath));
         Assert.False(File.Exists(TargetPakPath));
+    }
+
+    /// <summary>A chosen build outside the Backups folder (a caller's mistake) is refused before anything is touched.</summary>
+    [Fact]
+    public async Task RestoreInstallAsync_APakOutsideTheBackupsFolder_ReturnsNullAndTouchesNothing()
+    {
+        await InstallBuildsAsync(_service, 2);
+        var elsewhere = Path.Combine(_tempDir, "ISL-Merged_P_20261016-100000.pak");
+        await File.WriteAllTextAsync(elsewhere, "not a backup");
+
+        Assert.Null(await _service.RestoreInstallAsync(_fakeContentPath, _backupDirectory, new PreviousInstall(elsewhere, null, DateTime.UtcNow)));
+        Assert.Equal("build 2", await File.ReadAllTextAsync(TargetPakPath));
+        Assert.Equal(["build 1"], PakBackupContents());
     }
 
     public void Dispose()
