@@ -739,7 +739,8 @@ Versions 1.x and 2.x: see the **[Releases page](https://github.com/MK-HATERS/Ica
 
 ## Building
 
-Requires the .NET 10 SDK on Windows (WPF).
+Requires the .NET 10 SDK, 10.0.403 or newer (see `global.json`), on Windows (WPF). A release
+carries the .NET runtime of the SDK that publishes it, so publish with the newest 10.0 SDK.
 
 ```console
 dotnet build IcarusStarlink.slnx
