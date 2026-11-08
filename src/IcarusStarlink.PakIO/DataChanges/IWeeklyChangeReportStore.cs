@@ -1,7 +1,7 @@
 namespace IcarusStarlink.PakIO.DataChanges;
 
 /// <summary>
-/// Keeps roughly a month of WeeklyChangeReport history — one per "Update data folder" run that had
+/// Keeps roughly a month of WeeklyChangeReport history — one per "Refresh game data" run that had
 /// a previous extraction to compare against — rather than the single overwritten entry this
 /// started as. Real cost of the old design: a live game patch's real diff was silently gone the
 /// moment anyone re-ran the update again for any reason (confirmed the hard way — a same-day

@@ -26,6 +26,18 @@ public class WeeklyChangeReportStoreTests : IDisposable
     // value within a single test run, not because the time-of-day component matters anywhere here.
     private static readonly DateTimeOffset Now = DateTimeOffset.UtcNow.Date;
 
+    [Fact]
+    public void Save_ThenReopen_KeepsTheChangedTableParts()
+    {
+        var report = new WeeklyChangeReport(Now.AddDays(-7), Now,
+            [new ChangedDataFile("Crafting/D_Fuel.json", IsNewFile: false, IsRemovedFile: false, RemovedRowNames: [], FieldChanges: []) { ChangedTableParts = ["Defaults"] }]);
+        CreateStore().Save(report);
+
+        var file = Assert.Single(CreateStore().Current!.ChangedFiles);
+
+        Assert.Equal(["Defaults"], file.ChangedTableParts);
+    }
+
     /// <summary>Saving over a report with the same timestamp replaces it in the history too, instead of listing it twice.</summary>
     [Fact]
     public void Save_SameTimestampAgain_ReplacesTheEntry()

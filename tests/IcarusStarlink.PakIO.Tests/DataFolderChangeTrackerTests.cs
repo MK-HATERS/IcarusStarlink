@@ -46,6 +46,44 @@ public class DataFolderChangeTrackerTests : IDisposable
         Assert.Equal(20, change.NewValue!.GetValue<int>());
     }
 
+    /// <summary>Regression: only rows were compared, so a game update that changed only a table's Defaults (what every row inherits) was missing from Weekly Changes.</summary>
+    [Fact]
+    public void Compute_OnlyTheTablesDefaultsChanged_ReportsTheFileWithNoRowNames()
+    {
+        WritePrevious("Crafting/D_Fuel.json", """{"RowStruct":"/Script/Icarus.FuelData","Defaults":{"ResourceFlowRate":10},"Rows":[{"Name":"Composter"}]}""");
+        WriteCurrent("Crafting/D_Fuel.json", """{"RowStruct":"/Script/Icarus.FuelData","Defaults":{"ResourceFlowRate":20},"Rows":[{"Name":"Composter"}]}""");
+
+        var report = DataFolderChangeTracker.Compute(_previousDir, _currentDir, PreviousAt, CurrentAt);
+
+        var file = Assert.Single(report.ChangedFiles);
+        Assert.Equal("Crafting/D_Fuel.json", file.RelativePath);
+        Assert.Empty(file.FieldChanges);
+        Assert.Empty(file.RemovedRowNames);
+        Assert.Equal(["Defaults"], file.ChangedTableParts);
+    }
+
+    [Fact]
+    public void Compute_OnlyTheRowStructChanged_ReportsTheFile()
+    {
+        WritePrevious("Crafting/D_Fuel.json", """{"RowStruct":"/Script/Icarus.FuelData","Defaults":{},"Rows":[{"Name":"Composter","A":1}]}""");
+        WriteCurrent("Crafting/D_Fuel.json", """{"RowStruct":"/Script/Icarus.FuelDataV2","Defaults":{},"Rows":[{"Name":"Composter","A":2}]}""");
+
+        var report = DataFolderChangeTracker.Compute(_previousDir, _currentDir, PreviousAt, CurrentAt);
+
+        var file = Assert.Single(report.ChangedFiles);
+        Assert.Single(file.FieldChanges);
+        Assert.Equal(["RowStruct"], file.ChangedTableParts);
+    }
+
+    [Fact]
+    public void Compute_SameDefaultsInADifferentOrder_IsNoChange()
+    {
+        WritePrevious("Crafting/D_Fuel.json", """{"Defaults":{"A":1,"B":2},"RowStruct":"X","Rows":[{"Name":"Composter"}]}""");
+        WriteCurrent("Crafting/D_Fuel.json", """{"RowStruct":"X","Defaults":{"B":2,"A":1},"Rows":[{"Name":"Composter"}]}""");
+
+        Assert.Empty(DataFolderChangeTracker.Compute(_previousDir, _currentDir, PreviousAt, CurrentAt).ChangedFiles);
+    }
+
     [Fact]
     public void Compute_FileOnlyInCurrent_ReportsAsNewFileWithNewItemChanges()
     {

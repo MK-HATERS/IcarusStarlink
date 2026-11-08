@@ -19,7 +19,13 @@ public sealed class ChangedDataFileViewModel
     {
         RelativePath = file.RelativePath;
         StatusLabel = file.IsNewFile ? "New file" : file.IsRemovedFile ? "Removed file" : "Modified";
-        ChangeCount = file.FieldChanges.Count + file.RemovedRowNames.Count;
+        ChangeCount = file.FieldChanges.Count + file.RemovedRowNames.Count + file.ChangedTableParts.Count;
+
+        // A change outside the rows: Defaults are what every row starts from, so it can change many items at once.
+        foreach (var part in file.ChangedTableParts)
+        {
+            Rows.Add(new ChangedRowViewModel("(every row)", part, part == "Defaults" ? "defaults changed" : "table changed", "", ""));
+        }
 
         foreach (var removedRowName in file.RemovedRowNames)
         {

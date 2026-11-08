@@ -3,7 +3,7 @@ using IcarusStarlink.Diffing;
 namespace IcarusStarlink.PakIO.DataChanges;
 
 /// <summary>
-/// What changed in the game's own DataTable JSON between two "Update data folder" runs — mirrors
+/// What changed in the game's own DataTable JSON between two "Refresh game data" runs — mirrors
 /// classic IMM's own "This Weeks Changes" feature (confirmed from a real install:
 /// Extracted_Mods\This_Weeks_Changes\This_Weeks_Changes.EXMOD), but kept as its own dedicated
 /// report/page here rather than a synthetic library entry, since a fake "mod" cluttering the real
@@ -24,4 +24,13 @@ public sealed record ChangedDataFile(
     bool IsNewFile,
     bool IsRemovedFile,
     IReadOnlyList<string> RemovedRowNames,
-    IReadOnlyList<FieldChange> FieldChanges);
+    IReadOnlyList<FieldChange> FieldChanges)
+{
+    /// <summary>
+    /// The parts of the table outside its rows that changed ("Defaults", the values every row
+    /// inherits for fields it doesn't list, or "RowStruct"). No row diff can show these, and they
+    /// are kept out of FieldChanges on purpose: readers of FieldChanges take every ItemName as a
+    /// real row. Empty for a new or removed file, and in reports saved before this was recorded.
+    /// </summary>
+    public IReadOnlyList<string> ChangedTableParts { get; init; } = [];
+}

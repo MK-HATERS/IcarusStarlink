@@ -33,4 +33,16 @@ public class WeeklyChangesViewModelTests
 
         Assert.Equal("Modified · 1 change", file.Summary);
     }
+
+    [Fact]
+    public void ChangedFile_OnlyItsDefaultsChanged_ShowsOneRowForTheWholeTable()
+    {
+        var file = new ChangedDataFileViewModel(
+            new ChangedDataFile("Crafting/D_Fuel.json", IsNewFile: false, IsRemovedFile: false, RemovedRowNames: [], FieldChanges: []) { ChangedTableParts = ["Defaults"] });
+
+        Assert.Equal("Modified · 1 change", file.Summary);
+        var row = Assert.Single(file.Rows);
+        Assert.Equal("Defaults", row.FieldName);
+        Assert.Equal("defaults changed", row.ChangeKind);
+    }
 }
