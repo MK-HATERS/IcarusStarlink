@@ -206,7 +206,7 @@ public sealed class RebuildService(IUnrealPakService unrealPakService, ILogger<R
                     AddPak(prebuiltPakFilePaths[participant.Index]);
                     break;
                 case MergeParticipantKind.Options:
-                    var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(gameplayOptions, dataFolder, report, orderedModChanges);
+                    var fixedOptionChanges = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(gameplayOptions, dataFolder, report);
                     if (fixedOptionChanges.Count > 0)
                     {
                         orderedModChanges.Add(fixedOptionChanges);

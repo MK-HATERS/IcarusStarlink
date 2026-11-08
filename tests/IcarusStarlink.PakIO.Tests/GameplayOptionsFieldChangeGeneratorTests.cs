@@ -242,10 +242,9 @@ public class GameplayOptionsFieldChangeGeneratorTests : IDisposable
             [new("Stats-D_CharacterStartingStats.json", "Base_Stats", "StatsGranted", null, JsonNode.Parse(json), ValueSemantic.GenericCompound)]);
         var noFall = ModStats("""{"(Value=\"BaseMaximumFallDamage_%\")":0}""");
         var halfFall = ModStats("""{"(Value=\"BaseMaximumFallDamage_%\")":50}""");
-        IReadOnlyList<FieldChange>[] earlier = [noFall, halfFall];
 
         var options = GameplayOptionsFieldChangeGenerator.GenerateFixedFieldChanges(
-            new GameplayOptions { PlayerBoost = BoostLevel.Level1 }, _dataFolder, new MergeReport(), earlier);
+            new GameplayOptions { PlayerBoost = BoostLevel.Level1 }, _dataFolder, new MergeReport());
         var conflicts = MergeEngine.FindConflicts(["WaypointTeleport", "Half fall", "Built-in gameplay options"], [noFall, halfFall, StatEntries.Split(options)]);
 
         var conflict = Assert.Single(conflicts, c => c.FieldName == StatEntries.Compose("StatsGranted", "(Value=\"BaseMaximumFallDamage_%\")"));

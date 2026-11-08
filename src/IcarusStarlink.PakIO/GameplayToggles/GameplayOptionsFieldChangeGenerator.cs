@@ -38,9 +38,7 @@ public static class GameplayOptionsFieldChangeGenerator
     /// The stats the options set come as one change per stat (StatEntries), so a queued mod's
     /// other stats stay as that mod sets them and the options only take part where they set a stat.
     /// </summary>
-    /// <param name="earlierChanges">No longer read (the per-stat changes don't depend on the other mods); kept until its callers stop passing it.</param>
-    public static IReadOnlyList<FieldChange> GenerateFixedFieldChanges(
-        GameplayOptions options, string dataFolder, MergeReport report, IEnumerable<IReadOnlyList<FieldChange>>? earlierChanges = null)
+    public static IReadOnlyList<FieldChange> GenerateFixedFieldChanges(GameplayOptions options, string dataFolder, MergeReport report)
     {
         var changes = new List<FieldChange>();
 
