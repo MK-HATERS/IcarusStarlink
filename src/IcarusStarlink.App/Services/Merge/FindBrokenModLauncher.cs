@@ -59,7 +59,9 @@ public sealed class FindBrokenModLauncher
             await Task.Delay(500);
         }
 
-        if (App.IsClosing || _window is not null)
+        // Read again: the finder window counts as one of those windows, and the player may have
+        // put the mods back in it meanwhile.
+        if (App.IsClosing || _window is not null || context.Store.Load() is null)
         {
             return;
         }
