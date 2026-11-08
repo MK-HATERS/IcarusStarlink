@@ -338,7 +338,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
     }
 
     /// <summary>A mod the patch names that isn't in the Library: what it's called and where it could come from.</summary>
-    private sealed record MissingPatchMod(string Label, int? NexusModId, string? CatalogEntryId)
+    private sealed record MissingPatchMod(string Label, int? NexusModId, string? CatalogEntryId, int? NexusFileId = null)
     {
         public bool CanFetch(IPatchModFetcher fetcher) => (NexusModId is not null && fetcher.CanFetchNexus) || CatalogEntryId is not null;
     }
@@ -467,6 +467,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             var ue4ss = await Task.Run(() => ImportUe4ssFromPatch(contents, configured, versionNotes));
             var downloaded = 0;
             var notFetched = new List<string>();
+            string? stoppedFetchingAt = null;
 
             // One question for everything the patch names that isn't here yet and can be fetched.
             var fetchable = missing.Concat(ue4ss.Missing).Where(m => _patchFetcher is not null && m.CanFetch(_patchFetcher)).ToList();
@@ -476,13 +477,21 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
                     + "Download them now? Each comes through the Downloads page from Nexus or the IMM Database and is added to your Library.",
                     "Get the patch's mods", ThemedConfirmSeverity.Question))
             {
+                // One at a time: a free account's Nexus page opens only after the last one's download came back.
+                var turn = 0;
                 foreach (var mod in fetchable)
                 {
+                    turn++;
+                    PatchStatusMessage = $"Getting '{mod.Label}' ({turn} of {fetchable.Count})…";
                     try
                     {
                         if (mod.NexusModId is { } nexusId && fetcher.CanFetchNexus)
                         {
-                            await fetcher.FetchNexusAsync(nexusId, mod.Label);
+                            if (!await fetcher.FetchNexusAsync(nexusId, mod.NexusFileId, mod.Label))
+                            {
+                                stoppedFetchingAt = mod.Label;
+                                break;
+                            }
                         }
                         else if (mod.CatalogEntryId is { } catalogId && !await fetcher.FetchCatalogAsync(catalogId, mod.Label))
                         {
@@ -555,6 +564,11 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             if (stillMissing.Count > 0)
             {
                 summary.Add($"{stillMissing.Count} mod(s) missing, get them from the Downloads page first: {string.Join(", ", stillMissing)}");
+            }
+
+            if (stoppedFetchingAt is not null)
+            {
+                summary.Add($"stopped downloading at '{stoppedFetchingAt}' (the Downloads page says why)");
             }
 
             if (notFetched.Count > 0)
@@ -731,7 +745,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             {
                 missing.Add(new MissingPatchMod(
                     $"{mod.Name} by {mod.Author}{(mod.NexusModId is { } id ? $" (Nexus #{id})" : mod.CatalogEntryId is not null ? " (IMM Database)" : "")}",
-                    mod.NexusModId, mod.CatalogEntryId));
+                    mod.NexusModId, mod.CatalogEntryId, mod.NexusFileId));
             }
         }
 
@@ -1062,7 +1076,7 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
             if (name is null)
             {
-                missing.Add(new MissingPatchMod($"{mod.NexusName ?? mod.Name} (UE4SS mod{(mod.NexusModId is { } id ? $", Nexus #{id}" : "")})", mod.NexusModId, null));
+                missing.Add(new MissingPatchMod($"{mod.NexusName ?? mod.Name} (UE4SS mod{(mod.NexusModId is { } id ? $", Nexus #{id}" : "")})", mod.NexusModId, null, mod.NexusFileId));
                 continue;
             }
 

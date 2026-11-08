@@ -92,6 +92,11 @@
                     Command="{Binding CancelDownloadsCommand}"
                     Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibilityConverter}}"
                     ToolTip="Stop every download in progress"/>
+            <!-- Only while Starlink waits for a free account's download from a Nexus page (Update all, Import patch). -->
+            <Button DockPanel.Dock="Right" Margin="0,0,12,0" Content="Stop waiting"
+                    Command="{Binding StopWaitingForBrowserDownloadCommand}"
+                    Visibility="{Binding IsWaitingForBrowserDownload, Converter={StaticResource BoolToVisibilityConverter}}"
+                    ToolTip="Stop waiting for the download from the Nexus page, and don't open the next mod's page"/>
             <TextBlock Text="{Binding PendingDownloadStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
                        FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap"/>
         </DockPanel>

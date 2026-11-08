@@ -118,6 +118,20 @@ public sealed partial class LibraryViewModel
         }
     }
 
+    /// <summary>Update all's turn for one Nexus row: the newer file the check found, fetched without the file list (a free account: its page, waited for).</summary>
+    private async Task<NexusFetchOutcome> FetchNexusUpdateAsync(NexusUpdateTarget target, bool waitForBrowserDownload)
+    {
+        _nexusUpdatesRunning++;
+        try
+        {
+            return await Downloads.FetchNexusModAsync(target.ModId, target.Name, target.NewerFileId, waitForBrowserDownload);
+        }
+        finally
+        {
+            _nexusUpdatesRunning--;
+        }
+    }
+
     private const string WaitBeforeReplacingYourBuild = "Wait for the update that's running to finish, then replace your build.";
 
     /// <summary>
@@ -278,10 +292,12 @@ public sealed partial class LibraryViewModel
     /// <summary>
     /// One action over the update list the last check produced (data and UE4SS rows). Database mods
     /// update in place, one after another (the same path as their Update pill). Signed in with a
-    /// Nexus key, each outdated Nexus data mod and UE4SS mod then runs its own Update in turn: the
-    /// file choice opens for a mod with several files, cancelling it stops there, and the two halves
-    /// of one download (same mod and file) are updated once. Without a key, or for an account Nexus
-    /// says isn't Premium (it can't download through the API), the Nexus and UE4SS mods are only
+    /// Nexus key, each outdated Nexus data mod and UE4SS mod then updates in turn: the newer file
+    /// the check found is fetched directly, the file choice opens only when that isn't known,
+    /// cancelling it stops there, and the two halves of one download (same mod and file) are
+    /// updated once. A free account (Nexus doesn't let it download through the API) gets each
+    /// file's Nexus page, one at a time: the next opens only after the last one's Mod Manager
+    /// Download has come back and installed. Without a key the Nexus and UE4SS mods are only
     /// named, and the Nexus page opens with "Updates only" on when Nexus data mods are among them.
     /// One summary line at the end.
     /// </summary>
@@ -333,9 +349,10 @@ public sealed partial class LibraryViewModel
 
         if (nexusItems.Count > 0 || outdatedLua.Count > 0)
         {
-            if (await CanRunNexusUpdatesInTurnAsync())
+            if (CanRunNexusUpdatesInTurn())
             {
-                parts.Add(await RunNexusUpdatesInTurnAsync(nexusItems, outdatedLua));
+                var freeAccount = await Downloads.CheckIsPremiumAsync() == false;
+                parts.Add(await RunNexusUpdatesInTurnAsync(nexusItems, outdatedLua, freeAccount));
             }
             else
             {
@@ -347,29 +364,27 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
-    /// Update all may run the Nexus updates itself: signed in, and Nexus doesn't say the account
-    /// isn't Premium (only Premium accounts download through the API). Not known (the account
-    /// lookup failed) counts as yes: each mod's own Update then says what went wrong. Downloads
-    /// looks the account up once per sign-in, so a known answer costs no request.
+    /// Update all may run the Nexus updates itself: signed in. A free account included: its
+    /// downloads come one page at a time through the Nexus website. Downloads looks the account
+    /// up once per sign-in, so a known answer costs no request.
     /// </summary>
-    private async Task<bool> CanRunNexusUpdatesInTurnAsync()
-    {
-        if (!Downloads.CanFetchFromNexus || _credentialStore.Read(CredentialTargets.NexusApiKey) is null)
-        {
-            return false;
-        }
+    private bool CanRunNexusUpdatesInTurn() =>
+        Downloads.CanFetchFromNexus && _credentialStore.Read(CredentialTargets.NexusApiKey) is not null;
 
-        return await Downloads.CheckIsPremiumAsync() != false;
-    }
+    /// <summary>
+    /// One outdated Nexus row for Update all: a data mod or a UE4SS mod. FileId tells the two
+    /// halves of one download apart; NewerFileId is the newer file the check found (fetched as is).
+    /// </summary>
+    private sealed record NexusUpdateTarget(string Name, int ModId, int? FileId, string Key, int? NewerFileId);
 
-    /// <summary>One outdated Nexus row for Update all: a data mod or a UE4SS mod.</summary>
-    private sealed record NexusUpdateTarget(string Name, int ModId, int? FileId, string Key);
+    /// <summary>The newer file the last check found for this row, when it isn't the installed one.</summary>
+    private static int? NewerFileOf(int? installed, int? latest) => latest is { } newest && newest != installed ? newest : null;
 
     /// <summary>
     /// Runs each outdated Nexus row's own Update, one after another, and returns the summary line.
     /// Rows without a Nexus mod ID are named only (their Update opens the Nexus page).
     /// </summary>
-    private async Task<string> RunNexusUpdatesInTurnAsync(IReadOnlyList<LibraryItemViewModel> nexusItems, IReadOnlyList<Ue4ssModRowViewModel> outdatedLua)
+    private async Task<string> RunNexusUpdatesInTurnAsync(IReadOnlyList<LibraryItemViewModel> nexusItems, IReadOnlyList<Ue4ssModRowViewModel> outdatedLua, bool freeAccount)
     {
         var targets = new List<NexusUpdateTarget>();
         var notLinked = new List<string>();
@@ -377,7 +392,7 @@ public sealed partial class LibraryViewModel
         {
             if (item.NexusModId is { } modId)
             {
-                targets.Add(new(item.Name, modId, item.LatestNexusFileId ?? item.NexusFileId, DataUpdateKey(item)));
+                targets.Add(new(item.Name, modId, item.LatestNexusFileId ?? item.NexusFileId, DataUpdateKey(item), NewerFileOf(item.NexusFileId, item.LatestNexusFileId)));
             }
             else
             {
@@ -387,12 +402,13 @@ public sealed partial class LibraryViewModel
 
         targets.AddRange(outdatedLua
             .Where(r => r.NexusModId is not null)
-            .Select(r => new NexusUpdateTarget(r.Name, r.NexusModId!.Value, r.LatestNexusFileId ?? r.NexusFileId, Ue4ssUpdateKey(r))));
+            .Select(r => new NexusUpdateTarget(r.Name, r.NexusModId!.Value, r.LatestNexusFileId ?? r.NexusFileId, Ue4ssUpdateKey(r), NewerFileOf(r.NexusFileId, r.LatestNexusFileId))));
 
         var started = new List<NexusUpdateTarget>();
         var ran = new List<string>();
         var notRun = new List<string>();
         string? stoppedAt = null;
+        string? stopReason = null;
         foreach (var target in targets)
         {
             if (stoppedAt is not null)
@@ -420,7 +436,7 @@ public sealed partial class LibraryViewModel
                 continue; // its own Update pill is running it
             }
 
-            bool cancelled;
+            NexusFetchOutcome outcome;
             try
             {
                 var item = nexusItems.FirstOrDefault(i => DataUpdateKey(i) == target.Key);
@@ -433,15 +449,26 @@ public sealed partial class LibraryViewModel
                 // Counted only once it really runs: a refused row's other half still gets its turn.
                 started.Add(target);
                 item?.FlushPendingSave();
-                StatusMessage = $"Getting '{target.Name}' from Nexus… ({started.Count} of {targets.Count})";
-                cancelled = await FetchNexusUpdateAsync(target.ModId, target.Name);
+                StatusMessage = freeAccount
+                    ? $"Waiting for '{target.Name}' from Nexus ({started.Count} of {targets.Count}): click Mod Manager Download on the page that opened. Stop waiting is on the Downloads page."
+                    : $"Getting '{target.Name}' from Nexus… ({started.Count} of {targets.Count})";
+                outcome = await FetchNexusUpdateAsync(target, waitForBrowserDownload: freeAccount);
             }
             finally
             {
                 _updatesRunning.Remove(target.Key);
             }
 
-            if (cancelled)
+            stopReason = outcome switch
+            {
+                NexusFetchOutcome.Cancelled => "its file choice was cancelled",
+                NexusFetchOutcome.Stopped => "you stopped waiting for it",
+                NexusFetchOutcome.TimedOut => "no download came from its Nexus page",
+                NexusFetchOutcome.RateLimited => "Nexus asked Starlink to slow down, try again later",
+                NexusFetchOutcome.Busy => "Starlink was already waiting for another download from Nexus",
+                _ => null,
+            };
+            if (stopReason is not null)
             {
                 stoppedAt = target.Name;
             }
@@ -456,7 +483,7 @@ public sealed partial class LibraryViewModel
             : "";
         if (stoppedAt is not null)
         {
-            line += $" Stopped at '{stoppedAt}': its file choice was cancelled.";
+            line += $" Stopped at '{stoppedAt}': {stopReason}.";
         }
 
         notRun.AddRange(notLinked);

@@ -14,8 +14,14 @@ public interface IPatchModFetcher
     /// <summary>A Nexus API key is set, so a Nexus mod can be fetched.</summary>
     bool CanFetchNexus { get; }
 
-    /// <summary>Downloads and activates a Nexus mod (its one file, or the user picks one). Reports through the Downloads page; the caller checks the Library afterwards.</summary>
-    Task FetchNexusAsync(int nexusModId, string displayName);
+    /// <summary>
+    /// Downloads and activates a Nexus mod: <paramref name="nexusFileId"/> when the patch names
+    /// the file (else its one file, or the user picks one). A free account gets that file's Nexus
+    /// page and Starlink waits for its download. Reports through the Downloads page; the caller
+    /// checks the Library afterwards.
+    /// </summary>
+    /// <returns>False when the rest shouldn't be fetched (the file list cancelled, Stop waiting, no download came, Nexus rate limit).</returns>
+    Task<bool> FetchNexusAsync(int nexusModId, int? nexusFileId, string displayName);
 
     /// <summary>Downloads and activates an IMM Database entry. False when the catalog has no such entry any more.</summary>
     Task<bool> FetchCatalogAsync(string catalogEntryId, string displayName);
@@ -26,7 +32,9 @@ public sealed class DownloadsPatchFetcher(Func<DownloadsViewModel> downloads, IC
 {
     public bool CanFetchNexus => credentials.Read(CredentialTargets.NexusApiKey) is not null;
 
-    public Task FetchNexusAsync(int nexusModId, string displayName) => downloads().ResolvePrimaryFileAndFetchAsync(nexusModId, displayName);
+    public async Task<bool> FetchNexusAsync(int nexusModId, int? nexusFileId, string displayName) =>
+        await downloads().FetchNexusModAsync(nexusModId, displayName, nexusFileId, waitForBrowserDownload: true)
+            is not (NexusFetchOutcome.Cancelled or NexusFetchOutcome.Stopped or NexusFetchOutcome.TimedOut or NexusFetchOutcome.RateLimited or NexusFetchOutcome.Busy);
 
     public async Task<bool> FetchCatalogAsync(string catalogEntryId, string displayName)
     {

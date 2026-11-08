@@ -84,13 +84,24 @@ public sealed partial class DownloadsViewModel
     /// download from inside an app, so the file's own Nexus page opens instead.
     /// </summary>
     /// <returns>True when the file choice was cancelled (nothing was downloaded, by the player's choice).</returns>
-    public async Task<bool> ResolvePrimaryFileAndFetchAsync(int nexusModId, string? displayName = null)
+    public async Task<bool> ResolvePrimaryFileAndFetchAsync(int nexusModId, string? displayName = null) =>
+        await FetchNexusModAsync(nexusModId, displayName, fileId: null, waitForBrowserDownload: false) == NexusFetchOutcome.Cancelled;
+
+    /// <summary>
+    /// ResolvePrimaryFileAndFetchAsync with an exact file: Update all (the newer file a check
+    /// found) and Import patch (the file the patch was made with). That file is fetched without
+    /// the file list; when Nexus no longer lists it, the list opens with its newer version picked.
+    /// A free account gets that file's Nexus page; with <paramref name="waitForBrowserDownload"/>
+    /// Starlink then waits until the page's Mod Manager Download has arrived and installed (or the
+    /// player stops waiting, or it times out), so a queue opens one page at a time.
+    /// </summary>
+    public async Task<NexusFetchOutcome> FetchNexusModAsync(int nexusModId, string? displayName, int? fileId, bool waitForBrowserDownload)
     {
         var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
         if (apiKey is null)
         {
             PendingDownloadStatusMessage = "Sign in with your Nexus API key in Settings first.";
-            return false;
+            return NexusFetchOutcome.Failed;
         }
 
         PendingDownloadStatusMessage = $"Finding mod #{nexusModId}'s file(s)…";
@@ -101,27 +112,41 @@ public sealed partial class DownloadsViewModel
             if (files.Count == 0)
             {
                 PendingDownloadStatusMessage = $"Mod #{nexusModId} has no downloadable files listed.";
-                return false;
+                return NexusFetchOutcome.Failed;
             }
+
+            // The exact file asked for, when Nexus still lists it. A file the author removed falls
+            // back to the file list, with that file's newest listed version picked.
+            var exact = fileId is { } wanted ? files.FirstOrDefault(f => f.FileId == wanted) : null;
 
             // Updating: the newer version of the exact file already installed (one of several
             // variants, perhaps) is what's wanted — fetched directly when it's the only choice,
             // otherwise preselected, so switching to a different variant stays possible.
-            var newer = NewerVersionOfInstalledFile(nexusModId, fileSet);
+            var newer = (exact is null && fileId is { } gone ? NexusFileLineage.Newest(fileSet, gone) : null)
+                ?? NewerVersionOfInstalledFile(nexusModId, fileSet);
 
             // A free account: the file list would only lead to Nexus refusing the download.
             if (await CheckIsPremiumAsync() == false)
             {
-                var target = newer ?? (files.Count == 1 ? files[0] : null);
+                var target = exact ?? newer ?? (files.Count == 1 ? files[0] : null);
                 var page = target is null ? NexusModWebUrl.ForFiles(nexusModId) : NexusModWebUrl.ForFile(nexusModId, target.FileId);
+                if (waitForBrowserDownload)
+                {
+                    return await OpenPageAndWaitForDownloadAsync(nexusModId, displayName ?? $"Mod #{nexusModId}", page);
+                }
+
                 PendingDownloadStatusMessage = OpenUrl(page) is null
                     ? "Nexus only lets Premium accounts download from inside an app. Click Mod Manager Download on the page that opened; Starlink installs it from there."
                     : $"Nexus only lets Premium accounts download from inside an app, and your browser didn't open. Go to {page} and click Mod Manager Download there; Starlink installs it from there.";
-                return false;
+                return NexusFetchOutcome.PageOpened;
             }
 
             NexusModFile file;
-            if (files.Count == 1)
+            if (exact is not null)
+            {
+                file = exact;
+            }
+            else if (files.Count == 1)
             {
                 file = files[0];
             }
@@ -133,7 +158,7 @@ public sealed partial class DownloadsViewModel
                 if (_choosingFileFor is { } open)
                 {
                     PendingDownloadStatusMessage = $"Already choosing a file for '{open}'. Pick one or cancel that list first.";
-                    return false;
+                    return NexusFetchOutcome.Failed;
                 }
 
                 NexusModFile? chosen;
@@ -150,17 +175,19 @@ public sealed partial class DownloadsViewModel
                 if (chosen is null)
                 {
                     PendingDownloadStatusMessage = "Download cancelled.";
-                    return true;
+                    return NexusFetchOutcome.Cancelled;
                 }
 
                 file = chosen;
             }
 
             await FetchAndDownloadAsync($"nxm://{NxmHandlerCommand.IcarusDomain}/mods/{nexusModId}/files/{file.FileId}", displayName, file.Version);
+            return NexusFetchOutcome.Fetched;
         }
         catch (NexusRateLimitedException ex)
         {
             PendingDownloadStatusMessage = ex.Message;
+            return NexusFetchOutcome.RateLimited;
         }
         catch (InvalidOperationException ex)
         {
@@ -176,7 +203,7 @@ public sealed partial class DownloadsViewModel
             PendingDownloadStatusMessage = $"Couldn't find that mod's file: {ex.Message}";
         }
 
-        return false;
+        return NexusFetchOutcome.Failed;
     }
 
     /// <summary>
@@ -332,6 +359,7 @@ public sealed partial class DownloadsViewModel
             ReleaseDownloadPath(reservedPath);
             FinishDownloadRow(row);
             _activeDownloadsTracker.Finish(trackerKey);
+            BrowserDownloadFinished(nxmUrl.ModId);
         }
     }
 

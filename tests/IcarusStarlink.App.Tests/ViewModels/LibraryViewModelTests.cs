@@ -2908,9 +2908,19 @@ public sealed partial class LibraryViewModelTests
 
         public Task<IReadOnlyList<NexusModInfo>> GetModsByIdAsync(string? apiKey, string gameDomain, IReadOnlyList<int> modIds, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<NexusModInfo>>([.. ModsById.Where(m => modIds.Contains(m.ModId))]);
+        /// <summary>The (mod, file) each download link was asked for, in order; the request itself fails.</summary>
+        public List<(int ModId, int FileId)> DownloadLinkRequests { get; } = [];
+
         public Task<IReadOnlyList<NexusDownloadLink>> GetDownloadLinksAsync(
-            string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default) =>
+            string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default)
+        {
+            lock (DownloadLinkRequests)
+            {
+                DownloadLinkRequests.Add((modId, fileId));
+            }
+
             throw new NotSupportedException("Not exercised by these tests.");
+        }
         /// <summary>Mod-level version lookups by mod ID; a mod not listed here fails (a network error, the Nexus limit).</summary>
         public Dictionary<int, NexusModInfo> ModInfoById { get; } = [];
 

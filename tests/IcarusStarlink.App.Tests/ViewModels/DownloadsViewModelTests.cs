@@ -1464,9 +1464,13 @@ public sealed partial class DownloadsViewModelTests : IDisposable
 
         public int GetDownloadLinksCalls { get; private set; }
 
+        /// <summary>The file each download link was asked for, in order.</summary>
+        public List<int> DownloadLinkFileIds { get; } = [];
+
         public Task<IReadOnlyList<NexusDownloadLink>> GetDownloadLinksAsync(string apiKey, string gameDomain, int modId, int fileId, string? key, long? expires, CancellationToken cancellationToken = default)
         {
             GetDownloadLinksCalls++;
+            DownloadLinkFileIds.Add(fileId);
             throw DownloadLinksError ?? new NotSupportedException();
         }
         public Task<NexusModInfo?> GetModInfoAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
@@ -1553,9 +1557,13 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         /// <summary>Runs while the file list is open, as the window's message loop would run other work.</summary>
         public Action? WhileFileListIsOpen { get; set; }
 
+        /// <summary>The file the last file list had picked.</summary>
+        public NexusModFile? LastPreselect { get; private set; }
+
         public NexusModFile? PickNexusFile(string modName, IReadOnlyList<NexusModFile> files, NexusModFile? preselect)
         {
             PickNexusFileCalls++;
+            LastPreselect = preselect;
             WhileFileListIsOpen?.Invoke();
             return null;
         }

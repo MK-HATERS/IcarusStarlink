@@ -313,26 +313,6 @@ public sealed partial class LibraryViewModelTests
         Assert.Contains("SecondCopy", vm.StatusMessage);
     }
 
-    /// <summary>An account Nexus says isn't Premium can't download through the API: Update all names the mods, as before.</summary>
-    [Fact]
-    public async Task UpdateAll_AccountNotPremium_OnlyNamesTheMods()
-    {
-        var harness = new TestHarness();
-        harness.SettingsService.Current.IcarusContentPath = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", "FakeContent");
-        harness.CredentialStore.ApiKey = "key";
-        harness.NexusApiClient.User = new NexusUserInfo(5, "me", IsPremium: false, IsSupporter: false, "", "");
-        harness.Ue4ssModStateService.States.Add(new Ue4ssModState("CoolLua", IsEnabled: true));
-        harness.Ue4ssModMetaStore.Metas["CoolLua"] = new Ue4ssModMeta { NexusModId = 11, NexusVersion = "1.0" };
-        var vm = harness.Build();
-        vm.ReloadInstalledUe4ssModsCommand.Execute(null);
-        vm.Ue4ssMods.Single(r => r.Name == "CoolLua").LatestVersion = "2.0";
-
-        await vm.UpdateAllCommand.ExecuteAsync(null);
-
-        Assert.Empty(harness.NexusApiClient.FileSetCalls);
-        Assert.Contains("CoolLua", vm.StatusMessage);
-        Assert.Contains("UE4SS panel", vm.StatusMessage);
-    }
 
     /// <summary>Regression: Update all looked the account up again although the Downloads page already knew it was Premium.</summary>
     [Fact]

@@ -150,7 +150,13 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         /// <summary>Awaited at the start of FetchNexusAsync: a test holds an import there until it completes this.</summary>
         public Task? Hold { get; set; }
 
-        public async Task FetchNexusAsync(int nexusModId, string displayName)
+        /// <summary>The Nexus file each fetch asked for (null: none named), in order.</summary>
+        public List<int?> NexusFileFetches { get; } = [];
+
+        /// <summary>What FetchNexusAsync answers: false stops the rest.</summary>
+        public bool KeepGoing { get; set; } = true;
+
+        public async Task<bool> FetchNexusAsync(int nexusModId, int? nexusFileId, string displayName)
         {
             if (Hold is not null)
             {
@@ -158,7 +164,9 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
             }
 
             NexusFetches.Add(nexusModId);
+            NexusFileFetches.Add(nexusFileId);
             OnFetchNexus(nexusModId);
+            return KeepGoing;
         }
 
         public Task<bool> FetchCatalogAsync(string catalogEntryId, string displayName)
