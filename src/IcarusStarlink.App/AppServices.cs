@@ -294,7 +294,7 @@ internal static class AppServices
             Path.Combine(appDataDirectory, "Backups"),
             messenger: null,
             gameProcessChecker: sp.GetRequiredService<IGameProcessChecker>(),
-            gameDataFreshness: new GameDataFreshness(sp.GetRequiredService<IUnrealPakService>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<SettingsViewModel>),
+            gameDataFreshness: sp.GetRequiredService<IGameDataFreshness>(),
             dialogService: sp.GetRequiredService<IDialogService>(),
             // The Library's health check, for the merge check's Per mod findings.
             fixService: sp.GetRequiredService<ModFixService>(),
@@ -346,8 +346,9 @@ internal static class AppServices
             Path.Combine(appDataDirectory, "Cache", "save_backups", "Worlds"),
             new SaveModSources(sp.GetRequiredService<ILibraryRepository>(), sp.GetRequiredService<ISettingsService>(), Path.Combine(appDataDirectory, "Data"),
                 Path.Combine(appDataDirectory, "Staged_UE4SS"),
-                () => new GameDataFreshness(sp.GetRequiredService<IUnrealPakService>(), sp.GetRequiredService<ISettingsService>(), sp.GetRequiredService<SettingsViewModel>)
-                    .IsGameDataOutdatedAsync().GetAwaiter().GetResult(), sp.GetRequiredService<SaveGameNames>()).Read,
+                // Read runs inside Task.Run, so waiting here never blocks the UI thread.
+                () => sp.GetRequiredService<IGameDataFreshness>().IsGameDataOutdatedAsync().GetAwaiter().GetResult(),
+                sp.GetRequiredService<SaveGameNames>()).Read,
             () => PlayerGrowthReader.Read(Path.Combine(appDataDirectory, "Data"),
                 sp.GetRequiredService<ISettingsService>().Current.IcarusContentPath, sp.GetRequiredService<IBaseGameContentProvider>()),
             new PlayerPointsMod(sp.GetRequiredService<ILibraryRepository>(), sp.GetRequiredService<IBaseGameContentProvider>()),
