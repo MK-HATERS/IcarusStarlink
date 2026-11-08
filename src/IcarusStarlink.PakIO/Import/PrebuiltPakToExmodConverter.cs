@@ -22,9 +22,17 @@ namespace IcarusStarlink.PakIO.Import;
 /// </summary>
 public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakService) : IPrebuiltPakToExmodConverter
 {
-    public async Task<PrebuiltPakConversionResult?> TryConvertAsync(
+    // Off the caller's thread: every caller is a UI command, and after the extraction this parses and
+    // diffs whole game tables, reads every file and deletes the scratch folder. The token isn't
+    // passed to Task.Run, so a cancelled token still reaches the work and throws there as before.
+    public Task<PrebuiltPakConversionResult?> TryConvertAsync(
         string pakFilePath, string dataFolder, string unrealPakExePath, string name, string author,
-        MergeReport report, GameValueHistory? gameHistory = null, CancellationToken cancellationToken = default)
+        MergeReport report, GameValueHistory? gameHistory = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => TryConvertCoreAsync(pakFilePath, dataFolder, unrealPakExePath, name, author, report, gameHistory, cancellationToken));
+
+    private async Task<PrebuiltPakConversionResult?> TryConvertCoreAsync(
+        string pakFilePath, string dataFolder, string unrealPakExePath, string name, string author,
+        MergeReport report, GameValueHistory? gameHistory, CancellationToken cancellationToken)
     {
         var pakName = Path.GetFileNameWithoutExtension(pakFilePath);
 
@@ -129,7 +137,9 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
             // Everything not superseded above — binary assets, a data/*.json file with no matching
             // base table, or one that wasn't valid JSON — still has to be part of the converted
             // mod, copied through unchanged exactly like RebuildService's own raw-copy-through pass
-            // does for the same reason.
+            // does for the same reason. Read under the same per-file and total caps as every other
+            // reader of mod files; going over them fails the conversion, and the pak is imported as is.
+            var sizeBudget = new ExmodSizeBudget($"'{pakName}'");
             var assets = new List<ExmodAssetEntry>();
             foreach (var file in Directory.EnumerateFiles(scratchDirectory, "*", SearchOption.AllDirectories))
             {
@@ -153,7 +163,7 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
                     continue;
                 }
 
-                assets.Add(new ExmodAssetEntry(relativePath, File.ReadAllBytes(file)));
+                assets.Add(new ExmodAssetEntry(relativePath, ReadAllBytesBounded(file, $"Asset '{relativePath}'", sizeBudget)));
             }
 
             var package = new ExmodPackage
@@ -191,7 +201,9 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
 
             return new PrebuiltPakConversionResult(new ExmodPackageContents(package, assets), HasAuthorDeclaredMetadata: embedded is not null);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // A pak refused as unsafe is not imported as a prebuilt pak either: it would only be unpacked
+        // again by every merge, compare and preview. The caller's import fails with the reason.
+        catch (Exception ex) when (ex is not OperationCanceledException and not UnsafePakException)
         {
             report.AddWarning($"Couldn't convert '{pakName}' into an editable mod ({ex.Message}). Imported as a prebuilt pak instead.");
             return null;
@@ -210,8 +222,8 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
                 // Best-effort scratch cleanup, same as every other scratch-extraction cleanup in
                 // this codebase (e.g. LibraryViewModel.ImportOnePath) — a locked file here (an AV
                 // scan, a lingering handle) must not turn an otherwise-successful (or already-
-                // failed-and-reported) conversion attempt into an unhandled exception, which would
-                // violate this method's own "never throws" contract.
+                // failed-and-reported) conversion attempt into an unhandled exception, or hide the
+                // real reason a conversion was refused.
             }
         }
     }
@@ -274,6 +286,17 @@ public sealed class PrebuiltPakToExmodConverter(IUnrealPakService unrealPakServi
             .Select(f => Path.GetRelativePath(dataRoot, f).Replace('\\', '/').Replace('/', '-'))
             .Where(table => !covered.Contains(table))
             .OrderBy(table => table, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>One handle: the size is charged from that handle's Length, then the bytes are read.</summary>
+    private static byte[] ReadAllBytesBounded(string filePath, string description, ExmodSizeBudget sizeBudget)
+    {
+        using var stream = File.OpenRead(filePath);
+        sizeBudget.Charge(description, stream.Length);
+
+        var buffer = new byte[stream.Length];
+        stream.ReadExactly(buffer);
+        return buffer;
     }
 
     /// <summary>Prefers a real, non-placeholder value over a fallback — used for every field the

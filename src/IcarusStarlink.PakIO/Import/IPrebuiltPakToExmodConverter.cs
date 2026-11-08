@@ -16,10 +16,12 @@ public interface IPrebuiltPakToExmodConverter
     /// from name, since the pak's filename is already guaranteed a safe identifier while a
     /// display name isn't.
     ///
-    /// Returns null (never throws) on any failure that makes conversion impossible right now — no
-    /// UnrealPak.exe configured yet, the extracted game data folder is missing/empty, the pak
-    /// itself can't be read — so a caller can always fall back to importing the pak as-is. The
-    /// failure is still recorded on report as a warning either way, so it's visible somewhere.
+    /// Returns null on any failure that makes conversion impossible right now — no UnrealPak.exe
+    /// configured yet, the extracted game data folder is missing/empty, the pak itself can't be
+    /// read — so a caller can fall back to importing the pak as-is. The failure is still recorded
+    /// on report as a warning either way, so it's visible somewhere. Throws UnsafePakException for
+    /// a pak that must not be unpacked at all (a file name that would land outside its folder, or
+    /// too big to unpack), and OperationCanceledException when cancelled.
     ///
     /// gameHistory: the game's old values from recent updates (the Refresh game data reports), so a
     /// value the pak copied from before an update is left out too, not only old copies by shape.

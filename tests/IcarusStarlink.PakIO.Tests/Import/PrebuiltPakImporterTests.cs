@@ -2,6 +2,7 @@ using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
 using IcarusStarlink.PakIO.Import;
+using IcarusStarlink.PakIO.Pak;
 using IcarusStarlink.Storage.Library;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -65,6 +66,51 @@ public class PrebuiltPakImporterTests : IDisposable
             LastAuthor = author;
             return Task.FromResult(result);
         }
+    }
+
+    /// <summary>An UnrealPak that refuses every pak the way UnrealPakService refuses an unsafe one.</summary>
+    private sealed class RefusingUnrealPakService : IUnrealPakService
+    {
+        public Task<int> ExtractPakAsync(
+            string unrealPakExePath, string pakFilePath, string outputDirectory,
+            CancellationToken cancellationToken = default, string? filter = null) =>
+            throw new UnsafePakException($"'{Path.GetFileName(pakFilePath)}' holds a file named '../x.cmd' that would be unpacked outside its folder, so it wasn't unpacked.");
+
+        public Task<UnrealPakExtractResult> ExtractDataPakAsync(
+            string unrealPakExePath, string icarusContentPath, string outputDirectory, DateTimeOffset? previousUpdateAt,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<string?> TryGetDataPakHashAsync(string icarusContentPath, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<int> CreatePakAsync(string unrealPakExePath, string stagingDirectory, string outputPakPath, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<string>> ListPakContentsAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PakVerifyResult> VerifyPakAsync(string unrealPakExePath, string pakFilePath, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// A crafted pak (a file name that would be unpacked outside its folder) used to go into the
+    /// Library as a prebuilt pak once the conversion swallowed the refusal: the player saw only
+    /// "Imported", and every merge tried to unpack it again. The import now fails and adds nothing.
+    /// </summary>
+    [Fact]
+    public async Task ImportAsync_UnsafePak_ImportsNothing()
+    {
+        var unrealPakExePath = Path.Combine(_sourceStoreDir, "UnrealPak.exe");
+        Directory.CreateDirectory(_sourceStoreDir);
+        File.WriteAllText(unrealPakExePath, "fake exe bytes");
+        using var repo = CreateRepository();
+        var importer = new PrebuiltPakImporter(new PrebuiltPakToExmodConverter(new RefusingUnrealPakService()), repo, repo, CreateSourceStore());
+
+        var ex = await Assert.ThrowsAsync<UnsafePakException>(() => importer.ImportAsync(_pakFilePath, "SomeDataFolder", unrealPakExePath));
+
+        Assert.Contains("outside its folder", ex.Message);
+        Assert.Empty(repo.GetAll());
     }
 
     private static PrebuiltPakConversionResult BuildConvertedPackage(bool hasAuthorDeclaredMetadata = false) => new(

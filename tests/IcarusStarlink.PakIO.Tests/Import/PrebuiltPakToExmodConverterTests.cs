@@ -44,12 +44,19 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         public List<string> ExtractedPakPaths { get; } = [];
         public string? LastScratchDirectory { get; private set; }
 
+        /// <summary>SynchronizationContext.Current when the extraction was started.</summary>
+        public SynchronizationContext? ContextAtExtract { get; private set; }
+
+        /// <summary>Runs on the scratch folder after the fake files are written, to add files a string can't stand in for.</summary>
+        public Action<string>? AfterExtract { get; set; }
+
         public Task<int> ExtractPakAsync(
             string unrealPakExePath, string pakFilePath, string outputDirectory,
             CancellationToken cancellationToken = default, string? filter = null)
         {
             ExtractedPakPaths.Add(pakFilePath);
             LastScratchDirectory = outputDirectory;
+            ContextAtExtract = SynchronizationContext.Current;
             Directory.CreateDirectory(outputDirectory);
             foreach (var (relativePath, content) in FakeExtractedFiles)
             {
@@ -57,6 +64,8 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 File.WriteAllText(path, content);
             }
+
+            AfterExtract?.Invoke(outputDirectory);
 
             // After writing, like a real extraction failing partway, so cleanup after a failure is tested too.
             if (ThrowOnExtract is not null)
@@ -125,6 +134,71 @@ public class PrebuiltPakToExmodConverterTests : IDisposable
         Assert.Contains(report.Warnings, w => w.Contains("SomeMod_P") && w.Contains("exited with code 1"));
         Assert.NotNull(pakService.LastScratchDirectory);
         Assert.False(Directory.Exists(pakService.LastScratchDirectory)); // cleaned up after the failure too
+    }
+
+    /// <summary>
+    /// A pak refused as unsafe (a file name that would be unpacked outside its folder) used to be
+    /// swallowed here like any other failure, so the pak went into the Library as a prebuilt pak
+    /// and every Merge &amp; Install failed on it. The refusal now reaches the import.
+    /// </summary>
+    [Fact]
+    public async Task TryConvertAsync_UnsafePak_IsRefusedNotImportedAsOpaque()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var report = new MergeReport();
+        var pakService = new FakeUnrealPakService { ThrowOnExtract = new UnsafePakException("x") };
+        var converter = new PrebuiltPakToExmodConverter(pakService);
+
+        await Assert.ThrowsAsync<UnsafePakException>(() =>
+            converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report));
+
+        Assert.NotNull(pakService.LastScratchDirectory);
+        Assert.False(Directory.Exists(pakService.LastScratchDirectory));
+    }
+
+    /// <summary>
+    /// Every caller is a UI command, and after the extraction the conversion parses and diffs whole
+    /// game tables and reads every file: it used to run all of that on the UI thread.
+    /// </summary>
+    [Fact]
+    public async Task TryConvertAsync_RunsOffTheCallersThread()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var pakService = new FakeUnrealPakService();
+        pakService.FakeExtractedFiles["BP/Thing.uasset"] = "bytes";
+        var converter = new PrebuiltPakToExmodConverter(pakService);
+        var marker = new MarkerSynchronizationContext();
+
+        var result = await marker.Run(() =>
+            converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", new MergeReport()));
+
+        Assert.NotNull(result);
+        Assert.NotSame(marker, pakService.ContextAtExtract);
+    }
+
+    /// <summary>
+    /// Every other reader of mod files caps each file at 200 MB; the conversion used to read any
+    /// size whole into memory. Over the cap the conversion stops and the pak is imported as is.
+    /// </summary>
+    [Fact]
+    public async Task TryConvertAsync_FileOverTheSizeLimit_IsNotReadAndReturnsNullWithWarning()
+    {
+        WriteBaseTable("Crafting/D_ProcessorRecipes.json", """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Stone_Pickaxe","CraftTime":5}]}""");
+        var report = new MergeReport();
+        var pakService = new FakeUnrealPakService
+        {
+            AfterExtract = scratch =>
+            {
+                using var huge = new FileStream(Path.Combine(scratch, "Huge.ubulk"), FileMode.Create);
+                huge.SetLength(200_000_001);
+            },
+        };
+        var converter = new PrebuiltPakToExmodConverter(pakService);
+
+        var result = await converter.TryConvertAsync(_pakFilePath, _dataFolder, _unrealPakExePath, "Some Mod", "Someone", report);
+
+        Assert.Null(result);
+        Assert.Contains(report.Warnings, w => w.Contains("SomeMod_P") && w.Contains("limit"));
     }
 
     [Fact]
