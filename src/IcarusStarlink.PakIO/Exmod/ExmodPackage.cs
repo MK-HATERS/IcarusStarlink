@@ -34,4 +34,18 @@ public sealed class ExmodPackage
     /// "starlinkScaleRules" key only when there are any; other tools ignore keys they don't know.
     /// </summary>
     public List<ScaleRule> ScaleRules { get; set; } = [];
+
+    /// <summary>The mod's entry for a table (CurrentFile compared ignoring case); a new, empty one is added before the EndOfMod marker (at the end when there is none), the way every real EXMOD has it.</summary>
+    public ExmodFileRow GetOrAddRow(string currentFile)
+    {
+        if (Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, currentFile, StringComparison.OrdinalIgnoreCase)) is { } existing)
+        {
+            return existing;
+        }
+
+        var row = new ExmodFileRow { CurrentFile = currentFile };
+        var end = Rows.FindIndex(r => ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile));
+        Rows.Insert(end < 0 ? Rows.Count : end, row);
+        return row;
+    }
 }

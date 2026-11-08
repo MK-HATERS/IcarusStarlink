@@ -176,15 +176,7 @@ public static class ScaleRules
         var written = 0;
         foreach (var (file, items) in generated)
         {
-            var row = package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, file, StringComparison.OrdinalIgnoreCase));
-            if (row is null)
-            {
-                row = new ExmodFileRow { CurrentFile = file };
-                // Keep the EndOfMod sentinel last, the way every real EXMOD has it.
-                var end = package.Rows.FindIndex(r => ExmodSentinelFiles.IsEndOfModMarker(r.CurrentFile));
-                package.Rows.Insert(end < 0 ? package.Rows.Count : end, row);
-            }
-
+            var row = package.GetOrAddRow(file);
             var byName = new Dictionary<string, ExmodFileItem>(StringComparer.OrdinalIgnoreCase); // row names ignore case, like the game
             foreach (var existing in row.FileItems)
             {
