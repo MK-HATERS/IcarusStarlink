@@ -236,6 +236,9 @@ public sealed partial class ExmodEditorViewModel
         if (rules.Count == 0 && _package.ScaleRules.Count == 0)
         {
             ScaleStatusMessage = "No rules yet — Add rule, pick a table and field, then Apply.";
+            // The view and the mod both have no rules, so they agree: a rule added and taken out
+            // again used to leave the editor "unsaved" for good.
+            _scaleRulesDirty = false;
             return true;
         }
 

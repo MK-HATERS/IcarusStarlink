@@ -98,6 +98,25 @@ public sealed class ExmodEditorScaleRulesTests : IDisposable
         Assert.DoesNotContain(editor.Items, i => i.ItemName == "Item_Fiber");
     }
 
+    /// <summary>Regression: a rule added and taken out again in a mod with no rules left "unsaved changes" that Save never cleared, so closing asked again and Save kept the window open.</summary>
+    [Fact]
+    public void AddingThenRemovingARule_LeavesNothingUnsaved()
+    {
+        var entry = _library.CreateBlankMod("No rules", "Me", ModTemplate.Blank);
+        var editor = Open(entry.FolderName);
+
+        editor.AddScaleRuleCommand.Execute(null);
+        editor.RemoveScaleRuleCommand.Execute(editor.ScaleRuleRows[0]);
+        editor.SaveCommand.Execute(null);
+
+        Assert.False(editor.HasUnsavedChanges);
+
+        editor.AddScaleRuleCommand.Execute(null);
+        editor.RemoveScaleRuleCommand.Execute(editor.ScaleRuleRows[0]);
+        editor.AskSaveOnClose = _ => true;
+        Assert.True(editor.ConfirmClose());
+    }
+
     [Fact]
     public void InvalidRule_BlocksSaveWithTheReason()
     {
