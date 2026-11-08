@@ -549,14 +549,12 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     }
 
     /// <summary>
-    /// LibraryViewModel.GetOrCreateItem calls this on a reused instance only when Reload() was
-    /// triggered by an explicit Refresh() (its fullResync flag) — without it, Refresh() re-scanning
-    /// a mod that was edited outside the app (a new Name/Version/etc. in its .EXMOD) would update
-    /// the repository's data but leave this already-instantiated row showing whatever it had at
-    /// construction time, forever. It's deliberately *not* called on every routine reload (search,
-    /// import, delete): this mod's own data can't have changed just because a different mod was
-    /// imported, and blindly re-syncing on every reload was tried and reverted — see Reload()'s
-    /// own doc comment for why.
+    /// LibraryViewModel.GetOrCreateItem calls this on a reused instance on every full resync
+    /// (Reload's fullResync flag: Refresh and every LibraryChangedMessage). Without it, a mod
+    /// edited outside the app (a new Name/Version/etc. in its .EXMOD) would update the
+    /// repository's data but leave this already-built row showing what it had at construction
+    /// time. It's deliberately *not* called on a routine reload (search, filter): this mod's own
+    /// data can't have changed then — see Reload()'s own doc comment for why.
     /// </summary>
     public void Update(LibraryEntry entry)
     {
@@ -624,8 +622,8 @@ public sealed partial class LibraryItemViewModel : ObservableObject
 
         // The mod's own assets (Files list, Readme, thumbnail) can have changed too, not just
         // its header fields — clearing the cache and resetting _detailsLoaded lets the next
-        // EnsureDetailsLoaded() (LibraryViewModel.Reload() calls it unconditionally on whatever
-        // ends up selected) re-read them, instead of this row showing pre-refresh Files/Readme/
+        // EnsureDetailsLoaded() re-read them (LibraryViewModel's ReloadOpenDetails calls it for a
+        // row an open details window shows), instead of this row showing pre-refresh Files/Readme/
         // thumbnail content for the rest of the session.
         AssetPaths.Clear();
         _pakOfAsset = EmptyPakMap;
@@ -641,20 +639,9 @@ public sealed partial class LibraryItemViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Stops any pending debounced notes save without flushing it — called right before this
-    /// mod's folder is deleted. Without this, a stale timer firing after delete could write this
-    /// entry's old metadata into a *different* mod that reuses the exact same folder name
-    /// (MakeUniqueFolderName only avoids collisions with what currently exists on disk), since
-    /// UpdateMetadata's only existence check is Directory.Exists on that name.
-    /// </summary>
-    public void CancelPendingSave() => _notesSaveDebounceTimer.Cancel();
-
-    /// <summary>
-    /// Call before dropping this instance from a cache it's still reachable from (e.g. a
-    /// search/filter reload evicting a row that's no longer in the results) but whose underlying
-    /// mod folder isn't actually going anywhere — unlike CancelPendingSave (for an actual delete),
-    /// discarding an in-flight Notes edit here would silently lose what the user just typed instead
-    /// of just saving it a little early.
+    /// Saves a pending Notes edit now instead of after the debounce: before this row is dropped
+    /// from the cache, and before an action (update, reinstall, delete) rewrites or removes the mod's
+    /// folder, so what the user just typed is neither lost nor written over the new content later.
     /// </summary>
     public void FlushPendingSave() => _notesSaveDebounceTimer.Flush();
 

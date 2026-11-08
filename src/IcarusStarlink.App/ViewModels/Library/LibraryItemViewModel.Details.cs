@@ -9,10 +9,10 @@ using IcarusStarlink.PakIO.Exmod;
 
 namespace IcarusStarlink.App.ViewModels;
 
-/// <summary>Loading the detail tabs on first select: the Files list, Readme, Changes and its summary, a pak's contents and the thumbnail.</summary>
+/// <summary>Loading the detail tabs when a details window shows this mod: the Files list, Readme, Changes and its summary, a pak's contents and the thumbnail.</summary>
 public sealed partial class LibraryItemViewModel
 {
-    /// <summary>Files/readme are only loaded once the user actually selects this item, not for every entry in the library up front.</summary>
+    /// <summary>Files/readme are loaded once a details window shows this mod, not for every entry up front.</summary>
     public void EnsureDetailsLoaded()
     {
         if (_detailsLoaded)
@@ -66,7 +66,7 @@ public sealed partial class LibraryItemViewModel
             }
 
             // Only mark this as done once it actually succeeded — a transient failure (folder
-            // locked, deleted out from under the app) should let a later reselect retry rather
+            // locked, deleted out from under the app) should let a later details load retry rather
             // than permanently pin this mod's Files/Readme tabs empty for the rest of the run.
             // The opaque-pak listing above is deliberately NOT part of this gate — it's its own
             // independently retryable action (see LoadPakContentsAsync's own doc comment).
@@ -74,9 +74,9 @@ public sealed partial class LibraryItemViewModel
         }
         catch (Exception ex)
         {
-            // Same UI boundary as SaveMetadata/ImportPaths/DeleteSelected: this runs from
-            // OnSelectedItemChanged, off a binding-driven selection change, so an unhandled
-            // exception here would crash the app instead of showing a status message.
+            // Same UI boundary as SaveMetadata/ImportPaths/DeleteItem: this runs when a details
+            // window opens or reloads, so an unhandled exception here would crash the app instead
+            // of showing a status message.
             _reportStatus($"Couldn't load mod details: {ex.Message}");
         }
     }

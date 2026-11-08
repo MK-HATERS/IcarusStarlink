@@ -139,7 +139,10 @@ public sealed partial class LibraryItemViewModelTests
         Assert.Equal("hello there", item.SelectedAssetPreview);
     }
 
-    /// <summary>A file path that climbs out of the mod's folder is never read.</summary>
+    /// <summary>
+    /// A file path that climbs out of the mod's folder is never read, and the preview says so in
+    /// read words. Regression: it showed the write-side guard's "refusing to write it".
+    /// </summary>
     [Fact]
     public async Task SelectAsset_PathOutsideTheModFolder_IsNotRead()
     {
@@ -149,7 +152,7 @@ public sealed partial class LibraryItemViewModelTests
         item.SelectedAssetPath = "../outside.txt";
         await WaitForPreviewAsync(item);
 
-        Assert.StartsWith("(failed to read this file", item.SelectedAssetPreview);
+        Assert.Equal("(this file is outside the mod's folder — not read)", item.SelectedAssetPreview);
     }
 
     /// <summary>A 4096-px texture preview decodes at 2048 px, not full size.</summary>
@@ -319,18 +322,6 @@ public sealed partial class LibraryItemViewModelTests
 
     private string ThumbnailCacheDirectory => Path.Combine(_modFolderPath, "ThumbCache");
 
-    private void DeleteModFolder()
-    {
-        try
-        {
-            Directory.Delete(_modFolderPath, recursive: true);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            // Best-effort cleanup of the test's own temp folder.
-        }
-    }
-
     /// <summary>Answers every request with the given body; Content-Length is left out when the body can't seek.</summary>
     private sealed class PictureServer(Stream body) : HttpMessageHandler
     {
@@ -380,19 +371,13 @@ public sealed partial class LibraryItemViewModelTests
         const long tenMegabytes = 10 * 1024 * 1024;
         var body = new CountingBody(length: 3 * tenMegabytes);
         var item = CreateViewModelWithCatalogPicture(new PictureServer(body));
-        try
-        {
-            item.EnsureDetailsLoaded();
-            await Task.WhenAny(body.Closed.Task, Task.Delay(TimeSpan.FromSeconds(10)));
 
-            Assert.True(body.Served <= tenMegabytes + 1024 * 1024, $"read {body.Served} bytes of the answer");
-            Assert.Null(item.ThumbnailImage);
-            Assert.False(File.Exists(Path.Combine(ThumbnailCacheDirectory, "TestMod.img")));
-        }
-        finally
-        {
-            DeleteModFolder();
-        }
+        item.EnsureDetailsLoaded();
+        await Task.WhenAny(body.Closed.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+
+        Assert.True(body.Served <= tenMegabytes + 1024 * 1024, $"read {body.Served} bytes of the answer");
+        Assert.Null(item.ThumbnailImage);
+        Assert.False(File.Exists(Path.Combine(ThumbnailCacheDirectory, "TestMod.img")));
     }
 
     /// <summary>Regression: a catalog picture was decoded at full size for a 120 px box.</summary>
@@ -401,22 +386,16 @@ public sealed partial class LibraryItemViewModelTests
     {
         var item = CreateViewModelWithCatalogPicture(new PictureServer(new MemoryStream(SolidPng(1000, 10))));
         var cached = Path.Combine(ThumbnailCacheDirectory, "TestMod.img");
-        try
-        {
-            item.EnsureDetailsLoaded();
-            var deadline = DateTime.UtcNow.AddSeconds(5);
-            while ((item.ThumbnailImage is null || !File.Exists(cached)) && DateTime.UtcNow < deadline)
-            {
-                await Task.Delay(10);
-            }
 
-            Assert.NotNull(item.ThumbnailImage);
-            Assert.Equal(240, item.ThumbnailImage!.PixelWidth);
-            Assert.True(File.Exists(cached));
-        }
-        finally
+        item.EnsureDetailsLoaded();
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while ((item.ThumbnailImage is null || !File.Exists(cached)) && DateTime.UtcNow < deadline)
         {
-            DeleteModFolder();
+            await Task.Delay(10);
         }
+
+        Assert.NotNull(item.ThumbnailImage);
+        Assert.Equal(240, item.ThumbnailImage!.PixelWidth);
+        Assert.True(File.Exists(cached));
     }
 }

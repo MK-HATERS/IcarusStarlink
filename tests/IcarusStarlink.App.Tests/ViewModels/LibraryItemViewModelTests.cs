@@ -3,6 +3,7 @@ using System.Net.Http;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Nexus;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Secrets;
 using IcarusStarlink.Core.Settings;
@@ -386,6 +387,10 @@ public sealed partial class LibraryItemViewModelTests : IDisposable
                 // Best-effort cleanup only — never the point of these tests.
             }
         }
+
+        // The mod folder (and the sibling "_Data" half some tests write) with everything in it.
+        Directories.TryDelete(_modFolderPath);
+        Directories.TryDelete(_modFolderPath + "_Data");
     }
 
     private sealed class FakeUassetTextureDecoder : IUassetTextureDecoder
