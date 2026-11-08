@@ -115,7 +115,7 @@ public interface IBrokenModFinderHost
     /// <summary>Takes the mod out of the merge queue (its Library ON tick goes off). False when refused: Merge &amp; Install is building.</summary>
     bool RemoveFromQueue(string folderName);
 
-    /// <summary>Backs up every save slot (kept, never pruned). The zips written.</summary>
+    /// <summary>Backs up every save slot (a manual zip, never pruned) and zips each slot's worlds (the newest 3 per slot are kept). The zips written.</summary>
     IReadOnlyList<string> BackUpSaves();
 }
 

@@ -493,7 +493,7 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
             return;
         }
 
-        // A save that failed is said; the next round's install saves the search again.
+        // A save that failed is said when the search ends here; otherwise the next round's install saves the search again.
         var note = _session.Answer(answer);
         IsRoundInstalled = false;
         if (_session.CurrentTest is null)
@@ -503,7 +503,6 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
             return;
         }
 
-        StatusText = note;
         await InstallRoundAsync();
     }
 
