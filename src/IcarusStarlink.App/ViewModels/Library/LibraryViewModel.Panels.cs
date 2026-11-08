@@ -239,6 +239,9 @@ public sealed partial class LibraryViewModel
 
     public static readonly TimeSpan NoticeDuration = TimeSpan.FromSeconds(8);
 
+    /// <summary>Set by ReportProblem: the next notice is a warning whatever its words.</summary>
+    private bool _nextNoticeIsWarning;
+
     private void ShowNotice(string? message)
     {
         if (string.IsNullOrWhiteSpace(message))
@@ -247,9 +250,31 @@ public sealed partial class LibraryViewModel
         }
 
         Notice = message;
-        IsNoticeWarning = LooksLikeAProblem(message);
+        IsNoticeWarning = _nextNoticeIsWarning || LooksLikeAProblem(message);
+        _nextNoticeIsWarning = false;
         _noticeTimer ??= new DebounceTimer(NoticeDuration, HideNotice);
         _noticeTimer.Restart();
+    }
+
+    /// <summary>
+    /// A failure or a refusal: shown in the danger colour, not left to LooksLikeAProblem's guess
+    /// from the words (Windows' "The process cannot access the file…" and "Mods are being checked…
+    /// Try again" showed in the normal colour).
+    /// </summary>
+    private void ReportProblem(string message)
+    {
+        _nextNoticeIsWarning = true;
+        if (StatusMessage == message)
+        {
+            // The same text raises no change, so the notice is shown here.
+            ShowNotice(message);
+        }
+        else
+        {
+            StatusMessage = message;
+        }
+
+        _nextNoticeIsWarning = false;
     }
 
     [RelayCommand]
@@ -268,10 +293,17 @@ public sealed partial class LibraryViewModel
         Ue4ssStatusMessage = null;
     }
 
+    /// <summary>
+    /// The fallback for lines not sent through ReportProblem: words a failure or a refusal uses.
+    /// Not "nothing was changed": that is a cancel the user chose ("Import cancelled — nothing was
+    /// changed."), not a problem.
+    /// </summary>
     internal static bool LooksLikeAProblem(string message) =>
         message.Contains("fail", StringComparison.OrdinalIgnoreCase)
         || message.Contains("couldn't", StringComparison.OrdinalIgnoreCase)
         || message.Contains("can't", StringComparison.OrdinalIgnoreCase)
+        || message.Contains("cannot", StringComparison.OrdinalIgnoreCase)
+        || message.Contains("nothing was deleted", StringComparison.OrdinalIgnoreCase)
         || message.Contains("error", StringComparison.OrdinalIgnoreCase);
 
     partial void OnStatusMessageChanged(string? value) => ShowNotice(value);

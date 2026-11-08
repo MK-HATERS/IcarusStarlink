@@ -87,7 +87,7 @@ public sealed partial class LibraryViewModel
         // editor's next Save would bring the deleted mod back half-made.
         if (items.Select(ModChangeBlockedReason).FirstOrDefault(r => r is not null) is { } blocked)
         {
-            StatusMessage = blocked;
+            ReportProblem(blocked);
             return;
         }
 
@@ -134,7 +134,7 @@ public sealed partial class LibraryViewModel
         {
             if (ue4ssParts.Count > 0 && Ue4ssPartsInGame(ue4ssParts) is { Count: > 0 } inGameParts && IsGameRunningCheck())
             {
-                StatusMessage = $"Icarus is running, and {string.Join(", ", inGameParts)} from the same download is on in the game. Close the game, then delete. Nothing was deleted.";
+                ReportProblem($"Icarus is running, and {string.Join(", ", inGameParts)} from the same download is on in the game. Close the game, then delete. Nothing was deleted.");
                 Ue4ssStatusMessage = StatusMessage;
                 return true;
             }
@@ -180,12 +180,14 @@ public sealed partial class LibraryViewModel
         }
 
         var deletedCount = 0;
+        var ue4ssDeleted = 0;
         var failures = new List<string>();
         foreach (var ue4ssPart in ue4ssParts)
         {
             var failure = DeleteUe4ssModCore(ue4ssPart);
             if (failure is null)
             {
+                ue4ssDeleted++;
                 _activityLog.Log($"Deleted UE4SS mod '{ue4ssPart}' (part of the same download).", ActivityEntryKind.Info);
             }
             else
@@ -226,15 +228,24 @@ public sealed partial class LibraryViewModel
 
         ClearBulkSelection();
         var nextStep = deletedCount > 0 ? " Run Merge & Install to remove it from the game." : "";
-        StatusMessage = failures.Count switch
+        if (failures.Count > 0)
         {
-            0 when items.Count == 0 => $"Deleted the UE4SS mod {string.Join(", ", ue4ssParts)}.{keptHalf}",
-            0 when deletedCount == 1 && ue4ssParts.Count == 0 => $"Deleted '{items[0].Name}'.{nextStep}{keptHalf}",
-            0 when packages.Count == 1 && nameLinkedParts.Count == 0 && ue4ssParts.Count > 0 => $"Deleted '{packages[0].DisplayName}' ({deletedCount + ue4ssParts.Count} parts).{nextStep}",
-            0 when ue4ssParts.Count > 0 => $"Deleted {deletedCount} mod(s) and the UE4SS mod {string.Join(", ", ue4ssParts)}.{nextStep}",
-            0 => $"Deleted {deletedCount} mod(s).{nextStep}{keptHalf}",
-            _ => $"Deleted {deletedCount} of {items.Count + ue4ssParts.Count} — {string.Join("; ", failures)}",
-        };
+            // Every part counts, the UE4SS halves too: a download whose Lua half went and whose
+            // locked pak stayed used to read "Deleted 0 of 2".
+            ReportProblem($"Deleted {deletedCount + ue4ssDeleted} of {items.Count + ue4ssParts.Count} — {string.Join("; ", failures).TrimEnd('.')}. Close whatever is using its files, then try again.{nextStep}");
+        }
+        else
+        {
+            StatusMessage = items.Count switch
+            {
+                0 => $"Deleted the UE4SS mod {string.Join(", ", ue4ssParts)}.{keptHalf}",
+                _ when deletedCount == 1 && ue4ssParts.Count == 0 => $"Deleted '{items[0].Name}'.{nextStep}{keptHalf}",
+                _ when packages.Count == 1 && nameLinkedParts.Count == 0 && ue4ssParts.Count > 0 => $"Deleted '{packages[0].DisplayName}' ({deletedCount + ue4ssDeleted} parts).{nextStep}",
+                _ when ue4ssParts.Count > 0 => $"Deleted {deletedCount} mod(s) and the UE4SS mod {string.Join(", ", ue4ssParts)}.{nextStep}",
+                _ => $"Deleted {deletedCount} mod(s).{nextStep}{keptHalf}",
+            };
+        }
+
         // Its own handler reloads both panels (the UE4SS parts too): no Reload of its own here.
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
     }

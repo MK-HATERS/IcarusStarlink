@@ -29,7 +29,7 @@ public sealed partial class LibraryViewModel
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Backup failed: {ex.Message}";
+            ReportProblem($"Backup failed: {ex.Message}{LockedFileNextStep(ex)}");
             _activityLog.Log($"Backing up '{item.Name}' failed: {ex.Message}", ActivityEntryKind.Warning);
         }
     }
@@ -42,7 +42,7 @@ public sealed partial class LibraryViewModel
             return false;
         }
 
-        StatusMessage = blocked;
+        ReportProblem(blocked);
         return true;
     }
 
@@ -170,9 +170,13 @@ public sealed partial class LibraryViewModel
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Couldn't rename: {ex.Message}";
+            ReportProblem($"Couldn't rename: {ex.Message}{LockedFileNextStep(ex)}");
         }
     }
+
+    /// <summary>" Close whatever is using its files, then try again." when the cause is a locked or read-only file; nothing otherwise.</summary>
+    private static string LockedFileNextStep(Exception ex) =>
+        ex is System.IO.IOException or UnauthorizedAccessException ? " Close whatever is using its files, then try again." : "";
 
     /// <summary>An inline per-row Edit action (row hover icons) — takes the row's own item directly rather than requiring it to be selected first.</summary>
     [RelayCommand]
