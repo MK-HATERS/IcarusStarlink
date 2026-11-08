@@ -6,6 +6,7 @@ using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Settings;
+using IcarusStarlink.PakIO.World;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
 
@@ -200,6 +201,52 @@ public class MainViewModelTests : IDisposable
         {
             WeakReferenceMessenger.Default.UnregisterAll(vm);
         }
+    }
+
+    /// <summary>Regression: going from Map to another page never told the Map page, so its images (100+ MB on Olympus) were never let go while idle.</summary>
+    [Fact]
+    public void LeavingTheMapPage_LetsItsImagesGoWhenIdle()
+    {
+        var map = new WorldMapInfo("A", "Alpha", false, [], [],
+            [new WorldLayer(WorldLayerKind.Creatures, "Heatmaps/x.uasset",
+                new Dictionary<uint, WorldZone> { [0xAA0000] = new("OLY_A", "A", []), [0x00BB00] = new("OLY_B", "B", []) })]);
+        var store = new WorldMapStore(Path.Combine(_root, "World"), () => [map], new OneLayerRenderer());
+        store.Reload(everything: false);
+        // No game folder: opening the page says so straight away instead of starting a read.
+        var mapPage = new WorldMapViewModel(store, new FakeSettingsService(new AppSettings()), Path.Combine(_root, "Data")) { UiDispatcher = () => null };
+        mapPage.SelectedMap = new WorldMapItemViewModel(map);
+        Assert.NotEmpty(mapPage.Layers);
+
+        var vm = Build(@"C:\fake\Icarus\Content", new MapServiceProvider(mapPage));
+        try
+        {
+            vm.SelectedNavItem = vm.NavItems.First(item => item.Id == "map");
+            Assert.False(mapPage.ReleaseIfIdle(TimeSpan.Zero));
+
+            vm.SelectedNavItem = vm.NavItems.First(item => item.Id == "help");
+
+            Assert.True(mapPage.ReleaseIfIdle(TimeSpan.Zero));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(vm);
+        }
+    }
+
+    /// <summary>Gives the one Map page for the Map entry and a stand-in for every other page.</summary>
+    private sealed class MapServiceProvider(WorldMapViewModel map) : IServiceProvider
+    {
+        public object? GetService(Type serviceType) => serviceType == typeof(WorldMapViewModel) ? map : new object();
+    }
+
+    /// <summary>No picture; every zone image is the same 2x2 image with two zones.</summary>
+    private sealed class OneLayerRenderer : IWorldMapRenderer
+    {
+        public (byte[]? Jpeg, WorldPictureSource Source) RenderPicture(WorldMapInfo map) => (null, WorldPictureSource.None);
+
+        public WorldLayerPixels? ReadLayer(string heatmapAssetPath) => new(2, [0xAA0000, 0x00BB00, 0xAA0000, 0x00BB00]);
+
+        public string Stamp(WorldMapInfo map) => "1";
     }
 
     /// <summary>

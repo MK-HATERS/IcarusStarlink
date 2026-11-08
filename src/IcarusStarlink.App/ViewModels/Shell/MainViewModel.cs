@@ -393,6 +393,11 @@ public sealed partial class MainViewModel : ObservableObject
             leftDatabase.OnPageLeft();
         }
 
+        if (oldValue is WorldMapViewModel leftMap && !ReferenceEquals(oldValue, newValue))
+        {
+            leftMap.OnPageLeft();
+        }
+
         if (newValue is DatabaseViewModel database)
         {
             _databaseShownThisSession = database;
