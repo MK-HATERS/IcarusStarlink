@@ -1385,7 +1385,7 @@ public sealed partial class SavesViewModelTests : IDisposable
         Assert.Equal(500L, saved["XP"]!.GetValue<long>());
     }
 
-    /// <summary>Regression:"couldn't read the files' times" passed as "unchanged", so Save could write an older copy over the game's newer one.</summary>
+    /// <summary>Regression: "couldn't read the files' times" passed as "unchanged", so Save could write an older copy over the game's newer one.</summary>
     [Fact]
     public async Task SaveWhenTheFilesCantBeChecked_RefusesToWrite()
     {
@@ -1402,7 +1402,7 @@ public sealed partial class SavesViewModelTests : IDisposable
         Assert.True(vm.HasUnsavedChanges);
     }
 
-    /// <summary>Regression:Duplicate copied the character as last saved while naming it after the edited one.</summary>
+    /// <summary>Regression: Duplicate copied the character as last saved while naming it after the edited one.</summary>
     [Fact]
     public async Task Duplicate_CopiesTheCharacterAsEdited()
     {
@@ -1420,7 +1420,7 @@ public sealed partial class SavesViewModelTests : IDisposable
         Assert.Equal(100L, character.Node["XP"]!.GetValue<long>()); // the source's own node isn't changed until Save
     }
 
-    /// <summary>Regression:when Profile.json couldn't be read the backups list was emptied — exactly when Restore is needed.</summary>
+    /// <summary>Regression: when Profile.json couldn't be read the backups list was emptied — exactly when Restore is needed.</summary>
     [Fact]
     public async Task UnreadableSlot_StillListsItsBackups()
     {
