@@ -495,8 +495,12 @@ public sealed partial class MergeInstallViewModel
         }
 
         // The same guard the saves editor and the UE4SS tab already have, and the one place it was
-        // missing. Checked here and again right after the confirmation (ConfirmWithGameClosed).
-        if (RefuseWhileGameRunning("Icarus is running — close it before installing, or the game keeps loading the old pack and the copy can fail halfway."))
+        // missing. Checked here and again right after the confirmation (ConfirmWithGameClosed). A
+        // complete staged build exists at this point, so Copy to game installs it without building
+        // again; a Find the broken mod round is retried from its own window instead.
+        var forFinder = _finderOnly is not null || _finderRestoring;
+        if (RefuseWhileGameRunning("Icarus is running — close it before installing, or the game keeps loading the old pack and the copy can fail halfway."
+                + (forFinder ? "" : " Then click Copy to game under Advanced actions (no need to build again).")))
         {
             return InstallOutcome.NotDone;
         }
@@ -517,7 +521,7 @@ public sealed partial class MergeInstallViewModel
         // and it holds whole tables from an older game, so removing it is offered.
         var leftoverArcFission = LeftoverArcFissionDataPaks(_settingsService.Current.IcarusContentPath!);
         // A Find the broken mod round leaves it be: that's a question for a normal install.
-        var keepArcFission = leftoverArcFission.Count == 0 || _finderOnly is not null || _finderRestoring || !Confirm(
+        var keepArcFission = leftoverArcFission.Count == 0 || forFinder || !Confirm(
             $"ArcFission Library isn't installed (or is turned off), but its data pak is still in the mods folder:\n"
             + string.Join('\n', leftoverArcFission.Select(n => $"  - {n}"))
             + "\n\nNothing updates it any more: it holds whole game tables from the game version it was written for, so it can put old values back in game.\n\n"
@@ -557,6 +561,13 @@ public sealed partial class MergeInstallViewModel
         if (oldArcFission > 0)
         {
             clearNote += $"\n\nIt also removes {oldArcFission} older cop{(oldArcFission == 1 ? "y" : "ies")} of ArcFission's data (not used; ArcFission Library only needs its newest).";
+        }
+
+        // Copy to game after a profile switch: the staged pak is still the other profile's build.
+        if (_stagedBuildProfileName is { } builtFrom
+            && !string.Equals(builtFrom, SelectedProfileName ?? "Default", StringComparison.OrdinalIgnoreCase))
+        {
+            clearNote += $"\n\nThis pak was built from profile '{builtFrom}' (you're on '{SelectedProfileName ?? "Default"}' now).";
         }
 
         // Same explicit Yes/No gate as every other real-machine write this app makes (the nxm://
@@ -625,14 +636,12 @@ public sealed partial class MergeInstallViewModel
         }
         catch (IOException ex)
         {
-            // Overwhelmingly the "Icarus is still running" case, which is worth naming rather than
-            // showing a raw file-sharing error — and it's exactly when Copy to game (no rebuild)
-            // is the right next click, so offer it.
-            InstallStatusMessage =
-                $"Install failed — the pak is in use: {ex.Message} "
-                + "Close Icarus if it's running, then click Copy to game under Advanced actions (no need to rebuild).";
+            // A file error while copying: a full drive, a game folder that's gone, a file another
+            // program holds, or the staged pak itself gone. Said by what it is (the install already
+            // refuses while the game runs), with Copy to game offered while the staged pak is there.
+            InstallStatusMessage = DescribeInstallFileError(ex, forFinder);
             _activityLog.Log(InstallStatusMessage, ActivityEntryKind.Warning);
-            CanCopyToGame = true;
+            CanCopyToGame = HasCompleteStagedBuild();
             return InstallOutcome.Failed;
         }
         catch (Exception ex)
@@ -643,6 +652,66 @@ public sealed partial class MergeInstallViewModel
             _activityLog.Log(InstallStatusMessage, ActivityEntryKind.Warning);
             return InstallOutcome.Failed;
         }
+    }
+
+    /// <summary>
+    /// What an install that hit a file error tells the player, by what went wrong: the install
+    /// already refuses while the game runs, so a file error is often a full drive or a game folder
+    /// that's gone, not the game holding the pak. A Find the broken mod round never points at Copy
+    /// to game: that would install the round's pak outside the search.
+    /// </summary>
+    private string DescribeInstallFileError(IOException ex, bool forFinder)
+    {
+        var copyHint = forFinder ? "" : " Then click Copy to game under Advanced actions (no need to build again).";
+        return ex switch
+        {
+            FileNotFoundException => "Install failed: the built pak isn't there any more. Click Install to build it again.",
+            DirectoryNotFoundException => $"Install failed: the game's mods folder couldn't be reached ({ex.Message}). Check the Icarus Content folder in Settings (is its drive plugged in?).{copyHint}",
+            _ when (ex.HResult & 0xFFFF) is 32 or 33 => $"Install failed: a file in the game's mods folder is in use ({ex.Message}). Close Icarus if it's running.{copyHint}",
+            _ when (ex.HResult & 0xFFFF) is 112 or 39 => $"Install failed: a drive is full ({ex.Message}). {FreeSpaceAdvice()}{copyHint}",
+            _ => $"Install failed: {ex.Message}{copyHint}",
+        };
+    }
+
+    /// <summary>How much room the install needs on the game's drive: the merged pak's size, when it can be read.</summary>
+    private string FreeSpaceAdvice()
+    {
+        try
+        {
+            var megabytes = Math.Max(1, (long)Math.Ceiling(new FileInfo(_outputPakPath).Length / 1048576.0));
+            return $"Free at least {megabytes} MB on the game's drive (the size of the merged pak).";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return "Free some space on the game's drive.";
+        }
+    }
+
+    /// <summary>
+    /// Why the staged pak may hold game tables older than the game's (Icarus updated since it was
+    /// built, or the game data refreshed after it); null when it doesn't. Copy to game checks this,
+    /// since unlike Install it doesn't build first.
+    /// </summary>
+    private async Task<string?> StagedBuildPredatesGameDataAsync()
+    {
+        if (_gameDataFreshness is not null)
+        {
+            try
+            {
+                if (await _gameDataFreshness.IsGameDataOutdatedAsync())
+                {
+                    return "Not installed: Icarus was updated after this pak was built, so it has the old game tables. Click Install to build it again (it refreshes the game data first).";
+                }
+            }
+            catch (Exception)
+            {
+                // Can't tell: not a reason to refuse (EnsureGameDataCurrentAsync's rule).
+            }
+        }
+
+        return _settingsService.Current.LastDataFolderUpdatedAt is { } refreshedAt && File.GetLastWriteTimeUtc(_outputPakPath) < refreshedAt.UtcDateTime
+            ? "Not installed: the game data was refreshed after this pak was built, so it may have old game tables. Click Install to build it again."
+            : null;
     }
 
     /// <summary>
@@ -709,6 +778,13 @@ public sealed partial class MergeInstallViewModel
         if (!HasCompleteStagedBuild())
         {
             InstallStatusMessage = "Nothing built yet — click Install to build one.";
+            return;
+        }
+
+        // The build refuses old game data (EnsureGameDataCurrentAsync); this skips the build, so it checks too.
+        if (await StagedBuildPredatesGameDataAsync() is { } why)
+        {
+            InstallStatusMessage = why;
             return;
         }
 
