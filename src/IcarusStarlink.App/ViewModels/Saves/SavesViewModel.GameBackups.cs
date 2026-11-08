@@ -27,6 +27,17 @@ public sealed partial class SavesViewModel
 
     public bool HasNoGameBackups => GameBackups.Count == 0;
 
+    /// <summary>Shown when there are no copies: "no copies yet", or why the slot folder couldn't be read.</summary>
+    public string GameBackupsNote { get; private set; } = "no copies yet";
+
+    /// <summary>
+    /// True while a game copy is put back in the background: Save changes, Restore, Backup now and
+    /// Put back wait, so two writes never touch the slot's files at once.
+    /// </summary>
+    private bool _restoringGameCopy;
+
+    private const string WaitForGameCopyText = "Wait until the game's copy has been put back, then try again.";
+
     /// <summary>
     /// Lists the game's copies again. The game shifts them along at every save, so this runs with
     /// every backups refresh and each time the page is shown. A pick stays only while that exact
@@ -36,6 +47,7 @@ public sealed partial class SavesViewModel
     {
         var picked = SelectedGameBackup;
         GameBackups.Clear();
+        GameBackupsNote = "no copies yet";
         if (SelectedSlot is { } slot)
         {
             try
@@ -47,21 +59,23 @@ public sealed partial class SavesViewModel
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // No list then; the rest of the page still works.
+                // No list then; the rest of the page still works, and the empty text says why.
+                GameBackupsNote = $"Couldn't read the game's copies: {ex.Message}";
             }
         }
 
         SelectedGameBackup = picked is not null && GameBackups.Contains(picked) ? picked : null;
         OnPropertyChanged(nameof(HasGameBackups));
         OnPropertyChanged(nameof(HasNoGameBackups));
+        OnPropertyChanged(nameof(GameBackupsNote));
     }
 
-    private bool CanRestoreGameBackup() => SelectedGameBackup is not null;
+    private bool CanRestoreGameBackup() => SelectedGameBackup is not null && !_restoringGameCopy;
 
     [RelayCommand(CanExecute = nameof(CanRestoreGameBackup), FlowExceptionsToTaskScheduler = true)]
     private async Task RestoreGameBackupAsync()
     {
-        if (SelectedSlot is not { } slot || SelectedGameBackup is not { } copy)
+        if (_restoringGameCopy || SelectedSlot is not { } slot || SelectedGameBackup is not { } copy)
         {
             return;
         }
@@ -90,6 +104,8 @@ public sealed partial class SavesViewModel
             return;
         }
 
+        _restoringGameCopy = true;
+        RestoreGameBackupCommand.NotifyCanExecuteChanged();
         try
         {
             await Task.Run(() => _repository.RestoreGameBackup(slot.SteamId, copy));
@@ -104,6 +120,11 @@ public sealed partial class SavesViewModel
             StatusMessage = $"Couldn't put the game's copy back: {ex.Message}";
             _activityLog.Log($"Putting back the game's copy of {copy.OriginalFileName} failed: {ex.Message}", ActivityEntryKind.Warning);
             RefreshBackupsList();
+        }
+        finally
+        {
+            _restoringGameCopy = false;
+            RestoreGameBackupCommand.NotifyCanExecuteChanged();
         }
     }
 }

@@ -83,6 +83,12 @@ public sealed partial class SavesViewModel
             return;
         }
 
+        if (_restoringGameCopy)
+        {
+            StatusMessage = WaitForGameCopyText;
+            return;
+        }
+
         try
         {
             var zipPath = _repository.BackupSlotManually(SelectedSlot.SteamId);
@@ -102,6 +108,12 @@ public sealed partial class SavesViewModel
     {
         if (SelectedSlot is null || SelectedBackup is null)
         {
+            return;
+        }
+
+        if (_restoringGameCopy)
+        {
+            StatusMessage = WaitForGameCopyText;
             return;
         }
 

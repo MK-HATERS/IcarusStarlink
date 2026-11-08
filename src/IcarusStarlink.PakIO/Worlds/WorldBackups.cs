@@ -23,9 +23,10 @@ public enum WorldBackupKind
 }
 
 /// <summary>One backup holding a world: a single copied world file, or a zip of a slot's worlds.</summary>
-/// <param name="TakenAt">Local time, read from the name (a copied file keeps the world's own time, so the file time says nothing).</param>
+/// <param name="TakenAt">Local time, read from the name (a copied file keeps the world's own time, so the file time says nothing). For KeptByGame, the copy's own last-write time (the game writes it fresh).</param>
 /// <param name="Sequence">The name's "_2" when two backups landed in the same second (orders them).</param>
-public sealed record WorldBackup(string Path, string WorldFileName, WorldBackupKind Kind, DateTime TakenAt, int Sequence)
+/// <param name="Length">For KeptByGame, the copy's size when it was listed (with TakenAt, tells whether the game replaced it since); otherwise null.</param>
+public sealed record WorldBackup(string Path, string WorldFileName, WorldBackupKind Kind, DateTime TakenAt, int Sequence, long? Length = null)
 {
     public bool IsZip => Kind == WorldBackupKind.BeforeFindBrokenMod;
 
@@ -160,7 +161,7 @@ public static partial class WorldBackups
             {
                 if (IsGameCopyOf(info.Name, worldFileName, out var number))
                 {
-                    result.Add(new WorldBackup(info.FullName, worldFileName, WorldBackupKind.KeptByGame, info.LastWriteTime, number));
+                    result.Add(new WorldBackup(info.FullName, worldFileName, WorldBackupKind.KeptByGame, info.LastWriteTime, number, info.Length));
                 }
             }
         }
@@ -188,7 +189,8 @@ public static partial class WorldBackups
             throw new InvalidDataException("That isn't one of the game's own copies of this world. Nothing was changed.");
         }
 
-        if (File.GetLastWriteTime(backup.Path) != backup.TakenAt)
+        var now = new FileInfo(backup.Path);
+        if (now.LastWriteTime != backup.TakenAt || (backup.Length is { } length && now.Length != length))
         {
             throw new InvalidDataException("The game changed its copies since the list was read. Pick one again. Nothing was changed.");
         }

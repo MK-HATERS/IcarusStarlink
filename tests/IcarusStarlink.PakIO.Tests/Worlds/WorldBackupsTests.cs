@@ -188,6 +188,22 @@ public sealed class WorldBackupsTests : IDisposable
     }
 
     [Fact]
+    public void Restore_GameCopySameTimeButOtherSize_RefusedAndChangesNothing()
+    {
+        var world = WriteWorld("MyWorld", 0);
+        var written = DateTime.Now.AddDays(-2);
+        WriteGameCopy("MyWorld.json.backup_3", 3, written);
+        var copy = Assert.Single(WorldBackups.ListGameCopies(world));
+        // Replaced by a copy of another size that ended up with the same time.
+        WriteGameCopy("MyWorld.json.backup_3", 333, written);
+
+        Assert.Throws<InvalidDataException>(() => WorldBackups.Restore(copy, world, _backups, SlotA, keep: 10));
+
+        Assert.Equal(World("MyWorld", 0), File.ReadAllText(world));
+        Assert.False(Directory.Exists(_backups));
+    }
+
+    [Fact]
     public void Restore_FromAZipOfWorlds_PutsBackOnlyTheChosenWorld()
     {
         var mine = WriteWorld("MyWorld", 0);

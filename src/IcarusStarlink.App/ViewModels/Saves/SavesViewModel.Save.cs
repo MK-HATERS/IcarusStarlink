@@ -247,6 +247,12 @@ public sealed partial class SavesViewModel
             return;
         }
 
+        if (_restoringGameCopy)
+        {
+            StatusMessage = WaitForGameCopyText;
+            return;
+        }
+
         if (!HasUnsavedChanges)
         {
             StatusMessage = "Nothing changed.";

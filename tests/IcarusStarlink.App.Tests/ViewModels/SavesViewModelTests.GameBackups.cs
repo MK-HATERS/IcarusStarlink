@@ -100,6 +100,79 @@ public sealed partial class SavesViewModelTests
     }
 
     [Fact]
+    public async Task GameBackups_FolderCantBeRead_SaysWhy_InsteadOfNoCopiesYet()
+    {
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            ListGameBackupsError = new UnauthorizedAccessException("denied"),
+        };
+        var vm = CreateViewModel(repository);
+        await vm.WaitForPendingSlotLoadAsync();
+
+        Assert.Empty(vm.GameBackups);
+        Assert.StartsWith("Couldn't read the game's copies", vm.GameBackupsNote);
+        Assert.Contains("denied", vm.GameBackupsNote);
+
+        // Readable again: the note goes back to the plain empty text.
+        repository.ListGameBackupsError = null;
+        vm.OnPageShown();
+
+        Assert.Equal("no copies yet", vm.GameBackupsNote);
+    }
+
+    [Fact]
+    public async Task RestoreGameBackup_WhileItWrites_SaveBackupAndRestoreWait()
+    {
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var repository = new FakeSaveRepository
+        {
+            Characters = [MakeCharacter("Alpha", 0)],
+            Profile = MakeProfile(nextChrSlot: 1),
+            GameBackups = [GameCopy("Profile.json", 0, DateTime.UtcNow)],
+            Backups = [new SaveBackupInfo("fake_backup.zip", DateTimeOffset.Now)],
+            WhileRestoringGameBackup = () =>
+            {
+                started.Set();
+                release.Wait(TimeSpan.FromSeconds(10));
+            },
+        };
+        var vm = CreateViewModel(repository, dialogService: new FakeDialogService(confirmResult: true));
+        await vm.WaitForPendingSlotLoadAsync();
+        vm.SelectedGameBackup = vm.GameBackups.Single();
+
+        var restoring = vm.RestoreGameBackupCommand.ExecuteAsync(null);
+        Assert.True(started.Wait(TimeSpan.FromSeconds(10)));
+        try
+        {
+            var saves = repository.SaveCharactersCallCount;
+            var backups = repository.BackupSlotCallCount;
+            var restores = repository.RestoreSlotCallCount;
+            vm.Characters.Single().Name = "Renamed";
+
+            vm.SaveChangesCommand.Execute(null);
+            vm.BackupNowCommand.Execute(null);
+            await vm.RestoreBackupCommand.ExecuteAsync(null);
+
+            Assert.Equal(saves, repository.SaveCharactersCallCount);
+            Assert.Equal(backups, repository.BackupSlotCallCount);
+            Assert.Equal(restores, repository.RestoreSlotCallCount);
+            Assert.Contains("Wait", vm.StatusMessage);
+            Assert.False(vm.RestoreGameBackupCommand.CanExecute(null));
+        }
+        finally
+        {
+            release.Set();
+            await restoring;
+        }
+
+        Assert.Single(repository.RestoredGameBackups);
+        Assert.StartsWith("Put back Profile.json", vm.StatusMessage);
+    }
+
+    [Fact]
     public async Task RestoreGameBackup_CopyShiftedSinceListed_SaysSo_AndReadsTheListAgain()
     {
         var repository = new FakeSaveRepository

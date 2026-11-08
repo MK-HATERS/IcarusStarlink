@@ -2570,10 +2570,13 @@ public sealed partial class SavesViewModelTests : IDisposable
 
         public int ListGameBackupsCallCount { get; private set; }
 
+        /// <summary>When set, ListGameBackups throws it (a slot folder that can't be read).</summary>
+        public Exception? ListGameBackupsError { get; set; }
+
         public IReadOnlyList<GameBackupCopy> ListGameBackups(string steamId)
         {
             ListGameBackupsCallCount++;
-            return [.. GameBackups];
+            return ListGameBackupsError is { } error ? throw error : [.. GameBackups];
         }
 
         /// <summary>Each game copy RestoreGameBackup was asked to put back.</summary>
@@ -2582,8 +2585,12 @@ public sealed partial class SavesViewModelTests : IDisposable
         /// <summary>When set, RestoreGameBackup throws it (the game shifted its copies since the list was read).</summary>
         public Exception? RestoreGameBackupError { get; set; }
 
+        /// <summary>Runs on RestoreGameBackup's thread before it writes (a test holds the put-back there).</summary>
+        public Action? WhileRestoringGameBackup { get; set; }
+
         public string RestoreGameBackup(string steamId, GameBackupCopy copy)
         {
+            WhileRestoringGameBackup?.Invoke();
             if (RestoreGameBackupError is { } error)
             {
                 throw error;
