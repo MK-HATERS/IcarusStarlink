@@ -80,7 +80,7 @@ public class HelpViewModelTests
     }
 
     [Fact]
-    public void MergeTopic_HasASpaceAfterEveryColon()
+    public void MergeTopic_FindTheBrokenModLineHasItsSpace()
     {
         // Regression: "…right-click menu):something broken" ran two sentences together.
         var md = new HelpViewModel().Topics.First(t => t.Title == "Merge & Install").Markdown;
@@ -93,7 +93,14 @@ public class HelpViewModelTests
     {
         var md = new HelpViewModel().Topics.First(t => t.Title == "Server").Markdown;
 
-        Assert.Contains("**Verify files**", md);
         Assert.Contains("can't be saved", md);
+    }
+
+    [Fact]
+    public void ServerTopic_NamesTheVerifyFilesButton()
+    {
+        var md = new HelpViewModel().Topics.First(t => t.Title == "Server").Markdown;
+
+        Assert.Contains("**Verify files**", md);
     }
 }
