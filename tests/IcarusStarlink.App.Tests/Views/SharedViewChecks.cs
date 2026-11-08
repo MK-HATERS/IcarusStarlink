@@ -25,7 +25,123 @@ internal static class SharedViewChecks
         ("Selected grid row", SelectedGridRow),
         ("Double-click off a row", DoubleClickOffARow),
         ("Busy bar", BusyBar),
+        ("Primary button label", PrimaryButtonLabel),
+        ("Primary button with its own TextBlock", PrimaryButtonOwnTextBlock),
+        ("Toggle button label", ToggleButtonLabel),
+        ("Level pill text", LevelPillText),
+        ("Tab header text", TabHeaderText),
+        ("Type tag text", TypeTagText),
+        ("Beta tag text", BetaTagText),
+        ("Disabled pill button", DisabledPillButton),
     ];
+
+    /// <summary>A primary button's label is drawn in the theme's "text on accent" colour, not the page text colour.</summary>
+    private static string? PrimaryButtonLabel()
+    {
+        var button = new Button { Style = (Style)Application.Current.FindResource("PrimaryButtonStyle"), Content = "Install" };
+        return TextColourIs(button, "Install", "AccentForegroundBrush");
+    }
+
+    /// <summary>A TextBlock put inside a primary button (an icon beside a label) takes the button's colour too.</summary>
+    private static string? PrimaryButtonOwnTextBlock()
+    {
+        var button = new Button
+        {
+            Style = (Style)Application.Current.FindResource("PrimaryButtonStyle"),
+            Content = new StackPanel { Orientation = Orientation.Horizontal, Children = { new TextBlock { Text = "Install" } } },
+        };
+        return TextColourIs(button, "Install", "AccentForegroundBrush");
+    }
+
+    /// <summary>A toggle button's text follows the colour set on the toggle button.</summary>
+    private static string? ToggleButtonLabel()
+    {
+        var toggle = new System.Windows.Controls.Primitives.ToggleButton { Content = "Pin", Foreground = (Brush)Application.Current.FindResource("DangerBrush") };
+        return TextColourIs(toggle, "Pin", "DangerBrush");
+    }
+
+    /// <summary>An unselected level pill is faint; the selected one uses the "text on accent" colour.</summary>
+    private static string? LevelPillText()
+    {
+        var pillStyle = (Style)Application.Current.FindResource("LevelPillItemStyle");
+        var off = new ListBoxItem { Style = pillStyle, Content = "Off" };
+        var low = new ListBoxItem { Style = pillStyle, Content = "Low", IsSelected = true };
+
+        return TextColourIs(off, "Off", "FaintForegroundBrush")
+            ?? TextColourIs(low, "Low", "AccentForegroundBrush");
+    }
+
+    /// <summary>An unselected tab's header is dimmed; the selected one uses the normal text colour.</summary>
+    private static string? TabHeaderText()
+    {
+        var tabs = new TabControl
+        {
+            Items =
+            {
+                new TabItem { Header = "Nexus", Content = new Border() },
+                new TabItem { Header = "IMM Database", Content = new Border() },
+            },
+            SelectedIndex = 0,
+        };
+        return TextColourIs(tabs, "IMM Database", "SecondaryForegroundBrush")
+            ?? TextColourIs(tabs, "Nexus", "ForegroundBrush");
+    }
+
+    /// <summary>A mod's type tag writes its text in the type's colour, like its outline.</summary>
+    private static string? TypeTagText()
+    {
+        var tag = new Border { Style = (Style)Application.Current.FindResource("TypeTagStyle"), Child = new TextBlock { Text = "EXMOD" } };
+        return TextColourIs(tag, "EXMOD", "TagExmodBrush");
+    }
+
+    /// <summary>The Beta tag writes "Beta" in its warning colour, like its outline.</summary>
+    private static string? BetaTagText()
+    {
+        var tag = new Border { Style = (Style)Application.Current.FindResource("BetaTagStyle"), Child = new TextBlock { Text = "Beta" } };
+        return TextColourIs(tag, "Beta", "WarningBrush");
+    }
+
+    /// <summary>A pill button that can't be used right now looks greyed out, like every other button.</summary>
+    private static string? DisabledPillButton()
+    {
+        var pill = new Button { Style = (Style)Application.Current.FindResource("PillButtonStyle"), Content = "Get update", IsEnabled = false };
+        LayOut(pill, 200, 40);
+        return pill.Opacity < 1 ? null : "a disabled pill button looks the same as one you can click";
+    }
+
+    /// <summary>Lays out <paramref name="root"/> and checks that the TextBlock showing <paramref name="text"/> is drawn in the brush <paramref name="brushKey"/>.</summary>
+    private static string? TextColourIs(FrameworkElement root, string text, string brushKey)
+    {
+        LayOut(root, 400, 200);
+        var expected = ((SolidColorBrush)Application.Current.FindResource(brushKey)).Color;
+        if (FindText(root, text) is not { } block)
+        {
+            return $"harness: no TextBlock shows '{text}'";
+        }
+
+        return block.Foreground is SolidColorBrush { Color: var actual } && actual == expected
+            ? null
+            : $"'{text}' is drawn in {(block.Foreground as SolidColorBrush)?.Color.ToString() ?? "no solid colour"} instead of {brushKey} ({expected})";
+    }
+
+    private static TextBlock? FindText(DependencyObject parent, string text)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is TextBlock block && block.Text == text)
+            {
+                return block;
+            }
+
+            if (FindText(child, text) is { } deeper)
+            {
+                return deeper;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>A tooltip set to an element (a TextBlock, a StackPanel) shows that element, not its type name.</summary>
     private static string? ElementTooltip()
