@@ -44,7 +44,7 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// rather than a mocking framework or a real DI container.
 /// </summary>
 [Collection(MessengerCollection.Name)]
-public sealed class LibraryViewModelTests
+public sealed partial class LibraryViewModelTests
 {
     // ---------------------------------------------------------------------------------------
     // Import classification (ViewModel-level entry point — ImportPaths/ImportOnePath). Deep
@@ -1903,7 +1903,7 @@ public sealed class LibraryViewModelTests
         Assert.Equal("My Custom Name", restored.DisplayNameOverride);
         Assert.Equal("cat1", restored.CatalogEntryId);
 
-        Assert.Contains("restored from its backup", vm.StatusMessage);
+        Assert.Contains("your previous copy is back", vm.StatusMessage);
         Assert.Equal(1, vm.ModCount);
         Assert.Contains(vm.RootItems.OfType<LibraryItemViewModel>(), i => i.FolderName == "ModA");
     }
