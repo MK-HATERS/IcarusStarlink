@@ -16,7 +16,8 @@ namespace IcarusStarlink.App.Services;
 /// zip has none (dev builds carry ue4ss/LICENSE; the old v3.0.1 zip didn't).
 ///
 /// To bump it: download the newest UE4SS_v3.0.1-NNNN-gCOMMIT.zip from experimental-latest, put it
-/// in Assets\UE4SS (and update the csproj Include), and set FileName, BuildNumber, Commit and Sha256.
+/// in Assets\UE4SS (and update the csproj Include), set FileName, BuildNumber, Commit and Sha256,
+/// and update UE4SS's build in THIRD-PARTY-LICENSES.md.
 /// </summary>
 public static class BundledUe4ss
 {

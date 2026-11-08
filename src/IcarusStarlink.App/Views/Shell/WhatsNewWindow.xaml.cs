@@ -6,7 +6,8 @@ using IcarusStarlink.App.Converters;
 namespace IcarusStarlink.App.Views;
 
 /// <summary>
-/// Shown once after a detected app-version change (SettingsViewModel.CheckForAppUpdatesOnLaunchAsync)
+/// Shown once after a detected app-version change (SettingsViewModel.ShowWhatsNewAfterAnUpdateAsync,
+/// which runs whatever 'Check for updates when Starlink starts' is set to)
 /// — reuses the same GitHub release notes already fetched for the "update available?" prompt, and
 /// the same Markdown renderer Help's own topic pane uses, rather than a second rendering path.
 /// </summary>
