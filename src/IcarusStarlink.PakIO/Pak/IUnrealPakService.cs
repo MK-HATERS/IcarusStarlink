@@ -28,7 +28,7 @@ public interface IUnrealPakService
 
     /// <summary>
     /// A SHA256 of the current data.pak on disk, for detecting "the game (or at least this pak)
-    /// has changed since the last Update data folder run" without re-extracting anything — cheap,
+    /// has changed since the last Refresh game data run" without re-extracting anything — cheap,
     /// data.pak is only a few MB. Returns null rather than throwing when the file can't be read
     /// (content path not set yet, wrong path, game not installed) — this is meant for a passive
     /// background check, not a user-initiated action that should surface an error dialog.

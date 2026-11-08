@@ -11,7 +11,7 @@ public interface IRebuildService
     /// <summary>
     /// Merges queuedMods (index 0 = lowest priority, same convention as MergeEngine.Merge —
     /// later entries win conflicts by default) against the real base game data in dataFolder
-    /// (the "Update data folder" output), then applies gameplayOptions as a final pass over
+    /// (the "Refresh game data" output), then applies gameplayOptions as a final pass over
     /// the merge result (matching classic IMM's own documented behavior — these apply after the
     /// queue, not as another queued mod, and work even with an empty queue), then packs the result
     /// into one pak at outputPakPath plus a sibling manifest, matching a real installed merged

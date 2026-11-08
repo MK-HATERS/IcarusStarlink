@@ -120,7 +120,7 @@ public class UnrealPakServiceTests : IDisposable
         // (always the OS drive, typically C:), then Directory.Move(scratch, outputDirectory) —
         // which .NET refuses to do across volumes — into outputDirectory (wherever this portable
         // app's own install actually is). A user who installed on a non-C: drive (very often the
-        // same drive as their game) hit a real "Update data folder" failure every time. The fix:
+        // same drive as their game) hit a real "Refresh game data" failure every time. The fix:
         // the scratch directory is a sibling of outputDirectory, guaranteeing the same volume
         // regardless of where either this app or Path.GetTempPath() happen to live.
         var runner = Runner(new ProcessRunResult(0, "", ""));
@@ -438,7 +438,7 @@ public class UnrealPakServiceTests : IDisposable
         Assert.Contains("-compress", runner.LastArguments!);
     }
 
-    // Real output captured by running -List against a real installed pak during planning.
+    // Real output captured by running -List against a real installed pak.
     private const string RealisticListOutput = """
         LogInit: Display: Loading text-based GConfig....
         LogPakFile: Display: Using command line for crypto configuration
@@ -510,7 +510,7 @@ public class UnrealPakServiceTests : IDisposable
         Assert.Contains("corrupt pak", ex.Message);
     }
 
-    // Real output captured by running -Extract against a real installed pak during planning.
+    // Real output captured by running -Extract against a real installed pak.
     private const string RealisticExtractOutput = """
         LogInit: Display: Loading text-based GConfig....
         LogPakFile: Display: Using command line for crypto configuration
