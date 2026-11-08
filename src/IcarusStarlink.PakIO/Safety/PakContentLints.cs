@@ -59,7 +59,7 @@ public static class PakContentLints
     public static bool IsBuildLeftover(string relativePath)
     {
         var path = relativePath.Replace('\\', '/');
-        var extension = Path.GetExtension(path);
+        var extension = Path.GetExtension(path).ToLowerInvariant();
         return path.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
             || path.Contains("/.git/", StringComparison.OrdinalIgnoreCase)
             || Path.GetFileName(path).StartsWith(".git", StringComparison.OrdinalIgnoreCase)

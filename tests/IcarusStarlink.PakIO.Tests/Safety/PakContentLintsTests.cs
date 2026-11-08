@@ -108,4 +108,12 @@ public sealed class PakContentLintsTests : IDisposable
     [InlineData("BP/Thing.uasset", false)]
     public void BuildLeftovers_AreRecognised(string path, bool expected) =>
         Assert.Equal(expected, PakContentLints.IsBuildLeftover(path));
+
+    /// <summary>Regression: the extension check was case-sensitive, so BUILD.BAT or notes.LOG rode along into a converted mod.</summary>
+    [Theory]
+    [InlineData("Tools/BUILD.BAT")]
+    [InlineData("notes.LOG")]
+    [InlineData("Mod.CSPROJ")]
+    public void IsBuildLeftover_IgnoresCase(string path) =>
+        Assert.True(PakContentLints.IsBuildLeftover(path));
 }
