@@ -222,6 +222,71 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         Assert.Contains("Install.bat", vm.PendingDownloadStatusMessage);
     }
 
+    private static void WriteModWithInstallBat(ZipArchive archive)
+    {
+        WriteEntry(archive, "Readme.txt", "read me");
+        WriteEntry(archive, "MyMod/Scripts/main.lua", "print('hi')");
+        WriteEntry(archive, "MyMod/Install.bat", "@echo off");
+    }
+
+    /// <summary>
+    /// ICARUS mods never need a program, so the player is shown the programs and asked; "Leave
+    /// them out" (the button picked to start with, and what closing the window means) adds the
+    /// mod without them, and the download itself keeps every file.
+    /// </summary>
+    [Fact]
+    public async Task Activate_ProgramInsideTheModFolder_LeaveThemOut_StagesTheModWithoutIt()
+    {
+        var dialogs = new FakeDialogService(confirmResult: true) { WordsAnswer = false };
+        var harness = new Harness(_root) { Dialogs = dialogs };
+        var vm = harness.Build();
+        var item = harness.AddDownload("MyMod 1.0.zip", WriteModWithInstallBat);
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        var question = Assert.Single(dialogs.WordsQuestions);
+        Assert.Contains("Install.bat", question.Message);
+        Assert.Equal("Keep them", question.YesText);
+        Assert.Equal("Leave them out", question.NoText);
+
+        var staged = harness.Ue4ss.GetFolderPath("MyMod");
+        Assert.True(File.Exists(Path.Combine(staged, "Scripts", "main.lua")));
+        Assert.False(File.Exists(Path.Combine(staged, "Install.bat")));
+        Assert.Contains("left out", vm.PendingDownloadStatusMessage);
+
+        using var download = ZipFile.OpenRead(Path.Combine(harness.PendingDownloadsDirectory, "MyMod 1.0.zip"));
+        Assert.Contains(download.Entries, e => e.FullName == "MyMod/Install.bat");
+    }
+
+    [Fact]
+    public async Task Activate_ProgramInsideTheModFolder_KeepThem_CopiesItWithTheMod()
+    {
+        var dialogs = new FakeDialogService(confirmResult: true) { WordsAnswer = true };
+        var harness = new Harness(_root) { Dialogs = dialogs };
+        var vm = harness.Build();
+        var item = harness.AddDownload("MyMod 1.0.zip", WriteModWithInstallBat);
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        Assert.Single(dialogs.WordsQuestions);
+        Assert.True(File.Exists(Path.Combine(harness.Ue4ss.GetFolderPath("MyMod"), "Install.bat")));
+        Assert.DoesNotContain("left out", vm.PendingDownloadStatusMessage);
+    }
+
+    [Fact]
+    public async Task Activate_NoProgramsInTheDownload_AsksNothingAboutPrograms()
+    {
+        var dialogs = new FakeDialogService(confirmResult: true);
+        var harness = new Harness(_root) { Dialogs = dialogs };
+        var vm = harness.Build();
+        var item = harness.AddDownload("MyMod 1.0.zip", archive => WriteEntry(archive, "MyMod/Scripts/main.lua", "print('hi')"));
+
+        await vm.ActivatePendingDownloadCommand.ExecuteAsync(item);
+
+        Assert.Contains("MyMod", harness.Ue4ss.GetAll());
+        Assert.Empty(dialogs.WordsQuestions);
+    }
+
     /// <summary>
     /// A program inside a zip inside the download is found when the inner zip is unpacked, and
     /// the player is warned once, not once per level.
@@ -1462,6 +1527,18 @@ public sealed partial class DownloadsViewModelTests : IDisposable
 
         public RenamePromptResult PromptRename(string currentName, string description = "", string? resetValue = null, string resetLabel = "", string resetTooltip = "", string title = "", string fieldLabel = "") =>
             throw new NotSupportedException("Not exercised by these tests.");
+
+        /// <summary>What a two-worded-button question answers (false = the second button, as closing the window does).</summary>
+        public bool WordsAnswer { get; set; }
+
+        /// <summary>Every two-worded-button question asked: its text and both button words.</summary>
+        public List<(string Message, string YesText, string NoText)> WordsQuestions { get; } = [];
+
+        public bool ConfirmWithWords(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText)
+        {
+            WordsQuestions.Add((message, yesText, noText));
+            return WordsAnswer;
+        }
 
         /// <summary>How often the Nexus file list was shown; it answers Cancel.</summary>
         public int PickNexusFileCalls { get; private set; }

@@ -84,6 +84,9 @@ public static class ModLints
     private static readonly HashSet<string> ProgramExtensions = new(
         [".exe", ".msi", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".scr", ".lnk"], StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>True for a program or script Windows can run with a double-click (what CheckForPrograms reports).</summary>
+    public static bool IsProgram(string filePath) => ProgramExtensions.Contains(Path.GetExtension(filePath));
+
     /// <summary>
     /// Programs or scripts in a mod (a download or a local import): an installer the player doesn't need, or something to
     /// be wary of. Reported, not refused. The text is true whether or not the file was copied
@@ -92,7 +95,7 @@ public static class ModLints
     public static string? CheckForPrograms(IEnumerable<string> filePaths)
     {
         var names = filePaths
-            .Where(f => ProgramExtensions.Contains(Path.GetExtension(f)))
+            .Where(IsProgram)
             .Select(Path.GetFileName)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();

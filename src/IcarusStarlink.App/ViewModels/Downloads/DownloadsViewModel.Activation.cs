@@ -486,7 +486,7 @@ public sealed partial class DownloadsViewModel
             extractedDirectory, originalFileName, _libraryRepository, _ue4ssModRepository,
             _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, source: source, nexusModId: nexusModId,
             ue4ssNamesAlreadyInstalledInGame: installedUe4ssNames, catalogEntryId: catalogEntryId, chooseArchive: ChooseArchive,
-            beforeFirstWrite: removeOld, writes: writes);
+            beforeFirstWrite: removeOld, writes: writes, keepPrograms: _dialogService is null ? null : AskToKeepPrograms);
 
         var landed = await FollowUpImportedAsync(classified.Items, nexusModId);
 
@@ -655,6 +655,19 @@ public sealed partial class DownloadsViewModel
 
         return $" Needs: {string.Join("; ", parts)}.";
     }
+
+    /// <summary>
+    /// Asks whether the programs and scripts in a download go in with the mod. "Leave them out"
+    /// has the focus to start with, and closing the window means it too: ICARUS mods never need a program.
+    /// </summary>
+    private bool AskToKeepPrograms(IReadOnlyList<string> programs) =>
+        _dialogService?.ConfirmWithWords(
+            "This download has programs or scripts in it:\n\n"
+            + string.Join("\n", programs.Take(10).Select(p => $"• {p}"))
+            + (programs.Count > 10 ? $"\n• and {programs.Count - 10} more" : "")
+            + "\n\nICARUS mods never need them, and Starlink never runs them. Leave them out to add the mod without them. "
+            + "Your download keeps every file either way.",
+            "Programs in this download", ThemedConfirmSeverity.Warning, "Keep them", "Leave them out") == true;
 
     /// <summary>Asks which of several alternative archives in one download to install (tests swap in a fake).</summary>
     internal Func<string, IReadOnlyList<ArchiveChoice>, int?> ChooseArchive { get; set; } = Views.ChooseArchiveDialog.Ask;

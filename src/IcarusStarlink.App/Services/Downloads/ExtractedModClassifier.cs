@@ -73,9 +73,9 @@ public static class ExtractedModClassifier
         IPrebuiltPakImporter prebuiltPakImporter, string dataFolder, string? unrealPakExePath,
         string? source = null, int? nexusModId = null, IReadOnlyCollection<string>? ue4ssNamesAlreadyInstalledInGame = null,
         string? catalogEntryId = null, Func<string, IReadOnlyList<ArchiveChoice>, int?>? chooseArchive = null,
-        Action? beforeFirstWrite = null, ReplacementWrites? writes = null)
+        Action? beforeFirstWrite = null, ReplacementWrites? writes = null, Func<IReadOnlyList<string>, bool>? keepPrograms = null)
     {
-        var session = new ImportSession(beforeFirstWrite, writes);
+        var session = new ImportSession(beforeFirstWrite, writes, keepPrograms);
         try
         {
             return await ClassifyAndImportCore(
@@ -98,8 +98,15 @@ public static class ExtractedModClassifier
     /// half-finished import can be undone, and tells the ReplacementWrites it's handed (if any) too, so
     /// a replacement that fails takes out only what this import made.
     /// </summary>
-    private sealed class ImportSession(Action? beforeFirstWrite, ReplacementWrites? writes)
+    private sealed class ImportSession(Action? beforeFirstWrite, ReplacementWrites? writes, Func<IReadOnlyList<string>, bool>? keepPrograms = null)
     {
+        /// <summary>
+        /// Asked with the programs and scripts found (paths inside the download): true keeps them,
+        /// false leaves them out of the mod. Null asks nothing and keeps them. Only for a throwaway
+        /// extraction: leaving them out deletes them from the folder being classified.
+        /// </summary>
+        public Func<IReadOnlyList<string>, bool>? KeepPrograms { get; } = keepPrograms;
+
         private Action? _beforeFirstWrite = beforeFirstWrite;
         private readonly List<PendingDownloadActivatedItem> _written = [];
 
@@ -164,6 +171,17 @@ public static class ExtractedModClassifier
         var warnings = ModLints.CheckSplitAssetPairs(allFiles);
         if (ModLints.CheckForPrograms(allFiles) is { } programs)
         {
+            var programFiles = allFiles.Where(ModLints.IsProgram).ToList();
+            var shown = programFiles.Select(f => Path.GetRelativePath(extractedDirectory, f).Replace('\\', '/')).ToList();
+            if (session.KeepPrograms is { } keepPrograms && !keepPrograms(shown))
+            {
+                // The folder is a throwaway extraction (see KeepPrograms): the download keeps them.
+                await Task.Run(() => programFiles.ForEach(File.Delete));
+                allFiles = Directory.GetFiles(extractedDirectory, "*", SearchOption.AllDirectories);
+                var listed = string.Join(", ", programFiles.Select(Path.GetFileName).Distinct(StringComparer.OrdinalIgnoreCase).Take(3).Select(n => $"'{n}'"));
+                programs = $"The programs and scripts in this download ({listed}{(programFiles.Count > 3 ? " and more" : "")}) were left out of the mod. Icarus mods don't need them. The download itself still has them.";
+            }
+
             warnings = [.. warnings, programs];
         }
 
