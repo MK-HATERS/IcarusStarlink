@@ -292,7 +292,7 @@ public sealed class ScaleRulesTests : IDisposable
     public void SplitPath_IgnoresDotsInsideAStatKey(string path, string[] expected) =>
         Assert.Equal(expected, ScaleRules.SplitPath(path));
 
-    /// <summary>Regression:Apply took the rule's field off the mod's OWN new items too (a wizard item's own Itemable lost its Weight for good).</summary>
+    /// <summary>Regression: Apply took the rule's field off the mod's OWN new items too (a wizard item's own Itemable lost its Weight for good).</summary>
     [Fact]
     public void Apply_LeavesRowsTheModAddsItselfAlone_AndItemsTheAuthorLeftEmpty()
     {

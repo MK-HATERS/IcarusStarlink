@@ -25,8 +25,8 @@ public sealed record ReferenceReport(IReadOnlyList<BrokenReference> Broken, IRea
 /// "Mesh_Meta_Ration") or a row a game update renamed — is ignored at best and breaks the item at
 /// worst, with no message. The target table comes from the link's own DataTableName, else from the
 /// table's Defaults (where Icarus keeps it for top-level links); rows the mod adds itself count, a
-/// link the game's own row has too isn't counted, and names compare like Unreal's do (ignoring case). Also: item-trait rows the game doesn't have that
-/// nothing links to — StacksX10 still sets the weight of five items the game dropped.
+/// link the game's own row has too isn't counted, and names compare like Unreal's do (ignoring case).
+/// Also: item-trait rows the game doesn't have that nothing links to — StacksX10 still sets the weight of five items the game dropped.
 /// </summary>
 public static class ReferenceChecker
 {
