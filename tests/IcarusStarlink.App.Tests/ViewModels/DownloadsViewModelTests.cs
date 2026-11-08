@@ -95,6 +95,9 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         /// <summary>When set, whether the built view model sees Icarus running; null leaves the check off.</summary>
         public bool? GameRunning { get; set; }
 
+        /// <summary>When set, the on-disk catalog snapshot the built view model loads from.</summary>
+        public ICatalogSnapshotStore? CatalogSnapshots { get; set; }
+
         public DownloadsViewModel Build()
         {
             var settings = Settings ?? new FakeSettingsService();
@@ -107,6 +110,7 @@ public sealed partial class DownloadsViewModelTests : IDisposable
                 httpClient, new PerformanceTracker(settings, Path.Combine(PendingDownloadsDirectory, "..", "Perf")),
                 ActivityLog, new ActiveDownloadsTracker(), PendingDownloadsDirectory, PakImporter, Path.Combine(PendingDownloadsDirectory, "..", "Data"),
                 dialogService: Dialogs,
+                catalogSnapshotStore: CatalogSnapshots,
                 gameProcessChecker: GameRunning is { } running ? new FakeGameProcessChecker(running) : null);
         }
 
@@ -1384,10 +1388,13 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         /// <summary>What a fetch answers (none by default).</summary>
         public IReadOnlyList<CatalogEntry> Entries { get; set; } = [];
 
+        /// <summary>When set, every fetch fails with it (the source can't be reached).</summary>
+        public Exception? Error { get; set; }
+
         public Task<IReadOnlyList<CatalogEntry>> FetchAsync(CancellationToken cancellationToken = default)
         {
             FetchCount++;
-            return Pending?.Task ?? Task.FromResult(Entries);
+            return Error is not null ? Task.FromException<IReadOnlyList<CatalogEntry>>(Error) : Pending?.Task ?? Task.FromResult(Entries);
         }
     }
 

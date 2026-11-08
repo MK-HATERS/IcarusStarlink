@@ -212,26 +212,23 @@ public sealed partial class DownloadsViewModel
     private void ToggleColumnsMenu() => IsColumnsMenuOpen = !IsColumnsMenuOpen;
 
     /// <summary>
-    /// Shared read access to the same catalog snapshot this page's own table renders from — added so
-    /// LibraryViewModel's Get update/Check for updates paths (Database-sourced mods) stop
-    /// independently re-fetching both catalog sources over the network on every single call, a
-    /// second full round-trip of the exact same data this VM already fetches and caches at startup.
-    /// Returns the cache as-is if already populated; otherwise awaits one real fetch first — avoids
-    /// a race against RefreshCatalogAsync's own fire-and-forget constructor call, which may not have
-    /// completed yet by the time a caller elsewhere asks for this early in app startup.
+    /// The catalog this page's table renders from, for LibraryViewModel's Get update and Check for
+    /// updates (Database mods), so they don't fetch both sources again. The constructor starts
+    /// LoadCatalogAsync; a caller that asks while a load is still running waits for it (an old
+    /// snapshot may already be showing while the fetch runs), and a finished load that came back
+    /// empty (offline, no snapshot) is retried.
     /// </summary>
     public async Task<IReadOnlyList<CatalogEntry>> GetOrFetchCatalogAsync()
     {
-        if (_allCatalogEntries.Count == 0)
+        // The load already under way (the constructor's, or another caller's) is awaited, not
+        // started again — two callers early in startup used to fetch both catalogs twice.
+        if (_catalogLoad is { IsCompleted: false })
         {
-            // The load already under way (the constructor's, or another caller's) is awaited, not
-            // started again — two callers early in startup used to fetch both catalogs twice. A
-            // finished load that came back empty (offline) is retried.
-            if (_catalogLoad is null || _catalogLoad.IsCompleted)
-            {
-                _catalogLoad = LoadCatalogAsync();
-            }
-
+            await _catalogLoad;
+        }
+        else if (_allCatalogEntries.Count == 0)
+        {
+            _catalogLoad = LoadCatalogAsync();
             await _catalogLoad;
         }
 
@@ -239,6 +236,9 @@ public sealed partial class DownloadsViewModel
     }
 
     private Task? _catalogLoad;
+
+    /// <summary>The catalog sources the last fetch couldn't reach (empty when both answered, or when a fresh snapshot answered). Their mods are the ones from the last load.</summary>
+    public IReadOnlyList<string> LastFailedCatalogSources { get; private set; } = [];
 
     /// <summary>The author the loaded catalog lists for this entry, or null (not loaded yet, or no longer listed).</summary>
     private string? CatalogAuthorOf(string? catalogEntryId) =>
@@ -253,20 +253,37 @@ public sealed partial class DownloadsViewModel
     /// The automatic load (constructor, first GetOrFetchCatalogAsync): a fresh-enough on-disk
     /// snapshot answers it instantly with no network — both catalogs and the ~40 GitHub repo dates
     /// used to be re-fetched on every launch, which is also what kept tripping GitHub's 60/hour cap.
-    /// The Refresh button is wired to RefreshCatalogAsync directly, so it always fetches.
+    /// The Refresh button is wired to RefreshCatalogAsync directly, so it always fetches. An older
+    /// snapshot is shown while the fetch runs, and stays when neither source can be reached (an
+    /// offline start used to show no mods at all). A snapshot that can't be used just means fetching.
     /// </summary>
     private async Task LoadCatalogAsync()
     {
-        var snapshot = _catalogSnapshotStore?.TryLoad();
-        if (snapshot is not null && snapshot.Entries.Count > 0 && DateTimeOffset.UtcNow - snapshot.FetchedAtUtc < CatalogSnapshotMaxAge)
+        try
         {
-            ApplyFetchedCatalog(snapshot.Entries);
-            _repoPushedDates = snapshot.RepoDates.ToDictionary(d => (d.Owner, d.Repo), d => d.PushedAtUtc);
-            var age = DateTimeOffset.UtcNow - snapshot.FetchedAtUtc;
-            var ageText = age.TotalMinutes < 1 ? "just now" : age.TotalHours < 1 ? $"{(int)age.TotalMinutes} min ago" : $"{(int)age.TotalHours} h ago";
-            CatalogStatusMessage = $"Loaded {_allCatalogEntries.Count} mods (cached {ageText}) — Refresh fetches the latest.";
-            ApplyCatalogFilters();
-            return;
+            var snapshot = _catalogSnapshotStore?.TryLoad();
+            if (snapshot is not null && snapshot.Entries.Count > 0)
+            {
+                var repoDates = snapshot.RepoDates.ToDictionary(d => (d.Owner, d.Repo), d => d.PushedAtUtc);
+                ApplyFetchedCatalog(snapshot.Entries);
+                _repoPushedDates = repoDates;
+                var age = DateTimeOffset.UtcNow - snapshot.FetchedAtUtc;
+                var ageText = age.TotalMinutes < 1 ? "just now" : age.TotalHours < 1 ? $"{(int)age.TotalMinutes} min ago" : $"{(int)age.TotalHours} h ago";
+                if (age < CatalogSnapshotMaxAge)
+                {
+                    LastFailedCatalogSources = [];
+                    CatalogStatusMessage = $"Loaded {_allCatalogEntries.Count} mods (cached {ageText}) — Refresh fetches the latest.";
+                    ApplyCatalogFilters();
+                    return;
+                }
+
+                CatalogStatusMessage = $"Showing the mods from {ageText} — fetching the latest…";
+                ApplyCatalogFilters();
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "The catalog snapshot couldn't be used");
         }
 
         await RefreshCatalogAsync();
@@ -329,29 +346,32 @@ public sealed partial class DownloadsViewModel
             var daedalusTask = CatalogSourceFetch.FetchAsync(_daedalusClient.FetchAsync, "Daedalus", failedSources);
             var jimk72Task = CatalogSourceFetch.FetchAsync(_jimk72Client.FetchAsync, "Jimk72", failedSources);
             await Task.WhenAll(daedalusTask, jimk72Task);
+            LastFailedCatalogSources = [.. failedSources];
 
             // Both sources down (offline, say) must not replace a good in-memory catalog with an
-            // empty one — CatalogSourceFetch swallows each failure into [], so the "a failed fetch
-            // leaves the catalog unchanged" reasoning only held for the exception path (an audit
-            // finding: Refresh while offline emptied a 600-row table).
+            // empty one: CatalogSourceFetch turns each failure into [].
+            // Regression: Refresh while offline emptied a 600-row table.
             if (failedSources.Count == 2 && _allCatalogEntries.Count > 0)
             {
                 CatalogStatusMessage = "Couldn't reach Daedalus or Jimk72 — showing the catalog from the last successful load.";
                 return;
             }
 
-            ApplyFetchedCatalog([.. daedalusTask.Result, .. jimk72Task.Result]);
+            // One source down keeps that source's mods from the last load: replacing the catalog
+            // with the other source's alone made its rows vanish, and the update check then called
+            // them up to date. The names given to CatalogSourceFetch are the CatalogSource names.
+            var kept = _allCatalogEntries.Where(e => failedSources.Contains(e.Source.ToString())).ToList();
+            ApplyFetchedCatalog([.. daedalusTask.Result, .. jimk72Task.Result, .. kept]);
 
-            CatalogStatusMessage = failedSources.Count > 0
-                ? $"Loaded {_allCatalogEntries.Count} mods — {string.Join(" and ", failedSources)} unavailable, try Refresh again."
-                : $"Loaded {_allCatalogEntries.Count} mods.";
+            CatalogStatusMessage = kept.Count > 0
+                ? $"Loaded {_allCatalogEntries.Count} mods — couldn't reach {string.Join(" and ", failedSources)}, so its mods are from the last load. Try Refresh again."
+                : failedSources.Count > 0
+                    ? $"Loaded {_allCatalogEntries.Count} mods — {string.Join(" and ", failedSources)} unavailable, try Refresh again."
+                    : $"Loaded {_allCatalogEntries.Count} mods.";
             _activityLog.Log($"Catalog refreshed — {_allCatalogEntries.Count} mods.", failedSources.Count > 0 ? ActivityEntryKind.Warning : ActivityEntryKind.Info);
-            // Inside the try, not after the whole try/catch/finally: this method is invoked
-            // fire-and-forget (`_ = RefreshCatalogAsync();`) from the constructor specifically
-            // because its own top-level try/catch was meant to guarantee no unobserved exception
-            // could escape — that guarantee doesn't hold for anything called outside the try.
-            // Only needed on the success path: a failed fetch leaves _allCatalogEntries (and so
-            // the already-rendered CatalogEntries) unchanged, nothing to re-apply filters over.
+            // Inside the try: anything after the whole try/catch/finally could escape as an
+            // unobserved exception from the constructor's LoadCatalogAsync. A failed fetch leaves
+            // _allCatalogEntries (and so the rendered CatalogEntries) unchanged: nothing to re-apply.
             ApplyCatalogFilters();
 
             // Best-effort enrichment layered on top of the core catalog data above, deliberately
