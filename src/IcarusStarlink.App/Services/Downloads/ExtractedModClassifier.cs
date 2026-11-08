@@ -166,7 +166,7 @@ public static class ExtractedModClassifier
             warnings = [.. warnings, "This download also contains UE4SS itself. Starlink installs UE4SS from Settings › UE4SS, so only the mod's own folders were added."];
         }
 
-        var hasExmod =allFiles.Any(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase));
+        var hasExmod = allFiles.Any(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase));
 
         if (hasExmod)
         {
