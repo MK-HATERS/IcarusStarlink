@@ -352,7 +352,56 @@ makes it much faster to track down.
 
 ## Changelog
 
-### 4.4.2 (latest)
+### 5.0.0 (latest)
+
+A big release: a check of the whole app fixed more than 450 problems, and a long list of new features came with it.
+
+**Added**
+- Library: **Keep this version** on a mod. Update badges and Update all leave it alone until you turn it off. **Versions…** lists the mod's backups and puts an older copy back (the current one is backed up first).
+- Library: importing a mod you already have asks **Replace it**, **Keep both** or **Cancel**, instead of quietly making a second copy.
+- Library: a deleted mod can be brought back, with its notes, Nexus link and source.
+- Library: each UE4SS mod says whether UE4SS started it the last time the game ran. One that didn't counts under **Problems**.
+- Library: **Copy my setup** (Check menu) copies your mods, Merge queue and UE4SS mods, ready to paste into Discord or a bug report. **New mod** asks for a version.
+- Downloads: a **Version** column, **Discard older versions** and **Remove files no entry points at** (both ask first). Half-finished downloads left by a crash are cleared at start.
+- Downloads: a download with programs or scripts in it (.exe, .bat, .ps1…) lists them and asks whether to keep them or leave them out.
+- **Update all** also updates Nexus mods, fetching the exact newer file, one mod at a time. Free Nexus accounts get each file's Nexus page instead.
+- Editor: **Remove the DLC requirement** on a DLC item, also as a tick in the New item wizard. The game's developer left the game's files unencrypted so players can award themselves DLC.
+- Editor: shows what your other turned-on mods do to an item, and warns before you save a value another mod will override.
+- Mod editor: **Mod details** sets a mod's name, author, version, description and links.
+- Library: export a mod you made as an **.EXMODZ** file to share.
+- Patches carry your conflict picks, and importing a patch over a profile keeps yours.
+- Merge & Install: **Restore previous install** lets you pick which kept build to put back. A build can be cancelled while it runs.
+- **Play** asks first when the game doesn't have your latest changes, and can install them as soon as Icarus closes.
+- Saves: put back one of the game's own `.backup` copies of a player file or a world (your current file is backed up first).
+- Mod checks: notes on what the game's code does that hasn't been tested in game yet (hammer repairs and "Repair needs", DLC items copied, new seed rows), marked as such.
+- Server: each online player's Steam64 id with **Copy**, **Add to admins** and **Ban**; **Verify files**; a taskbar alert when a server needs you, and an option to keep Starlink in the tray.
+- Weekly Changes: search, **Only rows my mods change**, the game build on each report, and **Remove** for a report you don't want.
+- After the game crashes, Starlink says what happened, once.
+- Settings: the diagnostics zip also holds your mod setup, the game's last crash message and the end of the UE4SS log. No keys, passwords or saves, and your Windows user name is hidden.
+
+**Changed**
+- Orange buttons, pills and tabs have dark text, which is much easier to read.
+- Library search: several words now narrow the list (every word must match).
+- Older downloads of a mod you updated show as **Older version** and are hidden unless **Show installed** is ticked. Putting an older version over a newer one asks first.
+- A download with nothing to install (only a readme, pictures or an installer) is refused instead of being added as an empty mod.
+- Routine server updates skip SteamCMD's full file check, so the server is back sooner. **Verify files** still runs it.
+- Patches you export carry your fixed or edited copies of mods.
+- New FTP sites use encryption when the host supports it.
+- Game settings saved while the local server runs are refused, because the server puts its own back. **Restart** applies them.
+- A new mod's Author starts empty and remembers what you typed, instead of filling in your Windows account name.
+- When an update download from Nexus fails again after **Retry**, the update window offers GitHub instead.
+
+**Fixed** (the main ones)
+- FTP: installing no longer deletes the old file first, so hosts that block deleting (SurvivalServers) work, and a dropped connection can't leave the server with no file.
+- Backups: one that failed partway is never used by Restore, and trimming old backups can't stop an install.
+- Saves are written all or nothing: if writing stops partway, the files already written are put back.
+- The Editor page backs a mod up before every save.
+- Paks from downloads are checked before anything is unpacked, and huge ones are refused. The UnrealPak download is checked against a fixed checksum.
+- A failed import leaves no half-made mod behind.
+- Mods already at Nexus's newest version no longer show an **Update** badge.
+- Many more on every page: windows that froze during long work, settings that were lost, and failures that were reported as success.
+
+### 4.4.2
 
 **Added**
 - Editor: a recipe card has **Add bench**: make the recipe at another bench too (the Fabricator as well as the Manufacturer, say). ✕ beside a bench takes it out; the last bench stays, since a recipe needs one. To move a recipe to another bench, add the new one and ✕ the old one, or pick the new one in its **Made at** drop-down.
