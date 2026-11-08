@@ -84,25 +84,58 @@ public static class ExmodFolder
         return ReadAllBytesBounded(assetPath, $"Asset '{relativePath}'", new ExmodSizeBudget($"Folder '{folderPath}'"));
     }
 
+    /// <summary>The folder's one .EXMOD wherever it sits (a classic IMM folder keeps it at its root); null when there is none, or more than one.</summary>
+    public static string? TryFindExmodPath(string folderPath)
+    {
+        if (!Directory.Exists(folderPath))
+        {
+            return null;
+        }
+
+        // The same case-blind scan as FindExmodFile (see its comment), without its throws.
+        var exmodFiles = SnapshotFiles(folderPath)
+            .Where(f => f.EndsWith(".EXMOD", StringComparison.OrdinalIgnoreCase))
+            .Take(2)
+            .ToList();
+        return exmodFiles.Count == 1 ? exmodFiles[0] : null;
+    }
+
+    /// <summary>
+    /// Writes the package and its assets into folderPath. A folder this call creates is removed
+    /// again when a write fails, so a failed import leaves nothing that would load as a mod; the
+    /// .EXMOD is written last for the same reason, so a failed rewrite of an existing folder keeps
+    /// its old package. An existing folder's one .EXMOD is rewritten where it is and under its own
+    /// name (a classic IMM folder keeps it at its root): a second one would make the folder
+    /// unreadable. Otherwise it goes to "Extracted Mods\{FileName}.EXMOD".
+    /// </summary>
     public static void Write(string folderPath, ExmodPackageContents contents)
     {
         ExmodPackageWriteGuard.EnsureWritable(contents);
 
-        Directory.CreateDirectory(folderPath);
+        var isNewFolder = !Directory.Exists(folderPath);
+        var exmodPath = (isNewFolder ? null : TryFindExmodPath(folderPath))
+            ?? Path.Combine(folderPath, "Extracted Mods", $"{contents.Package.FileName}.EXMOD");
 
-        var exmodDir = Path.Combine(folderPath, "Extracted Mods");
-        Directory.CreateDirectory(exmodDir);
-        WriteTextAtomically(
-            Path.Combine(exmodDir, $"{contents.Package.FileName}.EXMOD"),
-            ExmodJson.Serialize(contents.Package));
-
-        foreach (var asset in contents.Assets)
+        try
         {
-            // The strong guarantee: resolve-then-verify-containment, right at the point where
-            // this actually touches the real filesystem.
-            var assetPath = AssetPathGuard.ResolveWithinDirectory(folderPath, asset.RelativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(assetPath)!);
-            File.WriteAllBytes(assetPath, asset.Content);
+            Directory.CreateDirectory(folderPath);
+
+            foreach (var asset in contents.Assets)
+            {
+                // The strong guarantee: resolve-then-verify-containment, right at the point where
+                // this actually touches the real filesystem.
+                var assetPath = AssetPathGuard.ResolveWithinDirectory(folderPath, asset.RelativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(assetPath)!);
+                File.WriteAllBytes(assetPath, asset.Content);
+            }
+
+            WriteTextAtomically(exmodPath, ExmodJson.Serialize(contents.Package));
+        }
+        catch when (isNewFolder)
+        {
+            // Write made the folder, so everything in it is this call's.
+            Directories.TryDelete(folderPath);
+            throw;
         }
     }
 

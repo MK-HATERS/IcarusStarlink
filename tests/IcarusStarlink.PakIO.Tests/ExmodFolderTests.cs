@@ -140,6 +140,76 @@ public class ExmodFolderTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_tempDir, "Extracted Mods", "F.EXMOD")));
     }
 
+    /// <summary>A package whose second asset can't be written: "a/b" is a file, so the folder "a/b" for "a/b/c" can't be made. The write guard can't see that clash.</summary>
+    private static ExmodPackageContents WithClashingAssets(string description)
+    {
+        var package = BuildFixture().Package;
+        package.Description = description;
+        return new ExmodPackageContents(package, [new ExmodAssetEntry("a/b", [1]), new ExmodAssetEntry("a/b/c", [2])]);
+    }
+
+    /// <summary>
+    /// Regression: an import whose asset writes failed partway (a full disk) left the new folder
+    /// with a valid .EXMOD and missing assets, which loaded as a normal mod on the next rescan.
+    /// </summary>
+    [Fact]
+    public void Write_NewFolderAndAnAssetWriteFails_LeavesNoFolderBehind()
+    {
+        var target = Path.Combine(_tempDir, "New_Mod");
+
+        Assert.ThrowsAny<IOException>(() => ExmodFolder.Write(target, WithClashingAssets("D")));
+
+        Assert.False(Directory.Exists(target));
+    }
+
+    /// <summary>Regression: the .EXMOD used to be written first, so a rewrite whose asset writes failed still replaced the old package.</summary>
+    [Fact]
+    public void Write_ExistingModAndAnAssetWriteFails_KeepsTheOldExmod()
+    {
+        ExmodFolder.Write(_tempDir, BuildFixture());
+
+        Assert.ThrowsAny<IOException>(() => ExmodFolder.Write(_tempDir, WithClashingAssets("Second")));
+
+        Assert.True(Directory.Exists(_tempDir));
+        Assert.Equal("D", ExmodFolder.ReadPackageOnly(_tempDir).Description);
+    }
+
+    /// <summary>
+    /// Regression: a folder copied from classic IMM keeps its .EXMOD at the root. Saving it wrote a
+    /// second one under "Extracted Mods", and the next scan dropped the mod as "more than one .EXMOD".
+    /// </summary>
+    [Fact]
+    public void Write_ClassicLayoutWithExmodAtTheRoot_RewritesThatFile()
+    {
+        var package = ExmodJson.Parse("""
+            {"name": "Bestiary", "author": "A", "version": "1", "description": "D", "fileName": "Bestiary"}
+            """);
+        Directory.CreateDirectory(_tempDir);
+        var rootExmod = Path.Combine(_tempDir, "Bestiary.EXMOD");
+        File.WriteAllText(rootExmod, ExmodJson.Serialize(package));
+        File.WriteAllBytes(Path.Combine(_tempDir, "Bestiary.uasset"), [1, 2, 3]);
+        package.Description = "Edited";
+
+        ExmodFolder.Write(_tempDir, new ExmodPackageContents(package, []));
+
+        Assert.Equal([rootExmod], Directory.GetFiles(_tempDir, "*.EXMOD", SearchOption.AllDirectories));
+        Assert.Equal("Edited", ExmodFolder.ReadPackageOnly(_tempDir).Description);
+    }
+
+    [Fact]
+    public void TryFindExmodPath_FindsTheOneExmodWhereverItIs_NullWhenNoneOrTwo()
+    {
+        Assert.Null(ExmodFolder.TryFindExmodPath(_tempDir));
+        Directory.CreateDirectory(_tempDir);
+        Assert.Null(ExmodFolder.TryFindExmodPath(_tempDir));
+        var root = Path.Combine(_tempDir, "Mod.EXMOD");
+        File.WriteAllText(root, "{}");
+        Assert.Equal(root, ExmodFolder.TryFindExmodPath(_tempDir));
+        Directory.CreateDirectory(Path.Combine(_tempDir, "Extracted Mods"));
+        File.WriteAllText(Path.Combine(_tempDir, "Extracted Mods", "Other.exmod"), "{}");
+        Assert.Null(ExmodFolder.TryFindExmodPath(_tempDir));
+    }
+
     [Fact]
     public void Read_FolderWithTwoExmodFiles_ThrowsFormatExceptionInsteadOfPickingOne()
     {
