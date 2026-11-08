@@ -1,5 +1,7 @@
 using System.IO;
 using System.Text.Json.Nodes;
+using CommunityToolkit.Mvvm.Messaging;
+using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Core.Library;
@@ -143,13 +145,13 @@ public sealed class ModFixViewModelTests : IDisposable
     }
 
     [Fact]
-    public void Apply_BacksUpAndFixes_AndAConvertedPakStaysLive()
+    public async Task Apply_BacksUpAndFixes_AndAConvertedPakStaysLive()
     {
         var vm = Open();
         var closed = false;
         vm.Close = () => closed = true;
 
-        vm.ApplyCommand.Execute(null);
+        await vm.ApplyCommand.ExecuteAsync(null);
 
         Assert.True(closed);
         Assert.True(_library.HasModBackup(_folder));
@@ -161,25 +163,25 @@ public sealed class ModFixViewModelTests : IDisposable
     }
 
     [Fact]
-    public void OnlyTheSureFixes_LeavesTheListsYouHaventLookedAt()
+    public async Task OnlyTheSureFixes_LeavesTheListsYouHaventLookedAt()
     {
         var vm = Open();
         vm.Close = () => { };
 
         vm.OnlySureCommand.Execute(null);
         Assert.Equal(1, vm.ChangeCount);
-        vm.ApplyCommand.Execute(null);
+        await vm.ApplyCommand.ExecuteAsync(null);
 
         Assert.False(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
         Assert.Equal(2, ((JsonArray)Item("Cheese").Fields["Manual_Tags"]!["GameplayTags"]!).Count);
     }
 
     [Fact]
-    public void WhileTheModIsOpenInTheEditor_NothingIsWritten()
+    public async Task WhileTheModIsOpenInTheEditor_NothingIsWritten()
     {
         var vm = Open(editorOpen: () => true);
 
-        vm.ApplyCommand.Execute(null);
+        await vm.ApplyCommand.ExecuteAsync(null);
 
         Assert.Contains("open in the mod editor", vm.StatusMessage);
         Assert.False(_library.HasModBackup(_folder));
@@ -197,13 +199,13 @@ public sealed class ModFixViewModelTests : IDisposable
     }
 
     [Fact]
-    public void YourChoices_AreRemembered_KeptOnesStopBeingAsked()
+    public async Task YourChoices_AreRemembered_KeptOnesStopBeingAsked()
     {
         var vm = Open();
         vm.Close = () => { };
         vm.Groups.Single(g => g.Kind == ModIssueKind.MixedList).Issues[0].Choose(ModIssueFix.KeepMod);
 
-        vm.ApplyCommand.Execute(null);
+        await vm.ApplyCommand.ExecuteAsync(null);
 
         var again = Open();
         Assert.False(again.HasIssues);
@@ -211,13 +213,13 @@ public sealed class ModFixViewModelTests : IDisposable
         Assert.Equal(2, again.RememberedCount);
         Assert.Equal(2, again.AuthorChangeCount);
 
-        again.ForgetChoicesCommand.Execute(null);
+        await again.ForgetChoicesCommand.ExecuteAsync(null);
         Assert.Equal(0, again.RememberedCount);
         Assert.Equal(ModIssueKind.MixedList, Assert.Single(again.Groups).Kind);
     }
 
     [Fact]
-    public void KeepingEverything_IsRememberedWithoutTouchingTheMod()
+    public async Task KeepingEverything_IsRememberedWithoutTouchingTheMod()
     {
         var vm = Open();
         vm.Close = () => { };
@@ -227,7 +229,7 @@ public sealed class ModFixViewModelTests : IDisposable
         }
 
         Assert.Equal("Keep all as they are", vm.ApplyLabel);
-        vm.ApplyCommand.Execute(null);
+        await vm.ApplyCommand.ExecuteAsync(null);
 
         Assert.False(_library.HasModBackup(_folder));
         Assert.False(Open().HasIssues);
@@ -235,7 +237,7 @@ public sealed class ModFixViewModelTests : IDisposable
 
     /// <summary>A hand-made mod lists only what its author changed: its shorter tag list is the author's, and a fix marks it edited (✎).</summary>
     [Fact]
-    public void AHandMadeMod_KeepsItsShorterList_AndAFixMarksItEdited()
+    public async Task AHandMadeMod_KeepsItsShorterList_AndAFixMarksItEdited()
     {
         var entry = _library.CreateBlankMod("My Mod", "Me", ModTemplate.Blank);
         var folderPath = _library.GetFolderPath(entry.FolderName);
@@ -255,7 +257,7 @@ public sealed class ModFixViewModelTests : IDisposable
 
         Assert.Equal(["Lists both changed"], vm.Groups.Select(g => g.Title));
         Assert.Equal(1, vm.AuthorChangeCount);
-        vm.ApplyCommand.Execute(null);
+        await vm.ApplyCommand.ExecuteAsync(null);
 
         Assert.True(_library.GetAll().Single(e => e.FolderName == entry.FolderName).IsLocallyEdited);
     }
@@ -290,13 +292,13 @@ public sealed class ModFixViewModelTests : IDisposable
 
     /// <summary>A converted prebuilt pak stays live: fixing it doesn't mark it edited, and after the next re-conversion the choices are made again.</summary>
     [Fact]
-    public void AConvertedPak_KeepsRefreshing_AndYourChoicesAreMadeAgainAfterward()
+    public async Task AConvertedPak_KeepsRefreshing_AndYourChoicesAreMadeAgainAfterward()
     {
         _library.MarkConvertedFromPrebuiltPak(_folder);
         var original = File.ReadAllText(Directory.GetFiles(_library.GetFolderPath(_folder), "*.EXMOD", SearchOption.AllDirectories).Single());
         var vm = Open();
         vm.Close = () => { };
-        vm.ApplyCommand.Execute(null);
+        await vm.ApplyCommand.ExecuteAsync(null);
         Assert.False(_library.GetAll().Single(e => e.FolderName == _folder).IsLocallyEdited);
 
         // What the refresh after a game update does: the mod is converted again from its pak.
@@ -310,7 +312,7 @@ public sealed class ModFixViewModelTests : IDisposable
 
     /// <summary>"Keep all as they are": the choices are remembered, the mod isn't touched, and the window says nothing was applied.</summary>
     [Fact]
-    public void KeepAll_AppliesNothing_ButRemembersTheChoices()
+    public async Task KeepAll_AppliesNothing_ButRemembersTheChoices()
     {
         var vm = Open();
         var closed = false;
@@ -321,7 +323,7 @@ public sealed class ModFixViewModelTests : IDisposable
         }
 
         Assert.Equal("Keep all as they are", vm.ApplyLabel);
-        vm.ApplyCommand.Execute(null);
+        await vm.ApplyCommand.ExecuteAsync(null);
 
         Assert.True(closed);
         Assert.Equal(0, vm.AppliedCount);
@@ -372,6 +374,249 @@ public sealed class ModFixViewModelTests : IDisposable
         Assert.Equal("has it in Items (ASS/ITM)", row.GameText);
         Assert.Contains("SM_Cable is a mesh (3D model) the mod brings, kept in Deployables (benches, machines, things you place), folder ASS/DEP/Wires", row.AssetHint);
         Assert.Contains("the game keeps it in Items (tools, food, resources), folder ASS/ITM now", row.AssetHint);
+    }
+
+    /// <summary>The Tidy Mod: Cheese set to the game's own Weight 50 and the game's own tags (both only tidying).</summary>
+    private string TidyMod()
+    {
+        var entry = _library.CreateBlankMod("Tidy Mod", "Me", ModTemplate.Blank);
+        var folderPath = _library.GetFolderPath(entry.FolderName);
+        var package = ExmodFolder.Read(folderPath).Package;
+        package.Rows.Insert(0, new ExmodFileRow
+        {
+            CurrentFile = "Items-D_ItemsStatic.json",
+            FileItems = [new ExmodFileItem { Name = "Cheese", Fields = new() { ["Weight"] = 50, ["Manual_Tags"] = Tags("Food.Cooked") } }],
+        });
+        ExmodFolder.Write(folderPath, new ExmodPackageContents(package, []));
+        return entry.FolderName;
+    }
+
+    private string ExmodPath(string folder) => Directory.GetFiles(_library.GetFolderPath(folder), "*.EXMOD", SearchOption.AllDirectories).Single();
+
+    /// <summary>Regression: a fix wrote a second .EXMOD into a folder copied from the classic mod manager (its .EXMOD at the top), and the mod dropped out of the Library.</summary>
+    [Fact]
+    public void AFix_InAModCopiedFromTheClassicManager_LeavesOneExmod_AndTheModStaysInTheLibrary()
+    {
+        var folder = Path.Combine(_root, "Extracted_Mods", "Classic");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "Classic.EXMOD"), ExmodJson.Serialize(new ExmodPackage
+        {
+            Name = "Classic", Author = "Someone", Version = "1", Description = "", FileName = "Classic",
+            Rows =
+            [
+                new ExmodFileRow { CurrentFile = "Items-D_ItemsStatic.json", FileItems = [new ExmodFileItem { Name = "Cheese", Fields = new() { ["Weight"] = 50 } }] },
+                new ExmodFileRow { CurrentFile = "EndOfMod" },
+            ],
+        }));
+        _library.Refresh();
+
+        var issue = Service.Check("Classic").Issues.Single(i => i.FieldName == "Weight");
+        Assert.Equal(1, Service.Apply("Classic", [(issue, ModIssueFix.UseGame)]));
+
+        Assert.Single(Directory.GetFiles(folder, "*.EXMOD", SearchOption.AllDirectories));
+        _library.Refresh();
+        Assert.Empty(_library.UnreadableFolders);
+        Assert.Contains(_library.GetAll(), e => e.FolderName == "Classic");
+    }
+
+    /// <summary>Regression: the fix was written before the mod's Library file was marked, so a locked Library file said "Couldn't fix the mod" after the mod had been fixed.</summary>
+    [Fact]
+    public void AFix_WhenTheModsLibraryFileIsLocked_WritesNothing()
+    {
+        var exmod = ExmodPath(_folder);
+        var before = File.ReadAllText(exmod);
+        var service = Service;
+        var fixes = service.Check(_folder).Issues.Select(i => (i, i.DefaultFix)).ToList();
+
+        using (new FileStream(Path.Combine(_root, "Library_Meta", _folder + ".json"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.Throws<IOException>(() => service.Apply(_folder, fixes));
+        }
+
+        Assert.Equal(before, File.ReadAllText(exmod));
+    }
+
+    /// <summary>
+    /// Regression: the choices were remembered before the fix was written, so after a failed fix
+    /// the next Fix sure problems made them by itself; and the message didn't say the mod may be
+    /// partly fixed.
+    /// </summary>
+    [Fact]
+    public async Task AFailedFix_IsNotRemembered_AndSaysRestoreBackupUndoesIt()
+    {
+        var vm = Open();
+        vm.Close = () => { };
+        var exmod = ExmodPath(_folder);
+        var before = File.ReadAllText(exmod);
+
+        using (new FileStream(exmod, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            await vm.ApplyCommand.ExecuteAsync(null);
+        }
+
+        Assert.StartsWith("Couldn't fix the mod", vm.StatusMessage);
+        Assert.Contains("Restore backup", vm.StatusMessage);
+        Assert.True(vm.HasBackup);
+        Assert.Equal(0, Service.RememberedCount(_folder));
+        Assert.Equal(before, File.ReadAllText(exmod));
+    }
+
+    /// <summary>Regression: Restore backup put the mod back but kept the choices made with that fix, so the next pass made the fix again.</summary>
+    [Fact]
+    public void RestoreBackup_ForgetsTheChoicesRememberedWithThatFix()
+    {
+        var folder = TidyMod();
+        var weight = Service.Check(folder).Issues.Single(i => i.FieldName == "Weight");
+        Assert.Equal(1, Service.Apply(folder, [(weight, ModIssueFix.UseGame)]));
+
+        Assert.True(Service.RestoreBackup(folder));
+
+        Assert.Equal(0, Service.Check(folder).SureProblemCount);
+        Assert.Equal(0, Service.FixSure(folder).Applied);
+        Assert.Equal(0, Service.RememberedCount(folder));
+    }
+
+    /// <summary>A choice remembered before the fix that was undone stays remembered after the restore.</summary>
+    [Fact]
+    public void RestoreBackup_KeepsTheChoicesMadeBeforeThatFix()
+    {
+        var folder = TidyMod();
+        var issues = Service.Check(folder).Issues;
+        var tags = issues.Single(i => i.FieldName == "Manual_Tags");
+        var weight = issues.Single(i => i.FieldName == "Weight");
+        Assert.Equal(0, Service.Apply(folder, [(tags, ModIssueFix.KeepMod)]));
+        Assert.Equal(1, Service.Apply(folder, [(weight, ModIssueFix.UseGame)]));
+        Assert.Equal(2, Service.RememberedCount(folder));
+
+        Assert.True(Service.RestoreBackup(folder));
+
+        Assert.Equal(1, Service.RememberedCount(folder));
+        Assert.Equal(50, ExmodFolder.ReadPackageOnly(_library.GetFolderPath(folder)).Rows[0].FileItems[0].Fields["Weight"]!.GetValue<int>());
+    }
+
+    /// <summary>A fix (backed up), then a mod editor save on top of it: Wood_Floor's Weight 77.</summary>
+    private void FixThenSaveInTheModEditor()
+    {
+        Service.FixSure(_folder);
+        var package = ExmodFolder.ReadPackageOnly(_library.GetFolderPath(_folder));
+        package.Rows.Single(r => r.CurrentFile == "Items-D_ItemsStatic.json").FileItems.Single(i => i.Name == "Wood_Floor").Fields["Weight"] = 77;
+        Assert.True(new OwnModWriter(_library, new WeakReferenceMessenger()).TrySave(_folder, package, null, out _));
+    }
+
+    /// <summary>Regression: Restore backup replaced the mod at once, dropping every save made since the backup without a word.</summary>
+    [Fact]
+    public async Task RestoreBackup_AnsweredNo_KeepsAnEditorSaveMadeAfterTheBackup()
+    {
+        FixThenSaveInTheModEditor();
+        var vm = Open();
+        string? asked = null;
+        vm.ConfirmRestore = m =>
+        {
+            asked = m;
+            return false;
+        };
+
+        await vm.RestoreBackupCommand.ExecuteAsync(null);
+
+        Assert.Contains("lost", asked);
+        Assert.Equal(77, Item("Wood_Floor").Fields["Weight"]!.GetValue<int>());
+        Assert.False(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
+        Assert.False(vm.ChangedWithoutApply);
+    }
+
+    [Fact]
+    public async Task RestoreBackup_AnsweredYes_PutsTheModBackAsItWasAtTheBackup_AndSaysWhen()
+    {
+        FixThenSaveInTheModEditor();
+        var vm = Open();
+        string? asked = null;
+        vm.ConfirmRestore = m =>
+        {
+            asked = m;
+            return true;
+        };
+
+        await vm.RestoreBackupCommand.ExecuteAsync(null);
+
+        Assert.Contains("latest backup (", asked);
+        Assert.Equal(5, Item("Wood_Floor").Fields["Weight"]!.GetValue<int>());
+        Assert.True(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
+        Assert.StartsWith("Restored the mod as it was at its latest backup (", vm.StatusMessage);
+        Assert.True(vm.ChangedWithoutApply);
+    }
+
+    [Fact]
+    public void BackupTime_IsReadFromTheBackupsName()
+    {
+        Assert.Equal(new DateTime(2026, 11, 1, 14, 22, 33, DateTimeKind.Utc), ModFixService.BackupTimeUtc(Path.Combine("Backups", "Old_Mod_20261101-142233")));
+        Assert.Equal(new DateTime(2026, 11, 1, 14, 22, 33, DateTimeKind.Utc), ModFixService.BackupTimeUtc(Path.Combine("Backups", "Old_Mod_20261101-142233_2")));
+        Assert.Null(ModFixService.BackupTimeUtc(Path.Combine("Backups", "Old_Mod")));
+    }
+
+    /// <summary>Regression: Apply, Restore backup and Forget ran a whole-folder copy and a Library-wide check on the UI thread.</summary>
+    [Fact]
+    public async Task TheWindowsDiskWork_RunsThroughTheBackgroundRunner()
+    {
+        var vm = Open();
+        var ran = 0;
+        vm.RunInBackground = work =>
+        {
+            ran++;
+            work();
+            return Task.CompletedTask;
+        };
+
+        await vm.ForgetChoicesCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, ran);
+    }
+
+    [Fact]
+    public async Task WhileAFixIsBeingWritten_TheOtherButtonsWait()
+    {
+        var vm = Open();
+        var gate = new TaskCompletionSource();
+        vm.RunInBackground = work => gate.Task.ContinueWith(_ => work(), TaskScheduler.Default);
+        var closed = false;
+        vm.Close = () => closed = true;
+
+        var running = vm.ApplyCommand.ExecuteAsync(null);
+
+        Assert.True(vm.IsBusy);
+        Assert.False(vm.IsIdle);
+        Assert.False(vm.RestoreBackupCommand.CanExecute(null));
+        Assert.False(vm.ForgetChoicesCommand.CanExecute(null));
+        Assert.False(vm.OpenEditorCommand.CanExecute(null));
+        gate.SetResult();
+        await running;
+        Assert.False(vm.IsBusy);
+        Assert.True(closed);
+        Assert.False(Item("Wood_Floor").Fields.ContainsKey("Manual_Tags"));
+    }
+
+    /// <summary>The window announces Library changes on the messenger it is given, not only the app-wide one.</summary>
+    [Fact]
+    public async Task TheWindow_UsesTheMessengerItIsGiven()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var recipient = new object();
+        var sent = 0;
+        messenger.Register<object, LibraryChangedMessage>(recipient, (_, _) => sent++);
+        var service = Service;
+        var vm = new ModFixViewModel(_folder, "Old Mod", service.Check(_folder), service, messenger: messenger);
+
+        await vm.ForgetChoicesCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, sent);
+    }
+
+    /// <summary>Regression: the short Mod/Game text showed "+" and quotes as + and ".</summary>
+    [Fact]
+    public void Describe_ShowsPlusAndQuotesAsTheyAre()
+    {
+        var value = new JsonObject { ["(Value=\"X_+%\")"] = 1, ["B"] = 2, ["C"] = 3, ["D"] = 4 };
+
+        Assert.Contains("(Value=\\\"X_+%\\\")", ModFixViewModel.Describe(value));
     }
 
     [Fact]

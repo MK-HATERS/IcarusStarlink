@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows.Data;
@@ -240,13 +241,17 @@ public sealed partial class ModFixViewModel : ObservableObject
     private readonly ModFixService _service;
     private readonly string _folderName;
     private readonly Func<bool> _isOpenInEditor;
+    private readonly IMessenger _messenger;
     private readonly ObservableCollection<ModFixIssueViewModel> _all = [];
 
-    public ModFixViewModel(string folderName, string modName, ModHealthReport report, ModFixService service, Func<bool>? isOpenInEditor = null)
+    /// <param name="messenger">Where the Library change is announced (the shared messenger by default).</param>
+    public ModFixViewModel(string folderName, string modName, ModHealthReport report, ModFixService service, Func<bool>? isOpenInEditor = null,
+        IMessenger? messenger = null)
     {
         _folderName = folderName;
         _service = service;
         _isOpenInEditor = isOpenInEditor ?? (() => false);
+        _messenger = messenger ?? WeakReferenceMessenger.Default;
         ModName = modName;
         IssuesView = CollectionViewSource.GetDefaultView(_all);
         IssuesView.Filter = o => o is ModFixIssueViewModel i
@@ -256,13 +261,34 @@ public sealed partial class ModFixViewModel : ObservableObject
         Load(report);
     }
 
-    /// <summary>Shows a (new) check result: after Forget, everything is suggested afresh.</summary>
-    private void Load(ModHealthReport report)
+    /// <summary>
+    /// Runs the disk work (a whole-folder backup, a Library-wide check) off the UI thread in the app;
+    /// inline without an Application (unit tests), where there's no dispatcher to come back to and
+    /// IssuesView belongs to the thread that made it.
+    /// </summary>
+    internal Func<Action, Task> RunInBackground { get; set; } = work => System.Windows.Application.Current is null ? RunInline(work) : Task.Run(work);
+
+    private static Task RunInline(Action work)
+    {
+        work();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Asks before Restore backup replaces the mod (true: go ahead).</summary>
+    internal Func<string, bool> ConfirmRestore { get; set; } = message => Views.ThemedConfirmDialog.Show(
+        System.Windows.Application.Current?.Windows.OfType<System.Windows.Window>().FirstOrDefault(w => w.IsActive) ?? System.Windows.Application.Current?.MainWindow,
+        message, "Restore backup", Views.ThemedConfirmSeverity.Question);
+
+    /// <summary>
+    /// Shows a (new) check result: after Forget, everything is suggested afresh. The counts are
+    /// asked of the service unless given (read off the UI thread with the check).
+    /// </summary>
+    private void Load(ModHealthReport report, int? remembered = null, bool? hasBackup = null)
     {
         AuthorChangeCount = report.AuthorChangeCount;
         _builtFor = report.BuiltFor?.OlderText;
-        RememberedCount = _service.RememberedCount(_folderName);
-        HasBackup = _service.HasBackup(_folderName);
+        RememberedCount = remembered ?? _service.RememberedCount(_folderName);
+        HasBackup = hasBackup ?? _service.HasBackup(_folderName);
         _all.Clear();
         foreach (var issue in report.Issues.Select(i => new ModFixIssueViewModel(i)))
         {
@@ -381,6 +407,14 @@ public sealed partial class ModFixViewModel : ObservableObject
     [ObservableProperty]
     private bool _isApplied;
 
+    /// <summary>A fix, restore or forget is running: the other buttons and closing the window wait for it.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsIdle))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyCommand), nameof(RestoreBackupCommand), nameof(ForgetChoicesCommand), nameof(OpenEditorCommand))]
+    private bool _isBusy;
+
+    public bool IsIdle => !IsBusy;
+
     /// <summary>How many fixes the last Apply made: 0 after "Keep all as they are" (the choices are remembered, the mod isn't touched).</summary>
     public int AppliedCount { get; private set; }
 
@@ -424,8 +458,9 @@ public sealed partial class ModFixViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
-    private void Apply()
+    /// <summary>Backs the mod up and makes the chosen fixes (in the background), then closes the window.</summary>
+    [RelayCommand(CanExecute = nameof(IsIdle))]
+    private async Task ApplyAsync()
     {
         if (_isOpenInEditor())
         {
@@ -433,9 +468,39 @@ public sealed partial class ModFixViewModel : ObservableObject
             return;
         }
 
+        var fixes = _all.Select(i => (i.Issue, i.SelectedChoice.Fix)).ToList();
+        IsBusy = true;
         try
         {
-            var applied = _service.Apply(_folderName, [.. _all.Select(i => (i.Issue, i.SelectedChoice.Fix))]);
+            string? backupBefore = null;
+            string? backupAfter = null;
+            Exception? failure = null;
+            var applied = 0;
+            await RunInBackground(() =>
+            {
+                backupBefore = _service.LatestBackupPath(_folderName);
+                try
+                {
+                    applied = _service.Apply(_folderName, fixes);
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                    backupAfter = _service.LatestBackupPath(_folderName);
+                }
+            });
+
+            if (failure is not null)
+            {
+                // A backup taken for this fix means the write may have got part of the way.
+                HasBackup = backupAfter is not null;
+                StatusMessage = $"Couldn't fix the mod: {failure.Message}"
+                    + (backupAfter is not null && !string.Equals(backupAfter, backupBefore, StringComparison.OrdinalIgnoreCase)
+                        ? " It may be partly fixed: Restore backup puts it back as it was before this fix."
+                        : "");
+                return;
+            }
+
             AppliedCount = applied;
             IsApplied = true;
             StatusMessage = applied == 0 ? "Nothing changed." : $"Fixed {applied} thing(s). The mod was backed up first: Restore backup in this window, or right-click the mod › Restore latest backup, undoes it.";
@@ -445,59 +510,146 @@ public sealed partial class ModFixViewModel : ObservableObject
             StatusMessage = $"Couldn't fix the mod: {ex.Message}";
             return;
         }
+        finally
+        {
+            IsBusy = false;
+        }
 
-        WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+        _messenger.Send(new LibraryChangedMessage());
         Close?.Invoke();
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(IsIdle))]
     private void OpenEditor() => OpenInModEditor?.Invoke();
 
-    /// <summary>Puts the mod back as it was before its last change, then checks it again.</summary>
-    [RelayCommand]
-    private void RestoreBackup()
+    /// <summary>Puts the mod back as it was at its latest backup (after asking), then checks it again.</summary>
+    [RelayCommand(CanExecute = nameof(IsIdle))]
+    private async Task RestoreBackupAsync()
     {
+        const string openInEditor = "This mod is open in the mod editor. Close it there first.";
         if (_isOpenInEditor())
         {
-            StatusMessage = "This mod is open in the mod editor. Close it there first.";
+            StatusMessage = openInEditor;
             return;
         }
 
+        string? backup;
         try
         {
-            if (!_service.RestoreBackup(_folderName))
+            backup = _service.LatestBackupPath(_folderName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = $"Couldn't restore the backup: {ex.Message}";
+            return;
+        }
+
+        if (backup is null)
+        {
+            HasBackup = false;
+            StatusMessage = "There's no backup of this mod to restore.";
+            return;
+        }
+
+        var when = ModFixService.BackupTimeUtc(backup) is { } taken ? taken.ToLocalTime().ToString("g") : "date unknown";
+        if (!ConfirmRestore($"This puts '{ModName}' back as it was at its latest backup ({when}). Every change made to it since is lost, saves in the mod editor and on the Editor page included.\n\nRestore it?"))
+        {
+            return;
+        }
+
+        // The mod editor could have been opened while the question was up.
+        if (_isOpenInEditor())
+        {
+            StatusMessage = openInEditor;
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var restored = false;
+            ModHealthReport? report = null;
+            var remembered = 0;
+            var hasBackup = true;
+            Exception? checkFailed = null;
+            await RunInBackground(() =>
+            {
+                restored = _service.RestoreBackup(_folderName);
+                if (!restored)
+                {
+                    return;
+                }
+
+                try
+                {
+                    report = _service.Check(_folderName);
+                    remembered = _service.RememberedCount(_folderName);
+                    hasBackup = _service.HasBackup(_folderName);
+                }
+                catch (Exception ex)
+                {
+                    checkFailed = ex;
+                }
+            });
+
+            if (!restored)
             {
                 StatusMessage = "There's no backup of this mod to restore.";
                 return;
             }
 
             ChangedWithoutApply = true;
-            Load(_service.Check(_folderName));
-            StatusMessage = "Restored the mod as it was before its last change.";
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            if (report is not null)
+            {
+                Load(report, remembered, hasBackup);
+            }
+
+            StatusMessage = checkFailed is null
+                ? $"Restored the mod as it was at its latest backup ({when})."
+                : $"Restored the mod as it was at its latest backup ({when}), but couldn't check it again: {checkFailed.Message}";
+            _messenger.Send(new LibraryChangedMessage());
         }
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't restore the backup: {ex.Message}";
         }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     /// <summary>Forgets this mod's earlier choices and checks it again, so everything is suggested afresh.</summary>
-    [RelayCommand]
-    private void ForgetChoices()
+    [RelayCommand(CanExecute = nameof(IsIdle))]
+    private async Task ForgetChoicesAsync()
     {
+        IsBusy = true;
         try
         {
-            _service.Forget(_folderName);
-            ChangedWithoutApply = true;
-            Load(_service.Check(_folderName));
+            ModHealthReport? report = null;
+            var remembered = 0;
+            var hasBackup = false;
+            await RunInBackground(() =>
+            {
+                _service.Forget(_folderName);
+                ChangedWithoutApply = true;
+                report = _service.Check(_folderName);
+                remembered = _service.RememberedCount(_folderName);
+                hasBackup = _service.HasBackup(_folderName);
+            });
+
+            Load(report!, remembered, hasBackup);
             StatusMessage = "Earlier choices forgotten: everything below is suggested afresh.";
             // What's flagged changed (kept values are listed again): Merge & Install checks again.
-            WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
+            _messenger.Send(new LibraryChangedMessage());
         }
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't check the mod again: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
         }
     }
 
@@ -620,7 +772,7 @@ public sealed partial class ModFixViewModel : ObservableObject
             JsonValue v => v.ToString(),
             // A small object in words: "RequiredFeatureLevel: GreatHunts".
             JsonObject o when o.Count is > 0 and <= 3 => string.Join(", ", o.Select(kv => $"{kv.Key}: {Describe(kv.Value)}")),
-            _ => value.ToJsonString(),
+            _ => value.ToJsonString(ValueDiff.CompactDisplay),
         };
         return text.Length > 140 ? text[..140] + "…" : text;
     }

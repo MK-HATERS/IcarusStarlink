@@ -10,6 +10,8 @@ public partial class ModFixWindow : Window
         InitializeComponent();
         Utilities.WindowSizeMemory.Remember(this, "mod-fix");
         DataContext = viewModel;
+        // ✕ and Alt+F4 wait for a running fix, restore or forget, like the greyed-out Cancel.
+        Closing += (_, e) => e.Cancel = viewModel.IsBusy;
         viewModel.Close = () =>
         {
             if (System.Windows.Interop.ComponentDispatcher.IsThreadModal)
