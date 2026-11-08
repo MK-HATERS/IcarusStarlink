@@ -502,7 +502,7 @@ public sealed partial class LocalServerViewModel
         if (!TrySave())
         {
             // The reason is on the Settings tab; the status line says it too, so the click isn't silent.
-            StatusMessage = ValidationMessage;
+            StatusMessage = ValidationMessage ?? $"'{profile.Name}' wasn't updated: its settings weren't saved.";
             return;
         }
 

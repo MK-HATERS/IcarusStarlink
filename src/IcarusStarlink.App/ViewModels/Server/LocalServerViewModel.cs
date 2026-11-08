@@ -311,7 +311,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
     {
         static bool Usable(string? name) => name is null || name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
 
-        var options = UnknownServersFrom(installFolder)
+        var options = UnknownServersFrom(installFolder, KnownSavedSuffixes(installFolder))
             .OrderBy(s => s.IsLauncher)
             .Select(s => DedicatedServerCommandLine.ReadLaunchOptions(s.CommandLine!))
             .FirstOrDefault(o => o.DiffersFromDefaults && Usable(o.SavedDirSuffix) && Usable(o.LogFileName));
@@ -370,15 +370,15 @@ public sealed partial class LocalServerViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Removes the list entry only. Starlink's own firewall rules for it are offered for removal
-    /// in a second question: once the profile is gone nothing in Starlink could find them again.
-    /// </summary>
-    /// <summary>
     /// Not while the server starts, stops or updates, nor while automation restarts it: removing
     /// it then dropped its watch, and the restart carried on and launched a server nothing watched.
     /// </summary>
     private bool CanRemoveProfile() => SelectedProfile is not null && !IsBusy && !IsAutomationBusy;
 
+    /// <summary>
+    /// Removes the list entry only. Starlink's own firewall rules for it are offered for removal
+    /// in a second question: once the profile is gone nothing in Starlink could find them again.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanRemoveProfile))]
     private async Task RemoveProfileAsync()
     {
@@ -435,7 +435,9 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
-        if (await OffUiThread(() => UnknownServersFrom(profile.InstallFolder)) is { Count: > 0 } unknown
+        // The list is read here, on the UI thread: it isn't locked until StartCoreAsync sets IsBusy.
+        var known = KnownSavedSuffixes(profile.InstallFolder);
+        if (await OffUiThread(() => UnknownServersFrom(profile.InstallFolder, known)) is { Count: > 0 } unknown
             && !_dialogService.Confirm(
                 $"Another Icarus server is already running from this install ({DescribeSavedFolders(unknown)}), and no server in this list is set up for it. "
                 + $"Starting '{profile.Name}' too runs two servers from the same files: each needs its own game and query port, or players can't join one of them.\n\n"
@@ -454,12 +456,10 @@ public sealed partial class LocalServerViewModel : ObservableObject
     /// Servers running from this install that no server in the list accounts for: their Saved
     /// suffix matches none of the profiles on this install (one the owner's own script started).
     /// A process whose command line can't be read is left out, since it can't be told apart.
+    /// Touches no view-model state, so it may run off the UI thread.
     /// </summary>
-    private IReadOnlyList<ServerProcess> UnknownServersFrom(string installFolder)
+    private IReadOnlyList<ServerProcess> UnknownServersFrom(string installFolder, IReadOnlySet<string> known)
     {
-        var known = Profiles.Where(p => SameInstall(p.InstallFolder, installFolder))
-            .Select(p => (p.SavedDirSuffix ?? "").Trim())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         try
         {
             return _processes.FindAllFromInstall(installFolder)
@@ -471,6 +471,12 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return []; // couldn't look: a process scan hiccup, never a reason to block a start
         }
     }
+
+    /// <summary>The Saved suffixes of the listed servers on this install. Reads Profiles, so call it on the UI thread.</summary>
+    private HashSet<string> KnownSavedSuffixes(string installFolder) =>
+        Profiles.Where(p => SameInstall(p.InstallFolder, installFolder))
+            .Select(p => (p.SavedDirSuffix ?? "").Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     private static bool SameInstall(string a, string b) =>
         string.Equals(Path.TrimEndingDirectorySeparator(a), Path.TrimEndingDirectorySeparator(b), StringComparison.OrdinalIgnoreCase);
@@ -560,9 +566,18 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
-        if (!ValidateFormForSave(profile, out _, out _))
+        if (!ValidateFormForSave(profile, out var updated, out _))
         {
             StatusMessage = $"'{profile.Name}' wasn't restarted: fix the settings first ({ValidationMessage}). It is still running.";
+            return;
+        }
+
+        // The port question too: asked by the save after the stop, a No left the server down.
+        var portClash = DescribePortClash(profile, updated);
+        if (portClash is not null && !ConfirmPortClash(portClash))
+        {
+            ValidationMessage = PortClashNotSaved;
+            StatusMessage = $"'{profile.Name}' wasn't restarted: pick a game port and query port no other server in the list uses, or restart again and choose Yes. It is still running.";
             return;
         }
 
@@ -600,7 +615,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
             return;
         }
 
-        if (!TrySave() || SelectedProfile is not { } saved)
+        if (!TrySave(acceptedPortClash: portClash) || SelectedProfile is not { } saved)
         {
             // Stopped, but the save before the start failed (the ini question was cancelled, or the
             // write failed): say so, or the status line read as if the restart had worked.

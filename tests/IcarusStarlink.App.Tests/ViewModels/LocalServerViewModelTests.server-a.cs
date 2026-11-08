@@ -774,6 +774,46 @@ public sealed partial class LocalServerViewModelTests
         Assert.Equal(27016, vm.Profiles.Single(p => p.Id == first.Id).Port);
     }
 
+    /// <summary>
+    /// Regression: Restart asked about a port another server uses only after it had stopped the
+    /// server; answering No left it stopped with "It wasn't started again: Not saved…".
+    /// </summary>
+    [Fact]
+    public async Task Restart_APortAnotherServerUses_AnsweredNo_LeavesTheServerRunning()
+    {
+        var (vm, processes, dialogs, sibling) = BuildWithSecondWorld();
+        processes.RunningFor = p => p.Id != sibling.Id ? new RunningServer(9, DateTime.Now) : null;
+        await vm.TickAsync();
+        vm.PortText = "17778";
+        vm.QueryPortText = "27099";
+        // Yes to "Stop?", No to the port question, whichever comes first.
+        dialogs.WhileAsking = () => dialogs.Answers.Enqueue(!dialogs.Messages[^1].Contains("'Second world'", StringComparison.Ordinal));
+
+        await vm.RestartCommand.ExecuteAsync(null);
+
+        Assert.Empty(processes.Stopped);
+        Assert.Contains("wasn't restarted", vm.StatusMessage);
+        Assert.Contains("still running", vm.StatusMessage);
+    }
+
+    /// <summary>A Yes before the stop is the answer: the save before the start doesn't ask it a second time.</summary>
+    [Fact]
+    public async Task Restart_APortAnotherServerUses_AnsweredYes_AsksOnceAndStartsOnThatPort()
+    {
+        var (vm, processes, dialogs, sibling) = BuildWithSecondWorld();
+        processes.RunningFor = p => p.Id != sibling.Id ? new RunningServer(9, DateTime.Now) : null;
+        await vm.TickAsync();
+        vm.PortText = "17778";
+        vm.QueryPortText = "27099";
+        processes.DuringStop = () => processes.RunningFor = null;
+
+        await vm.RestartCommand.ExecuteAsync(null);
+
+        Assert.Single(dialogs.Messages, m => m.Contains("'Second world'", StringComparison.Ordinal));
+        Assert.Equal([9], processes.Stopped);
+        Assert.Equal(17778, Assert.Single(processes.Started).Port);
+    }
+
     /// <summary>Ports the server already had aren't asked about again on every Start and Save.</summary>
     [Fact]
     public void Save_PortsUnchanged_DoesNotAsk()

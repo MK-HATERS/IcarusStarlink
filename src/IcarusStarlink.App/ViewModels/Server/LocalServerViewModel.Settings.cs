@@ -227,8 +227,13 @@ public sealed partial class LocalServerViewModel
         }
     }
 
-    /// <summary>Validates the form; on success writes the profile and the ini. Returns false (with ValidationMessage set) when anything is out of range.</summary>
-    internal bool TrySave()
+    /// <summary>
+    /// Validates the form; on success writes the profile and the ini. Returns false (with
+    /// ValidationMessage set) when anything is out of range. <paramref name="acceptedPortClash"/>:
+    /// a port question the owner already answered Yes to (Restart asks it before the stop), so the
+    /// same clash isn't asked twice.
+    /// </summary>
+    internal bool TrySave(string? acceptedPortClash = null)
     {
         if (SelectedProfile is not { } current)
         {
@@ -283,10 +288,10 @@ public sealed partial class LocalServerViewModel
         }
 
         if (DescribePortClash(current, updated) is { } clash
-            && !_dialogService.Confirm($"{clash}\n\nTwo servers on the same port can't run at the same time: players can't join the second one. That is fine for two worlds you never run together.\n\nSave anyway?",
-                "Same port", ThemedConfirmSeverity.Warning))
+            && clash != acceptedPortClash
+            && !ConfirmPortClash(clash))
         {
-            ValidationMessage = "Not saved. Pick a game port and query port no other server in the list uses, or save again and choose Yes.";
+            ValidationMessage = PortClashNotSaved;
             return false;
         }
 
@@ -393,6 +398,13 @@ public sealed partial class LocalServerViewModel
             .ToList();
         return clashes.Count == 0 ? null : string.Join("\n", clashes);
     }
+
+    private const string PortClashNotSaved = "Not saved. Pick a game port and query port no other server in the list uses, or save again and choose Yes.";
+
+    /// <summary>Asks whether to keep a port another server uses (<paramref name="clash"/> from DescribePortClash).</summary>
+    private bool ConfirmPortClash(string clash) => _dialogService.Confirm(
+        $"{clash}\n\nTwo servers on the same port can't run at the same time: players can't join the second one. That is fine for two worlds you never run together.\n\nSave anyway?",
+        "Same port", ThemedConfirmSeverity.Warning);
 
     private DedicatedServerProfile? BuildProfileFromForm(DedicatedServerProfile current, bool strict)
     {
