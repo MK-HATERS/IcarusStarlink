@@ -26,6 +26,9 @@ using IcarusStarlink.PakIO.Pak;
 
 namespace IcarusStarlink.App.ViewModels;
 
+/// <summary>What the New mod dialog asked for: the mod's name, author, starting point and version.</summary>
+public sealed record NewModRequest(string Name, string Author, ModTemplate Template, string Version);
+
 /// <summary>Importing mods from files and folders, and New mod.</summary>
 public sealed partial class LibraryViewModel
 {
@@ -330,22 +333,30 @@ public sealed partial class LibraryViewModel
         await LinkFolderToNexusAsync(entry.FolderName, entry.Name, nexusDialog.NexusModId);
     }
 
+    /// <summary>Shows the New mod dialog; null when cancelled (tests swap in a fake).</summary>
+    internal Func<NewModRequest?> AskForNewMod { get; set; } = () =>
+    {
+        var dialog = new NewModDialog { Owner = Application.Current.MainWindow };
+        return dialog.ShowDialog() == true
+            ? new NewModRequest(dialog.ModName, dialog.ModAuthor, dialog.SelectedTemplate, dialog.ModVersion)
+            : null;
+    };
+
     [RelayCommand]
     private void NewMod()
     {
-        var dialog = new NewModDialog { Owner = Application.Current.MainWindow };
-        if (dialog.ShowDialog() != true)
+        if (AskForNewMod() is not { } request)
         {
             return;
         }
 
         try
         {
-            var entry = _repository.CreateBlankMod(dialog.ModName, dialog.ModAuthor, dialog.SelectedTemplate);
+            var entry = _repository.CreateBlankMod(request.Name, request.Author, request.Template, request.Version);
             StatusMessage = $"Created '{entry.Name}'.";
             WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
             _activityLog.Log($"Created new mod '{entry.Name}'.", ActivityEntryKind.Success);
-            OpenEditor(entry.FolderName, startWizard: ModTemplateContent.ItemPresetFor(dialog.SelectedTemplate));
+            OpenEditor(entry.FolderName, startWizard: ModTemplateContent.ItemPresetFor(request.Template));
         }
         catch (Exception ex)
         {

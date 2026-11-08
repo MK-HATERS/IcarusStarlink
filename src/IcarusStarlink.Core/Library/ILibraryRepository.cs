@@ -144,9 +144,10 @@ public interface ILibraryRepository
     /// both the display Name and (sanitized) the EXMOD's own FileName/folder name; author is
     /// required (an empty EXMOD still needs valid header fields). template picks the starting
     /// content: Blank is an EXMOD with no Rows yet (this method's original behavior); the other two
-    /// pre-fill a real, complete starting item — see ModTemplate's own doc comment.
+    /// pre-fill a real, complete starting item — see ModTemplate's own doc comment. version is the
+    /// mod's own version (trimmed); null or blank keeps the template's 1.0.
     /// </summary>
-    LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank);
+    LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank, string? version = null);
 
     IReadOnlyList<string> ListAssetPaths(string folderName);
 

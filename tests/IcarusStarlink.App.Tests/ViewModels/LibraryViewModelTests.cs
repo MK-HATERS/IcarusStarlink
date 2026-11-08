@@ -2567,8 +2567,20 @@ public sealed partial class LibraryViewModelTests
 
         public string? TryGetLatestModBackupPath(string folderName) => _backups.ContainsKey(folderName) ? $"{folderName}_backup_path" : null;
 
-        public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+        /// <summary>Every New mod made: its name, author, starting point and version.</summary>
+        public List<(string Name, string Author, ModTemplate Template, string? Version)> CreateBlankModCalls { get; } = [];
+
+        public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank, string? version = null)
+        {
+            CreateBlankModCalls.Add((name, author, template, version));
+            var entry = new LibraryEntry
+            {
+                FolderName = name.Replace(' ', '_'), Name = name, Author = author, Version = version ?? "1.0",
+                Description = "", FileName = name.Replace(' ', '_'), MadeInStarlink = true,
+            };
+            Seed(entry);
+            return entry;
+        }
 
         /// <summary>What a mod's Files list and Readme read back as (empty and null for a mod not named here).</summary>
         public Dictionary<string, IReadOnlyList<string>> AssetPathsByFolder { get; } = new(StringComparer.OrdinalIgnoreCase);

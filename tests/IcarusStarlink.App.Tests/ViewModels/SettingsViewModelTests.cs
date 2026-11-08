@@ -2377,7 +2377,7 @@ public sealed partial class SettingsViewModelTests
         public bool HasModBackup(string folderName) => throw new NotSupportedException("not exercised by these tests");
         public bool RestoreLatestModBackup(string folderName) => throw new NotSupportedException("not exercised by these tests");
         public string? TryGetLatestModBackupPath(string folderName) => throw new NotSupportedException("not exercised by these tests");
-        public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank) => throw new NotSupportedException("not exercised by these tests");
+        public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank, string? version = null) => throw new NotSupportedException("not exercised by these tests");
         public IReadOnlyList<string> ListAssetPaths(string folderName) => throw new NotSupportedException("not exercised by these tests");
         public IReadOnlyList<string> ListAssetPaths(string folderName, IReadOnlyList<string> precomputedFiles) => throw new NotSupportedException("not exercised by these tests");
         public byte[] ReadAssetContent(string folderName, string relativePath) => throw new NotSupportedException("not exercised by these tests");

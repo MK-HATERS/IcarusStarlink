@@ -666,7 +666,7 @@ public sealed partial class LibraryItemViewModelTests : IDisposable
 
         public string? TryGetLatestModBackupPath(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
 
-        public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank) =>
+        public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank, string? version = null) =>
             throw new NotSupportedException("Not exercised by these tests.");
 
         public IReadOnlyList<string> ListAssetPaths(string folderName) => throw new NotSupportedException("Not exercised by these tests.");

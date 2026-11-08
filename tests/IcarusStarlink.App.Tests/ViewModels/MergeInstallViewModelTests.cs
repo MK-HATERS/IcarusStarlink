@@ -2792,7 +2792,7 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
 
         public string? TryGetLatestModBackupPath(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
 
-        public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank) =>
+        public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank, string? version = null) =>
             throw new NotSupportedException("Not exercised by these tests.");
 
         // The health check lists a mod's cooked files; these test mods have none.

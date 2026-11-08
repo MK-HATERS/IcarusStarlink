@@ -1678,7 +1678,7 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         public bool HasModBackup(string folderName) => false;
         public bool RestoreLatestModBackup(string folderName) => throw new NotSupportedException();
         public string? TryGetLatestModBackupPath(string folderName) => null;
-        public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank) => throw new NotSupportedException();
+        public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank, string? version = null) => throw new NotSupportedException();
         public IReadOnlyList<string> ListAssetPaths(string folderName) => [];
         public IReadOnlyList<string> ListAssetPaths(string folderName, IReadOnlyList<string> precomputedFiles) => [];
         public byte[] ReadAssetContent(string folderName, string relativePath) => throw new NotSupportedException();

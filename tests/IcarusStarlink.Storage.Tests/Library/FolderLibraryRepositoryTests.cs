@@ -1101,6 +1101,22 @@ public class FolderLibraryRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void CreateBlankMod_WithAVersion_WritesItIntoTheMod_AndWithoutOneStartsAt1_0()
+    {
+        string folderName;
+        using (var repo = CreateRepository())
+        {
+            var entry = repo.CreateBlankMod("Versioned Mod", "TestAuthor", ModTemplate.Blank, " 2.5 ");
+            Assert.Equal("2.5", entry.Version);
+            folderName = entry.FolderName;
+            Assert.Equal("1.0", repo.CreateBlankMod("Plain Mod", "TestAuthor").Version);
+        }
+
+        using var reopened = CreateRepository();
+        Assert.Equal("2.5", ExmodFolder.Read(reopened.GetFolderPath(folderName)).Package.Version);
+    }
+
+    [Fact]
     public void CreateBlankMod_PersistsAsARealExmodPackageAcrossRepositoryInstances()
     {
         string folderName;

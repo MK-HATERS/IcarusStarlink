@@ -13,7 +13,11 @@
         <TextBox x:Name="NameBox" Margin="0,4,0,12"/>
 
         <TextBlock Text="Author" Style="{StaticResource FieldLabelStyle}"/>
-        <TextBox x:Name="AuthorBox" Margin="0,4,0,16"/>
+        <TextBox x:Name="AuthorBox" Margin="0,4,0,12"/>
+
+        <TextBlock Text="Version" Style="{StaticResource FieldLabelStyle}"/>
+        <TextBox x:Name="VersionBox" Text="1.0" Margin="0,4,0,16" AutomationProperties.Name="Version"
+                 ToolTip="Your mod's own version, such as 1.0 or 2.3. Raise it each time you share a new copy so players can tell which one they have."/>
 
         <TextBlock Text="Starting point" Style="{StaticResource FieldLabelStyle}"/>
         <RadioButton x:Name="BlankRadio" GroupName="Template" IsChecked="True" Margin="0,6,0,0"

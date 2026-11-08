@@ -9,6 +9,9 @@ public partial class NewModDialog : Window
     public string ModAuthor { get; private set; } = "";
     public ModTemplate SelectedTemplate { get; private set; } = ModTemplate.Blank;
 
+    /// <summary>The version typed in the Version box; 1.0 when it was left empty.</summary>
+    public string ModVersion { get; private set; } = "1.0";
+
     public NewModDialog()
     {
         InitializeComponent();
@@ -34,6 +37,7 @@ public partial class NewModDialog : Window
 
         ModName = NameBox.Text.Trim();
         ModAuthor = AuthorBox.Text.Trim();
+        ModVersion = string.IsNullOrWhiteSpace(VersionBox.Text) ? "1.0" : VersionBox.Text.Trim();
         SelectedTemplate = CraftableRadio.IsChecked == true ? ModTemplate.CraftableOrDeployableItem
             : ConsumableRadio.IsChecked == true ? ModTemplate.ConsumableItem
             : BuildingPieceRadio.IsChecked == true ? ModTemplate.BuildingPiece

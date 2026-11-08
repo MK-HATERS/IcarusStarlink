@@ -237,7 +237,7 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
     /// as _, the convention real EXMOD authors use, and every character a file name can't hold
     /// (: / ? * and the like) as _ too; the mod's Name keeps the name as typed.
     /// </summary>
-    public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank)
+    public LibraryEntry CreateBlankMod(string name, string author, ModTemplate template = ModTemplate.Blank, string? version = null)
     {
         var fileName = SanitizeFolderNameCandidate(name.Replace(' ', '_'));
         var folderName = MakeUniqueFolderName(fileName);
@@ -245,6 +245,10 @@ public sealed class FolderLibraryRepository : ILibraryRepository, IExmodPackageI
 
         var package = ModTemplateContent.Create(template, name, author);
         package.FileName = fileName;
+        if (!string.IsNullOrWhiteSpace(version))
+        {
+            package.Version = version.Trim();
+        }
         var meta = new LibraryMeta { ImportedAtUtc = DateTimeOffset.UtcNow, MadeInStarlink = true };
         WriteNewModFolder(targetFolder, () =>
         {
