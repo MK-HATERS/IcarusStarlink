@@ -187,6 +187,32 @@ public class ExmodBaseDifferTests : IDisposable
         Assert.Equal(5, (int)item.Fields["Weight"]!);
     }
 
+    /// <summary>The mod editor's Save passes the tables it already read for the amber highlights, so a Save doesn't read and parse every game table again.</summary>
+    [Fact]
+    public void StripFieldsIdenticalToBase_WithACache_ReadsTheTableFromIt()
+    {
+        var cache = new Dictionary<string, JsonObject?>
+        {
+            ["Traits-D_Itemable.json"] = new JsonObject { ["Item_X"] = new JsonObject { ["Weight"] = 5 } },
+        };
+        var package = MakePackage(new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Itemable.json",
+            FileItems =
+            [
+                new ExmodFileItem { Name = "Item_X", Fields = { ["Weight"] = JsonValue.Create(5) } },
+                new ExmodFileItem { Name = "Item_Y", Fields = { ["Weight"] = JsonValue.Create(6) } },
+            ],
+        });
+
+        // The data folder doesn't exist: the table can only come from the cache.
+        var result = ExmodBaseDiffer.StripFieldsIdenticalToBase(package, _dataFolder, baseTableCache: cache);
+
+        var items = Assert.Single(result).FileItems;
+        Assert.Empty(items.Single(i => i.Name == "Item_X").Fields);
+        Assert.Equal(6, (int)items.Single(i => i.Name == "Item_Y").Fields["Weight"]!);
+    }
+
     /// <summary>
     /// The critical regression this whole feature must never introduce: AddItem + AddField is a
     /// real, intentional editor workflow for hand-authoring a deliberately sparse item — e.g. typing

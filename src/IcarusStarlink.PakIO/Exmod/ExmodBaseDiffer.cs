@@ -79,7 +79,14 @@ public static class ExmodBaseDiffer
     /// the middle of populating (Insert file at location / Add item, before adding any fields yet)
     /// must survive a Save exactly as before.
     /// </summary>
-    public static List<ExmodFileRow> StripFieldsIdenticalToBase(ExmodPackage package, string dataFolder, MergeReport? report = null)
+    /// <param name="baseTableCache">
+    /// Optional, keyed by CurrentFile, the same cache DiffAgainstBase takes: the mod editor passes the
+    /// tables it already read for its highlights, so a Save doesn't read and parse each game table
+    /// again. Only read here (a base row is never changed); a cached null keeps the row as it is, like
+    /// a missing file. Null reads every table fresh.
+    /// </param>
+    public static List<ExmodFileRow> StripFieldsIdenticalToBase(
+        ExmodPackage package, string dataFolder, MergeReport? report = null, IDictionary<string, JsonObject?>? baseTableCache = null)
     {
         var result = new List<ExmodFileRow>();
 
@@ -97,7 +104,7 @@ public static class ExmodBaseDiffer
                 continue;
             }
 
-            var baseKeyed = BaseDataFileReader.ReadKeyedTable(dataFolder, row.CurrentFile, report);
+            var baseKeyed = ResolveBaseTable(row.CurrentFile, dataFolder, report, baseTableCache);
             if (baseKeyed is null)
             {
                 result.Add(row);
