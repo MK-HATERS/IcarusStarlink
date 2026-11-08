@@ -682,7 +682,7 @@ public sealed partial class SettingsViewModel
         var result = _dialogService.Confirm(
             (IsStableReadyForBeta
                 ? $"Stable v{release.Version} is ready — you're on beta v{InstalledAppVersion}.\n\nInstall the stable release now?"
-                : $"IcarusStarlink v{release.Version} is available — you're on v{InstalledAppVersion}.\n\nDownload and install it now?")
+                : $"Icarus Starlink v{release.Version} is available — you're on v{InstalledAppVersion}.\n\nDownload and install it now?")
             + " The app will close, update itself, and reopen — your mods, profiles, and settings are not touched.",
             "Update available", ThemedConfirmSeverity.Information);
         if (result)

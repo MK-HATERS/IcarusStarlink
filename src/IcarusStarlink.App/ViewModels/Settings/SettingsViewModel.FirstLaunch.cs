@@ -102,7 +102,7 @@ public sealed partial class SettingsViewModel
         }
 
         var browse = _dialogService.Confirm(
-            "IcarusStarlink needs to know where Icarus is installed, and couldn't find it through Steam.\n\n"
+            "Icarus Starlink needs to know where Icarus is installed, and couldn't find it through Steam.\n\n"
             + "Browse to the game's Content folder now? (It's Icarus\\Icarus\\Content inside the game install. Choose No to set it later in Settings — launching the game, the folder shortcuts, merging and installing all need it.)",
             "Set up your Icarus folder", ThemedConfirmSeverity.Question);
         if (browse)
@@ -160,7 +160,7 @@ public sealed partial class SettingsViewModel
         {
             FirstLaunchSetupNeededAttention = true;
             var register = _dialogService.Confirm(
-                "Make IcarusStarlink handle Nexus \"Mod Manager Download\" links?\n\n"
+                "Make Icarus Starlink handle Nexus \"Mod Manager Download\" links?\n\n"
                 + "This registers the app as your nxm:// handler (a per-user Windows setting, no admin needed) so clicking Download on a Nexus mod page sends the file straight here. "
                 + "You can change it any time in Settings → Nexus.",
                 "Nexus download links", ThemedConfirmSeverity.Question);
@@ -175,7 +175,7 @@ public sealed partial class SettingsViewModel
                     // the flag left the header saying the replaced app (Vortex) still had the links.
                     RefreshNxmHandlerState();
                     NxmProtocolStatusMessage = IsNxmProtocolRegisteredToThisApp
-                        ? "Registered — Nexus \"Mod Manager Download\" buttons now open IcarusStarlink."
+                        ? "Registered — Nexus \"Mod Manager Download\" buttons now open Starlink."
                         : "Registration didn't take effect — try again from Settings → Nexus.";
                 }
                 catch (Exception ex)
@@ -215,7 +215,7 @@ public sealed partial class SettingsViewModel
         }
 
         var answer = _dialogService.Confirm(
-            "IcarusStarlink needs UnrealPak.exe to build and unpack mod paks, and none is set up yet.\n\n"
+            "Icarus Starlink needs UnrealPak.exe to build and unpack mod paks, and none is set up yet.\n\n"
             + "Install it now? (Downloads a small, one-time payload if there isn't already a copy shipped alongside the app. Choose No to point at one you already have, in Settings.)",
             "Set up UnrealPak", ThemedConfirmSeverity.Question);
         if (answer)

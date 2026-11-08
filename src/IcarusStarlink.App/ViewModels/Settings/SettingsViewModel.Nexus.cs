@@ -225,7 +225,7 @@ public sealed partial class SettingsViewModel
     private void RegisterNxmProtocol()
     {
         var result = _dialogService.Confirm(
-            "This registers IcarusStarlink as the handler for nxm:// links (Nexus's \"Mod Manager Download\" buttons) for your Windows account.\n\n" +
+            "This registers Icarus Starlink as the handler for nxm:// links (Nexus's \"Mod Manager Download\" buttons) for your Windows account.\n\n" +
             "If another mod manager (e.g. Vortex) currently handles these, Starlink takes over but passes it the links for its own games, so it keeps working. Unregister below gives the links back to it.\n\n" +
             "Continue?",
             "Register as Nexus download handler", ThemedConfirmSeverity.Question);
@@ -240,7 +240,7 @@ public sealed partial class SettingsViewModel
             _nxmProtocolRegistrar.Register();
             RefreshNxmHandlerState();
             NxmProtocolStatusMessage = IsNxmProtocolRegisteredToThisApp
-                ? "Registered — Nexus \"Mod Manager Download\" buttons now open IcarusStarlink."
+                ? "Registered — Nexus \"Mod Manager Download\" buttons now open Starlink."
                 : "Registration didn't take effect — try again, or check that nothing is blocking registry writes.";
         }
         catch (Exception ex)
