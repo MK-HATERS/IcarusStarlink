@@ -45,6 +45,9 @@ public sealed partial class DownloadsViewModel
     /// <summary>The account was looked up for this sign-in (IsPremium may still be null when the key wasn't recognised).</summary>
     private bool _premiumChecked;
 
+    /// <summary>The mod whose Nexus file list is open (null when none is), so a second list isn't opened over it.</summary>
+    private string? _choosingFileFor;
+
     /// <summary>IsPremium, looking the account up first if this sign-in hasn't yet. Never throws: Nexus unreachable leaves it unknown and asks again next time.</summary>
     public async Task<bool?> CheckIsPremiumAsync()
     {
@@ -109,9 +112,10 @@ public sealed partial class DownloadsViewModel
             if (await CheckIsPremiumAsync() == false)
             {
                 var target = newer ?? (files.Count == 1 ? files[0] : null);
-                OpenUrl(target is null ? NexusModWebUrl.ForFiles(nexusModId) : NexusModWebUrl.ForFile(nexusModId, target.FileId));
-                PendingDownloadStatusMessage =
-                    "Nexus only lets Premium accounts download from inside an app. Click Mod Manager Download on the page that opened; Starlink installs it from there.";
+                var page = target is null ? NexusModWebUrl.ForFiles(nexusModId) : NexusModWebUrl.ForFile(nexusModId, target.FileId);
+                PendingDownloadStatusMessage = OpenUrl(page) is null
+                    ? "Nexus only lets Premium accounts download from inside an app. Click Mod Manager Download on the page that opened; Starlink installs it from there."
+                    : $"Nexus only lets Premium accounts download from inside an app, and your browser didn't open. Go to {page} and click Mod Manager Download there; Starlink installs it from there.";
                 return;
             }
 
@@ -122,7 +126,27 @@ public sealed partial class DownloadsViewModel
             }
             else
             {
-                if (_dialogService?.PickNexusFile(displayName ?? $"Mod #{nexusModId}", files, newer) is not { } chosen)
+                // The file list is modal, so other work (a second Update whose file list just
+                // arrived) runs inside it and would open another list on top of this one.
+                var name = displayName ?? $"Mod #{nexusModId}";
+                if (_choosingFileFor is { } open)
+                {
+                    PendingDownloadStatusMessage = $"Already choosing a file for '{open}'. Pick one or cancel that list first.";
+                    return;
+                }
+
+                NexusModFile? chosen;
+                _choosingFileFor = name;
+                try
+                {
+                    chosen = _dialogService?.PickNexusFile(name, files, newer);
+                }
+                finally
+                {
+                    _choosingFileFor = null;
+                }
+
+                if (chosen is null)
                 {
                     PendingDownloadStatusMessage = "Download cancelled.";
                     return;
@@ -284,10 +308,12 @@ public sealed partial class DownloadsViewModel
             // the player gets that next step and the file's own page opens. Only this rejection:
             // any InvalidOperationException (a failed import, say) used to send the user to the
             // website with Premium advice.
-            OpenUrl(NexusModWebUrl.ForFile(nxmUrl.ModId, nxmUrl.FileId));
+            var page = NexusModWebUrl.ForFile(nxmUrl.ModId, nxmUrl.FileId);
+            var where = OpenUrl(page) is null
+                ? "Opened the file's Nexus page — if your account isn't Premium, click its"
+                : $"Your browser didn't open, so go to {page} — if your account isn't Premium, click the file's";
             PendingDownloadStatusMessage =
-                $"{ex.Message} Opened the file's Nexus page — if your account isn't Premium, click its "
-                + "\"Mod Manager Download\" button there instead (register Starlink as your nxm:// "
+                $"{ex.Message} {where} \"Mod Manager Download\" button there instead (register Starlink as your nxm:// "
                 + "handler in Settings first, if you haven't already).";
         }
         catch (Exception ex)
@@ -455,17 +481,14 @@ public sealed partial class DownloadsViewModel
     /// <summary>
     /// Same reasoning as RecordNexusMetadataAsync, but for a UE4SS mod: a UE4SS mod carries no
     /// metadata file at all (not even a name/author), so its Nexus mod ID and version are recorded
-    /// in the separate Ue4ss_Meta sidecar store instead of LibraryMeta — that's what lets Library's
-    /// UE4SS tab show a "Nexus" badge and check for updates.
+    /// in the separate Ue4ss_Meta sidecar store instead of LibraryMeta — that's what gives its row
+    /// in Library's UE4SS panel a "Nexus" badge and an update check.
     ///
-    /// The ID itself is saved unconditionally, BEFORE the enrichment call — matching the opaque-pak
-    /// path's own ImportPak(..., nexusModId: modId), which records the ID at import time regardless
-    /// of what SetNexusMetadata's own best-effort lookup does. Only the version lookup is
-    /// best-effort/silently-swallowed: a missing key or a rejected/failed API call still leaves the
-    /// mod correctly linked (HasNexusLink true, eligible for CheckForUpdatesAsync), just without a
-    /// known starting version yet — versus the original shape, where any enrichment failure meant
-    /// the ID was never saved at all, permanently excluding the mod from update-checking with no way
-    /// to relink it (Library's UE4SS tab has no manual "Link to Nexus…" action, unlike its Mods tab).
+    /// The ID itself is saved before the version lookup, as the opaque-pak path's
+    /// ImportPak(..., nexusModId: modId) records it at import time. Only the version lookup is
+    /// best-effort: a missing key or a rejected/failed API call still leaves the mod linked
+    /// (HasNexusLink true, eligible for CheckForUpdatesAsync), just without a known starting
+    /// version yet, so the player doesn't have to link it by hand (LinkUe4ssModToNexus).
     ///
     /// Load-modify-Save, not a fresh `new Ue4ssModMeta { ... }` — folderName is freshly staged by
     /// this same activation almost always, but a disambiguated/reused folder name could already

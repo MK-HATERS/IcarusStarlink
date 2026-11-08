@@ -1382,9 +1382,13 @@ public sealed partial class DownloadsViewModelTests : IDisposable
         /// <summary>How often the Nexus file list was shown; it answers Cancel.</summary>
         public int PickNexusFileCalls { get; private set; }
 
+        /// <summary>Runs while the file list is open, as the window's message loop would run other work.</summary>
+        public Action? WhileFileListIsOpen { get; set; }
+
         public NexusModFile? PickNexusFile(string modName, IReadOnlyList<NexusModFile> files, NexusModFile? preselect)
         {
             PickNexusFileCalls++;
+            WhileFileListIsOpen?.Invoke();
             return null;
         }
     }
