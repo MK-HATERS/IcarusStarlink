@@ -14,6 +14,13 @@ namespace IcarusStarlink.App.Utilities;
 /// survives the process dying a moment later. DiagnosticsExporter puts every crash-*.txt in the
 /// diagnostics zip.
 ///
+/// Which handler sees a failure: an async [RelayCommand] WITHOUT FlowExceptionsToTaskScheduler
+/// awaits its task and rethrows a failure on the UI thread, so it reaches
+/// DispatcherUnhandledException (Starlink reports it and closes). WITH FlowExceptionsToTaskScheduler
+/// = true the failure stays on the command's ExecutionTask, which nothing reads; it reaches
+/// TaskScheduler.UnobservedTaskException only when that Task is garbage-collected, which can be
+/// much later or never. AppDomain.UnhandledException covers a crash on another thread.
+///
 /// Keeps the newest <see cref="MaxReports"/> reports and deletes older ones, so a background task
 /// that fails once per session doesn't add a file forever.
 ///
@@ -26,12 +33,13 @@ public static class CrashReportWriter
     public const int MaxReports = 20;
 
     /// <summary>
-    /// Best-effort resolve of the app's own IActivityLog from the DI host, if one exists yet —
-    /// null during a crash early enough in startup that the host was never built, or one late
-    /// enough that _host has already been disposed. Passed in rather than resolved here so this
-    /// class doesn't need to know about IHost/DI at all.
+    /// Writes the report and returns its full path, or null when no report could be written (the
+    /// folder can't be created, the disk is full, no permission), so a crash box can name the file
+    /// or say there is none. <paramref name="activityLog"/> is the app's IActivityLog when the DI
+    /// host exists (null during a crash early in startup or after the host was disposed); passed
+    /// in so this class doesn't need to know about the host.
     /// </summary>
-    public static void Write(string logsDirectory, Exception exception, string source, IActivityLog? activityLog)
+    public static string? Write(string logsDirectory, Exception exception, string source, IActivityLog? activityLog)
     {
         try
         {
@@ -44,6 +52,7 @@ public static class CrashReportWriter
         }
 
         string? reportPath = null;
+        var written = false;
         try
         {
             Directory.CreateDirectory(logsDirectory);
@@ -89,6 +98,7 @@ public static class CrashReportWriter
             }
 
             writer.Flush();
+            written = true;
         }
         catch (Exception)
         {
@@ -104,6 +114,8 @@ public static class CrashReportWriter
         {
             // A cleanup failure must never cost the report.
         }
+
+        return written ? reportPath : null;
     }
 
     /// <summary>Deletes all but the newest reports, never <paramref name="justWritten"/>; each delete is best effort.</summary>

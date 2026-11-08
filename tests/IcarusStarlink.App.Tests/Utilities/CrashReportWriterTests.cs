@@ -159,4 +159,28 @@ public class CrashReportWriterTests : IDisposable
         Assert.True(Directory.Exists(missingDir));
         Assert.Single(Directory.GetFiles(missingDir, "crash-*.txt"));
     }
+
+    /// <summary>The crash boxes name the report the player can attach, so Write hands back where it went.</summary>
+    [Fact]
+    public void Write_ReturnsThePathOfTheReportItWrote()
+    {
+        string? path = CrashReportWriter.Write(_tempDir, new Exception("the one to attach"), "Startup", activityLog: null);
+
+        Assert.NotNull(path);
+        Assert.Equal(Directory.GetFiles(_tempDir, "crash-*.txt").Single(), path);
+        Assert.Contains("the one to attach", File.ReadAllText(path));
+    }
+
+    /// <summary>When no report could be written, Write says so (null) rather than naming a file that isn't there.</summary>
+    [Fact]
+    public void Write_FolderCannotBeCreated_ReturnsNull()
+    {
+        Directory.CreateDirectory(_tempDir);
+        var aFile = Path.Combine(_tempDir, "not-a-folder");
+        File.WriteAllText(aFile, "");
+
+        string? path = CrashReportWriter.Write(Path.Combine(aFile, "Logs"), new Exception("x"), "Startup", activityLog: null);
+
+        Assert.Null(path);
+    }
 }
