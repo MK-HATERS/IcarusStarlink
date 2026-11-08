@@ -141,12 +141,6 @@
         <!-- Real icons replace the raw emoji markers, and hovering a row
              reveals inline Pin/Favorite/Edit actions (RowActions, opacity 0→1 on IsMouseOver)
              instead of only the detail pane or the right-click menu below. -->
-        <!-- A UE4SS (Lua) mod as a row in the SAME list as pak/EXMOD mods (the separate UE4SS tab is
-             gone). Same SharedSizeGroup columns as the LibraryItemViewModel template below, so the
-             columns line up; the "On" checkbox is the mod's pending enabled state (Apply moves it);
-             Type says UE4SS; Status says In game / Needs Apply / Not enabled. A Lua mod that is the
-             Lua half of a Mods-tab row (same download) is never listed here — see
-             LibraryViewModel.Reload. -->
         <!-- A UE4SS (Lua) mod in the right-hand panel. Its own columns (no Type or Author: every row
              is a UE4SS mod, and they name no author); the "On" box is its pending state (Apply moves
              it). A mod's other half in the data panel (MkHatersBags / MkHaters Bags) lights up with it. -->
@@ -628,7 +622,7 @@
                     </Button>
                 </Border>
 
-                <!-- Status, and the Update pill (a Database mod updates in place; a Nexus mod opens its card). -->
+                <!-- Status, and the Update pill (a Database mod updates in place; a Nexus mod opens the choice of its files, or its Nexus page without a key). -->
                 <StackPanel Grid.Column="8" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0" Visibility="{Binding DataContext.ShowStatusColumn, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Ellipse Style="{StaticResource ModStatusDotStyle}"/>
                     <TextBlock Text="{Binding InstallStatus}" FontSize="12" VerticalAlignment="Center" ToolTip="{Binding InstallStatusDetail}" Style="{StaticResource ModStatusTextStyle}"/>
@@ -796,24 +790,24 @@
                             <Button.ContextMenu>
                                 <ContextMenu Placement="Bottom">
                                     <!-- Grouped by what they look at: mod updates, the game data, Nexus endorsements. -->
-                                    <MenuItem Header="Check for updates" Command="{Binding CheckForUpdatesCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Checks every mod from Nexus or the Database for a newer version. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
-                                    <MenuItem Header="Update all" Command="{Binding UpdateAllCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Updates every mod the last check found out of date, one after another: Database mods right here, Nexus and UE4SS mods through their own Update button (a mod with several files asks which one; cancel to stop). Without a Nexus key or Nexus Premium, it names the Nexus and UE4SS mods instead. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
+                                    <MenuItem Header="Check for updates" Command="{Binding CheckForUpdatesCommand}" IsEnabled="{Binding CanCheckForUpdates}"
+                                              ToolTip="Checks every mod from Nexus or the Database for a newer version. Greyed out while it is already running." ToolTipService.ShowOnDisabled="True"/>
+                                    <MenuItem Header="Update all" Command="{Binding UpdateAllCommand}" IsEnabled="{Binding CanUpdateAll}"
+                                              ToolTip="Updates every mod the last check found out of date, one after another: Database mods right here, Nexus and UE4SS mods through their own Update button (a mod with several files asks which one; cancel to stop). Without a Nexus key or Nexus Premium, it names the Nexus and UE4SS mods instead. Greyed out while Check for updates, or a pass that changes mods, is running." ToolTipService.ShowOnDisabled="True"/>
                                     <Separator/>
-                                    <MenuItem Header="Check mods against game data" Command="{Binding CheckModsAgainstCurrentDataCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Checks every editable mod against the current game data and flags what no longer fits. It only looks: fix them from the warning badge or Fix sure problems. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
-                                    <MenuItem Header="Fix sure problems in every mod" Command="{Binding FixSureProblemsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="After Check mods against game data: makes every sure fix in every flagged mod (game data copied from an older version, proven broken links and renames), backing up each mod first. Anything that needs a look stays flagged. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
-                                    <MenuItem Header="Make prebuilt paks editable…" Command="{Binding ConvertAllOpaqueModsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Tries again to turn every ready-made pak mod into one you can edit. Handy right after setting up UnrealPak.exe (it also runs by itself after every Refresh game data). Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
+                                    <MenuItem Header="Check mods against game data" Command="{Binding CheckModsAgainstCurrentDataCommand}" IsEnabled="{Binding CanRunModPass}"
+                                              ToolTip="Checks every editable mod against the current game data and flags what no longer fits. It only looks: fix them from the warning badge or Fix sure problems. Greyed out while it, Fix sure problems or Make prebuilt paks editable is running." ToolTipService.ShowOnDisabled="True"/>
+                                    <MenuItem Header="Fix sure problems in every mod" Command="{Binding FixSureProblemsCommand}" IsEnabled="{Binding CanRunModPass}"
+                                              ToolTip="After Check mods against game data: makes every sure fix in every flagged mod (game data copied from an older version, proven broken links and renames), backing up each mod first. Anything that needs a look stays flagged. Greyed out while it, Check mods against game data or Make prebuilt paks editable is running." ToolTipService.ShowOnDisabled="True"/>
+                                    <MenuItem Header="Make prebuilt paks editable…" Command="{Binding ConvertAllOpaqueModsCommand}" IsEnabled="{Binding CanRunModPass}"
+                                              ToolTip="Tries again to turn every ready-made pak mod into one you can edit. Handy right after setting up UnrealPak.exe (it also runs by itself after every Refresh game data). Greyed out while it, Check mods against game data or Fix sure problems is running." ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="What the last game update changed…" Command="{Binding ShowLastGameUpdateCommand}"
                                               ToolTip="What the last Update everything fixed, what still needs a look, and which mods replace game files the update changed. Roll back is there too."/>
                                     <MenuItem Header="Find the broken mod…" Command="{Binding FindBrokenModCommand}"
                                               ToolTip="Something broken in game and you don't know which mod does it? Tests your mods in rounds until it finds the one. Your saves are backed up first and your mods go back at the end."/>
                                     <Separator/>
-                                    <MenuItem Header="Check endorsements" Command="{Binding CheckEndorsementsCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Gets your Nexus endorsements and shows which of your Nexus mods you haven't endorsed yet. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
+                                    <MenuItem Header="Check endorsements" Command="{Binding CheckEndorsementsCommand}" IsEnabled="{Binding CanCheckEndorsements}"
+                                              ToolTip="Gets your Nexus endorsements and shows which of your Nexus mods you haven't endorsed yet. Greyed out while it is already running." ToolTipService.ShowOnDisabled="True"/>
                                 </ContextMenu>
                             </Button.ContextMenu>
                             <StackPanel Orientation="Horizontal">
@@ -858,6 +852,9 @@
             </DockPanel>
 
             <StackPanel Grid.Row="2">
+                        <!-- Which whole-library checks are running now; hidden when none is. -->
+                        <TextBlock Text="{Binding LibraryChecksRunningText}" Visibility="{Binding LibraryChecksRunningText, Converter={StaticResource NullToVisibilityConverter}}"
+                                   Foreground="{DynamicResource SecondaryForegroundBrush}" FontSize="12" TextWrapping="Wrap"/>
                         <!-- The results of the Check ▾ menu's whole-library checks, in one section the
                              user can fold away (three result lines used to stack up here and push the
                              list down). A new result opens it again; Clear empties it. -->
@@ -1169,7 +1166,7 @@
                                         Command="{Binding ClearSelectionCommand}" ToolTip="Clear the selection (Esc)" AutomationProperties.Name="Clear selection">
                                     <Path Data="M6,6 L18,18 M18,6 L6,18" Stroke="{DynamicResource SecondaryForegroundBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="10" Height="10" Stretch="Uniform"/>
                                 </Button>
-                                <TextBlock DockPanel.Dock="Right" Text="Space on/off · Del delete · Enter details" FontSize="11.5" VerticalAlignment="Center" Margin="8,0"
+                                <TextBlock DockPanel.Dock="Right" Text="Space on/off · Del delete" FontSize="11.5" VerticalAlignment="Center" Margin="8,0"
                                            Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                                 <WrapPanel VerticalAlignment="Center">
                                     <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" FontSize="12.5" Margin="0,0,10,0"><Run Text="{Binding Ue4ssSelectedCount, Mode=OneWay}"/><Run Text=" selected"/></TextBlock>
@@ -1181,14 +1178,11 @@
                         <Grid x:Name="Ue4ssHeaderGrid" Grid.Row="2" Margin="4,0,4,4">
                             <Grid.ContextMenu>
                                 <ContextMenu>
-                                    <MenuItem Header="Author" IsCheckable="True" IsChecked="{Binding ShowAuthorColumn}"/>
                                     <MenuItem Header="Version" IsCheckable="True" IsChecked="{Binding ShowVersionColumn}"/>
                                     <MenuItem Header="Source" IsCheckable="True" IsChecked="{Binding ShowSourceColumn}"/>
                                     <MenuItem Header="Status" IsCheckable="True" IsChecked="{Binding ShowStatusColumn}"/>
                                     <MenuItem Header="Latest" IsCheckable="True" IsChecked="{Binding ShowLatestColumn}"
                                               ToolTip="The version last seen on Nexus/the Database, even when you're already up to date"/>
-                                    <MenuItem Header="Imported" IsCheckable="True" IsChecked="{Binding ShowImportedColumn}"
-                                              ToolTip="When this mod was added to your Library"/>
                                 </ContextMenu>
                             </Grid.ContextMenu>
                             <Grid.ColumnDefinitions>

@@ -9,15 +9,11 @@
         Foreground="{DynamicResource ForegroundBrush}">
 
     <!--
-    Phase 10 follow-up: a popped-out version of Library's own detail pane, opened by double-
-    clicking a mod row — non-modal (multiple can be open at once, same shape as the EXMOD editor's
-    own per-mod windows) so a user can compare two mods side by side without losing either one when
-    picking something else in the main tree. DataContext is the double-clicked LibraryItemViewModel
-    directly (not "SelectedItem" — that would make this window's content follow whatever gets
-    clicked next in the main window, defeating the point of popping it out), so every binding below
-    matches the main detail pane's own bindings minus the "SelectedItem." prefix. The three actions
-    that are page-level commands (Edit/Delete/Get update) reach back up via the Window's own
-    LibraryViewModel property, set by the code-behind at construction time.
+    A mod's details in a window of their own, opened by double-clicking a row or pressing Enter.
+    Non-modal, so several can be open to compare mods. DataContext is the row's LibraryItemViewModel
+    itself (not the page's SelectedItem), so the window keeps its mod when the list selection moves.
+    Edit, Delete and Get update reach the page's commands through the window's LibraryViewModel
+    property.
     -->
     <Grid Margin="20">
         <Grid.RowDefinitions>
