@@ -67,7 +67,7 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     private readonly string _backupDirectory;
 
-    /// <summary>The extracted game data folder ("Update data folder"'s own output) — needed by CheckModsAgainstCurrentDataAsync to diff each mod's own items against what the game currently defines. Same plain DI-injected string ExmodEditorViewModel/MergeInstallViewModel already take, not a Settings-read.</summary>
+    /// <summary>The extracted game data folder ("Refresh game data"'s own output) — needed by CheckModsAgainstCurrentDataAsync to diff each mod's own items against what the game currently defines. Same plain DI-injected string ExmodEditorViewModel/MergeInstallViewModel already take, not a Settings-read.</summary>
     private readonly string _dataFolder;
 
     private readonly DebounceTimer _searchDebounceTimer;
@@ -139,10 +139,9 @@ public sealed partial class LibraryViewModel : ObservableObject
     private bool _showImportedColumn;
 
     /// <summary>
-    /// Library's UE4SS tab — the single place to manage UE4SS mods, replacing
-    /// the old split between this read-only tab and Merge & Install's own separate Staged/Attached
-    /// section. Each row's IsEnabled starts equal to its real current state (present in the game's
-    /// own Mods folder or not) and only diverges once toggled — nothing actually moves until Apply.
+    /// The Library's UE4SS panel — the single place to manage UE4SS mods. Each row's IsEnabled
+    /// starts equal to its real current state (present in the game's own Mods folder or not) and
+    /// only diverges once toggled — nothing actually moves until Apply.
     /// </summary>
     public ObservableCollection<Ue4ssModRowViewModel> Ue4ssMods { get; } = [];
 
@@ -397,7 +396,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             self.OnPageShown(); // a no-op when the reload above already ran the pass
         });
 
-        // Every successful "Update data folder" run means fresher base game data exists — worth
+        // Every successful "Refresh game data" run means fresher base game data exists — worth
         // re-attempting conversion for mods that are still opaque, and re-deriving a fresher diff
         // for mods already converted from one, so neither stays frozen against stale data forever.
         // See RefreshConvertedOpaqueModsAsync's own doc comment for why this stays silent-but-

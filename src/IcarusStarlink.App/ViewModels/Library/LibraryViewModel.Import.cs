@@ -291,7 +291,7 @@ public sealed partial class LibraryViewModel
         }
 
         var linkPrompt = _dialogService.Confirm(
-            $"'{entry.Name}' doesn't have a name/author of its own yet — imported .pak files don't carry that until you tell it where they came from.\n\nIs this a Nexus mod? Link it now so IcarusStarlink can show its real name and check for updates.",
+            $"'{entry.Name}' doesn't have a name/author of its own yet — imported .pak files don't carry that until you tell it where they came from.\n\nIs this a Nexus mod? Link it now so Starlink can show its real name and check for updates.",
             "Link to Nexus?", ThemedConfirmSeverity.Question);
         if (!(linkPrompt))
         {

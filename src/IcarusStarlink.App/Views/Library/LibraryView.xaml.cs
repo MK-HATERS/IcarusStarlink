@@ -243,7 +243,7 @@ public partial class LibraryView : UserControl
 
     // TreeView.SelectedItem has no setter (see LibraryTree_SelectedItemChanged's own comment), so
     // setting the ViewModel's SelectedItem to null on its own never reaches the real
-    // TreeViewItem.IsSelected — DeleteSelected() deletes the mod and removes its row while WPF
+    // TreeViewItem.IsSelected — DeleteItem (or DeleteMods) deletes the mod and removes its row while WPF
     // still considers that TreeViewItem "selected". WPF's TreeView does not defensively clean up
     // its own internal selection tracking when a still-selected container disappears via a
     // targeted Remove (as opposed to a full Reset) — it silently blocks the next selection
