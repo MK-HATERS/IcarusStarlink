@@ -16,6 +16,21 @@ public class ModTemplateContentTests
         Assert.Empty(package.Rows);
     }
 
+    /// <summary>Regression: a name with a character a file name can't hold ("Stacks: x10") gave the file name "Stacks:_x10", and creating the mod failed.</summary>
+    [Theory]
+    [InlineData(ModTemplate.Blank)]
+    [InlineData(ModTemplate.QualityOfLife)]
+    [InlineData(ModTemplate.CraftableOrDeployableItem)]
+    public void Create_NameWithCharactersAFileCantHold_GetsASafeFileName_AndKeepsTheName(ModTemplate template)
+    {
+        var package = ModTemplateContent.Create(template, "Stacks: x10", "Me");
+
+        Assert.True(IcarusStarlink.PakIO.Safety.AssetPathGuard.IsSimpleFileName(package.FileName), package.FileName);
+        Assert.Equal("Stacks__x10", package.FileName);
+        Assert.Equal("Stacks: x10", package.Name);
+        Assert.Equal("Weight_Stack_tweaks", ModTemplateContent.FileNameFor("Weight/Stack tweaks"));
+    }
+
     [Theory]
     [InlineData(ModTemplate.CraftableOrDeployableItem)]
     [InlineData(ModTemplate.ConsumableItem)]

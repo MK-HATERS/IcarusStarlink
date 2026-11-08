@@ -1,4 +1,5 @@
 using IcarusStarlink.Core.Library;
+using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.PakIO.Exmod;
 
@@ -16,9 +17,12 @@ namespace IcarusStarlink.PakIO.Exmod;
 /// </summary>
 public static class ModTemplateContent
 {
+    /// <summary>The EXMOD file name for a typed mod name: spaces become _, and so does every character a file name can't hold.</summary>
+    public static string FileNameFor(string name) => AssetPathGuard.SanitizeToSimpleFileName(name.Replace(' ', '_'));
+
     public static ExmodPackage Create(ModTemplate template, string name, string author)
     {
-        var fileName = name.Replace(' ', '_');
+        var fileName = FileNameFor(name);
 
         if (template == ModTemplate.QualityOfLife)
         {
