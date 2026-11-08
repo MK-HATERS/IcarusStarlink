@@ -240,8 +240,13 @@ public sealed partial class LibraryViewModel
     /// up first, through the same Apply path the Disable checkbox uses), then out of staging, then
     /// its Nexus sidecar. Returns a failure reason or null.
     /// </summary>
-    private string? DeleteUe4ssModCore(string folderName)
+    private string? DeleteUe4ssModCore(string folderName) => DeleteUe4ssModCore(folderName, out _);
+
+    /// <summary>The same, also saying whether it failed on a locked or read-only file.</summary>
+    /// <param name="locked">True when closing whatever uses the mod's files may let it go through.</param>
+    private string? DeleteUe4ssModCore(string folderName, out bool locked)
     {
+        locked = false;
         // UE4SS's own shared\ (its Lua library) is never deleted, whichever path asks.
         if (Ue4ssModStart.IsFrameworkFolder(folderName))
         {
@@ -291,6 +296,7 @@ public sealed partial class LibraryViewModel
         }
         catch (Exception ex)
         {
+            locked = ex is IOException or UnauthorizedAccessException;
             return ex.Message;
         }
     }
@@ -327,8 +333,10 @@ public sealed partial class LibraryViewModel
         }
 
         // Linked to a data row by name only: the same question as from the data row (DeleteMods
-        // adds this half through the link). It used to delete this half alone.
-        if (item.LinkedPartner is { } data && AllLibraryItems().Contains(data))
+        // adds this half through the link). It used to delete this half alone. Only when the link
+        // goes both ways: with two UE4SS rows named like one data mod, the data mod links to the
+        // last of them, and routing the other one here offered that row instead of the one clicked.
+        if (item.LinkedPartner is { } data && ReferenceEquals(data.LinkedPartner, item) && AllLibraryItems().Contains(data))
         {
             DeleteMods([data]);
             return;
@@ -532,10 +540,25 @@ public sealed partial class LibraryViewModel
             return;
         }
 
+        await LinkUe4ssModToNexusCoreAsync(item, dialog.NexusModId);
+    }
+
+    /// <summary>LinkUe4ssModToNexus after the dialog: saves the link, then fills in the name and version from Nexus when signed in.</summary>
+    internal async Task LinkUe4ssModToNexusCoreAsync(Ue4ssModRowViewModel item, int nexusModId)
+    {
         try
         {
             var meta = _ue4ssModMetaStore.Load(item.Name);
-            meta.NexusModId = dialog.NexusModId;
+            var linkChanged = meta.NexusModId != nexusModId;
+            meta.NexusModId = nexusModId;
+            if (linkChanged)
+            {
+                // The old mod's file is none of the new mod's files: kept, the update check compared
+                // against it and an old "Update available" could never clear.
+                meta.NexusFileId = null;
+                meta.NexusFileVersion = null;
+            }
+
             _ue4ssModMetaStore.Save(item.Name, meta);
 
             var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
@@ -543,7 +566,7 @@ public sealed partial class LibraryViewModel
             {
                 try
                 {
-                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, NxmHandlerCommand.IcarusDomain, dialog.NexusModId);
+                    var info = await _nexusApiClient.GetModInfoAsync(apiKey, NxmHandlerCommand.IcarusDomain, nexusModId);
                     if (info is not null)
                     {
                         meta.NexusVersion = info.Version;
@@ -561,7 +584,16 @@ public sealed partial class LibraryViewModel
             // not observable) so this row picks up what was just saved — same reason ApplyUe4ssChanges
             // already reloads after its own write.
             ReloadInstalledUe4ssMods();
-            Ue4ssStatusMessage = $"Linked '{item.Name}' to Nexus mod {dialog.NexusModId}.";
+
+            // The reload carries the update found on Nexus over by name; it was for the old mod.
+            if (linkChanged && Ue4ssMods.FirstOrDefault(m => string.Equals(m.Name, item.Name, StringComparison.OrdinalIgnoreCase)) is { } row)
+            {
+                row.LatestVersion = null;
+                row.LatestNexusFileId = null;
+                row.NewestOnNexus = null;
+            }
+
+            Ue4ssStatusMessage = $"Linked '{item.Name}' to Nexus mod {nexusModId}.";
         }
         catch (Exception ex)
         {
@@ -612,7 +644,7 @@ public sealed partial class LibraryViewModel
             ReloadInstalledUe4ssMods();
             Ue4ssStatusMessage = meta.MinUe4ssVersion is null
                 ? $"Cleared the minimum UE4SS version requirement for '{item.Name}'."
-                : $"'{item.Name}' now requires UE4SS v{meta.MinUe4ssVersion}+.";
+                : $"'{item.Name}' now requires UE4SS {VersionLabel.For(meta.MinUe4ssVersion)}+.";
         }
         catch (Exception ex)
         {

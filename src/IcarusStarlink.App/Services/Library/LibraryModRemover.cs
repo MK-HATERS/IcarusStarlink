@@ -10,21 +10,53 @@ namespace IcarusStarlink.App.Services;
 /// keeps per folder name goes too: the remembered fix choices, the saved source pak and the pak
 /// preview cache, so none of it is picked up by a different mod later landing under the same name.
 /// The preview cache was only ever purged by Delete, so an updated pak kept showing the old preview.
+/// Delete also forgets the cached Nexus picture (a replacement keeps it: an update is the same mod).
 /// </summary>
 public sealed class LibraryModRemover(
     ILibraryRepository library,
     IPrebuiltPakSourceStore? pakSourceStore = null,
     string? pakPreviewCacheDirectory = null,
-    ModFixService? fixService = null)
+    ModFixService? fixService = null,
+    string? thumbnailCacheDirectory = null)
 {
     /// <summary>Delete: backed up first (a mod that can't be backed up isn't deleted), then the folder and everything kept for it.</summary>
     public void Delete(string folderName)
     {
         library.BackupMod(folderName);
         library.Delete(folderName);
-        fixService?.Forget(folderName);
+
+        // Best-effort from here on: the mod is gone. A locked fix-choices file used to make the
+        // Library report "Deleted 0 of 1" for a mod it had deleted.
+        try
+        {
+            fixService?.Forget(folderName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Debug(ex, "Couldn't forget the fix choices of '{Folder}'", folderName);
+        }
+
         DeleteSourcePak(folderName);
         PurgePreviewCache(folderName);
+        ForgetNexusPicture(folderName);
+    }
+
+    /// <summary>The mod's cached Nexus picture, so a different mod later imported under the same folder name doesn't show it. Best-effort, like DeleteSourcePak.</summary>
+    private void ForgetNexusPicture(string folderName)
+    {
+        if (thumbnailCacheDirectory is null)
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(Path.Combine(thumbnailCacheDirectory, folderName + ".img"));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Debug(ex, "Couldn't delete the cached Nexus picture of '{Folder}'", folderName);
+        }
     }
 
     /// <summary>

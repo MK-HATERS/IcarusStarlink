@@ -40,7 +40,7 @@ public sealed partial class LibraryViewModel
 
     private LibraryModRemover? _modRemover;
 
-    private LibraryModRemover ModRemover => _modRemover ??= new LibraryModRemover(_repository, _prebuiltPakSourceStore, _pakPreviewCacheDirectory, FixService);
+    private LibraryModRemover ModRemover => _modRemover ??= new LibraryModRemover(_repository, _prebuiltPakSourceStore, _pakPreviewCacheDirectory, FixService, _thumbnailCacheDirectory);
 
     private void DeleteMods(IReadOnlyList<LibraryItemViewModel> items)
     {
@@ -134,7 +134,7 @@ public sealed partial class LibraryViewModel
         {
             if (ue4ssParts.Count > 0 && Ue4ssPartsInGame(ue4ssParts) is { Count: > 0 } inGameParts && IsGameRunningCheck())
             {
-                ReportProblem($"Icarus is running, and {string.Join(", ", inGameParts)} from the same download is on in the game. Close the game, then delete. Nothing was deleted.");
+                ReportProblem($"Icarus is running, and the UE4SS mod {string.Join(", ", inGameParts)} is on in the game. Close the game, then delete. Nothing was deleted.");
                 Ue4ssStatusMessage = StatusMessage;
                 return true;
             }
@@ -182,9 +182,11 @@ public sealed partial class LibraryViewModel
         var deletedCount = 0;
         var ue4ssDeleted = 0;
         var failures = new List<string>();
+        var anyLocked = false;
         foreach (var ue4ssPart in ue4ssParts)
         {
-            var failure = DeleteUe4ssModCore(ue4ssPart);
+            var failure = DeleteUe4ssModCore(ue4ssPart, out var locked);
+            anyLocked |= locked;
             if (failure is null)
             {
                 ue4ssDeleted++;
@@ -223,6 +225,7 @@ public sealed partial class LibraryViewModel
                 // process (Explorer preview, an antivirus scan, ...) throws IOException/
                 // UnauthorizedAccessException — one locked mod shouldn't abort the rest of a batch.
                 failures.Add($"{name}: {ex.Message}");
+                anyLocked |= ex is System.IO.IOException or UnauthorizedAccessException;
             }
         }
 
@@ -231,8 +234,10 @@ public sealed partial class LibraryViewModel
         if (failures.Count > 0)
         {
             // Every part counts, the UE4SS halves too: a download whose Lua half went and whose
-            // locked pak stayed used to read "Deleted 0 of 2".
-            ReportProblem($"Deleted {deletedCount + ue4ssDeleted} of {items.Count + ue4ssParts.Count} — {string.Join("; ", failures).TrimEnd('.')}. Close whatever is using its files, then try again.{nextStep}");
+            // locked pak stayed used to read "Deleted 0 of 2". The next step only for a locked file:
+            // closing something doesn't help a mod that is no longer there.
+            var lockedNextStep = anyLocked ? " Close whatever is using its files, then try again." : "";
+            ReportProblem($"Deleted {deletedCount + ue4ssDeleted} of {items.Count + ue4ssParts.Count} — {string.Join("; ", failures).TrimEnd('.')}.{lockedNextStep}{nextStep}");
         }
         else
         {
