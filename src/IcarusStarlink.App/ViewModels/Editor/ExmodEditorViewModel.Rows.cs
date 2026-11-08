@@ -4,6 +4,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Services;
 using IcarusStarlink.App.Views;
+using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
 
@@ -302,22 +303,32 @@ public sealed partial class ExmodEditorViewModel
     /// .uasset/.uexp files aren't something this in-memory JSON editor touches at all; a mod that
     /// genuinely needs the other one's assets too still needs those copied by hand into its folder).
     /// </summary>
+    /// <summary>Test seam: picks the mod to merge in; null = cancelled. The real one shows the mod picker.</summary>
+    internal Func<IEnumerable<LibraryEntry>, LibraryEntry?> PickModToMerge { get; set; }
+
+    private LibraryEntry? ShowPickModDialog(IEnumerable<LibraryEntry> candidates)
+    {
+        var dialog = new PickModDialog(candidates) { Owner = OwnerWindow() };
+        return dialog.ShowDialog() == true ? dialog.SelectedEntry : null;
+    }
+
     [RelayCommand]
     private void MergeExistingMod()
     {
         var candidates = _repository.GetAll()
             .Where(e => !e.IsOpaquePak && !string.Equals(e.FolderName, _folderName, StringComparison.OrdinalIgnoreCase));
 
-        var dialog = new PickModDialog(candidates) { Owner = OwnerWindow() };
-        if (dialog.ShowDialog() != true || dialog.SelectedEntry is not { } selected)
+        if (PickModToMerge(candidates) is not { } selected)
         {
             return;
         }
 
+        // Only the .EXMOD: Read also loaded every model and texture file of the other mod (up to
+        // 1 GB, on the UI thread), and the merge uses none of them.
         ExmodPackage sourcePackage;
         try
         {
-            sourcePackage = ExmodFolder.Read(_repository.GetFolderPath(selected.FolderName)).Package;
+            sourcePackage = ExmodFolder.ReadPackageOnly(_repository.GetFolderPath(selected.FolderName));
         }
         catch (Exception ex)
         {
@@ -325,32 +336,39 @@ public sealed partial class ExmodEditorViewModel
             return;
         }
 
+        // What's new first, so "nothing new" changes nothing: no Undo step, no empty tables.
+        var toAdd = new List<(string CurrentFile, ExmodFileItem Item)>();
+        foreach (var sourceRow in sourcePackage.Rows.Where(r => !IsEndOfMod(r.CurrentFile)))
+        {
+            foreach (var sourceItem in sourceRow.FileItems)
+            {
+                if (FindItem(sourceRow.CurrentFile, sourceItem.Name) is null
+                    && !toAdd.Any(a => Same(a.CurrentFile, sourceRow.CurrentFile) && Same(a.Item.Name, sourceItem.Name)))
+                {
+                    toAdd.Add((sourceRow.CurrentFile, sourceItem.CloneAs(sourceItem.Name)));
+                }
+            }
+        }
+
+        if (toAdd.Count == 0)
+        {
+            StatusMessage = $"Nothing new to merge — every item in '{selected.Name}' is already here.";
+            return;
+        }
+
         PushUndoSnapshot();
         var previousFile = SelectedItem?.CurrentFile;
         var previousName = SelectedItem?.ItemName;
-        var addedCount = 0;
-        foreach (var sourceRow in sourcePackage.Rows)
+        foreach (var (currentFile, item) in toAdd)
         {
-            var targetRow = _package.Rows.FirstOrDefault(r => string.Equals(r.CurrentFile, sourceRow.CurrentFile, StringComparison.OrdinalIgnoreCase));
-            targetRow ??= AddTableRow(new ExmodFileRow { CurrentFile = sourceRow.CurrentFile });
-
-            foreach (var sourceItem in sourceRow.FileItems)
-            {
-                if (targetRow.FileItems.Any(i => Same(i.Name, sourceItem.Name)))
-                {
-                    continue;
-                }
-
-                targetRow.FileItems.Add(sourceItem.CloneAs(sourceItem.Name));
-                addedCount++;
-            }
+            var targetRow = _package.Rows.FirstOrDefault(r => Same(r.CurrentFile, currentFile))
+                ?? AddTableRow(new ExmodFileRow { CurrentFile = currentFile });
+            targetRow.FileItems.Add(item);
         }
 
         RefreshBaseDiff();
         ReloadItems();
         SelectedItem = Items.FirstOrDefault(i => Same(i.CurrentFile, previousFile) && Same(i.ItemName, previousName)) ?? Items.FirstOrDefault();
-        StatusMessage = addedCount == 0
-            ? $"Nothing new to merge — every item in '{selected.Name}' is already here."
-            : $"Merged {addedCount} item(s) from '{selected.Name}'.";
+        StatusMessage = $"Merged {toAdd.Count} item(s) from '{selected.Name}'.";
     }
 }

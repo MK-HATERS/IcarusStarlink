@@ -188,8 +188,8 @@ public sealed partial class ExmodEditorViewModel
             return;
         }
 
-        WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("editor"));
-        WeakReferenceMessenger.Default.Send(new OpenGameItemMessage(gameItem, _folderName));
+        _messenger.Send(new NavigateToPageMessage("editor"));
+        _messenger.Send(new OpenGameItemMessage(gameItem, _folderName));
         Application.Current?.MainWindow?.Activate();
     }
 
@@ -209,10 +209,10 @@ public sealed partial class ExmodEditorViewModel
     [RelayCommand]
     private void GoToGameEditor()
     {
-        WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("editor"));
+        _messenger.Send(new NavigateToPageMessage("editor"));
         if (SelectedItem?.GameItem is { } gameItem)
         {
-            WeakReferenceMessenger.Default.Send(new OpenGameItemMessage(gameItem, _folderName));
+            _messenger.Send(new OpenGameItemMessage(gameItem, _folderName));
         }
 
         Application.Current?.MainWindow?.Activate();

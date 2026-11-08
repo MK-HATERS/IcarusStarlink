@@ -336,4 +336,91 @@ public sealed partial class ExmodEditorViewModelTests : IDisposable
         Assert.Equal("game: 40", editor.Fields.Single(f => f.FieldName == "Weight").BasePlainText);
         Assert.True(editor.HasUnsavedChanges); // the typed value is still there
     }
+
+    /// <summary>Another own mod holding the given Itemable rows, plus a table with no rows.</summary>
+    private LibraryEntry OtherMod(params string[] itemableRows)
+    {
+        var entry = _library.CreateBlankMod("Other mod", "Me", ModTemplate.Blank);
+        var package = ExmodFolder.Read(_library.GetFolderPath(entry.FolderName)).Package;
+        package.Rows.Insert(0, new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Itemable.json",
+            FileItems = [.. itemableRows.Select(name => new ExmodFileItem { Name = name, Fields = { ["Weight"] = JsonValue.Create(5) } })],
+        });
+        package.Rows.Insert(1, new ExmodFileRow { CurrentFile = "Items-D_ItemsStatic.json" });
+        ExmodFolder.Write(_library.GetFolderPath(entry.FolderName), new ExmodPackageContents(package, []));
+        return _library.GetAll().Single(e => e.FolderName == entry.FolderName);
+    }
+
+    /// <summary>Regression: "Nothing new to merge" still left an Undo step that changed nothing (and wiped Redo), and added the other mod's empty tables.</summary>
+    [Fact]
+    public void MergingAModWithNothingNew_LeavesNoUndoStep()
+    {
+        var editor = OpenMod();
+        var other = OtherMod("Item_Envirosuit");
+        editor.PickModToMerge = _ => other;
+
+        editor.MergeExistingModCommand.Execute(null);
+
+        Assert.StartsWith("Nothing new to merge", editor.StatusMessage);
+        Assert.False(editor.CanUndo);
+        Assert.False(editor.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public void MergingAMod_AddsItsNewRows_AsOneUndoStep()
+    {
+        var editor = OpenMod();
+        var other = OtherMod("Item_Envirosuit", "Item_Fiber");
+        editor.PickModToMerge = _ => other;
+
+        editor.MergeExistingModCommand.Execute(null);
+
+        Assert.Equal("Merged 1 item(s) from 'Other mod'.", editor.StatusMessage);
+        Assert.Equal(["Item_Envirosuit", "Item_Fiber"], editor.Items.Select(i => i.ItemName).Order());
+        editor.UndoCommand.Execute(null);
+        Assert.Equal("Item_Envirosuit", Assert.Single(editor.Items).ItemName);
+    }
+
+    /// <summary>Regression: the editor registered on and sent through the shared messenger even when given its own.</summary>
+    [Fact]
+    public void TheEditor_UsesTheMessengerItIsGiven()
+    {
+        var entry = _library.CreateBlankMod("Light suit", "Me", ModTemplate.Blank);
+        var package = ExmodFolder.Read(_library.GetFolderPath(entry.FolderName)).Package;
+        package.Rows.Insert(0, new ExmodFileRow
+        {
+            CurrentFile = "Traits-D_Itemable.json",
+            FileItems = [new ExmodFileItem { Name = "Item_Envirosuit", Fields = { ["Weight"] = JsonValue.Create(50) } }],
+        });
+        ExmodFolder.Write(_library.GetFolderPath(entry.FolderName), new ExmodPackageContents(package, []));
+        var messenger = new WeakReferenceMessenger();
+        var editor = new ExmodEditorViewModel(entry.FolderName, _library, DataFolder, new GameDataIndexCache(), messenger);
+
+        Assert.True(messenger.IsRegistered<UnsavedEditsRequestMessage>(editor));
+        Assert.False(WeakReferenceMessenger.Default.IsRegistered<UnsavedEditsRequestMessage>(editor));
+
+        var listener = new object();
+        var heardHere = 0;
+        var heardShared = 0;
+        messenger.Register<LibraryChangedMessage>(listener, (_, _) => heardHere++);
+        WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(listener, (_, _) => heardShared++);
+        try
+        {
+            editor.SelectedItem = editor.Items.Single();
+            editor.Fields.Single(f => f.FieldName == "Weight").ValueText = "25";
+            editor.SaveCommand.Execute(null);
+
+            Assert.StartsWith("Saved", editor.StatusMessage);
+            Assert.Equal(1, heardHere);
+            Assert.Equal(0, heardShared);
+
+            editor.Detach();
+            Assert.False(messenger.IsRegistered<UnsavedEditsRequestMessage>(editor));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(listener);
+        }
+    }
 }

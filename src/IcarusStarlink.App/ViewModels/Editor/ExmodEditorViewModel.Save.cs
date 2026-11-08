@@ -74,7 +74,7 @@ public sealed partial class ExmodEditorViewModel
     }
 
     /// <summary>Called when the editor window has closed: stops answering app-wide messages.</summary>
-    public void Detach() => WeakReferenceMessenger.Default.UnregisterAll(this);
+    public void Detach() => _messenger.UnregisterAll(this);
 
     /// <summary>False once the mod was deleted (or moved) in Library; the repository throws for a folder it no longer knows.</summary>
     private bool ModFolderExists()

@@ -23,11 +23,14 @@ namespace IcarusStarlink.App.ViewModels;
 /// separate .exe that supports two independent sessions open at once, which this window/ViewModel
 /// pairing matches — LibraryViewModel constructs a
 /// fresh instance per Edit… / New mod… click via the Func&lt;string, ExmodEditorViewModel&gt;
-/// factory registered in App.xaml.cs, rather than this being resolved as a singleton.
+/// factory registered in AppServices.cs, rather than this being resolved as a singleton.
 /// </summary>
 public sealed partial class ExmodEditorViewModel : ObservableObject
 {
     private readonly ILibraryRepository _repository;
+
+    /// <summary>Where the editor listens and sends (the shared messenger by default, which the main window's close check uses).</summary>
+    private readonly IMessenger _messenger;
     private readonly string _folderName;
     private readonly string _dataFolder;
     private readonly GameDataIndexCache _gameDataIndexCache;
@@ -47,11 +50,9 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     private string _savedJson;
 
     /// <summary>
-    /// Recomputed whenever Rows changes shape (construction, or a raw-JSON Apply) — not on every
-    /// keystroke or plain item-selection change. Amber-highlight comparisons
-    /// (EditorFieldViewModel.IsChanged) work entirely off the base value snapshotted into each
-    /// field row when this was last refreshed, so re-diffing against the real base files on every
-    /// edit isn't needed.
+    /// The diff's game values, read only where the game's table can't be (BaseValueFor's
+    /// fallback). Recomputed whenever Rows changes shape (construction, Undo/Redo, Apply rules, a
+    /// structural edit), not on every keystroke or plain item-selection change.
     /// </summary>
     private Dictionary<(string CurrentFile, string ItemName, string FieldName), JsonNode?> _baseValuesByKey = [];
 
@@ -59,7 +60,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     /// What this mod's own fields held when this editor was opened (or last saved, whichever is
     /// more recent) — a *separate* reference point from _baseValuesByKey's real-game-default
     /// values: "what did I just change in this sitting" vs. "what does this mod change from
-    /// vanilla". Deliberately never refreshed by AddItem/AddField/RemoveField/a raw-JSON Apply —
+    /// vanilla". Deliberately never refreshed by AddItem/AddField/RemoveField —
     /// those are exactly the in-session edits this is meant to reveal — only by construction and a
     /// successful Save (at which point the mod's own "original" genuinely becomes whatever was
     /// just written).
@@ -78,7 +79,7 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     private bool _hasSaved;
 
     [RelayCommand]
-    private void TurnOnAndGoToMerge() => WeakReferenceMessenger.Default.Send(new TurnOnModMessage(_folderName));
+    private void TurnOnAndGoToMerge() => _messenger.Send(new TurnOnModMessage(_folderName));
 
     private readonly OwnModWriter _writer;
 
@@ -166,10 +167,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
     [ObservableProperty]
     private string? _massEditStatusMessage;
 
-    public ExmodEditorViewModel(string folderName, ILibraryRepository repository, string dataFolder, GameDataIndexCache gameDataIndexCache)
+    public ExmodEditorViewModel(string folderName, ILibraryRepository repository, string dataFolder, GameDataIndexCache gameDataIndexCache, IMessenger? messenger = null)
     {
+        _messenger = messenger ?? WeakReferenceMessenger.Default;
+        PickModToMerge = ShowPickModDialog;
         _repository = repository;
-        _writer = new OwnModWriter(repository);
+        _writer = new OwnModWriter(repository, _messenger);
         _folderName = folderName;
         _dataFolder = dataFolder;
         _gameDataIndexCache = gameDataIndexCache;
@@ -193,12 +196,12 @@ public sealed partial class ExmodEditorViewModel : ObservableObject
         LoadScaleRules();
         RefreshRuleTags();
 
-        WeakReferenceMessenger.Default.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((ExmodEditorViewModel)recipient).OnGameDataRefreshed());
+        _messenger.Register<WeeklyChangeReportUpdatedMessage>(this, (recipient, _) => ((ExmodEditorViewModel)recipient).OnGameDataRefreshed());
 
         // The window's own Save / Don't save / Cancel can't stop the app closing (WPF ignores
         // Cancel in an owned window during shutdown), so the main window's close prompt asks here
         // first. Unregistered when the window closes (Detach): a closed editor has nothing to lose.
-        WeakReferenceMessenger.Default.Register<UnsavedEditsRequestMessage>(this, (recipient, message) =>
+        _messenger.Register<UnsavedEditsRequestMessage>(this, (recipient, message) =>
         {
             if (((ExmodEditorViewModel)recipient).HasUnsavedChanges)
             {
