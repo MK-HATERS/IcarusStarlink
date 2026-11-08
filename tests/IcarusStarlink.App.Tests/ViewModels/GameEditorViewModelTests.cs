@@ -1588,7 +1588,11 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         Assert.All(inputs, e => Assert.NotNull(e!["Count"]));
     }
 
-    /// <summary>Regression: a link the Save-to mod writes as plain text ("Decayable": "Item_X") made reading the item throw, and the app said it had to close.</summary>
+    /// <summary>
+    /// Regression: a link the Save-to mod writes as plain text ("Decayable": "Item_X") made reading
+    /// the item throw, and the app said it had to close. Such a link now reads as no link, so both
+    /// items show.
+    /// </summary>
     [Fact]
     public void AValueOfTheWrongKindInTheMod_DoesntCloseTheApp()
     {
@@ -1599,13 +1603,12 @@ public sealed partial class GameEditorViewModelTests : IDisposable
 
         // Stone shares Envirosuit's decay row: counting who uses it reads the bad link.
         Assert.Null(Record.Exception(() => vm.SelectedItem = Item(vm, "Stone")));
-        Assert.Empty(vm.Sections);
-        Assert.StartsWith("Couldn't show 'Stone'", vm.StatusMessage);
+        Assert.NotEmpty(vm.Sections);
         Assert.Null(Record.Exception(() => vm.SelectedItem = Item(vm, "Envirosuit")));
         Assert.NotEmpty(vm.Sections);
     }
 
-    /// <summary>Regression: a waiting item rebuilt against a Save-to mod with a value of the wrong kind for it made the app say it had to close.</summary>
+    /// <summary>Regression: a waiting item rebuilt against a Save-to mod with a value of the wrong kind for it made the app say it had to close. The bad link reads as no link, so the typed change keeps waiting.</summary>
     [Fact]
     public void AWaitingItem_RebuiltAgainstAModWithAValueOfTheWrongKind_DoesntCloseTheApp()
     {
@@ -1618,13 +1621,11 @@ public sealed partial class GameEditorViewModelTests : IDisposable
 
         Assert.Null(Record.Exception(() => vm.SelectedTarget = vm.Targets.Single(t => t.FolderName == mine.FolderName)));
 
-        // Its typed value has no place in that mod's version, as for an item that has gone.
-        Assert.Equal(0, vm.EditedItemCount);
-        Assert.StartsWith("1 typed change(s)", vm.StatusMessage);
+        Assert.Equal(1, vm.EditedItemCount);
         Assert.NotEmpty(vm.Sections);
     }
 
-    /// <summary>Regression: a Save whose item couldn't be applied to the Save-to mod (a value of the wrong kind written there meanwhile) made the app say it had to close.</summary>
+    /// <summary>Regression: a Save whose item couldn't be applied to the Save-to mod (a value of the wrong kind written there meanwhile) made the app say it had to close. The mod changed after it was read, so Save now refuses in plain words before applying anything.</summary>
     [Fact]
     public void Save_IntoAModWithAValueOfTheWrongKind_SaysSo()
     {
@@ -1638,7 +1639,7 @@ public sealed partial class GameEditorViewModelTests : IDisposable
         WriteIntoMod(mine.FolderName, ModRow("Items-D_ItemsStatic.json", "Envirosuit", """{"Decayable":"Item_X"}"""));
 
         Assert.Null(Record.Exception(() => vm.SaveCommand.Execute(null)));
-        Assert.StartsWith("Couldn't save", vm.StatusMessage);
+        Assert.StartsWith("Not saved", vm.StatusMessage);
     }
 
     /// <summary>

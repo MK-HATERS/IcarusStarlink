@@ -12,10 +12,6 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// <summary>Import and Export patch, and a classic IMM mod list loaded as the queue.</summary>
 public sealed partial class MergeInstallViewModelTests
 {
-    private IcarusStarlink.Storage.Profiles.ProfileStore RealProfileStore() =>
-        new(Path.Combine(_tempRoot, "Profiles"), Path.Combine(_tempRoot, "ProfileBackups"),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<IcarusStarlink.Storage.Profiles.ProfileStore>.Instance);
-
     private string WriteModList(params string[] names)
     {
         Directory.CreateDirectory(_tempRoot);
