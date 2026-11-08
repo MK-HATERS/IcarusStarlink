@@ -4,23 +4,10 @@ using IcarusStarlink.Catalog.Nexus;
 namespace IcarusStarlink.App.Services;
 
 /// <summary>
-/// The seam between a ViewModel's command logic and the WPF dialogs that logic needs a user
-/// decision from. A ViewModel constructing a real Window directly (the app's established pattern
-/// before this — `new RenameModDialog(...).ShowDialog()`, `ThemedMessageBox.Show(...)`) can never
-/// be unit tested outside a live WPF Dispatcher, since Window construction itself needs one. Going
-/// through this interface instead lets a test substitute a fake that returns a canned answer with
-/// no WPF involved at all, while WpfDialogService (the real implementation) is what production DI
-/// registers.
-///
-/// This is a PARTIAL migration — it covers the two dialog shapes touched so far (a plain confirm,
-/// and RenameModDialog's rename/reset/cancel prompt). Confirm alone now also backs every plain
-/// Yes/No confirmation in SavesViewModel and SettingsViewModel (the latter's own six — UnrealPak
-/// first-launch setup, nxm:// registration, UE4SS install/update/uninstall, and both app-update
-/// confirms — migrated together in one pass once the first one made the need obvious). The app
-/// still has direct dialog/window construction call sites in other ViewModels (custom pickers,
-/// file/folder dialogs, editor sub-windows) that aren't covered here — extending this interface
-/// with one method per additional dialog shape, the same way Confirm/PromptRename were added, is
-/// the natural way to bring them in as each one's own ViewModel logic needs real test coverage.
+/// The seam for every dialog a view model needs an answer from — questions, pickers, the Nexus
+/// file choice and changelog — so view-model logic can be tested with a fake that returns a
+/// canned answer (a real Window needs a live WPF Dispatcher). WpfDialogService is the real
+/// implementation.
 /// </summary>
 public interface IDialogService
 {

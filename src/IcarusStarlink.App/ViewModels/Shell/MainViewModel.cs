@@ -102,14 +102,9 @@ public sealed partial class MainViewModel : ObservableObject
         _activityLog = activityLog;
         UseGameSeams(gameProcess, clock, openUrl, focusGame);
 
-        // Matches the real app's top-level nav: Profiles lives inside Merge & Install (a
-        // profile is "saved merge list + options + UE4SS set", not an independent page), UE4SS
-        // shows up as a sub-tab of Library plus a per-profile section of Merge & Install, and
-        // Diagnostics is a section inside Settings — none of the three get their own nav item.
-        // Downloads isn't its own nav item either any more — its IMM Database tab and its
-        // pending-downloads list both moved onto Library itself (a downloaded mod already blends
-        // straight into Library's own list once it finishes, so a separate "Downloads" page just
-        // duplicated the same job).
+        // Profiles live inside Merge & Install (a profile is "saved merge list + options + UE4SS
+        // set", not a page of its own) and Diagnostics is a section inside Settings, so neither
+        // gets a nav item.
         // Grouped by what the user is doing: finding mods, working on their own, the game itself, then the app.
         NavItems = [.. WithShortcuts(
         [
