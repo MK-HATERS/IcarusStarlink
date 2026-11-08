@@ -10,23 +10,43 @@ namespace IcarusStarlink.App.Services;
 /// was never confirmed safe for concurrent decodes; see SavesViewModel.LoadIconsAsync) and kept for
 /// the session. Newest request first: the list asks as rows scroll into view, so what's on screen
 /// now loads before what was scrolled past. Only the newest MaxQueued wait; older ones are dropped
-/// and asked again when their row shows again.
+/// and asked again when their row shows again. An empty result (a broken texture, or the game's
+/// paks not readable right now) is kept for RetryEmptyAfter only, then decoded again.
 /// </summary>
 public sealed class GameIconLoader(IBaseGameIconDecoder decoder)
 {
     internal const int MaxQueued = 120;
 
+    /// <summary>How long an icon that came back empty is not asked for again (the base-game provider retries a failed mount after 30 s too).</summary>
+    internal static readonly TimeSpan RetryEmptyAfter = TimeSpan.FromSeconds(30);
+
+    /// <summary>The clock for RetryEmptyAfter. Tests swap in their own.</summary>
+    internal Func<DateTime> UtcNow { get; set; } = () => DateTime.UtcNow;
+
     private readonly object _gate = new();
-    private readonly Dictionary<string, ImageSource?> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (ImageSource? Image, DateTime At)> _cache = new(StringComparer.OrdinalIgnoreCase);
     private readonly LinkedList<Pending> _queue = new();
     private bool _running;
 
     private sealed record Pending(string Path, Action<ImageSource> Loaded, Action Dropped, SynchronizationContext? Context);
 
+    /// <summary>A cached result to use: an icon, or an empty result that isn't old enough to try again. Call under _gate.</summary>
+    private bool TryCached(string path, out ImageSource? image)
+    {
+        image = null;
+        if (!_cache.TryGetValue(path, out var entry) || (entry.Image is null && UtcNow() - entry.At >= RetryEmptyAfter))
+        {
+            return false;
+        }
+
+        image = entry.Image;
+        return true;
+    }
+
     /// <summary>
-    /// Asks for an icon. <paramref name="loaded"/> runs on the asking thread once it's decoded (not
-    /// at all when the path doesn't decode); <paramref name="dropped"/> when it gave way to newer
-    /// requests before being decoded.
+    /// Asks for an icon. <paramref name="loaded"/> runs on the asking thread once it's decoded;
+    /// <paramref name="dropped"/> when it gave way to newer requests, or there's no icon for it
+    /// right now: ask again when its row shows.
     /// </summary>
     public void Request(string path, Action<ImageSource> loaded, Action dropped)
     {
@@ -34,7 +54,7 @@ public sealed class GameIconLoader(IBaseGameIconDecoder decoder)
         bool hit;
         lock (_gate)
         {
-            hit = _cache.TryGetValue(path, out cached);
+            hit = TryCached(path, out cached);
             if (!hit)
             {
                 _queue.AddFirst(new Pending(path, loaded, dropped, SynchronizationContext.Current));
@@ -53,9 +73,18 @@ public sealed class GameIconLoader(IBaseGameIconDecoder decoder)
             }
         }
 
-        if (hit && cached is not null)
+        if (!hit)
+        {
+            return;
+        }
+
+        if (cached is not null)
         {
             loaded(cached);
+        }
+        else
+        {
+            Post(SynchronizationContext.Current, dropped);
         }
     }
 
@@ -80,7 +109,7 @@ public sealed class GameIconLoader(IBaseGameIconDecoder decoder)
             bool known;
             lock (_gate)
             {
-                known = _cache.TryGetValue(next.Path, out image); // asked twice before the first was decoded
+                known = TryCached(next.Path, out image); // asked twice before the first was decoded
             }
 
             if (!known)
@@ -88,7 +117,7 @@ public sealed class GameIconLoader(IBaseGameIconDecoder decoder)
                 image = Decode(next.Path);
                 lock (_gate)
                 {
-                    _cache[next.Path] = image;
+                    _cache[next.Path] = (image, UtcNow());
                 }
             }
 
@@ -96,6 +125,11 @@ public sealed class GameIconLoader(IBaseGameIconDecoder decoder)
             {
                 var done = image;
                 Post(next.Context, () => next.Loaded(done));
+            }
+            else
+            {
+                // The row resets and asks again when it next shows (after RetryEmptyAfter, a fresh decode).
+                Post(next.Context, next.Dropped);
             }
         }
     }

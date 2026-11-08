@@ -86,6 +86,37 @@ public sealed class GameIconLoaderTests
         Assert.DoesNotContain("/Game/I0.I0", decoder.Decoded);
     }
 
+    /// <summary>
+    /// Regression: an icon asked for while the game paks couldn't be read (the drive unplugged, Steam
+    /// updating) was kept empty for the whole session, and its row was never told to ask again.
+    /// </summary>
+    [Fact]
+    public async Task AnEmptyResult_IsTriedAgainAfterAWhile()
+    {
+        var decoder = new FakeDecoder();
+        var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var loader = new GameIconLoader(decoder) { UtcNow = () => now };
+        const string Broken = "/Game/broken.broken";
+
+        async Task AskAndWaitForDropped()
+        {
+            var dropped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _ = Load(loader, Broken, () => dropped.TrySetResult());
+            await dropped.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        await AskAndWaitForDropped();
+        Assert.Single(decoder.Decoded, p => p == Broken);
+
+        now += TimeSpan.FromSeconds(10);
+        await AskAndWaitForDropped();
+        Assert.Single(decoder.Decoded, p => p == Broken);
+
+        now += TimeSpan.FromSeconds(21);
+        await AskAndWaitForDropped();
+        Assert.Equal(2, decoder.Decoded.Count(p => p == Broken));
+    }
+
     [Fact]
     public async Task AnIconThatDoesntDecode_IsNeverDelivered_AndNotTriedAgain()
     {
