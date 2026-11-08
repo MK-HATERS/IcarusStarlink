@@ -2715,8 +2715,22 @@ public sealed partial class LibraryViewModelTests
         /// <summary>Per-file update checks: the files (and update chain) Nexus lists for a mod.</summary>
         public Dictionary<int, NexusModFileSet> FileSets { get; } = [];
 
-        public Task<NexusModFileSet> GetModFileSetAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default) =>
-            FileSets.TryGetValue(modId, out var set) ? Task.FromResult(set) : throw new HttpRequestException("no such mod");
+        /// <summary>When set, answers every files request instead of FileSets (a test that holds one open).</summary>
+        public Func<int, Task<NexusModFileSet>>? FileSetHandler { get; set; }
+
+        /// <summary>Every mod whose files were asked for, in order.</summary>
+        public List<int> FileSetCalls { get; } = [];
+
+        public Task<NexusModFileSet> GetModFileSetAsync(string apiKey, string gameDomain, int modId, CancellationToken cancellationToken = default)
+        {
+            FileSetCalls.Add(modId);
+            if (FileSetHandler is not null)
+            {
+                return FileSetHandler(modId);
+            }
+
+            return FileSets.TryGetValue(modId, out var set) ? Task.FromResult(set) : throw new HttpRequestException("no such mod");
+        }
         public Task<IReadOnlyList<NexusModInfo>> SearchModsAsync(string? apiKey, string gameDomain, string searchText, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("Not exercised by these tests.");
         public Task<NexusModPage> ListAllModsAsync(string? apiKey, string gameDomain, int offset, int count, CancellationToken cancellationToken = default) =>
@@ -2858,6 +2872,17 @@ public sealed partial class LibraryViewModelTests
             ConfirmCallCount++;
             ConfirmMessages.Add(message);
             return confirmResult ? ChooseAnswer : null;
+        }
+
+        /// <summary>Every question with its own button words (the "Replace your build" question), and the answer they get.</summary>
+        public List<string> ConfirmWithWordsMessages { get; } = [];
+
+        public bool ConfirmWithWordsAnswer { get; set; }
+
+        public bool ConfirmWithWords(string message, string title, ThemedConfirmSeverity severity, string yesText, string noText)
+        {
+            ConfirmWithWordsMessages.Add(message);
+            return ConfirmWithWordsAnswer;
         }
 
         public RenamePromptResult PromptRename(

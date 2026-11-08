@@ -37,8 +37,11 @@ public sealed partial class LibraryViewModel
     /// the swap. A Nexus-sourced mod goes straight to the choice of its Nexus files (the newer
     /// version of the installed file picked), then downloads and installs it in place of this copy
     /// (rather than opening the Nexus page, where Download had to be clicked again). Without a Nexus key, or a mod not linked by ID, its card on the Nexus page opens.
+    /// Concurrent: an update waits on a file choice, a download and an install, and every other
+    /// row's pill stays live meanwhile (installs take turns inside Downloads). A second click on the
+    /// row that is already updating is refused.
     /// </summary>
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true, AllowConcurrentExecutions = true)]
     private async Task GetUpdateAsync(LibraryItemViewModel? item)
     {
         if (item is null)
@@ -46,38 +49,90 @@ public sealed partial class LibraryViewModel
             return;
         }
 
-        if (string.Equals(item.Source, "Nexus", StringComparison.OrdinalIgnoreCase))
+        var key = DataUpdateKey(item);
+        if (!_updatesRunning.Add(key))
         {
-            if (item.NexusModId is { } nexusModId && Downloads.CanFetchFromNexus)
-            {
-                if (RefuseWhileBusy(item))
-                {
-                    return;
-                }
-
-                item.FlushPendingSave();
-                StatusMessage = $"Getting '{item.Name}' from Nexus…";
-                await Downloads.ResolvePrimaryFileAndFetchAsync(nexusModId, item.Name);
-                StatusMessage = Downloads.PendingDownloadStatusMessage;
-                return;
-            }
-
-            SearchNexusFor(item);
-            StatusMessage = "Found the mod's card on the Nexus page — use its Download button to pull the update through this app (sign in with your Nexus key in Settings to update straight from the Library).";
+            StatusMessage = $"'{item.Name}' is already updating.";
             return;
         }
 
-        await UpdateFromCatalogAsync(item, offerComparison: true);
+        try
+        {
+            if (string.Equals(item.Source, "Nexus", StringComparison.OrdinalIgnoreCase))
+            {
+                if (item.NexusModId is { } nexusModId && Downloads.CanFetchFromNexus)
+                {
+                    if (RefuseWhileBusy(item))
+                    {
+                        return;
+                    }
+
+                    item.FlushPendingSave();
+                    StatusMessage = $"Getting '{item.Name}' from Nexus…";
+                    await FetchNexusUpdateAsync(nexusModId, item.Name);
+                    StatusMessage = Downloads.PendingDownloadStatusMessage;
+                    return;
+                }
+
+                SearchNexusFor(item);
+                StatusMessage = "Found the mod's card on the Nexus page — use its Download button to pull the update through this app (sign in with your Nexus key in Settings to update straight from the Library).";
+                return;
+            }
+
+            await UpdateFromCatalogAsync(item, offerComparison: true);
+        }
+        finally
+        {
+            _updatesRunning.Remove(key);
+        }
     }
+
+    /// <summary>The rows whose update is running now ("data:" + folder name, "ue4ss:" + mod name): a second Update on one of them is refused.</summary>
+    private readonly HashSet<string> _updatesRunning = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>How many Nexus updates are choosing or fetching a file right now (from the pills or Update all).</summary>
+    private int _nexusUpdatesRunning;
+
+    private static string DataUpdateKey(LibraryItemViewModel item) => "data:" + item.FolderName;
+
+    private static string Ue4ssUpdateKey(Ue4ssModRowViewModel row) => "ue4ss:" + row.Name;
+
+    /// <summary>One Nexus update (file choice, download, install), counted while it runs so "Your build" can wait for it.</summary>
+    private async Task FetchNexusUpdateAsync(int nexusModId, string name)
+    {
+        _nexusUpdatesRunning++;
+        try
+        {
+            await Downloads.ResolvePrimaryFileAndFetchAsync(nexusModId, name);
+        }
+        finally
+        {
+            _nexusUpdatesRunning--;
+        }
+    }
+
+    private const string WaitBeforeReplacingYourBuild = "Wait for the update that's running to finish, then replace your build.";
 
     /// <summary>
     /// The "Your build" pill: this copy is newer than anything on Nexus (the author's own build).
     /// Clicking it swaps it for a Nexus version after asking, through the same file choice as Update.
+    /// Not while another Nexus update runs: that update's file choice could open over this question.
     /// </summary>
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true, AllowConcurrentExecutions = true)]
     private async Task ReplaceOwnBuildAsync(LibraryItemViewModel? item)
     {
-        if (item is not null && ConfirmReplaceOwnBuild(item.Name, item.Version, item.NewestOnNexusShown))
+        if (item is null)
+        {
+            return;
+        }
+
+        if (_nexusUpdatesRunning > 0)
+        {
+            StatusMessage = WaitBeforeReplacingYourBuild;
+            return;
+        }
+
+        if (ConfirmReplaceOwnBuild(item.Name, item.Version, item.NewestOnNexusShown))
         {
             await GetUpdateAsync(item);
         }
@@ -214,17 +269,21 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
-    /// One action over the update list the last check produced. Database-sourced mods update in
-    /// place (the same delete-then-reimport GetUpdateAsync does), one after another. Nexus-sourced
-    /// ones can't be fetched by this app without a file ID, so instead of opening a browser tab per
-    /// mod the Nexus page is shown with its "Updates only" filter on — every outdated mod's own
-    /// Download button is right there.
+    /// One action over the update list the last check produced (data and UE4SS rows). Database mods
+    /// update in place, one after another (the same path as their Update pill). Signed in with a
+    /// Nexus key, each outdated Nexus data mod and UE4SS mod then runs its own Update in turn: the
+    /// file choice opens for a mod with several files, cancelling it stops there, and the two halves
+    /// of one download (same mod and file) are updated once. Without a key, or for an account Nexus
+    /// says isn't Premium (it can't download through the API), the Nexus and UE4SS mods are only
+    /// named, and the Nexus page opens with "Updates only" on when Nexus data mods are among them.
+    /// One summary line at the end.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task UpdateAllAsync()
     {
         var outdated = AllLibraryItems().Where(i => i.HasUpdateAvailable).ToList();
-        if (outdated.Count == 0)
+        var outdatedLua = Ue4ssMods.Where(r => r.HasUpdateAvailable).ToList();
+        if (outdated.Count == 0 && outdatedLua.Count == 0)
         {
             StatusMessage = "Nothing to update — run Check for updates first, or everything is already current.";
             return;
@@ -239,35 +298,198 @@ public sealed partial class LibraryViewModel
         var updated = 0;
         foreach (var item in databaseItems)
         {
-            if (await UpdateFromCatalogAsync(item, offerComparison: false))
+            var key = DataUpdateKey(item);
+            if (!_updatesRunning.Add(key))
             {
-                updated++;
+                continue; // its own Update pill is running it
+            }
+
+            try
+            {
+                if (await UpdateFromCatalogAsync(item, offerComparison: false))
+                {
+                    updated++;
+                }
+            }
+            finally
+            {
+                _updatesRunning.Remove(key);
             }
         }
 
+        var parts = new List<string>();
+        if (databaseItems.Count > 0)
+        {
+            var compareHint = updated > 0 ? " Right-click a mod › See what changed vs previous version to see what its author changed." : "";
+            parts.Add($"Updated {updated} of {databaseItems.Count} catalog mod(s).{compareHint}");
+        }
+
+        if (nexusItems.Count > 0 || outdatedLua.Count > 0)
+        {
+            if (await CanRunNexusUpdatesInTurnAsync())
+            {
+                parts.Add(await RunNexusUpdatesInTurnAsync(nexusItems, outdatedLua));
+            }
+            else
+            {
+                parts.AddRange(NameNexusUpdates(nexusItems, outdatedLua));
+            }
+        }
+
+        StatusMessage = string.Join(" ", parts);
+    }
+
+    /// <summary>
+    /// Update all may run the Nexus updates itself: signed in, and Nexus doesn't say the account
+    /// isn't Premium (only Premium accounts download through the API). Not known (the account
+    /// lookup failed) counts as yes: each mod's own Update then says what went wrong.
+    /// </summary>
+    private async Task<bool> CanRunNexusUpdatesInTurnAsync()
+    {
+        if (!Downloads.CanFetchFromNexus || _credentialStore.Read(CredentialTargets.NexusApiKey) is not { } apiKey)
+        {
+            return false;
+        }
+
+        try
+        {
+            return (await _nexusApiClient.ValidateKeyAsync(apiKey))?.IsPremium != false;
+        }
+        catch (Exception)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>One outdated Nexus row for Update all: a data mod or a UE4SS mod.</summary>
+    private sealed record NexusUpdateTarget(string Name, int ModId, int? FileId, string Key);
+
+    /// <summary>
+    /// Runs each outdated Nexus row's own Update, one after another, and returns the summary line.
+    /// Rows without a Nexus mod ID are named only (their Update opens the Nexus page).
+    /// </summary>
+    private async Task<string> RunNexusUpdatesInTurnAsync(IReadOnlyList<LibraryItemViewModel> nexusItems, IReadOnlyList<Ue4ssModRowViewModel> outdatedLua)
+    {
+        var targets = new List<NexusUpdateTarget>();
+        var notLinked = new List<string>();
+        foreach (var item in nexusItems)
+        {
+            if (item.NexusModId is { } modId)
+            {
+                targets.Add(new(item.Name, modId, item.LatestNexusFileId ?? item.NexusFileId, DataUpdateKey(item)));
+            }
+            else
+            {
+                notLinked.Add(item.Name);
+            }
+        }
+
+        targets.AddRange(outdatedLua
+            .Where(r => r.NexusModId is not null)
+            .Select(r => new NexusUpdateTarget(r.Name, r.NexusModId!.Value, r.LatestNexusFileId ?? r.NexusFileId, Ue4ssUpdateKey(r))));
+
+        var started = new List<NexusUpdateTarget>();
+        var ran = new List<string>();
+        var notRun = new List<string>();
+        string? stoppedAt = null;
+        foreach (var target in targets)
+        {
+            if (stoppedAt is not null)
+            {
+                notRun.Add(target.Name);
+                continue;
+            }
+
+            // The other half of a download already updated (same mod, same file; an unknown file
+            // counts as the same, since the file choice offers every file of the mod).
+            if (started.Any(s => s.ModId == target.ModId && (s.FileId is null || target.FileId is null || s.FileId == target.FileId)))
+            {
+                continue;
+            }
+
+            if (!_updatesRunning.Add(target.Key))
+            {
+                continue; // its own Update pill is running it
+            }
+
+            started.Add(target);
+            try
+            {
+                var item = nexusItems.FirstOrDefault(i => DataUpdateKey(i) == target.Key);
+                if (item is not null && RefuseWhileBusy(item))
+                {
+                    notRun.Add(target.Name);
+                    continue;
+                }
+
+                item?.FlushPendingSave();
+                StatusMessage = $"Getting '{target.Name}' from Nexus… ({started.Count} of {targets.Count})";
+                await FetchNexusUpdateAsync(target.ModId, target.Name);
+            }
+            finally
+            {
+                _updatesRunning.Remove(target.Key);
+            }
+
+            // The text ResolvePrimaryFileAndFetchAsync leaves when its file choice is cancelled.
+            if (Downloads.PendingDownloadStatusMessage == "Download cancelled.")
+            {
+                stoppedAt = target.Name;
+            }
+            else
+            {
+                ran.Add(target.Name);
+            }
+        }
+
+        var line = ran.Count > 0
+            ? $"Ran Update on {ran.Count} Nexus mod(s): {string.Join(", ", ran)}. The Downloads page shows how each went."
+            : "";
+        if (stoppedAt is not null)
+        {
+            line += $" Stopped at '{stoppedAt}': its file choice was cancelled.";
+        }
+
+        notRun.AddRange(notLinked);
+        if (notRun.Count > 0)
+        {
+            line += $" Not updated: {string.Join(", ", notRun)} (click Update on each row).";
+        }
+
+        if (ran.Count > 0)
+        {
+            _activityLog.Log($"Update all ran Update on: {string.Join(", ", ran)}.", ActivityEntryKind.Info);
+        }
+
+        return line.Trim();
+    }
+
+    /// <summary>The summary when Update all doesn't download from Nexus itself: the Nexus and UE4SS mods with updates, by name.</summary>
+    private List<string> NameNexusUpdates(IReadOnlyList<LibraryItemViewModel> nexusItems, IReadOnlyList<Ue4ssModRowViewModel> outdatedLua)
+    {
+        var parts = new List<string>();
         if (nexusItems.Count > 0)
         {
             var nexus = _nexusCatalogViewModel();
             nexus.SearchText = "";
             nexus.UpdatesOnly = true;
             WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("nexus"));
-        }
 
-        // Named here, not promised on the Nexus page: its "updates only" filter narrows only the page
-        // of results it's on, so an outdated mod on another page wouldn't show there.
-        var nexusNames = string.Join(", ", nexusItems.Select(i => i.Name));
-        if (nexusItems.Count > 0)
-        {
+            // Also in the Activity panel, so the names outlast the status line.
+            var nexusNames = string.Join(", ", nexusItems.Select(i => i.Name));
             _activityLog.Log($"Nexus mod(s) with updates to download: {nexusNames}.", ActivityEntryKind.Info);
+            parts.Add($"{nexusItems.Count} Nexus mod(s) have updates: {nexusNames}. Click Update on each row, or find them on the Nexus page (Updates only).");
         }
 
-        var compareHint = updated > 0 ? " Right-click a mod › See what changed vs previous version to see what its author changed." : "";
-        StatusMessage = (databaseItems.Count, nexusItems.Count) switch
+        if (outdatedLua.Count > 0)
         {
-            (> 0, 0) => $"Updated {updated} of {databaseItems.Count} catalog mod(s).{compareHint}",
-            (0, > 0) => $"{nexusItems.Count} Nexus mod(s) have updates: {nexusNames}. Download each from its Nexus page (right-click › Open on Nexus).",
-            _ => $"Updated {updated} of {databaseItems.Count} catalog mod(s).{compareHint} {nexusItems.Count} Nexus mod(s) have updates: {nexusNames}. Download each from its Nexus page (right-click › Open on Nexus).",
-        };
+            // The Nexus page's Updates only lists Library data mods, not UE4SS mods.
+            var luaNames = string.Join(", ", outdatedLua.Select(r => r.Name));
+            _activityLog.Log($"UE4SS mod(s) with updates to download: {luaNames}.", ActivityEntryKind.Info);
+            parts.Add($"{outdatedLua.Count} UE4SS mod(s) have updates: {luaNames}. Click Update on each row in the UE4SS panel.");
+        }
+
+        return parts;
     }
 
     /// <summary>
@@ -289,9 +511,10 @@ public sealed partial class LibraryViewModel
 
     /// <summary>
     /// The UE4SS row's Update pill: the same as a Nexus data mod's Get update, straight to the
-    /// choice of the mod's Nexus files; without a Nexus key, its card on the Nexus page.
+    /// choice of the mod's Nexus files; without a Nexus key, its card on the Nexus page. Concurrent
+    /// and refused on a row already updating, like GetUpdate.
     /// </summary>
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true, AllowConcurrentExecutions = true)]
     private async Task GetUe4ssUpdateAsync(Ue4ssModRowViewModel? row)
     {
         if (row?.NexusModId is not { } nexusModId)
@@ -301,9 +524,24 @@ public sealed partial class LibraryViewModel
 
         if (Downloads.CanFetchFromNexus)
         {
-            Ue4ssStatusMessage = $"Getting '{row.Name}' from Nexus…";
-            await Downloads.ResolvePrimaryFileAndFetchAsync(nexusModId, row.Name);
-            Ue4ssStatusMessage = Downloads.PendingDownloadStatusMessage;
+            var key = Ue4ssUpdateKey(row);
+            if (!_updatesRunning.Add(key))
+            {
+                Ue4ssStatusMessage = $"'{row.Name}' is already updating.";
+                return;
+            }
+
+            try
+            {
+                Ue4ssStatusMessage = $"Getting '{row.Name}' from Nexus…";
+                await FetchNexusUpdateAsync(nexusModId, row.Name);
+                Ue4ssStatusMessage = Downloads.PendingDownloadStatusMessage;
+            }
+            finally
+            {
+                _updatesRunning.Remove(key);
+            }
+
             return;
         }
 
@@ -313,10 +551,21 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>The UE4SS row's "Your build" pill: as ReplaceOwnBuild, for the Lua half.</summary>
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    [RelayCommand(FlowExceptionsToTaskScheduler = true, AllowConcurrentExecutions = true)]
     private async Task ReplaceOwnUe4ssBuildAsync(Ue4ssModRowViewModel? row)
     {
-        if (row is not null && ConfirmReplaceOwnBuild(row.Name, row.LocalVersion ?? row.KnownVersion, row.NewestOnNexusShown))
+        if (row is null)
+        {
+            return;
+        }
+
+        if (_nexusUpdatesRunning > 0)
+        {
+            Ue4ssStatusMessage = WaitBeforeReplacingYourBuild;
+            return;
+        }
+
+        if (ConfirmReplaceOwnBuild(row.Name, row.LocalVersion ?? row.KnownVersion, row.NewestOnNexusShown))
         {
             await GetUe4ssUpdateAsync(row);
         }
@@ -415,11 +664,17 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>Shared by LinkToNexus (the context-menu action on an already-imported mod) and ImportPak's own post-import prompt — records the ID, then best-effort-enriches real name/author/version from the API (a rejected/missing key just means the ID link itself still succeeds without the extra display data).</summary>
-    private async Task LinkFolderToNexusAsync(string folderName, string displayName, int nexusModId)
+    internal async Task LinkFolderToNexusAsync(string folderName, string displayName, int nexusModId)
     {
         try
         {
+            var previousModId = _repository.GetAll()
+                .FirstOrDefault(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase))?.NexusModId;
             _repository.LinkToNexus(folderName, nexusModId);
+            if (previousModId is not null && previousModId != nexusModId)
+            {
+                ForgetTheOldNexusMod(folderName);
+            }
 
             var apiKey = _credentialStore.Read(CredentialTargets.NexusApiKey);
             if (apiKey is not null)
@@ -444,6 +699,30 @@ public sealed partial class LibraryViewModel
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't link to Nexus: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// A link to another Nexus mod: what the last check found and the cached picture belonged to the
+    /// old mod. Left in place, the old Update pill stayed (the per-file check can't clear it, the old
+    /// file isn't in the new mod's files) and the old picture kept showing.
+    /// </summary>
+    private void ForgetTheOldNexusMod(string folderName)
+    {
+        if (_itemsByFolderName.GetValueOrDefault(folderName) is { } row)
+        {
+            row.LatestVersion = null;
+            row.LatestNexusFileId = null;
+            row.NewestOnNexus = null;
+        }
+
+        try
+        {
+            File.Delete(Path.Combine(_thumbnailCacheDirectory, folderName + ".img"));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Debug(ex, "Couldn't delete the cached Nexus picture of {Folder}", folderName);
         }
     }
 

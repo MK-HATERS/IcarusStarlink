@@ -297,7 +297,7 @@
                             Command="{Binding DataContext.GetUe4ssUpdateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
                             Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
-                            AutomationProperties.Name="Get update">
+                            AutomationProperties.Name="{Binding Name, StringFormat='Get update: {0}'}">
                         <Button.ToolTip>
                             <TextBlock Text="{Binding LatestVersion, StringFormat='Update available: v{0} — click to get it from Nexus'}"/>
                         </Button.ToolTip>
@@ -310,7 +310,7 @@
                             Command="{Binding DataContext.ReplaceOwnUe4ssBuildCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
                             Visibility="{Binding IsAheadOfNexus, Converter={StaticResource BoolToVisibilityConverter}}"
-                            AutomationProperties.Name="Your build">
+                            AutomationProperties.Name="{Binding Name, StringFormat='Your build: {0}'}">
                         <Button.ToolTip>
                             <TextBlock>
                                 <Run Text="Your own build: newer than Nexus's latest (v"/><Run Text="{Binding NewestOnNexusShown, Mode=OneWay}"/><Run Text="). Click to install a Nexus version instead."/>
@@ -636,7 +636,7 @@
                             Command="{Binding DataContext.GetUpdateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
                             Visibility="{Binding HasUpdateAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
-                            AutomationProperties.Name="Get update">
+                            AutomationProperties.Name="{Binding Name, StringFormat='Get update: {0}'}">
                         <!-- A TextBlock inside: WPF ignores a binding's StringFormat when it's set straight on
                              ToolTip (an object), so the tip showed only the bare version. -->
                         <Button.ToolTip>
@@ -649,7 +649,7 @@
                             Command="{Binding DataContext.ReplaceOwnBuildCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
                             Visibility="{Binding IsAheadOfNexus, Converter={StaticResource BoolToVisibilityConverter}}"
-                            AutomationProperties.Name="Your build">
+                            AutomationProperties.Name="{Binding Name, StringFormat='Your build: {0}'}">
                         <Button.ToolTip>
                             <TextBlock>
                                 <Run Text="Your own build: newer than Nexus's latest (v"/><Run Text="{Binding NewestOnNexusShown, Mode=OneWay}"/><Run Text="). Click to install a Nexus version instead."/>
@@ -799,7 +799,7 @@
                                     <MenuItem Header="Check for updates" Command="{Binding CheckForUpdatesCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
                                               ToolTip="Checks every mod from Nexus or the Database for a newer version. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                     <MenuItem Header="Update all" Command="{Binding UpdateAllCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
-                                              ToolTip="Updates every mod the last check found out of date: Database mods right here, Nexus mods listed on the Nexus page for one-click download. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
+                                              ToolTip="Updates every mod the last check found out of date, one after another: Database mods right here, Nexus and UE4SS mods through their own Update button (a mod with several files asks which one; cancel to stop). Without a Nexus key or Nexus Premium, it names the Nexus and UE4SS mods instead. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
                                     <Separator/>
                                     <MenuItem Header="Check mods against game data" Command="{Binding CheckModsAgainstCurrentDataCommand}" IsEnabled="{Binding CanRunLibraryCheck}"
                                               ToolTip="Checks every editable mod against the current game data and flags what no longer fits. It only looks: fix them from the warning badge or Fix sure problems. Greyed out: another library check is running." ToolTipService.ShowOnDisabled="True"/>
