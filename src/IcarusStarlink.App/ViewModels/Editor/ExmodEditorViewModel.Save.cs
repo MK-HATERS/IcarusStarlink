@@ -139,7 +139,8 @@ public sealed partial class ExmodEditorViewModel
             // ExmodJson round-trip is the same deep-copy pattern PushUndoSnapshot already uses, so
             // every ExmodPackage-level property (Name/Author/Version/etc.) carries over correctly
             // without being hand-copied field by field here.
-            var strippedRows = ExmodBaseDiffer.StripFieldsIdenticalToBase(_package, _dataFolder);
+            // The game tables the editor read for its highlights: the same ones it compares with.
+            var strippedRows = ExmodBaseDiffer.StripFieldsIdenticalToBase(_package, _dataFolder, baseTableCache: _baseTableCache);
             var strippedFieldCount = _package.Rows.Sum(r => r.FileItems.Sum(i => i.Fields.Count))
                 - strippedRows.Sum(r => r.FileItems.Sum(i => i.Fields.Count));
 
