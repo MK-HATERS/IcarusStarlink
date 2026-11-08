@@ -6,7 +6,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// patch could carry any positive multiplier, not just one of these five presets). A real enum,
 /// not a `double?` list with null="Off": WPF's Selector treats SelectedItem==null as "nothing
 /// selected" rather than "the null entry is selected", so a nullable-double pill never showed Off
-/// as highlighted on load — a real bug, found live, that this enum sidesteps entirely by giving
+/// as highlighted on load — a bug this enum sidesteps entirely by giving
 /// "Off" a real, non-null value like every other pill selector on this page already has.
 /// </summary>
 public enum MultiplierLevel

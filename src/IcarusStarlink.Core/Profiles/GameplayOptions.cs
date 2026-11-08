@@ -27,7 +27,7 @@ public enum CraftCostReduction
 }
 
 /// <summary>
-/// "Merge options" per the spec — gameplay-wide toggles that layer on top of whatever the queue
+/// "Merge options": gameplay-wide toggles that layer on top of whatever the queue
 /// merges. Two structurally different groups, per IcarusStarlink.PakIO.GameplayToggles' own split:
 /// SpeedBoost/PlayerBoost/XpBoost/DisableTemperatures/RemoveLevelCap each write a single fixed row,
 /// so they're real MergeEngine participants — a queued mod touching the same field shows as a real,

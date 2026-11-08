@@ -15,7 +15,7 @@ namespace IcarusStarlink.App.ViewModels;
 /// <summary>Profiles: the profile bar's commands, loading a profile into the page, and the auto-save that keeps the queue, options and winners in the profile in use.</summary>
 public sealed partial class MergeInstallViewModel
 {
-    // --- Profile bar (6.3) ---
+    // --- Profile bar ---
     public ObservableCollection<string> ProfileNames { get; } = [];
 
     [ObservableProperty]
@@ -172,7 +172,7 @@ public sealed partial class MergeInstallViewModel
         }
     }
 
-    /// <summary>Selecting a profile replaces the current queue with that profile's own saved one — a profile *is* "a saved merge list" per the spec, not something merged alongside the current queue.</summary>
+    /// <summary>Selecting a profile replaces the current queue with that profile's own saved one: a profile is a saved merge list, not something merged into the current queue.</summary>
     partial void OnSelectedProfileNameChanging(string? value)
     {
         // Whatever was changed in the profile being left goes into that profile, not the next.
@@ -230,7 +230,6 @@ public sealed partial class MergeInstallViewModel
             LoadGameplayOptionsIntoUi(profile.Options);
             var (winners, prunedWinners) = MigrateWinners(profile.ConflictWinners ?? []);
             _winners = winners;
-            OnPropertyChanged(nameof(SavedWinnerCount));
 
             Queue.Clear();
             var missingCount = 0;
@@ -450,6 +449,7 @@ public sealed partial class MergeInstallViewModel
         catch (Exception ex)
         {
             ProfileStatusMessage = $"Couldn't create profile: {ex.Message}";
+            _activityLog.Log(ProfileStatusMessage, ActivityEntryKind.Warning);
         }
     }
 
@@ -479,6 +479,7 @@ public sealed partial class MergeInstallViewModel
         catch (Exception ex)
         {
             ProfileStatusMessage = $"Couldn't save profile: {ex.Message}";
+            _activityLog.Log(ProfileStatusMessage, ActivityEntryKind.Warning);
         }
     }
 
@@ -520,9 +521,9 @@ public sealed partial class MergeInstallViewModel
             SaveWorkingState();
             _profileStore.Rename(oldName, newName);
             ReloadProfileNames();
-            // Backing field, not the property: the property setter's change hook reloads the profile
-            // from disk into the UI, which threw away any queue/option edits not yet saved (an audit
-            // finding) — a rename changes only the name.
+            // Backing field, not the property: the property's change hook reloads the profile from
+            // disk, which used to throw away queue and option edits not saved yet; a rename changes
+            // only the name.
 #pragma warning disable MVVMTK0034 // on purpose, see above
             _selectedProfileName = newName;
 #pragma warning restore MVVMTK0034
@@ -598,7 +599,6 @@ public sealed partial class MergeInstallViewModel
                     SelectedProfileName = null;
                     LoadGameplayOptionsIntoUi(new GameplayOptions());
                     _winners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                    OnPropertyChanged(nameof(SavedWinnerCount));
                     Queue.Clear();
                 }
                 finally
@@ -684,6 +684,7 @@ public sealed partial class MergeInstallViewModel
         catch (Exception ex)
         {
             ProfileStatusMessage = $"Couldn't restore profile: {ex.Message}";
+            _activityLog.Log(ProfileStatusMessage, ActivityEntryKind.Warning);
         }
     }
 }

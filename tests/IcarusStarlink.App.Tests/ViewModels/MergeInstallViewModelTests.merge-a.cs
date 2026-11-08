@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
 using IcarusStarlink.Diffing;
@@ -949,5 +950,111 @@ public sealed partial class MergeInstallViewModelTests
         Assert.Contains("cancelled", vm.StatusMessage);
         Assert.False(vm.IsRebuilding);
         Assert.False(vm.CancelBuildCommand.CanExecute(null));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Profile failures reach the activity log; the page's own messenger carries its sends
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>The activity log every view model made by CreateViewModel writes to.</summary>
+    private readonly FakeActivityLog _activityLog = new();
+
+    /// <summary>A profile store whose writes fail once FailWrites is set (a full drive, a locked file).</summary>
+    private sealed class FailingProfileStore : IProfileStore
+    {
+        private readonly FakeProfileStore _inner = new();
+
+        public bool FailWrites { get; set; }
+
+        public IReadOnlyList<string> ProfileNames => _inner.ProfileNames;
+
+        public Profile Load(string name) => _inner.Load(name);
+
+        public void Save(Profile profile)
+        {
+            if (FailWrites)
+            {
+                throw new IOException("There is not enough space on the disk.");
+            }
+
+            _inner.Save(profile);
+        }
+
+        public void Delete(string name) => _inner.Delete(name);
+
+        public void Rename(string oldName, string newName) => _inner.Rename(oldName, newName);
+
+        public bool HasBackup(string name) => true;
+
+        public bool RestoreLatestBackup(string name) =>
+            FailWrites ? throw new IOException("There is not enough space on the disk.") : false;
+    }
+
+    private (MergeInstallViewModel Vm, FailingProfileStore Store) VmWithFailingProfileWrites()
+    {
+        var store = new FailingProfileStore();
+        store.Save(new Profile { Name = "Default" });
+        var vm = CreateViewModel(profileStore: store);
+        vm.SelectedProfileName = "Default";
+        store.FailWrites = true;
+        return (vm, store);
+    }
+
+    /// <summary>
+    /// Save profile failing (full drive) used to show only on the page's status line: the activity
+    /// log, which stays after leaving the page, listed the successes but never the failure.
+    /// </summary>
+    [Fact]
+    public void SaveProfile_WhenTheWriteFails_AlsoLogsAWarning()
+    {
+        var (vm, _) = VmWithFailingProfileWrites();
+
+        vm.SaveProfileCommand.Execute(null);
+
+        Assert.StartsWith("Couldn't save profile", vm.ProfileStatusMessage);
+        Assert.Contains(_activityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message == vm.ProfileStatusMessage);
+    }
+
+    /// <summary>New profile failing to write is a Warning in the activity log too, not only the status line.</summary>
+    [Fact]
+    public void NewProfile_WhenTheWriteFails_AlsoLogsAWarning()
+    {
+        var (vm, _) = VmWithFailingProfileWrites();
+        vm.PromptForProfileName = (_, _) => "Coop";
+
+        vm.NewProfileCommand.Execute(null);
+
+        Assert.StartsWith("Couldn't create profile", vm.ProfileStatusMessage);
+        Assert.Contains(_activityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message == vm.ProfileStatusMessage);
+    }
+
+    /// <summary>Restore profile backup failing is a Warning in the activity log too, not only the status line.</summary>
+    [Fact]
+    public void RestoreProfileBackup_WhenItFails_AlsoLogsAWarning()
+    {
+        var (vm, _) = VmWithFailingProfileWrites();
+        _dialogs.OnConfirm = (_, title) => title == "Restore profile backup";
+
+        vm.RestoreProfileBackupCommand.Execute(null);
+
+        Assert.StartsWith("Couldn't restore profile", vm.ProfileStatusMessage);
+        Assert.Contains(_activityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message == vm.ProfileStatusMessage);
+    }
+
+    /// <summary>
+    /// The empty list's Go to Library sends on the page's own messenger, like everything else on
+    /// the page. It used to send on the app-wide default one, which a test (or a second window)
+    /// listening on its own messenger never heard.
+    /// </summary>
+    [Fact]
+    public void GoToLibrary_SendsTheNavigationOnThePagesOwnMessenger()
+    {
+        var vm = CreateViewModel();
+        NavigateToPageMessage? sent = null;
+        _messenger.Register<NavigateToPageMessage>(this, (_, message) => sent = message);
+
+        vm.GoToLibraryCommand.Execute(null);
+
+        Assert.Equal("library", sent?.NavItemId);
     }
 }

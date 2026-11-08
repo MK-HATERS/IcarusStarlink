@@ -106,7 +106,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     /// <summary>Drives the empty-queue hint pointing the user at Library, now that this page has no browsing pane of its own to invite them into.</summary>
     public bool HasQueuedMods => Queue.Count > 0;
 
-    /// <summary>A real computed property, not BoolToVisibilityConverter+ConverterParameter="Invert" — that shape has bitten this app before (see the boolean-converter mistake memory).</summary>
+    /// <summary>A real computed property, not BoolToVisibilityConverter with ConverterParameter="Invert": that converter shape has shown the wrong thing here before.</summary>
     public bool IsQueueEmpty => !HasQueuedMods;
 
     /// <summary>The queue header's count.</summary>
@@ -114,7 +114,7 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
 
     /// <summary>The empty queue's way back to where mods are turned on.</summary>
     [RelayCommand]
-    private void GoToLibrary() => WeakReferenceMessenger.Default.Send(new NavigateToPageMessage("library"));
+    private void GoToLibrary() => _messenger.Send(new NavigateToPageMessage("library"));
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RemoveFromQueueCommand), nameof(MoveQueueEntryUpCommand), nameof(MoveQueueEntryDownCommand))]
@@ -310,9 +310,8 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         // already populated Queue via Clear()+Add() during construction —
         // by design, so a 30+-mod profile load doesn't fire dozens of redundant recomputes while
         // the queue is still being built. But that also means neither badge's own proactive
-        // recompute ever ran for the initial load — confirmed live: a real saved profile with a mod
-        // known to have real field-validity findings showed no badge at all right after launch,
-        // only after some LATER Add/Remove. One explicit recompute here, once the queue has fully
+        // recompute ever ran for the initial load: a saved profile whose mod had real findings
+        // showed no badge right after launch, only after a later Add or Remove. One explicit recompute here, once the queue has fully
         // settled, covers exactly that gap without reordering the subscription itself.
         _ = RecomputeConflictCountAsync();
         _ = RecomputeChecksAsync();

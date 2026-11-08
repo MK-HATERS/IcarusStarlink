@@ -35,9 +35,6 @@ public sealed partial class MergeInstallViewModel
     /// <summary>Test-only: the saved winners as the profile will store them.</summary>
     internal IReadOnlyDictionary<string, string> WinnersForTesting => _winners;
 
-    /// <summary>How many conflict winners the user has picked for this profile.</summary>
-    public int SavedWinnerCount => _winners.Count;
-
     [ObservableProperty]
     private string? _conflictStatusMessage;
 
@@ -558,7 +555,6 @@ public sealed partial class MergeInstallViewModel
                 }
 
                 _winners = FromDisplayWinners(resultWinners, snapshot.Winners, shownWinners, found);
-                OnPropertyChanged(nameof(SavedWinnerCount));
                 SaveWinnersToProfile();
                 var pickedNow = reviewViewModel.PickedCount;
                 ConflictStatusMessage = conflicts.Count == 0 ? null

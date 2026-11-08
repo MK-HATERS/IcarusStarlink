@@ -118,7 +118,7 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
             settingsService,
             new FakePakCompareService(),
             new PerformanceTracker(settingsService, Path.Combine(_tempRoot, "PerfLogs")),
-            new FakeActivityLog(),
+            _activityLog,
             // By default a folder that doesn't exist: game-data readers degrade to "nothing found"
             // rather than throwing (SavesViewModelTests' "no real extracted game data" convention).
             dataFolder,
@@ -362,7 +362,6 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
     // 1. Queue mutation -> debounced conflict/validation recompute
     // ---------------------------------------------------------------------------------------
 
-    /// <summary>The ticked mods and options save themselves (into "Default" when no profile is picked), so a restart keeps them without Save profile.</summary>
     /// <summary>The queue header's count and empty state follow the queue.</summary>
     [Fact]
     public void QueueCount_AndIsQueueEmpty_FollowTheQueue()
@@ -384,6 +383,7 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         Assert.True(vm.IsQueueEmpty);
     }
 
+    /// <summary>The ticked mods and options save themselves (into "Default" when no profile is picked), so a restart keeps them without Save profile.</summary>
     [Fact]
     public void TheQueueSavesItself_AndComesBackOnTheNextStart()
     {

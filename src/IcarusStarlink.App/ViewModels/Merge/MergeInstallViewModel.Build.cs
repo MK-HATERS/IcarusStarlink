@@ -48,9 +48,9 @@ public sealed partial class MergeInstallViewModel
     internal bool HasAnythingToBuild => Queue.Any(IsBuildable) || BuildGameplayOptionsFromUi().IsAnyActive;
 
     /// <summary>
-    /// The one visible button for turning the current queue into a real install — merges Rebuild
-    /// and Install into a single click rather than requiring two, per direct user feedback ("why
-    /// can't it just be an install and it merges and installs"). Internally still two distinct
+    /// The one visible button for turning the current queue into a real install — builds and
+    /// installs in a single click, because a player who wants the mods in the game shouldn't have
+    /// to press a separate build button first. Internally still two distinct
     /// steps (RebuildAsync, a safe local-only pak build; InstallAsync, the one action in this whole
     /// app that writes into the real game folder, gated behind its own explicit Yes/No confirmation)
     /// — chaining them, rather than merging their bodies into one method, keeps each independently
@@ -65,11 +65,10 @@ public sealed partial class MergeInstallViewModel
         // on disk" — a stale pak from an earlier successful build stays on disk after a later
         // Rebuild is skipped (the guard below) or fails (an exception, a missing UnrealPak.exe
         // path), and File.Exists alone can't tell "just built" apart from "leftover from before".
-        // Found live: enabling a Category-1-only option (e.g. Remove Level Cap) with an empty
-        // queue tripped the guard below (it only checked Category-2's RequiredCurrentFiles), so
-        // Rebuild silently no-opped — and the combined button then went ahead and installed the
-        // OLD pak from a previous test, with no error shown, silently not reflecting what was
-        // actually configured. That guard is fixed too (see GameplayOptions.IsAnyActive), but this
+        // Regression: a Category-1-only option (Remove Level Cap) with an empty queue tripped the
+        // guard below (it only checked Category-2's RequiredCurrentFiles), so the build silently
+        // did nothing and the button went on to install the old pak with no error, not reflecting
+        // what was actually configured. That guard is fixed too (see GameplayOptions.IsAnyActive), but this
         // is the deeper fix: Install must never run off a rebuild that didn't actually happen.
         //
         // Nothing ticked while Starlink's merge is in the game: the Library tells the player that
