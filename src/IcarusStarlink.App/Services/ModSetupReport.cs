@@ -104,12 +104,28 @@ public sealed class ModSetupReport(
         return text.ToString().TrimEnd() + Environment.NewLine;
     }
 
+    /// <summary>The build Steam says is installed (its appmanifest), or null when there's no manifest to read.</summary>
+    private static string? InstalledBuild(string contentPath)
+    {
+        try
+        {
+            return GameUpdateDetector.FindAppManifest(contentPath) is { } manifest
+                ? GameUpdateDetector.ReadBuildId(File.ReadAllText(manifest))
+                : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    // '|' stays plain: it only means something in a Markdown table, and Nexus shows "\|" as typed.
     private static string EscapeMarkdown(string text)
     {
         var escaped = new StringBuilder(text.Length);
         foreach (var c in text)
         {
-            if (c is '*' or '_' or '`' or '~' or '|' or '<' or '>' or '#')
+            if (c is '*' or '_' or '`' or '~' or '<' or '>' or '#')
             {
                 escaped.Append('\\');
             }
@@ -128,7 +144,12 @@ public sealed class ModSetupReport(
         Section(text, "Game", () =>
         {
             text.AppendLine($"Game folder: {content ?? "not set"}");
-            text.AppendLine($"Game build: {current.LastSeenGameBuildId ?? "unknown"}");
+            var gameBuild = content is null ? null : InstalledBuild(content);
+            text.AppendLine($"Game build: {gameBuild ?? "unknown"}");
+            if (current.LastSeenGameBuildId is { } ready && !string.Equals(ready, gameBuild, StringComparison.OrdinalIgnoreCase))
+            {
+                text.AppendLine($"Mods last made ready for game build: {ready}");
+            }
             text.AppendLine($"Last game data refresh: {(current.LastDataFolderUpdatedAt is { } at ? at.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "never")}");
             text.AppendLine($"Last Merge & Install: {(current.LastInstallAtUtc is { } installed ? installed.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "never")}");
         });

@@ -103,7 +103,38 @@ public class ModSetupReportTests : IDisposable
         var build = report.Capture();
         _settings.LastSeenGameBuildId = "222";
 
-        Assert.Contains("Game build: 111", build());
+        Assert.Contains("Mods last made ready for game build: 111", build());
+    }
+
+    /// <summary>
+    /// Regression: "Game build" showed the build the mods were last made ready for, not the one
+    /// installed, so a bug report after a game update named the old build.
+    /// </summary>
+    [Fact]
+    public void Build_NamesTheInstalledBuild_AndTheOneTheModsWereMadeReadyFor()
+    {
+        var steamapps = Path.Combine(_tempDir, "steamapps");
+        _settings.IcarusContentPath = Path.Combine(steamapps, "common", "Icarus", "Icarus", "Content");
+        Directory.CreateDirectory(_settings.IcarusContentPath);
+        File.WriteAllText(Path.Combine(steamapps, "appmanifest_1149460.acf"), "\"AppState\"\n{\n\t\"appid\"\t\t\"1149460\"\n\t\"buildid\"\t\t\"222\"\n}\n");
+        _settings.LastSeenGameBuildId = "111";
+
+        var text = new ModSetupReport(() => [], () => _settings).Capture()();
+
+        Assert.Contains("Game build: 222", text);
+        Assert.Contains("Mods last made ready for game build: 111", text);
+
+        _settings.LastSeenGameBuildId = "222";
+        Assert.DoesNotContain("made ready", new ModSetupReport(() => [], () => _settings).Capture()());
+    }
+
+    /// <summary>The " | " between a mod's parts stays plain: it only means something in a Markdown table, and Nexus shows "\|" as typed.</summary>
+    [Fact]
+    public void ToMarkdown_LeavesPipesPlain()
+    {
+        var markdown = ModSetupReport.ToMarkdown("== Library mods ==\nTidy Base 1.0 | EXMOD | Nexus mod 5\n");
+
+        Assert.Contains("- Tidy Base 1.0 | EXMOD | Nexus mod 5", markdown);
     }
 
     /// <summary>One part that can't be read (a locked library) says so; the other parts are still written.</summary>
