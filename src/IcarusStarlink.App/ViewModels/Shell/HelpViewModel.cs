@@ -166,6 +166,8 @@ public sealed partial class HelpViewModel : ObservableObject
             Every time you click **Refresh game data** (Settings), this app keeps a record of what it just extracted. Run it once before a game update and again after, and this page compares the two: which files changed, which items/fields were added, removed, or edited, old value beside new. A game update that changes only a table's Defaults (the values every row starts from) or its RowStruct is listed too, with one "(every row)" line for that table. Genuinely useful for figuring out why a mod that used to work suddenly doesn't (see "if a game update breaks your mod" under "Making your own mods").
 
             Pick a file on the left to see its changes on the right. **History** picks an earlier refresh (about a month is kept). **Refresh game data** reads the game again and compares. If you see "No changes tracked yet," you only have one extraction on record; run **Refresh game data** again after the next game update to get a real comparison.
+
+            A refresh that finds nothing changed doesn't add a report. **Remove** (beside History) deletes the report shown, for one you don't need; it asks first, and the game's files and your mods aren't touched.
             """),
 
         new("Map", """

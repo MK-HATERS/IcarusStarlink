@@ -1,7 +1,10 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
+using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.App.Messages;
+using IcarusStarlink.App.Services;
+using IcarusStarlink.App.Views;
 using IcarusStarlink.PakIO.DataChanges;
 
 namespace IcarusStarlink.App.ViewModels;
@@ -18,6 +21,7 @@ public sealed record WeeklyChangeReportSummary(WeeklyChangeReport Report, string
 public sealed partial class WeeklyChangesViewModel : ObservableObject
 {
     private readonly IWeeklyChangeReportStore _store;
+    private readonly IDialogService _dialogs;
 
     public string Title => "Weekly Changes";
 
@@ -40,10 +44,12 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
     private string _summaryMessage = "";
 
     /// <param name="messenger">Injectable like Merge &amp; Install's, so a test can use its own instead of the shared Default.</param>
-    public WeeklyChangesViewModel(IWeeklyChangeReportStore store, SettingsViewModel settings, IMessenger? messenger = null)
+    /// <param name="dialogService">Asks before Remove; the real themed dialogs when left out.</param>
+    public WeeklyChangesViewModel(IWeeklyChangeReportStore store, SettingsViewModel settings, IMessenger? messenger = null, IDialogService? dialogService = null)
     {
         _store = store;
         Settings = settings;
+        _dialogs = dialogService ?? new WpfDialogService();
         messenger ??= WeakReferenceMessenger.Default;
 
         // This VM is a DI singleton, constructed once on first navigation here — without this, a
@@ -55,7 +61,43 @@ public sealed partial class WeeklyChangesViewModel : ObservableObject
         ReloadHistory();
     }
 
-    partial void OnSelectedReportChanged(WeeklyChangeReportSummary? value) => ShowReport(value?.Report);
+    partial void OnSelectedReportChanged(WeeklyChangeReportSummary? value)
+    {
+        ShowReport(value?.Report);
+        RemoveReportCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanRemoveReport() => SelectedReport is not null;
+
+    /// <summary>
+    /// Weekly Changes › Remove: deletes the report shown (an empty one from an extra refresh, say)
+    /// after the user says yes. Only Starlink's own record goes; the game's data and the Data
+    /// folder are not touched, and the next refresh still compares with the last extraction.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRemoveReport))]
+    private void RemoveReport()
+    {
+        if (SelectedReport is not { } shown)
+        {
+            return;
+        }
+
+        var report = shown.Report;
+        var message = $"Remove the report from {report.CurrentUpdateAt.LocalDateTime:d MMM yyyy, HH:mm} ({FilesChangedText(report.ChangedFiles.Count)})?\n\n"
+            + "It goes from the History list for good. The game's files and your mods aren't touched.";
+        if (!_dialogs.Confirm(message, "Remove report", ThemedConfirmSeverity.Question))
+        {
+            return;
+        }
+
+        if (!_store.Remove(report))
+        {
+            SummaryMessage = "Couldn't remove that report: its file may be open in another program or read-only. Try again in a moment.";
+            return;
+        }
+
+        ReloadHistory();
+    }
 
     /// <summary>
     /// Always lands on the newest report (History is newest first). This only re-runs because a

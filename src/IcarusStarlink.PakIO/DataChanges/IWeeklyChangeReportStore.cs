@@ -2,7 +2,7 @@ namespace IcarusStarlink.PakIO.DataChanges;
 
 /// <summary>
 /// Keeps roughly a month of WeeklyChangeReport history — one per "Refresh game data" run that had
-/// a previous extraction to compare against — rather than the single overwritten entry this
+/// a previous extraction to compare against and found changes — rather than the single overwritten entry this
 /// started as. Real cost of the old design: a live game patch's real diff was silently gone the
 /// moment anyone re-ran the update again for any reason (confirmed the hard way — a same-day
 /// re-run for an unrelated check erased a real patch's own tracked changes). Anything older than
@@ -18,4 +18,11 @@ public interface IWeeklyChangeReportStore
     IReadOnlyList<WeeklyChangeReport> History { get; }
 
     void Save(WeeklyChangeReport report);
+
+    /// <summary>
+    /// Takes one report out of the history and deletes its file (Weekly Changes › Remove, after the
+    /// user said yes). False when it isn't in the history or its file couldn't be deleted; the
+    /// history is then unchanged.
+    /// </summary>
+    bool Remove(WeeklyChangeReport report);
 }

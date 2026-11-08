@@ -172,6 +172,35 @@ public class WeeklyChangeReportStoreTests : IDisposable
         Assert.False(File.Exists(legacyPath));
     }
 
+    /// <summary>Weekly Changes › Remove: the report leaves the history and its file goes, so it stays gone after a restart.</summary>
+    [Fact]
+    public void Remove_TheNewest_DropsItAndItsFile_TheNextBecomesCurrent()
+    {
+        var store = CreateStore();
+        var older = MakeReport(Now.AddDays(-3));
+        var newest = MakeReport(Now);
+        store.Save(older);
+        store.Save(newest);
+
+        Assert.True(store.Remove(newest));
+
+        Assert.Same(older, store.Current);
+        var reopened = CreateStore();
+        Assert.Equal(older.CurrentUpdateAt, Assert.Single(reopened.History).CurrentUpdateAt);
+    }
+
+    [Fact]
+    public void Remove_AReportNotInTheHistory_ChangesNothing()
+    {
+        var store = CreateStore();
+        store.Save(MakeReport(Now));
+
+        Assert.False(store.Remove(MakeReport(Now.AddDays(-1))));
+
+        Assert.Single(store.History);
+        Assert.Single(CreateStore().History);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

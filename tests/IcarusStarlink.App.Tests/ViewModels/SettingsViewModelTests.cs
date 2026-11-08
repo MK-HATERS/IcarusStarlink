@@ -202,6 +202,22 @@ public sealed partial class SettingsViewModelTests
         Assert.NotNull(harness.Settings.LastDataFolderUpdatedAt);
     }
 
+    /// <summary>A refresh that finds nothing changed (an extra click, no game update) adds no empty report to Weekly Changes.</summary>
+    [Fact]
+    public async Task UpdateDataFolderCommand_NoFilesChanged_SavesNoReport()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+        harness.UnrealPakService.ExtractResultFactory = () => new UnrealPakExtractResult(10, MakeReport(changedFileCount: 0));
+
+        await vm.UpdateDataFolderCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, harness.WeeklyChangeReportStore.SaveCallCount);
+        Assert.False(vm.HasWeeklyChanges);
+        Assert.Contains("No JSON changes", vm.DataFolderStatusMessage);
+        Assert.NotNull(harness.Settings.LastDataFolderUpdatedAt);
+    }
+
     /// <summary>
     /// Regression: a second request while an extraction ran started another one into the same
     /// Data folder, and RefreshGameDataAsync answered "done" at once while the first still ran.
@@ -1892,6 +1908,17 @@ public sealed partial class SettingsViewModelTests
             SaveCallCount++;
             LastSavedReport = report;
             Current = report;
+        }
+
+        public bool Remove(WeeklyChangeReport report)
+        {
+            if (!ReferenceEquals(Current, report))
+            {
+                return false;
+            }
+
+            Current = null;
+            return true;
         }
     }
 

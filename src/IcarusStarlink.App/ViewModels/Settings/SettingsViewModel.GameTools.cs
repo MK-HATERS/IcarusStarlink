@@ -260,7 +260,9 @@ public sealed partial class SettingsViewModel
             // that ran on the UI thread and the window stopped responding for seconds.
             var result = await Task.Run(() => _unrealPakService.ExtractDataPakAsync(unrealPakExePath, icarusContentPath, dataOutputDirectory, previousUpdateAt));
 
-            if (result.ChangeReport is { } report)
+            // A refresh with nothing changed (an extra click, no game update) keeps no report: an
+            // empty one only cluttered History. The status line below still says nothing changed.
+            if (result.ChangeReport is { ChangedFiles.Count: > 0 } report)
             {
                 _weeklyChangeReportStore.Save(report);
             }

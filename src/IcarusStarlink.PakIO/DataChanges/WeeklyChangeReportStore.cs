@@ -55,6 +55,30 @@ public sealed class WeeklyChangeReportStore : IWeeklyChangeReportStore
         Prune();
     }
 
+    /// <summary>Matched by file name, the same key Save uses: one file holds one report.</summary>
+    public bool Remove(WeeklyChangeReport report)
+    {
+        var fileName = FileNameFor(report.CurrentUpdateAt);
+        if (!_history.Any(r => FileNameFor(r.CurrentUpdateAt) == fileName))
+        {
+            return false;
+        }
+
+        try
+        {
+            // File.Delete is a no-op for a file already gone, which still counts as removed.
+            File.Delete(Path.Combine(_historyDirectory, fileName));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Failed to delete the weekly change report for {Timestamp}", report.CurrentUpdateAt);
+            return false;
+        }
+
+        _history.RemoveAll(r => FileNameFor(r.CurrentUpdateAt) == fileName);
+        return true;
+    }
+
     /// <summary>Invariant, so the name Prune builds matches the one Save wrote whatever calendar the PC uses.</summary>
     private static string FileNameFor(DateTimeOffset currentUpdateAt) =>
         currentUpdateAt.UtcDateTime.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".json";
