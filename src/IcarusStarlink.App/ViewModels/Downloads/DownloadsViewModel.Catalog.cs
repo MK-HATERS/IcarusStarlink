@@ -671,7 +671,7 @@ public sealed partial class DownloadsViewModel
         var isExmodz = catalogEntry.ExmodzUrl is not null;
         // The file lands under Pending_Downloads and is recorded like a Nexus download, so the
         // Downloads page is the one place every archive lives (Reinstall / Discard work the same)
-        // — the way a mod organizer keeps its downloads, per direct user feedback. The file is
+        // — the way a mod organizer keeps its downloads. The file is
         // named after the catalog entry: a .pak that can't be converted is imported as an opaque
         // entry whose name derives from the pak's own file name.
         Directory.CreateDirectory(_pendingDownloadsDirectory);

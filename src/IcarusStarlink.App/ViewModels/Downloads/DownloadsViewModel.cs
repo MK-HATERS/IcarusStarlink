@@ -149,20 +149,14 @@ public sealed partial class DownloadsViewModel : ObservableObject
 
         ReloadPendingDownloads();
 
-        // Constructors can't be async; this is the same "fire it and let the method itself
-        // handle every failure" shape a WPF event handler already has to use for async work —
-        // RefreshCatalogAsync has its own top-level try/catch, so nothing here can produce an
-        // unobserved exception.
+        // Constructors can't be async: the load runs on and handles its own failures. Its snapshot
+        // branch and RefreshCatalogAsync each catch theirs, so nothing escapes unobserved.
         _catalogLoad = LoadCatalogAsync();
 
-        // This ViewModel Sends LibraryChangedMessage itself (after a download/extract, an
-        // Activate, or an import) but, until now, never Registered to receive it — so the IMM
-        // Database's Downloaded/Outdated/installed-version status went stale after an import or
-        // delete that happened elsewhere (Library, or Merge & Install's own Install) until an
-        // unrelated filter change happened to recompute it. Also refreshes every Pending Downloads
-        // row's own computed Install/Reinstall/deleted state, for the same reason — a delete in
-        // Library doesn't touch this VM's own PendingDownloads collection at all, so nothing else
-        // would notice.
+        // An import or delete elsewhere (Library, Merge & Install) changes the IMM Database's
+        // Downloaded/Outdated/installed-version status and every download row's
+        // Install/Reinstall/removed state; neither is recomputed on its own, so both are
+        // refreshed whenever the Library says it changed.
         WeakReferenceMessenger.Default.Register<LibraryChangedMessage>(this, (recipient, _) =>
         {
             var self = (DownloadsViewModel)recipient;
@@ -417,10 +411,9 @@ public sealed partial class DownloadsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// What the "Downloads needing attention" list actually shows: by default only downloads that
-    /// still need something (never activated, or a part since deleted) — a fully installed one sat
-    /// in a list named "needing attention" forever (a real polish complaint). Show installed
-    /// brings the history back.
+    /// What the Downloads list shows: by default only downloads that still need something (never
+    /// activated, or a part since deleted). Installed ones and older versions of mods updated since
+    /// used to stay there forever; Show installed brings that history back.
     /// </summary>
     public ObservableCollection<PendingDownloadItemViewModel> VisiblePendingDownloads { get; } = [];
 

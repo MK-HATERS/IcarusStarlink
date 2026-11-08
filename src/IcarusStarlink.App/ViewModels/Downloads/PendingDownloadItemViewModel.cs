@@ -128,7 +128,7 @@ public sealed partial class PendingDownloadItemViewModel : ObservableObject
 
     public bool HasMissingRequirements => MissingRequirementNames.Count > 0;
 
-    /// <summary>The "Get X" button only makes sense for a download that is (still) installed — offering to fetch a dependency for a mod the user just deleted read as "find X to delete it too" in a real report.</summary>
+    /// <summary>The "Get X" button only makes sense for a download that is (still) installed — offering to fetch a dependency for a mod the user just deleted read as "find X to delete it too".</summary>
     public bool CanGetRequirement => HasMissingRequirements && !WasDeleted;
 
     public string GetRequirementLabel => MissingRequirementNames.Count switch

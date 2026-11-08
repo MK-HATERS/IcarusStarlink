@@ -37,4 +37,11 @@ public class NexusModWebUrlTests
     {
         Assert.Equal("https://www.nexusmods.com/icarus/mods/289", NexusModWebUrl.For(289));
     }
+
+    [Fact]
+    public void ForFile_OpensThatFileOnTheFilesTab()
+    {
+        Assert.Equal("https://www.nexusmods.com/icarus/mods/289?tab=files", NexusModWebUrl.ForFiles(289));
+        Assert.Equal("https://www.nexusmods.com/icarus/mods/289?tab=files&file_id=3188&nmm=1", NexusModWebUrl.ForFile(289, 3188));
+    }
 }

@@ -385,8 +385,7 @@ public sealed partial class DownloadsViewModel
         // Never activated through THIS row (a first download of a new file for this mod — e.g.
         // "Update" on a mod installed some other way: a manual import, a classic-IMM migration),
         // but entries linked to the same Nexus mod / catalog entry can still exist. Without
-        // replacing them, "Update" silently added a "_2" copy and left the original untouched
-        // (a real bug found live: "I download the update but it's not updating the mod").
+        // replacing them, "Update" silently added a "_2" copy and left the original untouched.
         if (item.IsCatalog)
         {
             return new PreviousCopies(
@@ -469,8 +468,7 @@ public sealed partial class DownloadsViewModel
     /// the identical detection) — then layers this page's own Nexus-specific follow-up on top: an
     /// opaque pak or a UE4SS mod carries no embedded name/author of its own, so both get a
     /// best-effort real-name/version lookup from the Nexus mod ID this download already came with,
-    /// and every kind fires the same reload/activity-log side effects a manual import doesn't need
-    /// (Library's UE4SS tab has its own reload path, never wired to this pipeline before this).
+    /// and every kind is logged to the Activity panel, which a manual import doesn't need.
     /// </summary>
     private async Task<(string StatusMessage, IReadOnlyList<PendingDownloadActivatedItem> Items, IReadOnlyList<string> Requirements)> ClassifyAndImportExtractedModAsync(
         string extractedDirectory, string originalFileName, string source, int? nexusModId, string? catalogEntryId, PreviousCopies previous,
@@ -511,8 +509,8 @@ public sealed partial class DownloadsViewModel
         {
             if (produced.Kind == PendingDownloadActivationKind.Library)
             {
-                // For EVERY Library kind, not just an opaque/converted pak (the original gating — a real
-                // bug found live): an ordinary EXMODZ keeps its author-declared Name/Author (the
+                // For EVERY Library kind, not just an opaque/converted pak (it used to be only those):
+                // an ordinary EXMODZ keeps its author-declared Name/Author (the
                 // repository guards those), but still needs the Nexus VERSION recorded, or the update
                 // check compares the author's own "1.0" against Nexus's "1" and shows "Update
                 // available" forever right after activating. See UpdateVersionComparer.

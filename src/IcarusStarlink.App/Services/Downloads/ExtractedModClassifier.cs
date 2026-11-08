@@ -185,7 +185,7 @@ public static class ExtractedModClassifier
         var pakFiles = allFiles.Where(f => f.EndsWith(".pak", StringComparison.OrdinalIgnoreCase)).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToArray();
         var downloadName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName), nexusModId);
 
-        // The game-folder layout (a real shape found live, see the class doc): every UE4SS mod
+        // The game-folder layout (a shape real downloads have, see the class doc): every UE4SS mod
         // folder under a "…\ue4ss\Mods\" directory is staged under ITS OWN name (not the download's
         // file name), and the paks become the Library half of the same mod.
         var ue4ssModFolders = FindGameLayoutUe4ssModFolders(extractedDirectory);
@@ -224,8 +224,8 @@ public static class ExtractedModClassifier
 
         // One download = one mod, however many paks it ships (an icon pak and a model pak, a
         // "_P" pair, variants an author bundled): all of them land in ONE Library entry named
-        // after the download. This used to refuse two loose paks as "ambiguous"; a real user
-        // hit exactly that on a Nexus download and had no way forward inside the app.
+        // after the download. This used to refuse two loose paks as "ambiguous", which left a
+        // Nexus download with no way forward inside the app.
         if (pakFiles.Length >= 1)
         {
             ThrowIfPaksShareAName(pakFiles, extractedDirectory);
@@ -235,16 +235,12 @@ public static class ExtractedModClassifier
                 extractedDirectory, pakFiles, ue4ssModRepository, ue4ssNamesAlreadyInstalledInGame, session);
         }
 
-        // A real bug found live (a user's own Nexus bug report, confirmed by inspecting the actual
-        // downloaded file): the Nexus upload was a .zip wrapping a single .EXMODZ — the author had
-        // zipped their mod file for upload. After extracting the outer zip, this folder held one
-        // .EXMODZ and nothing else: no .EXMOD, no .pak, nothing Unreal-shaped — so it fell straight
-        // through to the UE4SS catch-all below and was "staged" as a UE4SS mod, uselessly. The
-        // inner archive is the real mod; extract it and classify THAT, exactly as if it had been
-        // the download itself (the manual "Import archive…" path handles a bare .EXMODZ fine, which
-        // is why that route never showed this bug). One nested archive is unambiguous; several
-        // (e.g. an author bundling multiple variants in one upload) is the same genuine ambiguity
-        // the multi-.pak rule above already refuses to guess at.
+        // Regression: a Nexus upload that was a .zip wrapping a single .EXMODZ (the author zipped
+        // their mod file for upload) held nothing else after the outer unpack: no .EXMOD, no .pak,
+        // nothing Unreal-shaped. It fell through to the UE4SS catch-all below and was staged as a
+        // useless UE4SS mod. The inner archive is the real mod: extract it and classify THAT,
+        // exactly as if it had been the download itself (the manual "Import archive…" path handles
+        // a bare .EXMODZ fine, which is why that route never showed this).
         var nestedArchives = allFiles
             .Where(f => NestedArchiveExtensions.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
             .ToArray();
@@ -310,8 +306,8 @@ public static class ExtractedModClassifier
             return warnings.Count == 0 ? merged : merged with { Warnings = [.. warnings, .. merged.Warnings] };
         }
 
-        // A real bug found live: a user reported a downloaded EXMODZ silently landing as a UE4SS
-        // mod instead. Neither EXMOD-shaped nor a single prebuilt pak genuinely means "treat as
+        // Regression: a downloaded EXMODZ silently landed as a UE4SS mod. Neither EXMOD-shaped nor
+        // a single prebuilt pak genuinely means "treat as
         // UE4SS" ONLY when the content is actually Lua-script-shaped — but raw Unreal asset files
         // (.uasset/.uexp — exactly what a real EXMOD's own BP/ subfolder is full of) with no .EXMOD
         // manifest alongside them is a different, much more likely real-world case: a download
@@ -333,7 +329,7 @@ public static class ExtractedModClassifier
         // Neither EXMOD-shaped nor a single prebuilt pak, and nothing here looks like orphaned
         // Unreal asset content either — treat as a UE4SS mod, the one kind of mod this app handles
         // that carries no metadata file of its own to detect it by. Named after the upload, not
-        // the full Nexus file name with its id/timestamp/hash tail (a real complaint).
+        // the full Nexus file name with its id/timestamp/hash tail.
         var fallbackName = NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(originalFileName), nexusModId);
 
         // UE4SS's own files and mods and nothing else: staging that whole tree would add the

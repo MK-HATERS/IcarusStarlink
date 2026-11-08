@@ -5,8 +5,8 @@ namespace IcarusStarlink.Core.Nexus;
 /// <summary>
 /// Nexus names every downloaded file "&lt;upload name&gt; &lt;modId&gt; &lt;file version&gt; &lt;yyyy-MM-ddTHH-mmZ&gt; &lt;hash&gt;.ext"
 /// (confirmed against real downloads: "ArcFissionLibrary V1.2.2 356 3 2026-10-12T13-50Z b0gYfPbb2.zip").
-/// That whole tail rode into staged UE4SS mod names and opaque pak names — a real complaint. The
-/// upload name is the part a person recognizes.
+/// That whole tail used to ride into staged UE4SS mod names and opaque pak names. The upload name
+/// is the part a person recognizes.
 /// A manual download from the website uses a second form instead:
 /// "&lt;upload name&gt;-&lt;modId&gt;-&lt;version parts&gt;-&lt;id&gt;-&lt;unix time&gt;.ext" (real:
 /// "Cheat S5-II and Larkwell Haulier underwears-59-2-3-25-146718-1767981001.zip").

@@ -157,8 +157,8 @@ public sealed partial class DownloadsViewModel
     /// Nexus's own API, download the bytes, record it in Pending Downloads, then immediately
     /// activate it (the same classify-and-import logic ActivatePendingDownloadAsync already has,
     /// which already tells an EXMOD mod from a prebuilt pak from a UE4SS mod). A successful
-    /// download just becomes a normal Library (or UE4SS) entry with no separate click needed —
-    /// per direct feedback, a downloaded mod should "blend in" automatically. displayName (when
+    /// download just becomes a normal Library (or UE4SS) entry with no separate click needed: a
+    /// downloaded mod blends in on its own. displayName (when
     /// the caller already knows it) drives the Library page's in-progress stub; falls back to
     /// "mod #N" when it isn't known yet, which has no name to show until Nexus's own headers
     /// reveal the real file name partway through. Public (not private) since this is the landing
@@ -324,7 +324,7 @@ public sealed partial class DownloadsViewModel
         // failing that, the download URL's own path) — neither is trustworthy: a rooted or
         // "../"-laden value would otherwise let Path.Combine write anywhere the app process can
         // write. Nexus's "<name> <modId> <fileId> <timestamp> <hash>" tail dropped from the saved
-        // name (a real complaint: it rode into staged mod names). The (ModId, FileId) pair is what
+        // name (it used to ride into staged mod names). The (ModId, FileId) pair is what
         // keeps same-named files apart, not the hash.
         fileName = DownloadFileNameSanitizer.Sanitize(
             NexusDownloadFileName.StripNexusSuffix(Path.GetFileNameWithoutExtension(fileName), nxmUrl.ModId) + Path.GetExtension(fileName));
