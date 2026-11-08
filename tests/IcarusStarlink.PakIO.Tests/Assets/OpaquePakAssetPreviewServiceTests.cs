@@ -32,14 +32,25 @@ public class OpaquePakAssetPreviewServiceTests : IDisposable
         public string? LastOutputDirectory { get; private set; }
         public Exception? ThrowOnExtract { get; set; }
 
+        /// <summary>With ThrowOnExtract: a file lands in the output folder before the throw, like an extraction cut off partway.</summary>
+        public bool WriteBeforeThrow { get; set; }
+
+        public SynchronizationContext? ContextDuringExtract { get; private set; }
+
         public Task<int> ExtractPakAsync(
             string unrealPakExePath, string pakFilePath, string outputDirectory,
             CancellationToken cancellationToken = default, string? filter = null)
         {
             ExtractCallCount++;
             LastOutputDirectory = outputDirectory;
+            ContextDuringExtract = SynchronizationContext.Current;
             if (ThrowOnExtract is { } ex)
             {
+                if (WriteBeforeThrow)
+                {
+                    File.WriteAllText(Path.Combine(outputDirectory, "Half.uasset"), "partial");
+                }
+
                 throw ex;
             }
             return Task.FromResult(0);
@@ -296,6 +307,54 @@ public class OpaquePakAssetPreviewServiceTests : IDisposable
         Assert.Null(result.PngBytes);
         Assert.Contains("UnrealPak.exe exited with code 1", result.FailureReason);
     }
+
+    /// <summary>Regression: a failed extraction left its half-written files in the cache until the next preview of that mod.</summary>
+    [Fact]
+    public async Task PreviewAssetAsync_ExtractionFailsPartway_RemovesThePartialCache()
+    {
+        var unrealPak = new FakeUnrealPakService
+        {
+            ThrowOnExtract = new IOException("UnrealPak.exe stopped partway"),
+            WriteBeforeThrow = true,
+        };
+        var service = MakeService(unrealPak);
+
+        var result = await service.PreviewAssetAsync(UnrealPakExePath, _pakFilePath, "Textures/Icon.uasset", _cacheDirectory);
+
+        Assert.Contains("UnrealPak.exe stopped partway", result.FailureReason);
+        Assert.False(Directory.Exists(_cacheDirectory), "the half-written extraction is still in the cache");
+    }
+
+    /// <summary>
+    /// Regression: the Files tab starts a preview on the UI thread, and the cache check, the wipe of
+    /// an old extraction and the start of the new one all ran there before the first real await.
+    /// </summary>
+    [Fact]
+    public async Task PreviewAssetAsync_RunsOffTheCallersThread()
+    {
+        var unrealPak = new FakeUnrealPakService();
+        var service = MakeService(unrealPak);
+        var marker = new MarkerSynchronizationContext();
+        var previous = SynchronizationContext.Current;
+        Task<OpaquePakAssetPreviewResult> preview;
+        SynchronizationContext.SetSynchronizationContext(marker);
+        try
+        {
+            preview = service.PreviewAssetAsync(UnrealPakExePath, _pakFilePath, "Textures/Icon.uasset", _cacheDirectory);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+
+        await preview;
+
+        Assert.Equal(1, unrealPak.ExtractCallCount);
+        Assert.NotSame(marker, unrealPak.ContextDuringExtract);
+    }
+
+    /// <summary>Stands in for the UI thread's context: work that should leave the caller's thread must not run under it.</summary>
+    private sealed class MarkerSynchronizationContext : SynchronizationContext;
 
     [Fact]
     public async Task PreviewAssetAsync_SecondCallSamePak_ReusesCacheInsteadOfReExtracting()

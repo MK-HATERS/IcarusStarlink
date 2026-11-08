@@ -3,8 +3,8 @@ namespace IcarusStarlink.PakIO.Assets;
 /// <summary>
 /// Real preview support for a .uasset packed inside an opaque/prebuilt-imported pak — unlike a
 /// regular EXMOD mod's own loose files (already sitting on disk, so CueAssetProviderLocator can
-/// index them directly), an opaque pak's own contents only exist packed inside its single .pak
-/// file. This extracts that pak (cached — see the implementation's own doc comment on why, and
+/// index them directly), an opaque pak's own contents only exist packed inside the .pak file that
+/// holds the asset (a bundle has several). This extracts that pak (cached — see the implementation's own doc comment on why, and
 /// what it costs) into a real folder on disk, then runs it through the exact same five decoders
 /// (IUassetTextureDecoder/IUassetStaticMeshDecoder/IUassetSkeletalMeshDecoder/IUassetSoundDecoder/
 /// IUassetMaterialDecoder) a loose EXMOD mod's own preview already uses, in the same order
@@ -13,7 +13,7 @@ namespace IcarusStarlink.PakIO.Assets;
 public interface IOpaquePakAssetPreviewService
 {
     /// <param name="unrealPakExePath">Same UnrealPak.exe path Settings already stores for every other pak operation.</param>
-    /// <param name="pakFilePath">The opaque mod's own single .pak file on disk.</param>
+    /// <param name="pakFilePath">The .pak file on disk that holds the asset (a bundle has several).</param>
     /// <param name="relativeAssetPath">The asset's path exactly as returned by IUnrealPakService.ListPakContentsAsync (what the Files tab already lists for an opaque pak).</param>
     /// <param name="cacheDirectory">Where this pak's extracted contents are cached — one directory per distinct pak, reused across repeated preview clicks instead of re-extracting the whole pak every time.</param>
     Task<OpaquePakAssetPreviewResult> PreviewAssetAsync(

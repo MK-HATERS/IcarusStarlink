@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.PakIO.Pak;
 
 namespace IcarusStarlink.PakIO.Assets;
@@ -9,20 +10,9 @@ namespace IcarusStarlink.PakIO.Assets;
 /// it can't be pointed at bytes still packed inside a .pak), so an opaque pak's own .uasset
 /// entries get a genuine decode attempt instead of an unconditional "no preview available".
 ///
-/// IUnrealPakService.ExtractPakAsync DOES now have an optional scoped/selective-extract form (a
-/// `filter` parameter, confirmed live against the real bundled UnrealPak.exe's own `-Filter` flag)
-/// — but this call site deliberately still passes none, so it always extracts a pak's ENTIRE
-/// contents rather than just the one asset being previewed. That's a real cost for a large opaque
-/// mod pak, but it's paid at most once per pak (cached below, keyed on a size+mtime stamp), not on
-/// every asset the user clicks through in the Files tab. Switching this call site to a scoped
-/// filter isn't a safe drop-in: a material's own Parent chain, or a skeletal mesh's own skeleton
-/// reference, can point at ANOTHER asset inside this same opaque pak, and a filter scoped to just
-/// relativeAssetPath's own base name would silently leave that companion asset unextracted —
-/// exactly the kind of thing that already happens for base-game Content\Paks (see
-/// CueUassetMaterialDecoder's own doc comment) but has no equivalent fallback here, since the
-/// asset a scoped filter dropped would need to come from THIS pak, not the base game's. Doing this
-/// safely would mean discovering an asset's own cross-references before deciding what to extract,
-/// which the decoders here don't currently expose — a real follow-up, not done here.
+/// The whole pak is extracted, not just the asset (-Filter): a material's parent or a mesh's
+/// skeleton can be another asset in the same pak, which a filtered extract would leave out. The
+/// cost is paid once per pak: the extraction is cached under a size and time stamp.
 /// </summary>
 public sealed class OpaquePakAssetPreviewService(
     IUnrealPakService unrealPakService, IUassetTextureDecoder textureDecoder, IUassetStaticMeshDecoder meshDecoder,
@@ -43,9 +33,19 @@ public sealed class OpaquePakAssetPreviewService(
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> ExtractionLocks =
         new(StringComparer.OrdinalIgnoreCase);
 
-    public async Task<OpaquePakAssetPreviewResult> PreviewAssetAsync(
+    /// <remarks>
+    /// The caller is the Files tab's selection change, on the UI thread, and the cache check, the
+    /// wipe of an old extraction and the extraction itself are slow, so all of it runs on the pool.
+    /// The token isn't given to Task.Run, so a failure still comes back as a result.
+    /// </remarks>
+    public Task<OpaquePakAssetPreviewResult> PreviewAssetAsync(
         string unrealPakExePath, string pakFilePath, string relativeAssetPath, string cacheDirectory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        Task.Run(() => PreviewAssetCoreAsync(unrealPakExePath, pakFilePath, relativeAssetPath, cacheDirectory, cancellationToken));
+
+    private async Task<OpaquePakAssetPreviewResult> PreviewAssetCoreAsync(
+        string unrealPakExePath, string pakFilePath, string relativeAssetPath, string cacheDirectory,
+        CancellationToken cancellationToken)
     {
         FileInfo pakInfo;
         try
@@ -92,6 +92,9 @@ public sealed class OpaquePakAssetPreviewService(
                 }
                 catch (Exception ex)
                 {
+                    // A half-written extraction has no stamp; removed now rather than left on disk
+                    // until the next preview of this mod.
+                    Directories.TryDelete(cacheDirectory);
                     return OpaquePakAssetPreviewResult.Failed($"couldn't extract this pak to preview its contents: {ex.Message}");
                 }
             }
@@ -101,9 +104,7 @@ public sealed class OpaquePakAssetPreviewService(
             extractionLock.Release();
         }
 
-        // The actual CUE4Parse decode is real CPU work (same reason LibraryItemViewModel's own
-        // regular-EXMOD decode path runs it via Task.Run) — kept off whatever thread called this
-        // rather than assuming the caller already hopped off the UI thread.
+        // The CUE4Parse decode is CPU work, run on the pool like the rest of this method.
         return await Task.Run(() =>
         {
             try
