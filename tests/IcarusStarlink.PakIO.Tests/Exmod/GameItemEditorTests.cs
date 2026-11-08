@@ -123,7 +123,7 @@ public sealed class GameItemEditorTests : IDisposable
 
         GameItemEditor.Apply(_game, mod, "Crate_A", [new GameItemChange("Storage:0", slots.Path, JsonValue.Create(30))], new HashSet<string>());
 
-        var row = Assert.Single(mod.Rows.Where(r => r.CurrentFile != "EndOfMod")).FileItems.Single();
+        var row = Assert.Single(mod.Rows, r => r.CurrentFile != "EndOfMod").FileItems.Single();
         Assert.Equal("Shared_Info", row.Name);
         Assert.Equal(30, row.Fields["StartingSlots"]!.GetValue<int>());
     }
@@ -539,7 +539,7 @@ public sealed class GameItemEditorTests : IDisposable
         return new GameTableIndex(_root);
     }
 
-    /// <summary>A review finding: the buff's "shared by" counted consumable rows, not items, so a buff two foods share read "this item only".</summary>
+    /// <summary>Regression:the buff's "shared by" counted consumable rows, not items, so a buff two foods share read "this item only".</summary>
     [Fact]
     public void ABuff_IsSharedByEveryItemWhoseConsumableGivesIt()
     {
@@ -550,7 +550,7 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.Equal(2, buff.SharedBy);
     }
 
-    /// <summary>A review finding: the buff's own copy was hung on the SHARED consumable row, changing Toast too.</summary>
+    /// <summary>Regression:the buff's own copy was hung on the SHARED consumable row, changing Toast too.</summary>
     [Fact]
     public void ABuffAsItsOwnCopy_OnASharedConsumable_GivesTheConsumableItsOwnCopyToo()
     {
@@ -604,7 +604,7 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.Contains(view.Sections, s => s.Title == "Recipe");
     }
 
-    /// <summary>A review finding: "back to the game's value" on an own copy read a row the game doesn't have, writing the table default.</summary>
+    /// <summary>Regression:"back to the game's value" on an own copy read a row the game doesn't have, writing the table default.</summary>
     [Fact]
     public void OnAnOwnCopy_BackToTheGamesValue_UsesTheRowItWasCopiedFrom()
     {
@@ -618,7 +618,7 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.Equal(300, Item(mod, "Traits-D_Decayable.json", "Decay_General_Envirosuit")!.Fields["DecayTime"]!.GetValue<int>());
     }
 
-    /// <summary>A review finding: an item the mod points at another game row looked like "its own copy", so editing it changed everything sharing that row.</summary>
+    /// <summary>Regression:an item the mod points at another game row looked like "its own copy", so editing it changed everything sharing that row.</summary>
     [Fact]
     public void AnItemRepointedToAnotherGameRow_IsStillThatSharedRow()
     {
@@ -633,7 +633,7 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.Equal("Decay_General", armour.GameRowName);
     }
 
-    /// <summary>A review finding: the recipe's "game value" was the game's ingredient at the same position, not the same ingredient.</summary>
+    /// <summary>Regression:the recipe's "game value" was the game's ingredient at the same position, not the same ingredient.</summary>
     [Fact]
     public void RecipeIngredients_AreMatchedByIngredient_NotPosition()
     {
@@ -693,7 +693,7 @@ public sealed class GameItemEditorTests : IDisposable
         Assert.Equal(raw.Replace(key, "Copy-Description"), NsLocText.WithKey(raw, "Copy-Description"));
     }
 
-    /// <summary>A review finding: the game's links don't always match its rows' case (FirePit → Firepit, 105 in D_ItemsStatic).</summary>
+    /// <summary>Regression:the game's links don't always match its rows' case (FirePit → Firepit, 105 in D_ItemsStatic).</summary>
     [Fact]
     public void RowsAreFoundIgnoringCase_LikeTheGame()
     {

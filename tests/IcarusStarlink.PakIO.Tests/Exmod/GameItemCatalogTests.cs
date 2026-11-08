@@ -30,7 +30,7 @@ public sealed class GameItemCatalogTests : IDisposable
         Rows = [new ExmodFileRow { CurrentFile = file, FileItems = [new ExmodFileItem { Name = row, Fields = { ["Weight"] = 1 } }] }, new ExmodFileRow { CurrentFile = "EndOfMod" }],
     };
 
-    /// <summary>Real icon paths from the 2026-11-03 game data; the small folders join a bigger category (Voxels are the ores).</summary>
+    /// <summary>Real icon paths from the game data; the small folders join a bigger category (Voxels are the ores).</summary>
     [Theory]
     [InlineData("/Game/Assets/2DArt/UI/Items/Item_Icons/Armour/ITEM_Envirosuit_1.ITEM_Envirosuit_1", "Armour")]
     [InlineData("/Game/Assets/2DArt/UI/Items/Item_Icons/Consumeables/ITEM_Bread.ITEM_Bread", "Consumables")]

@@ -1,11 +1,9 @@
 namespace IcarusStarlink.PakIO.Exmod;
 
 /// <summary>
-/// The parsed contents of an .EXMOD file's JSON — confirmed against two real downloaded
-/// EXMODZ samples plus AgentKush/icarus-modinfo-validator's schema constants during planning.
-/// Required fields per that validator: name/author/version/description/fileName. Optional:
-/// week/Level2/Rows. variantGroup/variant/variantSort are documented by the source spec
-/// (icarusworkshop.txt) but weren't present in either sample we inspected.
+/// The parsed contents of an .EXMOD file's JSON. Header fields are read best-effort
+/// (ExmodJson.ParseCore); Rows holds the mod's changes. variantGroup/variant/variantSort come
+/// from the IMM workshop format.
 /// </summary>
 public sealed class ExmodPackage
 {

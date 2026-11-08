@@ -5,7 +5,7 @@ namespace IcarusStarlink.PakIO.Tests;
 
 public class ExmodJsonTests
 {
-    // Shape matches two real .EXMODZ samples inspected during planning; values are synthetic.
+    // Shape matches real .EXMODZ samples; values are synthetic.
     private const string RealisticJson = """
         {
             "name": "Faster Processors",
