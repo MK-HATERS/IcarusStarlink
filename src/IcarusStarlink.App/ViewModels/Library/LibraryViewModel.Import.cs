@@ -10,6 +10,7 @@ using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Activity;
+using IcarusStarlink.Core.IO;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Nexus;
 using IcarusStarlink.Core.Secrets;
@@ -74,7 +75,8 @@ public sealed partial class LibraryViewModel
     /// </summary>
     private async Task<bool> InstallArchiveManuallyAfterFailureAsync(string path, string reason)
     {
-        var scratch = ManualInstaller.UnpackForManualInstall(path);
+        // Off the UI thread, like every unpack and copy on the import path: a big .7z froze the window.
+        var scratch = await Task.Run(() => ManualInstaller.UnpackForManualInstall(path));
         try
         {
             if (Downloads.ManualInstall(scratch, Path.GetFileNameWithoutExtension(path), reason, ManualInstaller.Suggest(scratch)) is not { Count: > 0 } plan)
@@ -95,7 +97,7 @@ public sealed partial class LibraryViewModel
         }
         finally
         {
-            ManualInstaller.TryDelete(scratch);
+            await Task.Run(() => ManualInstaller.TryDelete(scratch));
         }
     }
 
@@ -129,7 +131,10 @@ public sealed partial class LibraryViewModel
     /// same auto-detection ImportFile's own dialog already uses) any other file, sniffed as an
     /// archive by its actual content rather than trusted by extension. Shared by drag-and-drop and
     /// every multi-select import path below, so "what kind of thing is this path" is decided in
-    /// exactly one place.
+    /// exactly one place. The unpacking, copying and temp deletes run on a worker thread (a 300 MB
+    /// .7z dropped on the page froze the window for the whole unpack); the imports themselves stay
+    /// on the UI thread: they ask questions (which archive?) and write the repository, whose cache
+    /// and search index aren't made for two threads.
     /// </summary>
     private async Task ImportOnePath(string path)
     {
@@ -155,7 +160,7 @@ public sealed partial class LibraryViewModel
             var tempCopy = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Import_{Guid.NewGuid():N}");
             try
             {
-                FolderBackup.CopyDirectory(path, tempCopy);
+                await Task.Run(() => FolderBackup.CopyDirectory(path, tempCopy));
                 var folderResult = await ExtractedModClassifier.ClassifyAndImport(
                     tempCopy, path, _repository, _ue4ssModRepository,
                     _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, chooseArchive: Downloads.ChooseArchive);
@@ -163,14 +168,8 @@ public sealed partial class LibraryViewModel
             }
             finally
             {
-                try
-                {
-                    Directory.Delete(tempCopy, recursive: true);
-                }
-                catch (Exception)
-                {
-                    // Best-effort temp cleanup.
-                }
+                // Best-effort temp cleanup.
+                await Task.Run(() => Directories.TryDelete(tempCopy));
             }
 
             return;
@@ -187,7 +186,7 @@ public sealed partial class LibraryViewModel
         var tempExtractDirectory = Path.Combine(Path.GetTempPath(), $"IcarusStarlink_Import_{Guid.NewGuid():N}");
         try
         {
-            AnyArchiveExtractor.ExtractToDirectory(path, tempExtractDirectory);
+            await Task.Run(() => AnyArchiveExtractor.ExtractToDirectory(path, tempExtractDirectory));
             ClassifiedImport archiveResult;
             try
             {
@@ -211,15 +210,9 @@ public sealed partial class LibraryViewModel
         }
         finally
         {
-            try
-            {
-                Directory.Delete(tempExtractDirectory, recursive: true);
-            }
-            catch (Exception)
-            {
-                // Best-effort scratch cleanup — a locked file here (e.g. antivirus mid-scan)
-                // shouldn't turn a successful import into a reported failure.
-            }
+            // Best-effort scratch cleanup — a locked file here (e.g. antivirus mid-scan)
+            // shouldn't turn a successful import into a reported failure.
+            await Task.Run(() => Directories.TryDelete(tempExtractDirectory));
         }
     }
 
@@ -239,6 +232,7 @@ public sealed partial class LibraryViewModel
         }
 
         var importedCount = 0;
+        var cancelled = 0;
         var failures = new List<string>();
         foreach (var path in paths)
         {
@@ -246,6 +240,12 @@ public sealed partial class LibraryViewModel
             {
                 await ImportOnePath(path);
                 importedCount++;
+            }
+            catch (ImportCancelledException)
+            {
+                // The "which one?" chooser was closed: the user said no, nothing failed. It used to
+                // read "Imported 0 of 1 — …" with an amber "Import failed" in Activity.
+                cancelled++;
             }
             catch (Exception ex)
             {
@@ -256,9 +256,12 @@ public sealed partial class LibraryViewModel
         // Its own handler reloads both panels (the UE4SS rows too).
         WeakReferenceMessenger.Default.Send(new LibraryChangedMessage());
 
-        StatusMessage = (failures.Count == 0
-            ? (paths.Count == 1 ? "Imported 1 mod." : $"Imported {importedCount} mod(s).")
-            : $"Imported {importedCount} of {paths.Count} — {string.Join("; ", failures)}")
+        StatusMessage = (failures.Count > 0
+            ? $"Imported {importedCount} of {paths.Count}{(cancelled > 0 ? $" ({cancelled} cancelled)" : "")} — {string.Join("; ", failures)}"
+            : importedCount == 0 && cancelled > 0 ? "Import cancelled — nothing was changed."
+            : cancelled > 0 ? $"Imported {importedCount} mod(s), {cancelled} cancelled."
+            : paths.Count == 1 ? "Imported 1 mod."
+            : $"Imported {importedCount} mod(s).")
             + (_importNote is { } note ? " " + note : "");
         _importNote = null;
         if (failures.Count > 0)
