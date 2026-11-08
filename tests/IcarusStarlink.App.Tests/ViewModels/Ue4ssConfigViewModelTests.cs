@@ -36,10 +36,14 @@ public class Ue4ssConfigViewModelTests : IDisposable
     private string GameIniPath => Path.Combine(Ue4ssGamePaths.ResolveLoaderFolder(_contentPath), "UE4SS-settings.ini");
     private string ServerIniPath => Path.Combine(DedicatedServerLayout.Win64Folder(_serverFolder), "ue4ss", "UE4SS-settings.ini");
 
+    /// <summary>This test's own messenger: a send here never reaches another test class's view models, nor theirs this one's.</summary>
+    private readonly WeakReferenceMessenger _messenger = new();
+
     private Ue4ssConfigViewModel Build() => new(
         new FakeSettings { Current = { IcarusContentPath = _contentPath } },
         new FakeStore([new DedicatedServerProfile { Name = "Server #1", InstallFolder = _serverFolder }]),
-        Path.Combine(_root, "Backups"));
+        Path.Combine(_root, "Backups"),
+        _messenger);
 
     [Fact]
     public void Targets_AreTheGameAndEveryServerWithUe4ss_GameFirst()
@@ -64,7 +68,8 @@ public class Ue4ssConfigViewModelTests : IDisposable
                 new DedicatedServerProfile { Name = "Server #1", InstallFolder = _serverFolder },
                 new DedicatedServerProfile { Name = "Server #2", InstallFolder = _serverFolder, SavedDirSuffix = "_2" },
             ]),
-            Path.Combine(_root, "Backups"));
+            Path.Combine(_root, "Backups"),
+            _messenger);
 
         Assert.Equal(["Game", "Server: Server #1"], vm.Targets.Select(t => t.Name));
     }
@@ -75,11 +80,11 @@ public class Ue4ssConfigViewModelTests : IDisposable
     {
         File.Delete(GameIniPath);
         var vm = new Ue4ssConfigViewModel(
-            new FakeSettings { Current = { IcarusContentPath = _contentPath } }, new FakeStore([]), Path.Combine(_root, "Backups"));
+            new FakeSettings { Current = { IcarusContentPath = _contentPath } }, new FakeStore([]), Path.Combine(_root, "Backups"), _messenger);
         Assert.True(vm.HasNoTargets);
 
         File.WriteAllText(GameIniPath, GameIni);
-        WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage("installed"));
+        _messenger.Send(new Ue4ssLoaderChangedMessage("installed"));
 
         Assert.Equal(["Game"], vm.Targets.Select(t => t.Name));
         Assert.Equal("Game", vm.SelectedTarget?.Name);
@@ -92,7 +97,7 @@ public class Ue4ssConfigViewModelTests : IDisposable
         var hotReload = vm.Sections.Single().Fields.Single(f => f.Key == "EnableHotReloadSystem");
         hotReload.IsOn = true;
 
-        WeakReferenceMessenger.Default.Send(new SettingsSavedMessage());
+        _messenger.Send(new SettingsSavedMessage());
 
         Assert.Same(hotReload, vm.Sections.Single().Fields.Single(f => f.Key == "EnableHotReloadSystem"));
         Assert.True(hotReload.IsChanged);
@@ -259,6 +264,51 @@ public class Ue4ssConfigViewModelTests : IDisposable
         Assert.Equal("1", saved.GetValue("General", "EnableHotReloadSystem"));
         Assert.Equal("0", saved.GetValue("General", "EnableAutoReloadingLuaMods"));
         Assert.Equal("1", saved.GetValue("Debug", "ConsoleEnabled"));
+    }
+
+    /// <summary>
+    /// Regression: the tab listed only the settings already in the player's file, so after an
+    /// update kept their old UE4SS-settings.ini, the settings the new build added (auto reload,
+    /// the GUI ones) had no switch. The release's own copy beside it (UE4SS-settings.default.ini)
+    /// supplies them, at its default, until one is changed and saved.
+    /// </summary>
+    [Fact]
+    public void ASettingTheNewBuildAdded_IsListedAtItsDefault_AndSavingItAddsItToTheFile()
+    {
+        const string oldIni = "[General]\nEnableHotReloadSystem = 0\n";
+        File.WriteAllText(GameIniPath, oldIni);
+        File.WriteAllText(
+            Path.Combine(Path.GetDirectoryName(GameIniPath)!, "UE4SS-settings.default.ini"),
+            "[General]\n; Whether to reload all mods.\n; Default: 1\nEnableHotReloadSystem = 1\n\n; Whether to automatically reload mods.\n; Default: 0\nEnableAutoReloadingLuaMods = 0\n\n"
+            + "[Debug]\n; Whether to show the GUI console.\n; Default: 1\nGuiConsoleEnabled = 1\n");
+        var vm = Build();
+        var fields = vm.Sections.SelectMany(s => s.Fields).ToList();
+
+        // The player's own value stays; the missing ones show the new build's, marked.
+        Assert.Equal(["EnableHotReloadSystem", "EnableAutoReloadingLuaMods", "GuiConsoleEnabled"], fields.Select(f => f.Key));
+        Assert.Equal("0", fields[0].Value);
+        Assert.DoesNotContain("not in your file", fields[0].DefaultText);
+        var autoReload = fields[1];
+        var gui = fields[2];
+        Assert.Equal("Debug", gui.Section);
+        Assert.Contains("not in your file", autoReload.DefaultText);
+        Assert.True(autoReload.IsNotInFile);
+        Assert.False(fields[0].IsNotInFile);
+        Assert.False(autoReload.IsChanged);
+        Assert.False(vm.HasUnsavedChanges);
+
+        vm.SaveCommand.Execute(null);
+        Assert.Equal(oldIni, File.ReadAllText(GameIniPath));
+
+        autoReload.IsOn = true;
+        vm.SaveCommand.Execute(null);
+
+        var saved = Ue4ssSettingsDocument.Load(GameIniPath);
+        Assert.Equal("0", saved.GetValue("General", "EnableHotReloadSystem"));
+        Assert.Equal("1", saved.GetValue("General", "EnableAutoReloadingLuaMods"));
+        Assert.Null(saved.GetValue("Debug", "GuiConsoleEnabled"));
+        Assert.DoesNotContain("not in your file", autoReload.DefaultText);
+        Assert.Contains("not in your file", gui.DefaultText);
     }
 
     public void Dispose()

@@ -329,7 +329,22 @@ public sealed partial class Ue4ssConfigField : ObservableObject
     }
 
     public bool HasDescription => Description.Length > 0;
-    public string DefaultText => Partner is { } other
+
+    /// <summary>
+    /// The player's UE4SS-settings.ini doesn't have this setting: it comes from the release's own copy
+    /// beside it (a setting a newer UE4SS build added), shown at that copy's value, which is what UE4SS
+    /// uses. Changing it and saving adds it to the file.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DefaultText))]
+    private bool _isNotInFile;
+
+    /// <summary>"Default: 1", and for a setting the file doesn't have yet, that UE4SS uses its default.</summary>
+    public string DefaultText => !IsNotInFile ? ShippedDefaultText
+        : ShippedDefaultText.Length > 0 ? $"{ShippedDefaultText} · not in your file yet, so UE4SS uses its default"
+        : "Not in your file yet, so UE4SS uses its default";
+
+    private string ShippedDefaultText => Partner is { } other
         ? (Default, other.Default) is ({ Length: > 0 } mine, { Length: > 0 } theirs)
             ? $"Default: {(PairOwnLabel.Length > 0 ? PairOwnLabel : Label)} {OnOff(mine)}, {PartnerLabel} {OnOff(theirs)}"
             : ""
@@ -422,18 +437,20 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
     private readonly IDedicatedServerProfileStore _serverStore;
     private readonly string _backupDirectory;
 
-    public Ue4ssConfigViewModel(ISettingsService settingsService, IDedicatedServerProfileStore serverStore, string backupDirectory)
+    /// <param name="messenger">Where the UE4SS-installed and settings-saved messages arrive; the app-wide one by default (SettingsViewModel sends there), a test's own in tests.</param>
+    public Ue4ssConfigViewModel(ISettingsService settingsService, IDedicatedServerProfileStore serverStore, string backupDirectory, IMessenger? messenger = null)
     {
         _settingsService = settingsService;
         _serverStore = serverStore;
         _backupDirectory = backupDirectory;
+        messenger ??= WeakReferenceMessenger.Default;
         RefreshTargets();
 
         // The targets were only read once at start, so installing UE4SS (or saving a new game
         // folder) left the tab saying "No UE4SS-settings.ini found" until a restart. Not
         // while there are unsaved edits: re-reading would throw them away.
-        WeakReferenceMessenger.Default.Register<Ue4ssLoaderChangedMessage>(this, (recipient, _) => ((Ue4ssConfigViewModel)recipient).RefreshTargetsUnlessEdited());
-        WeakReferenceMessenger.Default.Register<SettingsSavedMessage>(this, (recipient, _) => ((Ue4ssConfigViewModel)recipient).RefreshTargetsUnlessEdited());
+        messenger.Register<Ue4ssLoaderChangedMessage>(this, (recipient, _) => ((Ue4ssConfigViewModel)recipient).RefreshTargetsUnlessEdited());
+        messenger.Register<SettingsSavedMessage>(this, (recipient, _) => ((Ue4ssConfigViewModel)recipient).RefreshTargetsUnlessEdited());
     }
 
     /// <summary>True while a setting on the tab (or of another target picked before) has been changed and not saved.</summary>
@@ -562,7 +579,7 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
             try
             {
                 _document = Ue4ssSettingsDocument.Load(target.IniPath);
-                _fields = [.. _document.Settings.Select(s => new Ue4ssConfigField(s))];
+                _fields = [.. _document.Settings.Select(s => new Ue4ssConfigField(s)), .. MissingFromFile(target.IniPath, _document)];
                 StatusMessage = null;
                 // Edits made before switching away: back in their fields, still unsaved.
                 if (_drafts.Remove(target.IniPath, out var draft))
@@ -590,6 +607,35 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
         OnPropertyChanged(nameof(HasOtherTargets));
         BuildSections();
     }
+
+    /// <summary>
+    /// The settings in the release's own copy beside the file (UE4SS-settings.default.ini, written by
+    /// the installer) that the file doesn't have: an update keeps the player's file, so the settings a
+    /// newer build added are only there. Shown at that copy's value and marked; none when there is no
+    /// copy or it can't be read.
+    /// </summary>
+    private static List<Ue4ssConfigField> MissingFromFile(string iniPath, Ue4ssSettingsDocument document)
+    {
+        try
+        {
+            var defaultsPath = Path.Combine(Path.GetDirectoryName(iniPath) ?? "", Ue4ssServerFiles.DefaultSettingsFileName);
+            if (!File.Exists(defaultsPath))
+            {
+                return [];
+            }
+
+            var inFile = document.Settings.Select(s => SettingId(s.Section, s.Key)).ToHashSet();
+            return [.. Ue4ssSettingsDocument.Load(defaultsPath).Settings
+                .Where(s => !inFile.Contains(SettingId(s.Section, s.Key)))
+                .Select(s => new Ue4ssConfigField(s) { IsNotInFile = true })];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    private static (string, string) SettingId(string section, string key) => (section.ToLowerInvariant(), key.ToLowerInvariant());
 
     private void BuildSections()
     {
@@ -657,6 +703,7 @@ public sealed partial class Ue4ssConfigViewModel : ObservableObject
             foreach (var field in changed)
             {
                 field.MarkSaved();
+                field.IsNotInFile = false;
             }
         }
 
