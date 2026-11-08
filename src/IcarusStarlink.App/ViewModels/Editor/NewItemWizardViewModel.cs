@@ -111,7 +111,7 @@ public sealed partial class NewItemWizardViewModel : ObservableObject
     /// </summary>
     public string? DlcGateNote =>
         DlcGateOf(_source) is { } gate
-            ? $"From the game's code, not tested in game: your copy keeps the original's DLC gate ({FeatureLevelName(gate)}), so players without that DLC can't use it."
+            ? $"From the game's code, not tested in game: your copy needs {FeatureLevelName(gate)} just like the original, so anyone who can use the original in a prospect (for example through the host's DLC) can use the copy."
             : null;
 
     /// <summary>The item's gate: on its D_ItemsStatic row, else on its Itemable row (both always copied). Null for base-game items.</summary>

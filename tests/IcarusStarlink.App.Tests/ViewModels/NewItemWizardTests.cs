@@ -261,10 +261,10 @@ public sealed class NewItemWizardTests : IDisposable
         var wizard = new NewItemWizardViewModel(new GameTableIndex(DataFolder), null);
 
         wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Hunter_Suit");
-        Assert.Equal("From the game's code, not tested in game: your copy keeps the original's DLC gate (Great Hunts), so players without that DLC can't use it.", wizard.DlcGateNote);
+        Assert.Equal("From the game's code, not tested in game: your copy needs Great Hunts just like the original, so anyone who can use the original in a prospect (for example through the host's DLC) can use the copy.", wizard.DlcGateNote);
 
         wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Clay_Suit");
-        Assert.Contains("DLC gate (NewFrontiers)", wizard.DlcGateNote); // not in the table: the game's own value
+        Assert.Contains("needs NewFrontiers just like the original", wizard.DlcGateNote); // not in the table: the game's own value
 
         wizard.SelectedSource = wizard.FilteredItems.Single(i => i.Name == "Envirosuit");
         Assert.Null(wizard.DlcGateNote);
