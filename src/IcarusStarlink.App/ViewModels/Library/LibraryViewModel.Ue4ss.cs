@@ -682,6 +682,7 @@ public sealed partial class LibraryViewModel
         catch (Exception ex)
         {
             StatusMessage = $"Couldn't endorse '{row.Name}': {ex.Message}";
+            _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
         }
     }
 }

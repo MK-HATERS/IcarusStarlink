@@ -2,6 +2,7 @@ using System.IO;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.Core.Activity;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Ue4ss;
 
@@ -447,5 +448,20 @@ public sealed partial class LibraryViewModelTests
         miniMapa.EndorsementStatus = IcarusStarlink.Catalog.Nexus.NexusEndorsementStatus.Endorsed;
 
         Assert.False(vm.EndorseUe4ssModCommand.CanExecute(miniMapa));
+    }
+
+    /// <summary>Regression: a UE4SS endorse that failed only set the page's status line, so a player on another page never saw it.</summary>
+    [Fact]
+    public async Task EndorseUe4ssMod_NexusFails_IsLoggedAsAWarning()
+    {
+        var (vm, harness) = BuildPanels();
+        harness.CredentialStore.ApiKey = "key";
+        var miniMapa = vm.Ue4ssRootItems.OfType<Ue4ssModRowViewModel>().Single(r => r.Name == "MiniMapa");
+
+        // The fake Nexus client throws on GetModInfoAsync, so the endorse fails.
+        await vm.EndorseUe4ssModCommand.ExecuteAsync(miniMapa);
+
+        Assert.StartsWith("Couldn't endorse 'MiniMapa'", vm.StatusMessage, StringComparison.Ordinal);
+        Assert.Contains(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.StartsWith("Couldn't endorse 'MiniMapa'", StringComparison.Ordinal));
     }
 }
