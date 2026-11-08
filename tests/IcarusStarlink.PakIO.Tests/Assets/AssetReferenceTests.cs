@@ -249,6 +249,107 @@ public sealed class AssetReferenceTests : IDisposable
         Assert.Contains("after its objects", why);
     }
 
+    /// <summary>A .uasset/.uexp pair holding old bytes, for Commit to replace.</summary>
+    private string OldPair()
+    {
+        Directory.CreateDirectory(_root);
+        var assetPath = Path.Combine(_root, "BP_X.uasset");
+        System.IO.File.WriteAllBytes(assetPath, [9, 9, 9]);
+        System.IO.File.WriteAllBytes(Path.ChangeExtension(assetPath, ".uexp"), [8, 8, 8]);
+        return assetPath;
+    }
+
+    private string[] LeftoverTemps() =>
+        [.. Directory.GetFiles(_root, "*.tmp"), .. Directory.GetFiles(_root, "*.starlink-tmp")];
+
+    /// <summary>
+    /// Regression: Repoint wrote "BP_X.uasset.starlink-tmp" beside the asset and left it there when
+    /// the move failed, where the Library listed it as one of the mod's files.
+    /// </summary>
+    [Fact]
+    public void Commit_AssetHeldOpen_LeavesBothOldFilesAndNoTempFiles()
+    {
+        var assetPath = OldPair();
+
+        using (new FileStream(assetPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Assert.ThrowsAny<SystemException>(() => AssetReferenceRewriter.Commit(new RewrittenAsset(assetPath, [1, 2, 3], [4, 5, 6], 1)));
+        }
+
+        Assert.Equal([9, 9, 9], System.IO.File.ReadAllBytes(assetPath));
+        Assert.Equal([8, 8, 8], System.IO.File.ReadAllBytes(Path.ChangeExtension(assetPath, ".uexp")));
+        Assert.Empty(LeftoverTemps());
+    }
+
+    /// <summary>
+    /// Regression: the .uasset was replaced before the .uexp was tried, so a held .uexp left the
+    /// new header with the old exports: a cooked asset that no longer matches itself.
+    /// </summary>
+    [Fact]
+    public void Commit_ExportsHeldOpen_PutsTheOldHeaderBack()
+    {
+        var assetPath = OldPair();
+        var exportsPath = Path.ChangeExtension(assetPath, ".uexp");
+
+        using (new FileStream(exportsPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Assert.ThrowsAny<SystemException>(() => AssetReferenceRewriter.Commit(new RewrittenAsset(assetPath, [1, 2, 3], [4, 5, 6], 1)));
+        }
+
+        Assert.Equal([9, 9, 9], System.IO.File.ReadAllBytes(assetPath));
+        Assert.Equal([8, 8, 8], System.IO.File.ReadAllBytes(exportsPath));
+        Assert.Empty(LeftoverTemps());
+    }
+
+    [Fact]
+    public void Commit_NothingHeld_WritesBothHalves()
+    {
+        var assetPath = OldPair();
+
+        AssetReferenceRewriter.Commit(new RewrittenAsset(assetPath, [1, 2, 3], [4, 5, 6], 1));
+
+        Assert.Equal([1, 2, 3], System.IO.File.ReadAllBytes(assetPath));
+        Assert.Equal([4, 5, 6], System.IO.File.ReadAllBytes(Path.ChangeExtension(assetPath, ".uexp")));
+        Assert.Empty(LeftoverTemps());
+    }
+
+    /// <summary>
+    /// Regression: the name, import and export arrays were sized from the header's own counts
+    /// (up to a million each) before one entry was read, for every .uasset a check scans.
+    /// </summary>
+    [Fact]
+    public void TryRead_CountsTheBytesCantHold_ReturnsNullWithoutBigAllocations()
+    {
+        var data = new byte[200];
+        using (var writer = new BinaryWriter(new MemoryStream(data)))
+        {
+            writer.Write(0x9E2A83C1u); // package tag
+            writer.Write(-7); // legacy file version
+            writer.Write(864); // legacy UE3 version
+            writer.Write(522); // UE4 file version
+            writer.Write(0); // licensee version
+            writer.Write(0); // custom versions
+            writer.Write(200); // total header size
+            writer.Write(0); // folder name: empty FString
+            writer.Write(0x80000000u); // package flags: editor-only data filtered
+            writer.Write(1_000_000); // name count
+            writer.Write(100); // name offset
+            writer.Write(0L); // gatherable text data count + offset
+            writer.Write(1_000_000); // export count
+            writer.Write(100); // export offset
+            writer.Write(1_000_000); // import count
+            writer.Write(100); // import offset
+        }
+
+        UnrealPackageHeader.TryRead(data); // warm up, so the measured call allocates only for itself
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var header = UnrealPackageHeader.TryRead(data);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Null(header);
+        Assert.True(allocated < 1_000_000, $"allocated {allocated} bytes");
+    }
+
     /// <summary>A game made of packages and what each holds.</summary>
     private sealed class FakeGame : Dictionary<string, Dictionary<string, string>>, IGameAssetCatalog
     {

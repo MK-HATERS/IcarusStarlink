@@ -1,3 +1,4 @@
+using IcarusStarlink.Core.IO;
 using UAssetAPI;
 using UAssetAPI.UnrealTypes;
 
@@ -112,13 +113,69 @@ public static class AssetReferenceRewriter
         }
     }
 
-    /// <summary>Writes the rewritten file over the old one (each part through a temp file, so a failed write leaves the old one whole).</summary>
+    /// <summary>
+    /// Writes the rewritten file over the old one. Both new halves are written to temp files first
+    /// (unique names ending in .tmp, which are never packed), and the old .uasset is put back if the
+    /// .uexp can't be replaced, so a failure leaves the pair as it was and no temp file behind.
+    /// </summary>
     public static void Commit(RewrittenAsset rewritten)
     {
-        Replace(rewritten.AssetPath, rewritten.Header);
-        if (rewritten.Exports is not null)
+        var assetPath = rewritten.AssetPath;
+        var exportsPath = Path.ChangeExtension(assetPath, ".uexp");
+        var oldHeader = File.ReadAllBytes(assetPath);
+        var headerTemp = $"{assetPath}.{Guid.NewGuid():N}.tmp";
+        var exportsTemp = rewritten.Exports is null ? null : $"{exportsPath}.{Guid.NewGuid():N}.tmp";
+        try
         {
-            Replace(Path.ChangeExtension(rewritten.AssetPath, ".uexp"), rewritten.Exports);
+            File.WriteAllBytes(headerTemp, rewritten.Header);
+            if (exportsTemp is not null)
+            {
+                File.WriteAllBytes(exportsTemp, rewritten.Exports!);
+            }
+
+            AtomicFile.MoveIntoPlace(headerTemp, assetPath);
+            if (exportsTemp is null)
+            {
+                return;
+            }
+
+            try
+            {
+                AtomicFile.MoveIntoPlace(exportsTemp, exportsPath);
+            }
+            catch
+            {
+                try
+                {
+                    AtomicFile.WriteAllBytes(assetPath, oldHeader);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // The .uexp's failure is the error worth reporting.
+                }
+
+                throw;
+            }
+        }
+        finally
+        {
+            TryDeleteFile(headerTemp);
+            if (exportsTemp is not null)
+            {
+                TryDeleteFile(exportsTemp);
+            }
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A leftover .tmp beside the asset is never packed.
         }
     }
 
@@ -183,12 +240,5 @@ public static class AssetReferenceRewriter
         var exportsPath = Path.ChangeExtension(path, ".uexp");
         exports = File.Exists(exportsPath) ? File.ReadAllBytes(exportsPath) : null;
         return true;
-    }
-
-    private static void Replace(string path, byte[] bytes)
-    {
-        var temp = path + ".starlink-tmp";
-        File.WriteAllBytes(temp, bytes);
-        File.Move(temp, path, overwrite: true);
     }
 }

@@ -25,9 +25,21 @@ internal static class UassetTexturePngEncoder
     // this app can't patch directly.
     internal const int MaxSaneDimension = 16384;
 
+    /// <summary>The largest mip a preview decodes: a 4K or 8K texture previews from a smaller mip it already holds.</summary>
+    internal const int PreviewMaxSize = 2048;
+
     public static byte[]? TryEncodeToPng(UTexture2D texture)
     {
-        var decoded = TextureDecoder.Decode(texture, ETexturePlatform.DesktopMobile);
+        // The mip's declared size is checked before decoding: the first mip of a texture claiming
+        // 16384×16384 would cost gigabytes for a preview. A texture with no mip that small gives
+        // its first one, still held to MaxSaneDimension.
+        var mip = texture.GetMipByMaxSize(PreviewMaxSize);
+        if (mip is null || !HasSaneDimensions(mip.SizeX, mip.SizeY, 1))
+        {
+            return null;
+        }
+
+        var decoded = TextureDecoder.Decode(texture, mip, ETexturePlatform.DesktopMobile);
         if (decoded is null || !HasSaneDimensions(decoded.Width, decoded.Height, decoded.Data?.Length ?? 0))
         {
             return null;

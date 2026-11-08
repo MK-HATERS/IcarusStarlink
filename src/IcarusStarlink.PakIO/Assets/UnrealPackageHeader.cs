@@ -28,6 +28,9 @@ public sealed class UnrealPackageHeader
 
     private const int ExportSize = 104;
 
+    /// <summary>An import entry without editor data: three name references (8 bytes each) and an outer index.</summary>
+    private const int MinImportSize = 28;
+
     private UnrealPackageHeader(IReadOnlyList<string> names, IReadOnlyList<PackageImport> imports, IReadOnlyList<PackageExport> exports, int totalHeaderSize)
     {
         Names = names;
@@ -116,6 +119,15 @@ public sealed class UnrealPackageHeader
         var importCount = Int(data, ref at);
         var importOffset = Int(data, ref at);
         if (nameCount is < 0 or > 1_000_000 || importCount is < 0 or > 1_000_000 || exportCount is < 0 or > 1_000_000)
+        {
+            return null;
+        }
+
+        // A count the file's bytes can't hold is refused before anything is allocated for it: a
+        // name takes at least 4 bytes, an import MinImportSize, an export (read only in the 4.27
+        // layout) ExportSize.
+        if (nameCount > data.Length / 4 || importCount > data.Length / MinImportSize
+            || (version >= 511 && exportCount > data.Length / ExportSize))
         {
             return null;
         }
