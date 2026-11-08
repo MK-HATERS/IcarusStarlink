@@ -726,6 +726,24 @@ public sealed class ModFixViewModelTests : IDisposable
         Assert.Single(service.GameCodeNotes(_folder));
     }
 
+    /// <summary>
+    /// Regression: opening the window read the mod again for its notes, with nothing to catch a
+    /// file that went bad after the check, so the window failed to open.
+    /// </summary>
+    [Fact]
+    public void Open_ModThatWentBadAfterTheCheck_OpensWithNoNotes()
+    {
+        var service = Service;
+        var report = service.Check(_folder);
+        var exmod = Directory.EnumerateFiles(_library.GetFolderPath(_folder), "*.exmod", SearchOption.AllDirectories).Single();
+        File.WriteAllText(exmod, "{ not json");
+
+        var vm = new ModFixViewModel(_folder, "Old Mod", report, service);
+
+        Assert.DoesNotContain(vm.Groups.SelectMany(g => g.Issues), i => i.Issue.IsNote);
+        Assert.NotEmpty(vm.Groups);
+    }
+
     [Fact]
     public void TableRow_HasNoGameFileHint()
     {

@@ -282,6 +282,22 @@ public sealed partial class ModFixViewModel : ObservableObject
         message, "Restore backup", Views.ThemedConfirmSeverity.Question);
 
     /// <summary>
+    /// The notes, read again from disk. Notes are extra, so a mod that can't be read right now
+    /// (changed or locked since the check) opens with none rather than not opening.
+    /// </summary>
+    private IReadOnlyList<ModIssue> GameCodeNotesOrNone()
+    {
+        try
+        {
+            return _service.GameCodeNotes(_folderName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or FormatException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
     /// Shows a (new) check result: after Forget, everything is suggested afresh. The counts are
     /// asked of the service unless given (read off the UI thread with the check).
     /// </summary>
@@ -292,7 +308,7 @@ public sealed partial class ModFixViewModel : ObservableObject
         _builtFor = report.BuiltFor?.OlderText;
         RememberedCount = remembered ?? _service.RememberedCount(_folderName);
         HasBackup = hasBackup ?? _service.HasBackup(_folderName);
-        notes ??= _service.GameCodeNotes(_folderName);
+        notes ??= GameCodeNotesOrNone();
         _all.Clear();
         foreach (var issue in report.Issues.Where(i => !i.IsNote).Concat(notes).Select(i => new ModFixIssueViewModel(i)))
         {
