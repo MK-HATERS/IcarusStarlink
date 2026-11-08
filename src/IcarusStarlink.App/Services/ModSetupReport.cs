@@ -28,7 +28,12 @@ public sealed class ModSetupReport(
     Func<string, IReadOnlyList<Ue4ssModState>>? ue4ssMods = null,
     Func<MergeQueueSnapshot>? mergeQueue = null)
 {
-    /// <summary>Call on the UI thread: reads the Merge page now and returns the rest of the work (file reads), to run off it.</summary>
+    /// <summary>The settings values the report uses, copied on the UI thread so the build never reads AppSettings while it can change.</summary>
+    private sealed record SettingsValues(
+        string? IcarusContentPath, string? LastSeenGameBuildId, DateTimeOffset? LastDataFolderUpdatedAt,
+        DateTimeOffset? LastInstallAtUtc, string? LastMergeProfileName);
+
+    /// <summary>Call on the UI thread: reads the Merge page and the settings now and returns the rest of the work (file reads), to run off it.</summary>
     public Func<string> Capture()
     {
         MergeQueueSnapshot? merge = null;
@@ -42,13 +47,15 @@ public sealed class ModSetupReport(
             mergeProblem = ex.Message;
         }
 
-        return () => Build(merge, mergeProblem);
+        var s = settings();
+        var values = new SettingsValues(
+            s.IcarusContentPath, s.LastSeenGameBuildId, s.LastDataFolderUpdatedAt, s.LastInstallAtUtc, s.LastMergeProfileName);
+        return () => Build(values, merge, mergeProblem);
     }
 
-    private string Build(MergeQueueSnapshot? merge, string? mergeProblem)
+    private string Build(SettingsValues current, MergeQueueSnapshot? merge, string? mergeProblem)
     {
         var text = new StringBuilder();
-        var current = settings();
         var content = current.IcarusContentPath is { Length: > 0 } path ? path : null;
 
         Section(text, "Game", () =>

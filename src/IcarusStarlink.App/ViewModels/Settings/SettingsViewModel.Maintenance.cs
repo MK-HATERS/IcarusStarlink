@@ -55,9 +55,9 @@ public sealed partial class SettingsViewModel
         _settingsService.SetAndSave(s => s.PerformanceTrackingEnabled, (s, v) => s.PerformanceTrackingEnabled = v, value);
 
     /// <summary>
-    /// Zipping up to 14 days of logs (70 MB at most) runs off the UI thread: the window used to
-    /// freeze while it ran. The zip also holds the bug-report kit: the mod setup (the Merge page is
-    /// read here, on the UI thread), the newest game crash and the end of UE4SS.log.
+    /// Zipping up to 14 days of logs (70 MB at most) runs off the UI thread so the window stays
+    /// responsive. The zip also holds the bug-report kit: the mod setup (the Merge page and the
+    /// settings are read here, on the UI thread), the newest game crash and the end of UE4SS.log.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ExportDiagnosticsAsync()

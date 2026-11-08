@@ -389,7 +389,9 @@ internal static class AppServices
             Path.Combine(appDataDirectory, "settings.json"),
             Path.Combine(appDataDirectory, "Staged_UE4SS"),
             sp.GetRequiredService<IGameDataFreshness>(),
-            // The diagnostics zip's mod-setup.txt; the Merge page is resolved only when exporting.
+            // The diagnostics zip's mod-setup.txt; the Merge page is resolved only when exporting. If it
+            // hasn't been opened yet, this builds it (Library scan, profile load) on the UI thread when
+            // Export is pressed: a short stall, accepted so the report shows the real queue.
             modSetupReport: new ModSetupReport(
                 () => sp.GetRequiredService<ILibraryRepository>().GetAll(),
                 () => sp.GetRequiredService<ISettingsService>().Current,

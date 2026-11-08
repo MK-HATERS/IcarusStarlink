@@ -93,6 +93,19 @@ public class ModSetupReportTests : IDisposable
         Assert.Equal(1, libraryReads);
     }
 
+    /// <summary>The settings are read with the Merge queue on the UI thread, so a change made while the zip is built doesn't show half old, half new.</summary>
+    [Fact]
+    public void Capture_ReadsTheSettingsAtOnce()
+    {
+        _settings.LastSeenGameBuildId = "111";
+        var report = new ModSetupReport(() => [], () => _settings);
+
+        var build = report.Capture();
+        _settings.LastSeenGameBuildId = "222";
+
+        Assert.Contains("Game build: 111", build());
+    }
+
     /// <summary>One part that can't be read (a locked library) says so; the other parts are still written.</summary>
     [Fact]
     public void Build_OnePartThrows_TheOthersAreStillThere()

@@ -18,7 +18,8 @@ namespace IcarusStarlink.App.Utilities;
 /// password, secret) replaced by [REDACTED]. The Nexus API key and FTP passwords live in Windows
 /// Credential Manager, never in settings.json, so that redaction is defensive. With a
 /// DiagnosticsBugReport it also holds mod-setup.txt, last-game-crash.txt (a few named fields of the
-/// newest CrashContext, never its ids or the .dmp) and ue4ss-log-tail.txt.
+/// newest CrashContext and its crash folder name, never MachineId, LoginId, EpicAccountId or the
+/// .dmp) and ue4ss-log-tail.txt.
 ///
 /// The zip is often posted in public, so the player's Windows user folder (C:\Users\name) shows
 /// as %USERPROFILE% in every text entry; the files on disk stay as they are.
@@ -206,7 +207,8 @@ public static class DiagnosticsExporter
         text.AppendLine($"Engine version: {crash.EngineVersion ?? "unknown"}");
         if (crash.SecondsSinceStart is { } seconds)
         {
-            text.AppendLine($"Game had run for: {TimeSpan.FromSeconds(seconds):hh\\:mm\\:ss}");
+            var ran = TimeSpan.FromSeconds(seconds);
+            text.AppendLine($"Game had run for: {(int)ran.TotalHours:00}:{ran:mm\\:ss}");
         }
 
         if (crash.GameStateName is { } state)

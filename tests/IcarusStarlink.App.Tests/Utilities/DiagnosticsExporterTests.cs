@@ -261,7 +261,7 @@ public class DiagnosticsExporterTests : IDisposable
     private static readonly string UserProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     /// <summary>A crash folder as Icarus writes one: its CrashContext (with the ids it carries) and a minidump.</summary>
-    private string MakeCrashesFolder()
+    private string MakeCrashesFolder(int secondsSinceStart = 125)
     {
         var crashDir = Path.Combine(_tempDir, "Crashes", "UE4CC-Windows-ABC_0000");
         Directory.CreateDirectory(crashDir);
@@ -273,6 +273,7 @@ public class DiagnosticsExporterTests : IDisposable
                     <CrashType>Crash</CrashType>
                     <ErrorMessage>Unhandled Exception: EXCEPTION_ACCESS_VIOLATION reading {UserProfile}\AppData\thing</ErrorMessage>
                     <EngineVersion>4.27.2-0+++UE4+Release-4.27</EngineVersion>
+                    <SecondsSinceStart>{secondsSinceStart}</SecondsSinceStart>
                     <CommandLine>Icarus -dx12 -SecretArg</CommandLine>
                     <BaseDir>{UserProfile}\Games\Icarus\Binaries\Win64</BaseDir>
                     <MachineId>289810A14D926B6BC48AE4A426D364FD</MachineId>
@@ -335,6 +336,17 @@ public class DiagnosticsExporterTests : IDisposable
         Assert.Contains("%USERPROFILE%", log);
         using var archive = ZipFile.OpenRead(_outputZipPath);
         Assert.DoesNotContain(archive.Entries, e => e.FullName.EndsWith(".dmp", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>A crash after more than a day of play keeps the whole hours, not just the hours past the last full day.</summary>
+    [Fact]
+    public void Export_WithBugReport_CrashAfter25Hours_ShowsAllTheHours()
+    {
+        var bugReport = new DiagnosticsBugReport(null, MakeCrashesFolder(secondsSinceStart: (25 * 3600) + 62), null);
+
+        DiagnosticsExporter.Export(_logsDirectory, _settingsFilePath, _outputZipPath, bugReport);
+
+        Assert.Contains("Game had run for: 25:01:02", ReadEntry("last-game-crash.txt"));
     }
 
     [Fact]
