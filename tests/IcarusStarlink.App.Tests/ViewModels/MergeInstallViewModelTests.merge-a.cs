@@ -175,7 +175,7 @@ public sealed partial class MergeInstallViewModelTests
     // A queued mod whose folder is gone
     // ---------------------------------------------------------------------------------------
 
-    /// <summary>Seen in a player's log: "Rebuild failed: No library entry named 'MkHaters_Range'" — one vanished folder failed the whole build.</summary>
+    /// <summary>Regression: a queued mod whose folder is gone (renamed in Explorer, the Library not refreshed yet) failed the whole build with "No library entry named …"; it is now left out with a warning.</summary>
     [Fact]
     public async Task Rebuild_AQueuedModWhoseFolderIsGone_IsLeftOutWithAWarning()
     {
@@ -950,6 +950,39 @@ public sealed partial class MergeInstallViewModelTests
         Assert.Contains("cancelled", vm.StatusMessage);
         Assert.False(vm.IsRebuilding);
         Assert.False(vm.CancelBuildCommand.CanExecute(null));
+    }
+
+    /// <summary>
+    /// Regression: a cancelled UnrealPak that died with a file error instead of an
+    /// OperationCanceledException showed "Rebuild failed: …" though the player had pressed Cancel.
+    /// </summary>
+    [Fact]
+    public async Task CancelDuringABuild_WhenThePackerDiesWithAFileError_StillSaysCancelled()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA")] };
+        library.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        var settings = new FakeSettingsService();
+        settings.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        var (contentPath, _) = MakeGameContent();
+        settings.Current.IcarusContentPath = contentPath;
+        var rebuild = new FakeRebuildService();
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, installService: install, settingsService: settings);
+        vm.Queue.Add(library.AllEntries[0]);
+        _dialogs.OnConfirm = (_, _) => true;
+        rebuild.DuringRebuild = () =>
+        {
+            vm.CancelBuildCommand.Execute(null);
+            throw new IOException("The pipe has been ended.");
+        };
+
+        await vm.RebuildAndInstallCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, install.InstallCallCount);
+        Assert.Contains("cancelled", vm.StatusMessage);
+        Assert.DoesNotContain("failed", vm.StatusMessage);
+        Assert.False(vm.CanCopyToGame);
+        Assert.False(vm.IsRebuilding);
     }
 
     // ---------------------------------------------------------------------------------------

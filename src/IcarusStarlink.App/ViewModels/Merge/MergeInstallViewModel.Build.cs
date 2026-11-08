@@ -307,8 +307,10 @@ public sealed partial class MergeInstallViewModel
             _activityLog.Log($"Rebuilt pack with {snapshot.Queue.Count} mod(s) — {result.PackedFileCount} files packed{pickNote}.", ActivityEntryKind.Success);
             return true;
         }
-        catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+        catch (Exception) when (cancel.IsCancellationRequested)
         {
+            // Not only OperationCanceledException: a killed UnrealPak can surface as an IOException
+            // or an exit-code error, and the player still asked to cancel.
             StatusMessage = "Build cancelled. Nothing was installed, and the game still has what it had.";
             RebuildStageText = null;
             _activityLog.Log("Build cancelled.", ActivityEntryKind.Info);
