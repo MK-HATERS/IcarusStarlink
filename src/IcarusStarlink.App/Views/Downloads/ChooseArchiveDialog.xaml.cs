@@ -26,7 +26,14 @@ public partial class ChooseArchiveDialog : Window
 
     private void Install_Click(object sender, RoutedEventArgs e) => Accept();
 
-    private void ChoicesListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e) => Accept();
+    /// <summary>Only a double-click on a row installs it (not one on the scrollbar or the empty space below the rows).</summary>
+    private void ChoicesListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (ListDoubleClick.IsOnItem(ChoicesListBox, e))
+        {
+            Accept();
+        }
+    }
 
     private void Accept()
     {
