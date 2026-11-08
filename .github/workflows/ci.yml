@@ -9,16 +9,25 @@ on:
     branches: [master]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# One run per branch at a time: a newer push to a pull request cancels the run it replaces,
+# while runs on master always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-and-test:
     runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v5
 
-      # Reads global.json itself, so this always matches the exact SDK version/rollForward policy
-      # the project is actually developed against, rather than a hardcoded version drifting out of
-      # sync with it.
+      # global.json holds the lowest SDK to use, with rollForward latestFeature: setup-dotnet then
+      # installs the newest 10.0 SDK, the same rule a local build follows with what is installed.
       - name: Set up .NET
         uses: actions/setup-dotnet@v5
         with:
@@ -30,8 +39,12 @@ jobs:
       - name: Build
         run: dotnet build IcarusStarlink.slnx --configuration Release --no-restore
 
+      # A test that hangs (an awaited task that never completes) is stopped after 5 minutes and
+      # named in the log, instead of holding the runner until the job's timeout. The GitHubActions
+      # logger (GitHubActionsTestLogger, tests/Directory.Build.props) puts failed tests on the
+      # run's page as annotations and in the job summary.
       - name: Test
-        run: dotnet test IcarusStarlink.slnx --configuration Release --no-build --logger "trx;LogFileName=test-results.trx"
+        run: dotnet test IcarusStarlink.slnx --configuration Release --no-build --blame-hang-timeout 5m --blame-hang-dump-type none --logger "trx;LogFileName=test-results.trx" --logger GitHubActions
 
       # Always runs (even after a test failure) so a failed run's own results are still
       # inspectable from the workflow's own Summary/Artifacts tab, not just the raw console log.
@@ -49,7 +62,6 @@ jobs:
       # itself is never part of this output either way — the app fetches it separately, on first
       # launch, from its own small dedicated GitHub release (see UnrealPakInstaller.cs).
       - name: Upload build output
-        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: IcarusStarlink-build-${{ github.sha }}
