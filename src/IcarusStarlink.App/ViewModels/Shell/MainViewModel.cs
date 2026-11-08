@@ -335,7 +335,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// landed on Library — an empty list, with nothing on screen explaining that Settings needs
     /// the Content folder configured first. Help's own "Getting started" topic already walks
     /// through exactly that in the right order (Settings → Content folder → Auto-detect →
-    /// UnrealPak → Update data folder → Library import), so a brand-new user is routed there
+    /// UnrealPak → Refresh game data → Library import), so a brand-new user is routed there
     /// instead this one time — every subsequent launch (IcarusContentPath now set, however it got
     /// set) goes back to Library as before.
     /// </summary>
@@ -422,7 +422,6 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
     private void SelectTheme(string themeName)
     {
         CurrentThemeName = themeName;

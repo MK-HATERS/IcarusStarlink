@@ -6,8 +6,7 @@ namespace IcarusStarlink.Updater.Tests;
 /// <summary>
 /// Uninstall.bat and UpdateApplier.RemoveStaleRootFiles each hold a hand-written list of "the app's
 /// own program files" — the updater removes them when a new build no longer ships them, the
-/// uninstaller removes them outright. Nothing kept the two in sync (an audit polish item); this
-/// test reads the real script so a pattern added to one side fails here until it's on the other.
+/// uninstaller removes them outright. Nothing else keeps the two in sync; this test reads the real script so a pattern added to one side fails here until it's on the other.
 /// </summary>
 public sealed class UninstallScriptParityTests
 {

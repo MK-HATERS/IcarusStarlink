@@ -86,7 +86,8 @@ internal sealed class BackgroundMemoryTrimmer
         _committedAfterLastTrim = GC.GetGCMemoryInfo().TotalCommittedBytes;
 
         // Windows takes the pages back now rather than whenever it next runs short; they come
-        // back from memory (not disk) as soon as the window is used again.
+        // back as soon as the window is used again, from memory if Windows still holds them,
+        // otherwise from the page file on disk.
         using var self = Process.GetCurrentProcess();
         _ = EmptyWorkingSet(self.Handle);
         Serilog.Log.Debug("Background memory trim: {Released} cache(s) let go, GC committed {Before} MB -> {After} MB",
