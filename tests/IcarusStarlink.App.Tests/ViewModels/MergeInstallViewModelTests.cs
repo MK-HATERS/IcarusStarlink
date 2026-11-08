@@ -91,7 +91,8 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         string? dataFolder = null,
         bool withHealthCheck = false,
         Ue4ssPieces? ue4ss = null,
-        IPatchModFetcher? fetcher = null)
+        IPatchModFetcher? fetcher = null,
+        FakeDaedalusCatalogClient? daedalus = null)
     {
         settingsService ??= new FakeSettingsService();
         libraryRepository ??= new FakeLibraryRepository();
@@ -113,7 +114,7 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
             installService ?? new FakeInstallService(),
             profileStore ?? new FakeProfileStore(),
             patchService ?? new FakePatchService(),
-            new FakeDaedalusCatalogClient(),
+            daedalus ?? new FakeDaedalusCatalogClient(),
             new FakeJimk72CatalogClient(),
             settingsService,
             new FakePakCompareService(),
@@ -145,11 +146,18 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
 
         public Func<string, bool> OnFetchCatalog { get; set; } = _ => false;
 
-        public Task FetchNexusAsync(int nexusModId, string displayName)
+        /// <summary>Awaited at the start of FetchNexusAsync: a test holds an import there until it completes this.</summary>
+        public Task? Hold { get; set; }
+
+        public async Task FetchNexusAsync(int nexusModId, string displayName)
         {
+            if (Hold is not null)
+            {
+                await Hold;
+            }
+
             NexusFetches.Add(nexusModId);
             OnFetchNexus(nexusModId);
-            return Task.CompletedTask;
         }
 
         public Task<bool> FetchCatalogAsync(string catalogEntryId, string displayName)
@@ -1963,9 +1971,9 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
 
         Assert.StartsWith("Imported 'Server'", vm.PatchStatusMessage);
         Assert.DoesNotContain("missing", vm.PatchStatusMessage);
-        Assert.Equal(["Wireless_Power_v2", "My Pak"], vm.Queue.Select(e => e.FolderName));
+        Assert.Equal(["Wireless_Power_v2", "My_Pak"], vm.Queue.Select(e => e.FolderName));
         var pakImport = Assert.Single(library.ImportedPakSets);
-        Assert.Equal(("My Pak", "Patch"), (pakImport.Name, pakImport.Source));
+        Assert.Equal(("My_Pak", "Patch"), (pakImport.Name, pakImport.Source));
         Assert.Equal(["Model_P.pak"], pakImport.Paks.Select(Path.GetFileName));
         // The game copy keeps its layout and takes the patch's value; the old file is backed up.
         Assert.Equal("return {\n    MaxScale = 2.0, -- biggest\n    Mine = true,\n}\n", File.ReadAllText(Path.Combine(toolsFolder, "config.lua")));
@@ -2218,7 +2226,8 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
             new PatchManifest
             {
                 FormatVersion = 2, ProfileName = "S",
-                Mods = [new PatchModEntry { FolderName = folderName, Name = folderName, Author = "Friend", Version = "1", Bundled = true, IsPak = true, PakFileNames = ["Model_P.pak"] }],
+                // The same name and author as MakeEntry's: the patch carries the same mod as the Library copy.
+                Mods = [new PatchModEntry { FolderName = folderName, Name = folderName, Author = "Test", Version = "1", Bundled = true, IsPak = true, PakFileNames = ["Model_P.pak"] }],
             },
             new Dictionary<string, ExmodPackageContents>(),
             new Dictionary<string, string> { [folderName] = extracted });
@@ -2662,8 +2671,19 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
 
         public IReadOnlyList<LibraryEntry> Search(string query) => throw new NotSupportedException("Not exercised by these tests.");
 
-        public LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+        /// <summary>Reads the EXMODZ (a patch's bundled EXMOD mod) and lists it under its file name.</summary>
+        public LibraryEntry Import(string sourcePath, string? source = null, int? nexusModId = null, string? catalogEntryId = null)
+        {
+            var package = ExmodzArchive.Read(sourcePath).Package;
+            Calls.Add($"import:{package.FileName}");
+            var entry = new LibraryEntry
+            {
+                FolderName = package.FileName, Name = package.Name, Author = package.Author, Version = package.Version, Description = "",
+                FileName = package.FileName, Source = source, NexusModId = nexusModId, CatalogEntryId = catalogEntryId,
+            };
+            AllEntries.Add(entry);
+            return entry;
+        }
 
         /// <summary>What ImportPaks was handed (a patch's bundled pak mod).</summary>
         public List<(IReadOnlyList<string> Paks, string Name, string? Source, int? NexusModId)> ImportedPakSets { get; } = [];
@@ -2671,11 +2691,15 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         /// <summary>Thrown by ImportPaks when set.</summary>
         public Exception? ImportPaksException { get; set; }
 
-        /// <summary>Delete, BackupMod and RestoreLatestModBackup calls in order ("delete:X", "backup:X", "restore:X").</summary>
+        /// <summary>Delete, BackupMod, RestoreLatestModBackup and Import calls in order ("delete:X", "backup:X", "restore:X", "import:X").</summary>
         public List<string> Calls { get; } = [];
+
+        /// <summary>Runs before ImportPaks does anything (a test holds the import back here).</summary>
+        public Action? BeforeImportPaks { get; set; }
 
         public LibraryEntry ImportPaks(IReadOnlyList<string> pakFilePaths, string name, string? source = null, int? nexusModId = null, string? catalogEntryId = null)
         {
+            BeforeImportPaks?.Invoke();
             if (ImportPaksException is not null)
             {
                 throw ImportPaksException;
@@ -2719,16 +2743,30 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
             AllEntries.RemoveAll(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
         }
 
-        public void UpdateMetadata(string folderName, bool isPinned, bool isFavorite, string notes) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+        private LibraryEntry Entry(string folderName) => AllEntries.Single(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+
+        public void UpdateMetadata(string folderName, bool isPinned, bool isFavorite, string notes)
+        {
+            var entry = Entry(folderName);
+            (entry.IsPinned, entry.IsFavorite, entry.Notes) = (isPinned, isFavorite, notes);
+        }
 
         public void MarkLocallyEdited(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
 
         public void MarkConvertedFromPrebuiltPak(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
 
-        public void SetDisplayNameOverride(string folderName, string? displayName) => throw new NotSupportedException("Not exercised by these tests.");
+        public void SetDisplayNameOverride(string folderName, string? displayName)
+        {
+            var entry = Entry(folderName);
+            entry.DisplayNameOverride = displayName;
+            entry.Name = displayName ?? entry.FileName;
+        }
 
-        public void LinkToNexus(string folderName, int nexusModId) => throw new NotSupportedException("Not exercised by these tests.");
+        public void LinkToNexus(string folderName, int nexusModId)
+        {
+            var entry = Entry(folderName);
+            (entry.NexusModId, entry.Source) = (nexusModId, "Nexus");
+        }
 
         public void SetCatalogEntry(string folderName, string catalogEntryId) => throw new NotSupportedException("Not exercised by these tests.");
 
@@ -2740,10 +2778,13 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
 
         public bool HasModBackup(string folderName) => false;
 
+        /// <summary>What RestoreLatestModBackup answers (false: no backup was found).</summary>
+        public bool RestoreSucceeds { get; set; } = true;
+
         public bool RestoreLatestModBackup(string folderName)
         {
             Calls.Add($"restore:{folderName}");
-            return true;
+            return RestoreSucceeds;
         }
 
         public string? TryGetLatestModBackupPath(string folderName) => throw new NotSupportedException("Not exercised by these tests.");
@@ -2966,8 +3007,11 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
 
     private sealed class FakeDaedalusCatalogClient : IDaedalusCatalogClient
     {
+        /// <summary>What the catalog lists; null: the fetch throws (the source can't be reached).</summary>
+        public IReadOnlyList<CatalogEntry>? Entries { get; set; }
+
         public Task<IReadOnlyList<CatalogEntry>> FetchAsync(CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException("Not exercised by these tests.");
+            Entries is { } entries ? Task.FromResult(entries) : throw new NotSupportedException("Not exercised by these tests.");
     }
 
     private sealed class FakeJimk72CatalogClient : IJimk72CatalogClient

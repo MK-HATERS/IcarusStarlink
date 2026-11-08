@@ -48,9 +48,11 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
     /// Exports whatever's currently in Queue (not a fresh reload of the saved profile), matching
     /// SaveProfile's own live-state semantics. A mod that came from Nexus or the community catalog
     /// is referenced by its ids (a friend downloads it themselves); one found in the catalog by
-    /// name and author is referenced too; anything else (a local edit, a hand-made mod, a pak
-    /// from nowhere) is bundled, since a friend genuinely couldn't get it elsewhere. The UE4SS mods
-    /// on in the game come along the same way, with their settings when the box is ticked.
+    /// name and author is referenced too, with that entry's id. A mod edited or fixed in Starlink
+    /// is bundled with its ids kept, so friends build with the changed copy; anything else (a
+    /// hand-made mod, a pak from nowhere) is bundled, since a friend couldn't get it elsewhere.
+    /// The UE4SS mods on in the game come along the same way, with their settings when the box is
+    /// ticked. Reading the mods to bundle runs off the UI thread.
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ExportPatchAsync()
@@ -84,14 +86,28 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             var daedalusTask = CatalogSourceFetch.FetchAsync(_daedalusClient.FetchAsync, "Daedalus", failedSources);
             var jimk72Task = CatalogSourceFetch.FetchAsync(_jimk72Client.FetchAsync, "Jimk72", failedSources);
             await Task.WhenAll(daedalusTask, jimk72Task);
-            var catalogKeys = daedalusTask.Result.Concat(jimk72Task.Result)
-                .Select(e => CatalogKey.Normalize(e.Name, e.Author))
-                .ToHashSet();
+            var catalogEntries = daedalusTask.Result.Concat(jimk72Task.Result).ToList();
+            var catalogKeys = catalogEntries.Select(e => CatalogKey.Normalize(e.Name, e.Author)).ToHashSet();
+            // Both sources can list the same name and author: an entry a friend can download wins.
+            var catalogIds = new Dictionary<(string Name, string Author), string>();
+            foreach (var entry in catalogEntries.OrderBy(e => e.ExmodzUrl is not null || e.PakUrl is not null ? 0 : 1))
+            {
+                catalogIds.TryAdd(CatalogKey.Normalize(entry.Name, entry.Author), entry.Id);
+            }
 
-            // The UE4SS mods on in the game (the framework's own left out).
-            var ue4ssMods = Ue4ssGameModsFolder is { } modsFolder ? PatchBuilder.Ue4ssModsOnIn(modsFolder) : [];
-            var (manifest, bundle, skipped) = new PatchBuilder(_libraryRepository, _ue4ssMetaStore)
-                .Build(profileName, [.. Queue], BuildGameplayOptionsFromUi(), ue4ssMods, ExportIncludesConfigs, catalogKeys);
+            // Taken here on the UI thread; the bundled mods and UE4SS configs are read off it.
+            List<LibraryEntry> queued = [.. Queue];
+            var options = BuildGameplayOptionsFromUi();
+            var includeConfigs = ExportIncludesConfigs;
+            var modsFolder = Ue4ssGameModsFolder;
+            var builder = new PatchBuilder(_libraryRepository, _ue4ssMetaStore);
+            var built = await Task.Run(() =>
+            {
+                // The UE4SS mods on in the game (the framework's own left out).
+                var ue4ssMods = modsFolder is null ? [] : PatchBuilder.Ue4ssModsOnIn(modsFolder);
+                return builder.Build(profileName, queued, options, ue4ssMods, includeConfigs, catalogKeys, catalogIds);
+            });
+            var (manifest, bundle, skipped) = built;
             if (manifest.Mods.Count == 0 && manifest.Ue4ssMods.Count == 0)
             {
                 PatchStatusMessage = "Nothing to export — every queued mod is missing from your Library.";
@@ -122,8 +138,13 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
             PatchStatusMessage = $"Exported '{profileName}' to '{exportPath}' — {string.Join(" and ", parts)}; "
                 + (bundledCount > 0
-                    ? $"{bundledCount} bundled (nowhere else to get them), the rest referenced by their Nexus or catalog source."
+                    ? $"{bundledCount} bundled (nowhere else to get them, or changed in Starlink), the rest referenced by their Nexus or catalog source."
                     : "every one referenced by its Nexus or catalog source, nothing bundled.");
+
+            if (built.ChangedCopies.Count > 0)
+            {
+                PatchStatusMessage += $" Your copy went in for the mods you changed in Starlink, so friends get your changes, not the Nexus original: {string.Join(", ", built.ChangedCopies)}.";
+            }
 
             if (skipped.Count > 0)
             {
@@ -160,6 +181,11 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
     /// being silently dropped, so the user can resolve them (import the missing mod, or Rename/
     /// Link an existing one) and re-import.
     ///
+    /// The list it replaces is kept as a backup point first (the auto-save that follows makes
+    /// none), so Restore profile backup brings it back; a list with nothing in the Library leaves
+    /// the queue as it was. Settings repeats StatusMessage after its own line, so it names where
+    /// things are rather than "below".
+    ///
     /// Public and called only by Settings' own classic-IMM migration (which finishes the job it
     /// starts: bringing the mods over is only half a migration — the user's actual merge list, in
     /// its real order, is the other half) — this page no longer has its own separate file-dialog
@@ -183,12 +209,6 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
             var result = ModListMatcher.Match(names, _libraryRepository.GetAll());
 
-            Queue.Clear();
-            foreach (var entry in result.Matched.Where(e => !IsIslBuiltPack(e)))
-            {
-                Queue.Add(entry);
-            }
-
             Warnings.Clear();
             foreach (var name in result.Unmatched)
             {
@@ -200,9 +220,45 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
                 Warnings.Add($"'{pack.Name}' is a pack Merge & Install built, so it wasn't ticked — tick the mods it was built from instead.");
             }
 
-            StatusMessage = result.Unmatched.Count == 0
+            var toQueue = result.Matched.Where(e => !IsIslBuiltPack(e)).ToList();
+            if (toQueue.Count == 0)
+            {
+                StatusMessage = (result.Matched.Count == 0
+                    ? $"None of the {names.Count} mods on that list are in your Library, so the merge list was left as it was."
+                    : "Nothing on that list can be ticked (only packs Merge & Install built), so the merge list was left as it was.")
+                    + " They're listed under Warnings on Merge & Install.";
+                _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
+                return;
+            }
+
+            var profile = SelectedProfileName ?? "Default";
+            var keptBefore = "";
+            if (Queue.Count > 0)
+            {
+                try
+                {
+                    KeepListAsBackupPoint(profile);
+                }
+                catch (Exception ex)
+                {
+                    StatusMessage = $"Couldn't back up the list of profile '{profile}' first ({ex.Message}), so it wasn't replaced.";
+                    _activityLog.Log(StatusMessage, ActivityEntryKind.Warning);
+                    return;
+                }
+
+                keptBefore = $" The list profile '{profile}' had before is kept: Profile ▾ › Restore profile backup brings it back.";
+            }
+
+            Queue.Clear();
+            foreach (var entry in toQueue)
+            {
+                Queue.Add(entry);
+            }
+
+            StatusMessage = (result.Unmatched.Count == 0
                 ? $"Queued all {result.Matched.Count} mod(s) from the list."
-                : $"Queued {result.Matched.Count} of {names.Count} — {result.Unmatched.Count} not in your Library yet (see warnings below).";
+                : $"Queued {result.Matched.Count} of {names.Count} — {result.Unmatched.Count} not in your Library yet (listed under Warnings on Merge & Install).")
+                + keptBefore;
             _activityLog.Log($"Imported IMM mod list — {result.Matched.Count} of {names.Count} matched.",
                 result.Unmatched.Count == 0 ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
         }
@@ -215,6 +271,19 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         }
     }
 
+    /// <summary>
+    /// Makes the list as it is now the profile's newest backup, before something replaces it: it's
+    /// written first (an auto-save may still be pending), then saved again so the backup that
+    /// second save makes is this list. Throws when either write fails.
+    /// </summary>
+    private void KeepListAsBackupPoint(string profile)
+    {
+        var current = CurrentWorkingProfile(profile);
+        _profileStore.SaveWithoutBackup(current);
+        _profileStore.Save(current);
+        RefreshCanRestoreProfileBackup();
+    }
+
     /// <summary>A mod the patch names that isn't in the Library: what it's called and where it could come from.</summary>
     private sealed record MissingPatchMod(string Label, int? NexusModId, string? CatalogEntryId)
     {
@@ -225,17 +294,36 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
     private sealed record Ue4ssImportOutcome(List<string> Lines, List<string> ToTurnOn, List<MissingPatchMod> Missing);
 
     /// <summary>
-    /// Import + Sync reinstalls listed mods (force refresh; does not skip same version): a bundled mod always overwrites whatever's already in the Library under the same
-    /// folder name, rather than skipping it as "already have it", since the whole point is syncing
-    /// exactly what the patch carries. A referenced mod is matched by its Nexus id, then its
-    /// catalog id, then (Name, Author) against the local Library; the ones that are missing are
-    /// offered as one download (through the Downloads page's own Nexus and Database pipelines),
-    /// and what still isn't there is reported rather than failing the whole import — same
-    /// SkipWithWarning philosophy as everywhere else the merge pipeline can hit a gap. A copy
-    /// whose version isn't the patch's is kept and noted in the warnings. A bundled UE4SS mod
-    /// lands in staging; a referenced one is looked for among the game's and the staged ones;
-    /// either gets the patch's settings written into its own config (the local file is backed up
-    /// first), and the ones not on in the game are offered to be turned on (the game closed).
+    /// Set while an import adds the patch's mods to the Library (off the UI thread, across awaits):
+    /// a second import is refused meanwhile, and so is a build.
+    /// </summary>
+    private bool _isImportingPatch;
+
+    private const string ImportAlreadyRunning = "An import is already running — wait for it to finish.";
+
+    /// <summary>
+    /// Clears what the app keeps per folder name (the pak preview cache, the saved source pak) when
+    /// Import patch replaces a Library mod, the way the Library's own replacements do. Set where
+    /// the app is put together; without it only the folder and its Library info are replaced.
+    /// </summary>
+    public LibraryModRemover? ModRemover { get; set; }
+
+    /// <summary>
+    /// Import + Sync reinstalls listed mods (force refresh; does not skip same version): a bundled
+    /// mod replaces the Library copy of the same mod (same name and author, or a copy an earlier
+    /// patch import made), rather than skipping it as "already have it", since the whole point is
+    /// syncing exactly what the patch carries; the copy is backed up first and keeps its pin,
+    /// favourite, notes and rename, and a copy edited in Starlink is asked about first. A
+    /// different mod under the same folder name is left alone and the patch's copy is added
+    /// beside it. A referenced mod is matched by its Nexus id, then its catalog id, then (Name,
+    /// Author) against the local Library; the ones that are missing are offered as one download
+    /// (through the Downloads page's own Nexus and Database pipelines), and what still isn't there
+    /// is reported rather than failing the whole import — same SkipWithWarning philosophy as
+    /// everywhere else the merge pipeline can hit a gap. A copy whose version isn't the patch's is
+    /// kept and noted in the warnings. A bundled UE4SS mod lands in staging; a referenced one is
+    /// looked for among the game's and the staged ones; either gets the patch's settings written
+    /// into its own config (the local file is backed up first), and the ones not on in the game
+    /// are offered to be turned on (the game closed).
     /// </summary>
     [RelayCommand(FlowExceptionsToTaskScheduler = true)]
     private async Task ImportPatchAsync()
@@ -245,25 +333,65 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             return;
         }
 
+        if (_isImportingPatch)
+        {
+            PatchStatusMessage = ImportAlreadyRunning;
+            return;
+        }
+
         if (_dialogs.PickFile("Import a patch", "IcarusStarlink patch (*.json;*.zip)|*.json;*.zip") is not { } patchPath)
         {
             return;
         }
 
+        _isImportingPatch = true;
         try
         {
             using var contents = await _patchService.ImportAsync(patchPath);
-            await ImportPatchContentsAsync(contents);
+            await ImportPatchContentsCoreAsync(contents);
         }
         catch (Exception ex)
         {
             PatchStatusMessage = $"Import failed: {ex.Message}";
             _activityLog.Log(PatchStatusMessage, ActivityEntryKind.Warning);
         }
+        finally
+        {
+            _isImportingPatch = false;
+        }
     }
 
     /// <summary>The Library side of an import, for this page's own Import patch and the Server page's "Apply a patch to this server" (IPatchImporter).</summary>
     public async Task<string?> ImportPatchContentsAsync(PatchImportContents contents)
+    {
+        if (RefuseWhileRebuilding())
+        {
+            return null;
+        }
+
+        if (_isImportingPatch)
+        {
+            PatchStatusMessage = ImportAlreadyRunning;
+            return PatchStatusMessage;
+        }
+
+        _isImportingPatch = true;
+        try
+        {
+            return await ImportPatchContentsCoreAsync(contents);
+        }
+        finally
+        {
+            _isImportingPatch = false;
+        }
+    }
+
+    /// <summary>
+    /// ImportPatchContentsAsync without the busy check. The Library work (copying paks, backing
+    /// up mods, staging UE4SS mods) runs off the UI thread; the questions, the profile save and
+    /// every property change stay on it.
+    /// </summary>
+    private async Task<string?> ImportPatchContentsCoreAsync(PatchImportContents contents)
     {
         if (RefuseWhileRebuilding())
         {
@@ -277,10 +405,12 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             // The bundled mods this import put in the Library, by the patch's folder name: the
             // second pass (after downloads) finds them instead of importing them again.
             var imported = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var replaced = new List<string>();
-            var (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes, imported, replaced);
+            var outcome = new PatchLibraryOutcome();
+            AskBeforeReplacingEditedCopies(contents, outcome);
+            PatchStatusMessage = "Importing the patch's mods…";
+            var (resolvedFolderNames, missing) = await Task.Run(() => ResolvePatchMods(contents, versionNotes, imported, outcome));
             var configured = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var ue4ss = ImportUe4ssFromPatch(contents, configured, versionNotes);
+            var ue4ss = await Task.Run(() => ImportUe4ssFromPatch(contents, configured, versionNotes));
             var downloaded = 0;
             var notFetched = new List<string>();
 
@@ -313,8 +443,8 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
 
                 // What landed is matched the same way again; the UE4SS mods that just arrived get their settings now.
                 var before = missing.Count + ue4ss.Missing.Count;
-                (resolvedFolderNames, missing) = ResolvePatchMods(contents, versionNotes: null, imported, replaced);
-                var again = ImportUe4ssFromPatch(contents, configured, versionNotes: null);
+                (resolvedFolderNames, missing) = await Task.Run(() => ResolvePatchMods(contents, versionNotes: null, imported, outcome));
+                var again = await Task.Run(() => ImportUe4ssFromPatch(contents, configured, versionNotes: null));
                 ue4ss = new Ue4ssImportOutcome(
                     [.. ue4ss.Lines.Concat(again.Lines).Distinct(StringComparer.Ordinal)],
                     [.. ue4ss.ToTurnOn.Concat(again.ToTurnOn).Distinct(StringComparer.OrdinalIgnoreCase)],
@@ -382,10 +512,22 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
                 summary.Add($"{versionNotes.Count} mod(s) are a different version from the patch's (see the warnings below)");
             }
 
-            if (replaced.Count > 0)
+            if (outcome.Replaced.Count > 0)
             {
-                summary.Add($"your copy of {string.Join(", ", replaced)} was replaced by the patch's (backed up first: Restore latest backup in the Library brings yours back)");
+                summary.Add($"your copy of {string.Join(", ", outcome.Replaced)} was replaced by the patch's (backed up first: its pin, notes and name stay, and Restore latest backup in the Library brings your files back)");
             }
+
+            if (outcome.Beside.Count > 0)
+            {
+                summary.Add($"the patch's {string.Join(", ", outcome.Beside)} went in beside your mod of the same folder name, which is a different mod and was left as it was");
+            }
+
+            if (outcome.KeptYours.Count > 0)
+            {
+                summary.Add($"kept your edited copy of {string.Join(", ", outcome.KeptYours)}, and the profile uses it instead of the patch's");
+            }
+
+            summary.AddRange(outcome.Problems);
 
             summary.AddRange(ue4ss.Lines);
             summary.AddRange(turnedOn);
@@ -403,15 +545,61 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         }
     }
 
+    /// <summary>What the patch's bundled mods did to the Library copies already there, for the summary; filled off the UI thread, read after it.</summary>
+    private sealed class PatchLibraryOutcome
+    {
+        /// <summary>Folder names of edited copies the player chose to keep: the patch's copy of those mods isn't imported.</summary>
+        public HashSet<string> KeepYours { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public List<string> Replaced { get; } = [];
+
+        public List<string> Beside { get; } = [];
+
+        public List<string> KeptYours { get; } = [];
+
+        /// <summary>Things that went wrong without stopping the import (a pin or note that couldn't be carried over).</summary>
+        public List<string> Problems { get; } = [];
+    }
+
     /// <summary>
-    /// The patch's data mods against the Library: a bundled one is imported (replacing a same-named
-    /// copy), a referenced one matched; the queue's folder names in the patch's order, and what's
-    /// missing. <paramref name="versionNotes"/> (when given) collects the matches whose version
-    /// differs from the patch's. A second call (after downloads) doesn't import the bundled
-    /// mods again: it finds the copies the first call made.
+    /// One question, on the UI thread before any mod is touched, when the patch would replace
+    /// copies changed in Starlink (✎ edited, or fixed): No keeps them, and the profile uses them.
+    /// </summary>
+    private void AskBeforeReplacingEditedCopies(PatchImportContents contents, PatchLibraryOutcome outcome)
+    {
+        var entries = _libraryRepository.GetAll();
+        var edited = contents.Manifest.Mods
+            .Select(mod => FindCopyToReplace(mod, contents, entries))
+            .OfType<LibraryEntry>()
+            .Where(e => e.IsLocallyEdited || e.FixedByIslAtUtc is not null)
+            .DistinctBy(e => e.FolderName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (edited.Count == 0)
+        {
+            return;
+        }
+
+        if (!_dialogs.Confirm(
+                $"The patch carries its own copy of {(edited.Count == 1 ? "a mod" : "mods")} you changed in Starlink (✎ — your own edits or fixes):\n\n{string.Join("\n", edited.Select(e => $"• {e.Name}"))}\n\n"
+                + "Replacing them loses those changes. Your copy is backed up first, so Restore latest backup can bring it back.\n\nReplace them? No keeps your copy, and the imported profile uses it.",
+                "Replace an edited mod?", ThemedConfirmSeverity.Warning))
+        {
+            foreach (var entry in edited)
+            {
+                outcome.KeepYours.Add(entry.FolderName);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The patch's data mods against the Library: a bundled one is imported (replacing the copy
+    /// of the same mod), a referenced one matched; the queue's folder names in the patch's order,
+    /// and what's missing. <paramref name="versionNotes"/> (when given) collects the matches whose
+    /// version differs from the patch's. A second call (after downloads) doesn't import the
+    /// bundled mods again: it finds the copies the first call made.
     /// </summary>
     private (List<string> Resolved, List<MissingPatchMod> Missing) ResolvePatchMods(
-        PatchImportContents contents, List<string>? versionNotes, Dictionary<string, string> imported, List<string> replaced)
+        PatchImportContents contents, List<string>? versionNotes, Dictionary<string, string> imported, PatchLibraryOutcome outcome)
     {
         var resolved = new List<string>();
         var missing = new List<MissingPatchMod>();
@@ -419,13 +607,13 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         {
             if (mod.Bundled && mod.IsPak && contents.BundledPakFolders.TryGetValue(mod.FolderName, out var pakFolder))
             {
-                resolved.Add(imported.TryGetValue(mod.FolderName, out var pakCopy) ? pakCopy : imported[mod.FolderName] = ImportBundledPak(mod, pakFolder, replaced));
+                resolved.Add(imported.TryGetValue(mod.FolderName, out var pakCopy) ? pakCopy : imported[mod.FolderName] = ImportBundledPak(mod, pakFolder, contents, outcome));
                 continue;
             }
 
             if (mod.Bundled && contents.BundledMods.TryGetValue(mod.FolderName, out var exmod))
             {
-                resolved.Add(imported.TryGetValue(mod.FolderName, out var exmodCopy) ? exmodCopy : imported[mod.FolderName] = ImportBundledMod(exmod, replaced));
+                resolved.Add(imported.TryGetValue(mod.FolderName, out var exmodCopy) ? exmodCopy : imported[mod.FolderName] = ImportBundledMod(mod, exmod, contents, outcome));
                 continue;
             }
 
@@ -467,16 +655,21 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         return entries.FirstOrDefault(e => CatalogKey.Normalize(e.Name, e.Author) == modKey);
     }
 
-    private string ImportBundledMod(ExmodPackageContents contents, List<string> replaced)
+    private string ImportBundledMod(PatchModEntry mod, ExmodPackageContents exmod, PatchImportContents contents, PatchLibraryOutcome outcome)
     {
+        var existing = FindCopyToReplace(mod, contents, _libraryRepository.GetAll());
+        if (existing is not null && outcome.KeepYours.Contains(existing.FolderName))
+        {
+            outcome.KeptYours.Add($"'{existing.Name}'");
+            return existing.FolderName;
+        }
+
         var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.EXMODZ");
         try
         {
-            ExmodzArchive.Write(tempPath, contents);
-
-            // Only an EXMOD mod is the same mod: the patch's file name can't take a pak mod's place.
-            var existing = _libraryRepository.GetAll().FirstOrDefault(e => !e.IsOpaquePak && string.Equals(e.FolderName, contents.Package.FileName, StringComparison.OrdinalIgnoreCase));
-            return ReplaceForPatch(existing, replaced, () => _libraryRepository.Import(tempPath).FolderName);
+            ExmodzArchive.Write(tempPath, exmod);
+            return ReplaceForPatch(existing, mod, BesideAnother(mod, exmod.Package.FileName), outcome,
+                () => _libraryRepository.Import(tempPath, source: PatchSource, nexusModId: mod.NexusModId, catalogEntryId: mod.CatalogEntryId).FolderName);
         }
         finally
         {
@@ -484,22 +677,76 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
         }
     }
 
+    /// <summary>The Library source of a mod a patch import added: a later import of the patch may replace it.</summary>
+    private const string PatchSource = "Patch";
+
     /// <summary>
-    /// A bundled mod takes the place of the Library copy under the same folder name. That copy can be
-    /// the player's own (a hand edit, notes, a Nexus link): it was deleted with no backup, before
-    /// the import that could still fail. Now it's backed up first (no backup, no replace), its
-    /// Library info kept, and put back when the import fails.
+    /// The Library copy a bundled mod takes the place of: one of the same kind (an EXMOD mod for an
+    /// EXMOD, a pak mod for a pak) under the patch's folder name, or a copy an earlier patch import
+    /// made of it (an EXMOD by its file name, a pak under the folder older versions named after
+    /// the mod), and only when it is the same mod. Null when nothing is replaced.
     /// </summary>
-    private string ReplaceForPatch(LibraryEntry? existing, List<string> replaced, Func<string> import)
+    private static LibraryEntry? FindCopyToReplace(PatchModEntry mod, PatchImportContents contents, IReadOnlyList<LibraryEntry> entries)
+    {
+        static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+        IEnumerable<LibraryEntry> candidates;
+        string folderName;
+        if (mod.Bundled && mod.IsPak && contents.BundledPakFolders.ContainsKey(mod.FolderName))
+        {
+            folderName = mod.FolderName;
+            var olderFolder = IcarusStarlink.PakIO.Safety.AssetPathGuard.SanitizeToSimpleFileName(mod.Name);
+            candidates = entries.Where(e => e.IsOpaquePak && (Same(e.FolderName, folderName) || (e.Source == PatchSource && Same(e.FolderName, olderFolder))));
+        }
+        else if (mod.Bundled && contents.BundledMods.TryGetValue(mod.FolderName, out var exmod))
+        {
+            folderName = exmod.Package.FileName;
+            candidates = entries.Where(e => !e.IsOpaquePak && (Same(e.FolderName, folderName) || (e.Source == PatchSource && Same(e.FileName, folderName))));
+        }
+        else
+        {
+            return null;
+        }
+
+        return candidates
+            .OrderBy(e => Same(e.FolderName, folderName) ? 0 : 1)
+            .FirstOrDefault(e => e.Source == PatchSource || IsSameNameAndAuthor(e, mod));
+    }
+
+    private static bool IsSameNameAndAuthor(LibraryEntry entry, PatchModEntry mod) =>
+        CatalogKey.Normalize(entry.Name, entry.Author) == CatalogKey.Normalize(mod.Name, mod.Author);
+
+    /// <summary>The patch mod's name (for the summary) when another Library mod already has the folder name its copy would take, else null.</summary>
+    private string? BesideAnother(PatchModEntry mod, string folderName) =>
+        _libraryRepository.GetAll().Any(e => string.Equals(e.FolderName, folderName, StringComparison.OrdinalIgnoreCase))
+            ? $"'{mod.Name}'"
+            : null;
+
+    /// <summary>
+    /// A bundled mod takes the place of the Library copy of the same mod (<paramref name="existing"/>,
+    /// null: it's added as a new mod, beside any other mod of that folder name). The copy is backed
+    /// up first (no backup, no replace) and put back when the import fails; when it works, its
+    /// pin, favourite, notes and rename carry over to the new copy, its Nexus link too when it is
+    /// the same mod by name and author, and what the app kept for the old folder (fix choices,
+    /// preview cache, saved source pak) is cleared, as the Library's own replacements do.
+    /// </summary>
+    private string ReplaceForPatch(LibraryEntry? existing, PatchModEntry mod, string? besideAnother, PatchLibraryOutcome outcome, Func<string> import)
     {
         if (existing is null)
         {
-            return import();
+            var added = import();
+            if (besideAnother is not null)
+            {
+                outcome.Beside.Add(besideAnother);
+            }
+
+            return added;
         }
 
+        string backupPath;
         try
         {
-            _libraryRepository.BackupMod(existing.FolderName);
+            backupPath = _libraryRepository.BackupMod(existing.FolderName);
         }
         catch (Exception ex)
         {
@@ -516,34 +763,111 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             // Without it the restore below still brings the folder back.
         }
 
-        _libraryRepository.Delete(existing.FolderName);
+        if (ModRemover is { } remover)
+        {
+            remover.RemoveForReplacement(existing.FolderName);
+        }
+        else
+        {
+            _libraryRepository.Delete(existing.FolderName);
+        }
+
+        string folderName;
         try
         {
-            var folderName = import();
-            replaced.Add($"'{existing.Name}'");
-            return folderName;
+            folderName = import();
         }
-        catch (Exception)
+        catch (Exception importError)
         {
+            string? putBackProblem = null;
             try
             {
-                if (_libraryRepository.RestoreLatestModBackup(existing.FolderName) && snapshot is not null)
+                if (_libraryRepository.RestoreLatestModBackup(existing.FolderName))
                 {
-                    _libraryRepository.WriteMetaSnapshot(existing.FolderName, snapshot);
+                    if (snapshot is not null)
+                    {
+                        _libraryRepository.WriteMetaSnapshot(existing.FolderName, snapshot);
+                    }
+                }
+                else
+                {
+                    putBackProblem = "no backup was found to put back";
                 }
             }
             catch (Exception restoreEx)
             {
                 Serilog.Log.Warning(restoreEx, "Couldn't put '{Folder}' back after a failed patch import", existing.FolderName);
+                putBackProblem = restoreEx.Message;
             }
 
-            throw;
+            if (putBackProblem is null)
+            {
+                throw;
+            }
+
+            _activityLog.Log($"Couldn't put your copy of '{existing.Name}' back after the patch import failed ({putBackProblem}). It's saved in '{backupPath}'.", ActivityEntryKind.Warning);
+            throw new IOException($"{importError.Message} Your copy of '{existing.Name}' couldn't be put back ({putBackProblem}): it's saved in '{backupPath}'.", importError);
+        }
+
+        outcome.Replaced.Add($"'{existing.Name}'");
+        CarryLibraryInfoOver(existing, folderName, mod, outcome);
+        ForgetOldFolder(existing.FolderName);
+        return folderName;
+    }
+
+    /// <summary>The player's pin, favourite, notes and rename onto the patch's copy; the Nexus link only when it is the same mod by name and author. Best-effort: a failure is named in the summary.</summary>
+    private void CarryLibraryInfoOver(LibraryEntry existing, string newFolderName, PatchModEntry mod, PatchLibraryOutcome outcome)
+    {
+        try
+        {
+            if (existing.IsPinned || existing.IsFavorite || !string.IsNullOrEmpty(existing.Notes))
+            {
+                _libraryRepository.UpdateMetadata(newFolderName, existing.IsPinned, existing.IsFavorite, existing.Notes);
+            }
+
+            if (existing.Source != PatchSource && existing.NexusModId is { } nexusId && IsSameNameAndAuthor(existing, mod))
+            {
+                _libraryRepository.LinkToNexus(newFolderName, nexusId);
+            }
+
+            // Last: it rescans the Library.
+            if (existing.DisplayNameOverride is { } rename)
+            {
+                _libraryRepository.SetDisplayNameOverride(newFolderName, rename);
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Couldn't carry the Library info of '{Folder}' over to the patch's copy", existing.FolderName);
+            outcome.Problems.Add($"couldn't carry the pin and notes of '{existing.Name}' over ({ex.Message})");
         }
     }
 
-    /// <summary>A bundled pak mod: its pak files (in the order the patch names them) become one Library mod, replacing a same-named copy.</summary>
-    private string ImportBundledPak(PatchModEntry mod, string pakFolder, List<string> replaced)
+    /// <summary>What the app kept for the replaced copy's folder: its remembered fix choices and saved source pak. Best-effort: leftovers are clutter, not damage.</summary>
+    private void ForgetOldFolder(string folderName)
     {
+        try
+        {
+            _fixService?.Forget(folderName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Debug(ex, "Couldn't forget the fix choices of '{Folder}'", folderName);
+        }
+
+        ModRemover?.DeleteSourcePak(folderName);
+    }
+
+    /// <summary>A bundled pak mod: its pak files (in the order the patch names them) become one Library mod under the patch's folder name, replacing the copy of the same mod.</summary>
+    private string ImportBundledPak(PatchModEntry mod, string pakFolder, PatchImportContents contents, PatchLibraryOutcome outcome)
+    {
+        var existing = FindCopyToReplace(mod, contents, _libraryRepository.GetAll());
+        if (existing is not null && outcome.KeepYours.Contains(existing.FolderName))
+        {
+            outcome.KeptYours.Add($"'{existing.Name}'");
+            return existing.FolderName;
+        }
+
         var onDisk = Directory.GetFiles(pakFolder, "*.pak");
         var ordered = mod.PakFileNames
             .Select(n => onDisk.FirstOrDefault(f => string.Equals(Path.GetFileName(f), n, StringComparison.OrdinalIgnoreCase)))
@@ -565,10 +889,10 @@ public sealed partial class MergeInstallViewModel : IPatchImporter
             }
         }
 
-        // Only a pak mod is the same mod: the patch's folder name can't take an EXMOD mod's place.
-        var existing = _libraryRepository.GetAll().FirstOrDefault(e => e.IsOpaquePak && string.Equals(e.FolderName, mod.FolderName, StringComparison.OrdinalIgnoreCase));
-        return ReplaceForPatch(existing, replaced,
-            () => _libraryRepository.ImportPaks(ordered, mod.Name, source: "Patch", nexusModId: mod.NexusModId, catalogEntryId: mod.CatalogEntryId).FolderName);
+        // Under the exporter's folder name, not the display name: a renamed mod (or a "_2" folder)
+        // otherwise landed in a new folder each time, and the next import added another copy.
+        return ReplaceForPatch(existing, mod, BesideAnother(mod, mod.FolderName), outcome,
+            () => _libraryRepository.ImportPaks(ordered, mod.FolderName, source: PatchSource, nexusModId: mod.NexusModId, catalogEntryId: mod.CatalogEntryId).FolderName);
     }
 
     /// <summary>
