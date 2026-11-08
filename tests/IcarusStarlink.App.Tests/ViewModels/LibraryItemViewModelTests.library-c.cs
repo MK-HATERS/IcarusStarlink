@@ -1,8 +1,11 @@
 using System.Globalization;
 using System.IO;
+using System.Net;
+using System.Net.Http;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using IcarusStarlink.App.ViewModels;
+using IcarusStarlink.Catalog;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.PakIO.Container;
 using IcarusStarlink.PakIO.Exmod;
@@ -249,5 +252,171 @@ public sealed partial class LibraryItemViewModelTests
         Assert.EndsWith("Bags_P.pak", pakPreview.Calls[0].PakFilePath);
         Assert.EndsWith("Bags_Data_P.pak", pakPreview.Calls[1].PakFilePath);
         Assert.NotEqual(pakPreview.Calls[0].CacheDirectory, pakPreview.Calls[1].CacheDirectory);
+    }
+
+    // ---- Version texts ----
+
+    /// <summary>Regression: a Nexus version written "v1.2" showed as "Update available: vv1.2", and no version as a bare "v".</summary>
+    [Theory]
+    [InlineData("v1.2", "v1.2")]
+    [InlineData("1.2", "v1.2")]
+    [InlineData("", "")]
+    [InlineData(null, "")]
+    public void LatestVersionText_NeverDoublesTheV(string? latest, string expected)
+    {
+        var item = CreateViewModel();
+
+        item.LatestVersion = latest;
+
+        Assert.Equal(expected, item.LatestVersionText);
+        Assert.Equal(expected, item.NewestOnNexusText);
+    }
+
+    /// <summary>The bound texts follow the versions the update check sets.</summary>
+    [Fact]
+    public void LatestVersion_WhenTheCheckSetsIt_RaisesItsTexts()
+    {
+        var item = CreateViewModel();
+        var raised = CollectChanges(item);
+
+        item.LatestVersion = "2.0";
+        item.NewestOnNexus = "2.1";
+
+        Assert.Contains(nameof(LibraryItemViewModel.LatestVersionText), raised);
+        Assert.Contains(nameof(LibraryItemViewModel.NewestOnNexusText), raised);
+        Assert.Equal("v2.1", item.NewestOnNexusText);
+    }
+
+    // ---- The mod picture from the catalog ----
+
+    /// <summary>
+    /// A Database mod with no picture of its own, whose catalog entry links a picture at
+    /// http://pictures.test/mod.png, served by the given handler. The details load fetches it.
+    /// </summary>
+    private LibraryItemViewModel CreateViewModelWithCatalogPicture(HttpMessageHandler pictureServer)
+    {
+        ExmodFolder.Write(_modFolderPath, new ExmodPackageContents(
+            new ExmodPackage
+            {
+                Name = "Test Mod", Author = "Someone", Version = "1.0", Description = "", FileName = "TestMod",
+                Rows = [new ExmodFileRow { CurrentFile = "EndOfMod" }],
+            },
+            []));
+        var entry = MakeEntry();
+        entry.Source = "Database";
+        entry.CatalogEntryId = "cat1";
+        var catalog = new CatalogEntry(
+            CatalogSource.Daedalus, "cat1", "Test Mod", "Someone", "1.0", "", "", null, "http://pictures.test/mod.png", null, null, null, []);
+        return new LibraryItemViewModel(
+            entry, new FakeLibraryRepository(_modFolderPath) { ReadsTheRealFolder = true }, new FakeUnrealPakService(),
+            new FakeUassetTextureDecoder(), new FakeUassetStaticMeshDecoder(), new FakeUassetSkeletalMeshDecoder(),
+            new FakeUassetSoundDecoder(), new FakeUassetMaterialDecoder(), new FakeOpaquePakAssetPreviewService(), new FakeSettingsService(),
+            new FakeNexusApiClient(), new FakeCredentialStore(), new HttpClient(pictureServer),
+            ThumbnailCacheDirectory, Path.Combine(_modFolderPath, "PakPreviewCache"),
+            () => Task.FromResult<IReadOnlyList<CatalogEntry>>([catalog]),
+            _ => { }, () => { });
+    }
+
+    private string ThumbnailCacheDirectory => Path.Combine(_modFolderPath, "ThumbCache");
+
+    private void DeleteModFolder()
+    {
+        try
+        {
+            Directory.Delete(_modFolderPath, recursive: true);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort cleanup of the test's own temp folder.
+        }
+    }
+
+    /// <summary>Answers every request with the given body; Content-Length is left out when the body can't seek.</summary>
+    private sealed class PictureServer(Stream body) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(body) });
+    }
+
+    /// <summary>An endless-looking body of zeros, as long as asked, that counts what was read and says when it's closed.</summary>
+    private sealed class CountingBody(long length) : Stream
+    {
+        private long _served;
+
+        public long Served => Interlocked.Read(ref _served);
+
+        public TaskCompletionSource Closed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => Served; set => throw new NotSupportedException(); }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var take = (int)Math.Min(count, length - Served);
+            Array.Clear(buffer, offset, take);
+            Interlocked.Add(ref _served, take);
+            return take;
+        }
+
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            Closed.TrySetResult();
+            base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>Regression: the mod picture was read whole, however big the server's answer, and only then found not to be a picture.</summary>
+    [Fact]
+    public async Task RemotePicture_HugeAnswer_IsNotReadPastTheCap()
+    {
+        const long tenMegabytes = 10 * 1024 * 1024;
+        var body = new CountingBody(length: 3 * tenMegabytes);
+        var item = CreateViewModelWithCatalogPicture(new PictureServer(body));
+        try
+        {
+            item.EnsureDetailsLoaded();
+            await Task.WhenAny(body.Closed.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+
+            Assert.True(body.Served <= tenMegabytes + 1024 * 1024, $"read {body.Served} bytes of the answer");
+            Assert.Null(item.ThumbnailImage);
+            Assert.False(File.Exists(Path.Combine(ThumbnailCacheDirectory, "TestMod.img")));
+        }
+        finally
+        {
+            DeleteModFolder();
+        }
+    }
+
+    /// <summary>Regression: a catalog picture was decoded at full size for a 120 px box.</summary>
+    [Fact]
+    public async Task RemotePicture_IsDecodedAtThumbnailSizeAndCached()
+    {
+        var item = CreateViewModelWithCatalogPicture(new PictureServer(new MemoryStream(SolidPng(1000, 10))));
+        var cached = Path.Combine(ThumbnailCacheDirectory, "TestMod.img");
+        try
+        {
+            item.EnsureDetailsLoaded();
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while ((item.ThumbnailImage is null || !File.Exists(cached)) && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(10);
+            }
+
+            Assert.NotNull(item.ThumbnailImage);
+            Assert.Equal(240, item.ThumbnailImage!.PixelWidth);
+            Assert.True(File.Exists(cached));
+        }
+        finally
+        {
+            DeleteModFolder();
+        }
     }
 }

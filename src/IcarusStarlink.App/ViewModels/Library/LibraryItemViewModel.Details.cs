@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using CommunityToolkit.Mvvm.Input;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.Core.Nexus;
@@ -281,7 +282,11 @@ public sealed partial class LibraryItemViewModel
                 return;
             }
 
-            var bytes = await _httpClient.GetByteArrayAsync(imageUrl);
+            if (await DownloadPictureAsync(imageUrl) is not { } bytes)
+            {
+                return;
+            }
+
             var decoded = TryDecodeImage(bytes, ThumbnailPixelWidth);
             if (decoded is null)
             {
@@ -296,5 +301,37 @@ public sealed partial class LibraryItemViewModel
         {
             // Cosmetic-only, per this method's own doc comment.
         }
+    }
+
+    /// <summary>A mod picture bigger than this is skipped (a picture link can point at anything).</summary>
+    private const int MaxRemotePictureBytes = 10 * 1024 * 1024;
+
+    /// <summary>
+    /// The picture's bytes, read at most MaxRemotePictureBytes far: null when the server says or
+    /// sends more. Used to be read whole, however big, before finding out it wasn't a picture.
+    /// </summary>
+    private async Task<byte[]?> DownloadPictureAsync(string imageUrl)
+    {
+        using var response = await _httpClient.GetAsync(imageUrl, HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength > MaxRemotePictureBytes)
+        {
+            return null;
+        }
+
+        await using var body = await response.Content.ReadAsStreamAsync();
+        using var picture = new MemoryStream();
+        var chunk = new byte[81920];
+        int read;
+        while ((read = await body.ReadAsync(chunk)) > 0)
+        {
+            picture.Write(chunk, 0, read);
+            if (picture.Length > MaxRemotePictureBytes)
+            {
+                return null;
+            }
+        }
+
+        return picture.ToArray();
     }
 }
