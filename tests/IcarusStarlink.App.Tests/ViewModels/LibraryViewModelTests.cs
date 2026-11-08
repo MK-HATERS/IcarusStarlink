@@ -2698,8 +2698,15 @@ public sealed partial class LibraryViewModelTests
         /// <summary>Mods by ID, with their uploader (the endorsement sync's own-mod check).</summary>
         public List<NexusModInfo> ModsById { get; } = [];
 
-        public Task<NexusUserInfo?> ValidateKeyAsync(string apiKey, CancellationToken cancellationToken = default) =>
-            User is not null ? Task.FromResult<NexusUserInfo?>(User) : throw new NotSupportedException("Not exercised by these tests.");
+        /// <summary>How many account lookups were made.</summary>
+        public int ValidateKeyCallCount { get; private set; }
+
+        public Task<NexusUserInfo?> ValidateKeyAsync(string apiKey, CancellationToken cancellationToken = default)
+        {
+            ValidateKeyCallCount++;
+            return User is not null ? Task.FromResult<NexusUserInfo?>(User) : throw new NotSupportedException("Not exercised by these tests.");
+        }
+
         public Task<IReadOnlyList<NexusModInfo>> GetModsByIdAsync(string? apiKey, string gameDomain, IReadOnlyList<int> modIds, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<NexusModInfo>>([.. ModsById.Where(m => modIds.Contains(m.ModId))]);
         public Task<IReadOnlyList<NexusDownloadLink>> GetDownloadLinksAsync(

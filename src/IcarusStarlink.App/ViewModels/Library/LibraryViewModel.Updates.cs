@@ -348,23 +348,17 @@ public sealed partial class LibraryViewModel
     /// <summary>
     /// Update all may run the Nexus updates itself: signed in, and Nexus doesn't say the account
     /// isn't Premium (only Premium accounts download through the API). Not known (the account
-    /// lookup failed) counts as yes: each mod's own Update then says what went wrong.
+    /// lookup failed) counts as yes: each mod's own Update then says what went wrong. Downloads
+    /// looks the account up once per sign-in, so a known answer costs no request.
     /// </summary>
     private async Task<bool> CanRunNexusUpdatesInTurnAsync()
     {
-        if (!Downloads.CanFetchFromNexus || _credentialStore.Read(CredentialTargets.NexusApiKey) is not { } apiKey)
+        if (!Downloads.CanFetchFromNexus || _credentialStore.Read(CredentialTargets.NexusApiKey) is null)
         {
             return false;
         }
 
-        try
-        {
-            return (await _nexusApiClient.ValidateKeyAsync(apiKey))?.IsPremium != false;
-        }
-        catch (Exception)
-        {
-            return true;
-        }
+        return await Downloads.CheckIsPremiumAsync() != false;
     }
 
     /// <summary>One outdated Nexus row for Update all: a data mod or a UE4SS mod.</summary>

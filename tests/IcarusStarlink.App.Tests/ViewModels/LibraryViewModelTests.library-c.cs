@@ -334,6 +334,21 @@ public sealed partial class LibraryViewModelTests
         Assert.Contains("UE4SS panel", vm.StatusMessage);
     }
 
+    /// <summary>Regression: Update all looked the account up again although the Downloads page already knew it was Premium.</summary>
+    [Fact]
+    public async Task UpdateAll_PremiumAlreadyKnown_DoesNotLookTheAccountUpAgain()
+    {
+        var (vm, harness) = BuildTwoOutdatedNexusRows();
+        harness.NexusApiClient.User = new NexusUserInfo(5, "me", IsPremium: true, IsSupporter: false, "", "");
+        Assert.True(await vm.Downloads.CheckIsPremiumAsync());
+        var lookups = harness.NexusApiClient.ValidateKeyCallCount;
+
+        await vm.UpdateAllCommand.ExecuteAsync(null);
+
+        Assert.Equal(lookups, harness.NexusApiClient.ValidateKeyCallCount);
+        Assert.Equal([1, 2], harness.NexusApiClient.FileSetCalls);
+    }
+
     // ---- Check for updates: how many Nexus requests ----
 
     /// <summary>
