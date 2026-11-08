@@ -816,6 +816,22 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Equal("Mods", vm.ModsTabHeader);
     }
 
+    /// <summary>A built-in the installed UE4SS lists in its own mods.json is UE4SS's, not a mod row.</summary>
+    [Fact]
+    public void Ue4ssRows_LeaveOutABuiltInNamedInTheGamesModsJson()
+    {
+        var gameWin64 = MakeGameWithUe4ss(("MkHatersTools", true), ("NewBuiltInMod", true));
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        File.WriteAllText(Path.Combine(gameWin64, "ue4ss", "Mods", "mods.json"),
+            """[{"mod_name": "Keybinds", "mod_enabled": true}, {"mod_name": "NewBuiltInMod", "mod_enabled": true}]""");
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+        vm.OnPageShown();
+
+        Assert.Equal(["MkHatersTools"], vm.Ue4ssModRows.Select(r => r.Name));
+    }
+
     /// <summary>The update goes through, but the old copy can't go to the backups: the status says where it is, and the row still counts as updated.</summary>
     [Fact]
     public async Task Ue4ss_CopyToServer_OldCopyCantBeBackedUp_StatusSaysSo()

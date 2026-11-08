@@ -165,7 +165,9 @@ public sealed partial class LocalServerViewModel
 
         try
         {
-            var comparisons = ServerUe4ssSync.Compare(GameModsFolder() ?? "", DedicatedServerLayout.Ue4ssModsFolder(p.InstallFolder), Ue4ssServerFiles.FrameworkMods);
+            // UE4SS's own mods: the known names plus what the game's installed build lists in its mods.json.
+            var gameModsFolder = GameModsFolder();
+            var comparisons = ServerUe4ssSync.Compare(gameModsFolder ?? "", DedicatedServerLayout.Ue4ssModsFolder(p.InstallFolder), Ue4ssFrameworkMods.In(gameModsFolder));
             foreach (var comparison in comparisons)
             {
                 Ue4ssModRows.Add(new ServerUe4ssRow(comparison, OnServerModToggled));
