@@ -1,11 +1,25 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text.Json;
 using IcarusStarlink.Core.IO;
 
 namespace IcarusStarlink.PakIO.Pak;
 
-public sealed class UnrealPakInstaller(IProcessRunner processRunner, HttpClient httpClient, string appBaseDirectory) : IUnrealPakInstaller
+/// <param name="expectedPayloadSha256">
+/// The SHA-256 (hex) a downloaded UnrealPak.zip must have; defaults to the real release asset's.
+/// Tests pass the hash of their own payload.
+/// </param>
+public sealed class UnrealPakInstaller(
+    IProcessRunner processRunner, HttpClient httpClient, string appBaseDirectory,
+    string expectedPayloadSha256 = UnrealPakInstaller.RemotePayloadSha256) : IUnrealPakInstaller
 {
+    /// <summary>
+    /// SHA-256 of the UnrealPak.zip asset on the unrealpak-4.27 release. The exe from that zip runs
+    /// on every pak, so a download that doesn't match is refused. Re-uploading that asset means
+    /// changing this value in an app release, or first-run installs fail.
+    /// </summary>
+    internal const string RemotePayloadSha256 = "FD205C2462AD6D04F4E69051A67E4586828B82F5BB7900574346A631358B55D8";
+
     /// <summary>Relative layout inside the payload zip mirrors Epic's own tree — the exe needs its sibling DLLs and the Engine\Config/Oodle-plugin folders at their expected relative paths, so the whole tree ships as-is rather than being flattened.</summary>
     private const string ExeRelativePath = @"Engine\Binaries\Win64\UnrealPak.exe";
 
@@ -88,6 +102,8 @@ public sealed class UnrealPakInstaller(IProcessRunner processRunner, HttpClient 
                     $"Couldn't download UnrealPak from GitHub — check your internet connection. ({ex.Message})", ex);
             }
 
+            // Only the download is checked: a Tools\UnrealPak.zip the player put there by hand is theirs.
+            await EnsureDownloadMatchesAsync(tempZipPath, cancellationToken);
             await ExtractPayloadIntoInstallRootAsync(tempZipPath, cancellationToken);
         }
         finally
@@ -146,22 +162,23 @@ public sealed class UnrealPakInstaller(IProcessRunner processRunner, HttpClient 
         }
     }
 
-    private static void DeleteScratch(string folder)
+    private async Task EnsureDownloadMatchesAsync(string zipPath, CancellationToken cancellationToken)
     {
-        if (!Directory.Exists(folder))
+        string actual;
+        await using (var stream = File.OpenRead(zipPath))
         {
-            return;
+            actual = Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken));
         }
 
-        try
+        if (!string.Equals(actual, expectedPayloadSha256, StringComparison.OrdinalIgnoreCase))
         {
-            Directory.Delete(folder, recursive: true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // Scratch only — nothing reads it, and the next Install attempt uses a fresh name.
+            throw new InvalidOperationException(
+                "The UnrealPak download doesn't match the expected file, so it wasn't installed. Try again later.");
         }
     }
+
+    // Scratch only — nothing reads it, and the next Install attempt uses a fresh name.
+    private static void DeleteScratch(string folder) => Directories.TryDelete(folder);
 
     /// <summary>Epic's own UnrealPak.version JSON sits next to the exe ({"MajorVersion":4,"MinorVersion":27,...}) — best-effort, since a hand-assembled copy may not carry it.</summary>
     private static string? TryReadEngineVersion(string exePath)

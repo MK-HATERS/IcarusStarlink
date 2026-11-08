@@ -21,8 +21,13 @@ public sealed class UnrealPakInstallerTests : IDisposable
         }
     }
 
-    private UnrealPakInstaller CreateInstaller(FakeRunner? runner = null, HttpMessageHandler? httpHandler = null) =>
-        new(runner ?? new FakeRunner("usage: UnrealPak ..."), new HttpClient(httpHandler ?? new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound))), _appBase);
+    /// <param name="releasedPayload">Stands in for the released UnrealPak.zip: a download must have its hash.</param>
+    private UnrealPakInstaller CreateInstaller(FakeRunner? runner = null, HttpMessageHandler? httpHandler = null, byte[]? releasedPayload = null) =>
+        new(
+            runner ?? new FakeRunner("usage: UnrealPak ..."),
+            new HttpClient(httpHandler ?? new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound))),
+            _appBase,
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(releasedPayload ?? [])));
 
     /// <summary>Builds an UnrealPak payload zip with Epic's own relative layout, the way packaging would — as bytes, since both the local Tools\UnrealPak.zip path and the fake remote download response need the exact same shape.</summary>
     private static byte[] BuildPayloadZipBytes(bool includeExe = true)
@@ -186,7 +191,7 @@ public sealed class UnrealPakInstallerTests : IDisposable
             Assert.Equal("https://github.com/MK-HATERS/IcarusStarlink/releases/download/unrealpak-4.27/UnrealPak.zip", request.RequestUri!.ToString());
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(payloadBytes) };
         });
-        var installer = CreateInstaller(httpHandler: handler);
+        var installer = CreateInstaller(httpHandler: handler, releasedPayload: payloadBytes);
 
         var exePath = await installer.InstallAsync();
 
@@ -222,10 +227,36 @@ public sealed class UnrealPakInstallerTests : IDisposable
     {
         var payloadBytes = BuildPayloadZipBytes(includeExe: false);
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(payloadBytes) });
-        var installer = CreateInstaller(httpHandler: handler);
+        var installer = CreateInstaller(httpHandler: handler, releasedPayload: payloadBytes);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
         Assert.Contains("can't be used", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// UnrealPak.zip is unzipped and its exe run on every pak, but a download was never checked:
+    /// any zip served at that address was installed. One that isn't the released file is refused
+    /// now, and the working copy stays as it was.
+    /// </summary>
+    [Fact]
+    public async Task Install_DownloadDoesNotMatchTheReleasedFile_IsRefusedAndTheWorkingCopyIsKept()
+    {
+        WritePayload();
+        await CreateInstaller().InstallAsync();
+        File.Delete(Path.Combine(_appBase, "Tools", "UnrealPak.zip"));
+        var installedExe = Path.Combine(_appBase, "Tools", "UnrealPak", "Engine", "Binaries", "Win64", "UnrealPak.exe");
+        File.WriteAllText(installedExe, "the working copy");
+        // A working zip, just not the released one.
+        var otherPayload = BuildPayloadZipBytes();
+        byte[] releasedPayload = [.. otherPayload, 0];
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(otherPayload) });
+        var installer = CreateInstaller(httpHandler: handler, releasedPayload: releasedPayload);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync());
+
+        Assert.Contains("doesn't match the expected file", ex.Message);
+        Assert.Equal("the working copy", File.ReadAllText(installedExe));
+        Assert.Single(Directory.GetDirectories(Path.Combine(_appBase, "Tools")));
     }
 
     private sealed class FakeRunner(string output = "", bool throwOnRun = false) : IProcessRunner
