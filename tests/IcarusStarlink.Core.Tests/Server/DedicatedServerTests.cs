@@ -168,6 +168,28 @@ public sealed class DedicatedServerTests : IDisposable
         Assert.DoesNotContain("old 0", tail);
     }
 
+    /// <summary>
+    /// Regression: each read was decoded on its own, so a name whose UTF-8 bytes were split across
+    /// two reads got a U+FFFD in it, and that player never left the online list.
+    /// </summary>
+    [Fact]
+    public void LogTailer_ACharacterSplitAcrossTwoReads_IsDecodedWhole()
+    {
+        Directory.CreateDirectory(_root);
+        var path = Path.Combine(_root, "Icarus.log");
+        var tailer = new LogTailer(path);
+        var first = System.Text.Encoding.UTF8.GetBytes("LogNet: Join succeeded: Влад");
+        File.WriteAllBytes(path, [.. first, 0xD0]);
+        Assert.Empty(tailer.Poll());
+
+        using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+        {
+            stream.Write([0xB8, .. System.Text.Encoding.UTF8.GetBytes("мир\n")]);
+        }
+
+        Assert.Equal(["LogNet: Join succeeded: Владимир"], tailer.Poll());
+    }
+
     [Theory]
     [InlineData("[2026.10.15-20.11.19:000][  0]LogStreaming: Display: Flushing async loaders.", true)]
     [InlineData("[2026.10.15-20.11.19:000][  0]LogTexture: Display: Building textures", true)]

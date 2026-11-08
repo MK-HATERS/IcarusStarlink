@@ -21,6 +21,13 @@ public sealed class LogTailer(string path)
     private string _pending = "";
     private byte[] _head = [];
 
+    /// <summary>
+    /// One decoder across reads: a character whose UTF-8 bytes are split between two reads waits
+    /// in it for the rest. Each read used to be decoded on its own, which turned such a character
+    /// in a player name into U+FFFD, so the join no longer matched its login.
+    /// </summary>
+    private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
+
     public string Path { get; } = path;
 
     /// <summary>Skip everything already in the file — for attaching to a server that has been running a while.</summary>
@@ -31,6 +38,7 @@ public sealed class LogTailer(string path)
             _pending = "";
             _position = 0;
             _head = [];
+            _decoder.Reset();
             try
             {
                 if (File.Exists(Path))
@@ -52,6 +60,7 @@ public sealed class LogTailer(string path)
         _position = 0;
         _pending = "";
         _head = [];
+        _decoder.Reset();
     }
 
     public IReadOnlyList<string> Poll(int maxBytes = 1 << 20)
@@ -131,6 +140,7 @@ public sealed class LogTailer(string path)
             {
                 _position = stream.Length - maxBytes;
                 _pending = "";
+                _decoder.Reset();
             }
 
             stream.Seek(_position, SeekOrigin.Begin);
@@ -148,7 +158,9 @@ public sealed class LogTailer(string path)
             }
 
             _position += read;
-            var text = _pending + Encoding.UTF8.GetString(buffer, 0, read);
+            var chars = new char[_decoder.GetCharCount(buffer, 0, read, flush: false)];
+            _decoder.GetChars(buffer, 0, read, chars, 0, flush: false);
+            var text = _pending + new string(chars);
             var lines = text.Split('\n');
             _pending = lines[^1];
             return [.. lines[..^1].Select(l => l.TrimEnd('\r'))];
@@ -174,9 +186,26 @@ public static class ServerLogFilter
         "LogMeshReduction", "LogAnimation", "LogNiagara", "LogFoliage", "LogLandscape", "LogUObjectArray",
     ];
 
-    public static bool IsNoise(string line) =>
-        line.Contains(": Verbose:", StringComparison.Ordinal)
-        || NoiseCategories.Any(c => line.Contains(c + ":", StringComparison.Ordinal));
+    /// <summary>"LogStreaming:" and so on, built once: IsNoise runs for every line on each Log rebuild.</summary>
+    private static readonly string[] NoisePrefixes = [.. NoiseCategories.Select(c => c + ":")];
+
+    public static bool IsNoise(string line)
+    {
+        if (line.Contains(": Verbose:", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        foreach (var prefix in NoisePrefixes)
+        {
+            if (line.Contains(prefix, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public static bool IsError(string line) =>
         line.Contains(": Error:", StringComparison.Ordinal) || line.Contains("Fatal error", StringComparison.OrdinalIgnoreCase);
@@ -213,7 +242,7 @@ public static class ServerLogFilter
     }
 
     /// <summary>The line without its leading "[2026.08.10-00.32.24:447][176]" groups.</summary>
-    private static ReadOnlySpan<char> SkipLogPrefix(string line)
+    internal static ReadOnlySpan<char> SkipLogPrefix(string line)
     {
         var rest = line.AsSpan().TrimStart();
         while (rest.Length > 0 && rest[0] == '[' && rest.IndexOf(']') is var close and > 0)
@@ -224,7 +253,11 @@ public static class ServerLogFilter
         return rest;
     }
 
-    /// <summary>The server logs every login request WITH the join password in plain text ("Login request: ?password=4543?Name=…") — masked before it is shown or copied anywhere.</summary>
+    /// <summary>
+    /// The server logs every login request WITH the join password in plain text ("Login request: ?password=4543?Name=…") — masked before it is shown or copied anywhere.
+    /// Login lines log option values unescaped (a password can hold a space), so there the mask
+    /// runs to the next '?' or " userId:"; in any other line it ends at a '?' or a space.
+    /// </summary>
     public static string Redact(string line)
     {
         var at = line.IndexOf("password=", StringComparison.OrdinalIgnoreCase);
@@ -234,7 +267,18 @@ public static class ServerLogFilter
         }
 
         var start = at + "password=".Length;
-        var end = line.IndexOfAny(['?', ' '], start);
+        int end;
+        if (line.Contains("Login request:", StringComparison.Ordinal))
+        {
+            var question = line.IndexOf('?', start);
+            var userId = line.IndexOf(" userId:", start, StringComparison.Ordinal);
+            end = question < 0 ? userId : userId < 0 ? question : Math.Min(question, userId);
+        }
+        else
+        {
+            end = line.IndexOfAny(['?', ' '], start);
+        }
+
         return line[..start] + "***" + (end < 0 ? "" : line[end..]);
     }
 }

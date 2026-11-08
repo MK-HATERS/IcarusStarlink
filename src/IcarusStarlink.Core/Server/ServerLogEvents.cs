@@ -20,10 +20,10 @@ public sealed record OnlinePlayer(string Name, string PlayerId, DateTime? Since)
 
 /// <summary>
 /// Turns the dedicated server's own log into players and events. Line shapes taken from a real
-/// Icarus dedicated server log (2026-08):
-///   LogNet: Login request: ?password=…?Name=MK-HATERS userId: Steam:UNKNOWN [0x1100001351D72E3] platform: Steam
-///   LogNet: Join succeeded: MK-HATERS
-///   LogNet: UNetConnection::Close: … PC: BP_IcarusPlayerController…, UniqueId: Steam:UNKNOWN [0x1100001351D72E3], …
+/// Icarus dedicated server log (player name and id replaced):
+///   LogNet: Login request: ?password=…?Name=TestPlayer userId: Steam:UNKNOWN [0x1100001025E4C01] platform: Steam
+///   LogNet: Join succeeded: TestPlayer
+///   LogNet: UNetConnection::Close: … PC: BP_IcarusPlayerController…, UniqueId: Steam:UNKNOWN [0x1100001025E4C01], …
 ///   LogLocalSessionSubsystem: Display: SetActiveProspectInfo - ProspectID: Hard Elysium JULY | ProspectDTKey: OpenWorld_Elysium
 ///   LogLocalSessionSubsystem: Display: ResetActiveProspect - ProspectID: … (back to the lobby)
 ///   LogCore: Engine exit requested (reason: ConsoleCtrl RequestExit)
@@ -43,6 +43,9 @@ public sealed partial class ServerLogEvents
     private readonly Dictionary<string, DateTime?> _closing = new(StringComparer.OrdinalIgnoreCase);
     private string? _pendingLoginId;
 
+    /// <summary>Login lines since the last join: a join whose name matches no login is paired with the pending login only when there was exactly one.</summary>
+    private int _loginsSinceJoin;
+
     public IReadOnlyCollection<OnlinePlayer> Online => _online.Values;
 
     public string? CurrentProspect { get; private set; }
@@ -53,6 +56,7 @@ public sealed partial class ServerLogEvents
         _online.Clear();
         _closing.Clear();
         _pendingLoginId = null;
+        _loginsSinceJoin = 0;
         CurrentProspect = null;
     }
 
@@ -88,21 +92,31 @@ public sealed partial class ServerLogEvents
 
     private ServerLogEvent? FeedOne(string line, DateTime? time)
     {
-        if (LoginPattern().Match(line) is { Success: true } login)
+        // Player events must start right after the line's "[time][frame]" groups, like
+        // IsCleanExit: player names are in the log too, and text that only quoted a join added a
+        // ghost player (the daily restart then always waited) or a quoted exit emptied the list.
+        var message = ServerLogFilter.SkipLogPrefix(line).ToString();
+        if (LoginPattern().Match(message) is { Success: true } login)
         {
             var id = login.Groups["id"].Value;
             _namesById[id] = login.Groups["name"].Value;
             _pendingLoginId = id;
+            _loginsSinceJoin++;
             return null;
         }
 
-        if (JoinPattern().Match(line) is { Success: true } join)
+        if (JoinPattern().Match(message) is { Success: true } join)
         {
             var name = join.Groups["name"].Value.Trim();
             var id = _pendingLoginId is { } pending && _namesById.GetValueOrDefault(pending) == name
                 ? pending
-                : _namesById.FirstOrDefault(p => p.Value == name).Key ?? name;
+                : _namesById.FirstOrDefault(p => p.Value == name).Key
+                    // The login's name can differ from the join's ("Who?" is logged as "Who" there):
+                    // with exactly one login since the last join it can only be that one's.
+                    ?? (_loginsSinceJoin == 1 ? _pendingLoginId : null)
+                    ?? name;
             _pendingLoginId = null;
+            _loginsSinceJoin = 0;
             var alreadyHere = _closing.Remove(id) | _online.ContainsKey(id);
             if (!_online.ContainsKey(id))
             {
@@ -112,7 +126,7 @@ public sealed partial class ServerLogEvents
             return alreadyHere ? null : new ServerLogEvent(ServerLogEventKind.PlayerJoined, time, $"{name} joined");
         }
 
-        if (line.Contains("UNetConnection::Close:", StringComparison.Ordinal)
+        if (message.StartsWith("LogNet: UNetConnection::Close:", StringComparison.Ordinal)
             && line.Contains("PC: BP_IcarusPlayerController", StringComparison.Ordinal)
             && ClosePattern().Match(line) is { Success: true } close)
         {
@@ -144,7 +158,7 @@ public sealed partial class ServerLogEvents
             return new ServerLogEvent(ServerLogEventKind.ReturnedToLobby, time, "Returned to the lobby");
         }
 
-        if (line.Contains("Engine exit requested", StringComparison.Ordinal) && line.Contains("ConsoleCtrl", StringComparison.Ordinal))
+        if (ServerLogFilter.IsCleanExit(line) && line.Contains("ConsoleCtrl", StringComparison.Ordinal))
         {
             _online.Clear();
             _closing.Clear();
@@ -176,10 +190,10 @@ public sealed partial class ServerLogEvents
     [GeneratedRegex(@"^\[(?<t>\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2})")]
     private static partial Regex TimePattern();
 
-    [GeneratedRegex(@"Login request: .*?\?Name=(?<name>[^?]+?)(?=\?| userId:).*?userId: \S+ \[(?<id>0x[0-9A-Fa-f]+)\]")]
+    [GeneratedRegex(@"^LogNet: Login request: .*?\?Name=(?<name>[^?]+?)(?=\?| userId:).*?userId: \S+ \[(?<id>0x[0-9A-Fa-f]+)\]")]
     private static partial Regex LoginPattern();
 
-    [GeneratedRegex(@"LogNet: Join succeeded: (?<name>.+)$")]
+    [GeneratedRegex(@"^LogNet: Join succeeded: (?<name>.+)$")]
     private static partial Regex JoinPattern();
 
     [GeneratedRegex(@"UniqueId: \S+ \[(?<id>0x[0-9A-Fa-f]+)\]")]

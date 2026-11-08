@@ -4,7 +4,7 @@ using IcarusStarlink.Core.Server;
 namespace IcarusStarlink.Core.Tests.Server;
 
 /// <summary>SteamCMD parsing, mods.txt editing, log events, backups and server mod files — inputs copied from a real Icarus dedicated server install.</summary>
-public sealed class ServerFilesTests : IDisposable
+public sealed partial class ServerFilesTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "IcarusStarlink.Tests", Guid.NewGuid().ToString("N"));
 
@@ -221,11 +221,11 @@ public sealed class ServerFilesTests : IDisposable
 
     // ---- log events ----
 
-    private const string Login = "[2026.08.12-17.31.50:975][102]LogNet: Login request: ?password=x?Name=MK-HATERS userId: Steam:UNKNOWN [0x1100001351D72E3] platform: Steam";
-    private const string Join = "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: MK-HATERS";
-    private const string Close = "[2026.08.12-17.32.04:482][428]LogNet: UNetConnection::Close: [UNetConnection] RemoteAddr: 76561198851388131:17777, Name: SteamNetConnection_2147481943, Driver: GameNetDriver SteamNetDriver_2147481984, IsServer: YES, PC: BP_IcarusPlayerControllerServer_C_2147481936, Owner: BP_IcarusPlayerControllerServer_C_2147481936, UniqueId: Steam:UNKNOWN [0x1100001351D72E3], Channels: 7, Time: 2026.08.12-17.32.04";
-    private const string TravelLogin = "[2026.08.12-17.32.20:715][550]LogNet: Login request: ?password=x?game=/Game/BP/Systems/BP_IcarusGameMode.BP_IcarusGameMode_C?Name=MK-HATERS?prospectId=Hard Elysium JULY userId: Steam:UNKNOWN [0x1100001351D72E3] platform: Steam";
-    private const string TravelJoin = "[2026.08.12-17.32.23:280][627]LogNet: Join succeeded: MK-HATERS";
+    private const string Login = "[2026.08.12-17.31.50:975][102]LogNet: Login request: ?password=x?Name=TestPlayer userId: Steam:UNKNOWN [0x1100001025E4C01] platform: Steam";
+    private const string Join = "[2026.08.12-17.31.51:477][117]LogNet: Join succeeded: TestPlayer";
+    private const string Close = "[2026.08.12-17.32.04:482][428]LogNet: UNetConnection::Close: [UNetConnection] RemoteAddr: 76561198000000001:17777, Name: SteamNetConnection_2147481943, Driver: GameNetDriver SteamNetDriver_2147481984, IsServer: YES, PC: BP_IcarusPlayerControllerServer_C_2147481936, Owner: BP_IcarusPlayerControllerServer_C_2147481936, UniqueId: Steam:UNKNOWN [0x1100001025E4C01], Channels: 7, Time: 2026.08.12-17.32.04";
+    private const string TravelLogin = "[2026.08.12-17.32.20:715][550]LogNet: Login request: ?password=x?game=/Game/BP/Systems/BP_IcarusGameMode.BP_IcarusGameMode_C?Name=TestPlayer?prospectId=Hard Elysium JULY userId: Steam:UNKNOWN [0x1100001025E4C01] platform: Steam";
+    private const string TravelJoin = "[2026.08.12-17.32.23:280][627]LogNet: Join succeeded: TestPlayer";
     private const string Prospect = "[2026.08.12-17.32.01:410][337]LogLocalSessionSubsystem: Display: SetActiveProspectInfo - ProspectID: Hard Elysium JULY | ProspectDTKey: OpenWorld_Elysium";
 
     [Fact]
@@ -248,7 +248,7 @@ public sealed class ServerFilesTests : IDisposable
         Assert.Empty(events.Feed(TravelLogin));
         Assert.Empty(events.Feed(TravelJoin));
         Assert.Empty(events.ExpireStale(new DateTime(2026, 8, 12, 18, 0, 0, DateTimeKind.Utc)));
-        Assert.Equal("MK-HATERS", Assert.Single(events.Online).Name);
+        Assert.Equal("TestPlayer", Assert.Single(events.Online).Name);
     }
 
     /// <summary>A real leave: no rejoin within the grace period — reported once, at the time the connection closed.</summary>
@@ -263,7 +263,7 @@ public sealed class ServerFilesTests : IDisposable
         Assert.Empty(events.ExpireStale(new DateTime(2026, 8, 12, 17, 32, 30, DateTimeKind.Utc)));
         var left = Assert.Single(events.ExpireStale(new DateTime(2026, 8, 12, 17, 33, 30, DateTimeKind.Utc)));
         Assert.Equal(ServerLogEventKind.PlayerLeft, left.Kind);
-        Assert.Equal("MK-HATERS disconnected", left.Text);
+        Assert.Equal("TestPlayer disconnected", left.Text);
         Assert.Equal(new DateTime(2026, 8, 12, 17, 32, 4, DateTimeKind.Utc), left.Time);
         Assert.Empty(events.Online);
 
@@ -298,7 +298,10 @@ public sealed class ServerFilesTests : IDisposable
     }
 
     [Theory]
-    [InlineData("LogNet: Login request: ?password=4543?Name=MK-HATERS userId: x", "LogNet: Login request: ?password=***?Name=MK-HATERS userId: x")]
+    [InlineData("LogNet: Login request: ?password=4543?Name=TestPlayer userId: x", "LogNet: Login request: ?password=***?Name=TestPlayer userId: x")]
+    // Regression: login lines log option values unescaped, so a join password with a space showed its second word.
+    [InlineData("LogNet: Login request: ?password=red fox?Name=X userId: y", "LogNet: Login request: ?password=***?Name=X userId: y")]
+    [InlineData("LogNet: Login request: ?Name=X?password=red fox userId: y", "LogNet: Login request: ?Name=X?password=*** userId: y")]
     [InlineData("password=secret at the end", "password=*** at the end")]
     [InlineData("nothing to hide", "nothing to hide")]
     public void Redact_MasksTheJoinPassword(string line, string expected) =>
