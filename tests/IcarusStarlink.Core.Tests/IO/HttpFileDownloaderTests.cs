@@ -183,6 +183,78 @@ public class HttpFileDownloaderTests
         }
     }
 
+    /// <summary>
+    /// Regression: there was no size limit, so a server that never ended its body (and gave no
+    /// Content-Length) kept writing the .part file until the disk was full.
+    /// </summary>
+    [Fact]
+    public async Task DownloadToFileAsync_BodyRunsPastTheSizeLimit_StopsAndLeavesNoFile()
+    {
+        var folder = Directory.CreateTempSubdirectory("HttpFileDownloaderTests").FullName;
+        try
+        {
+            using var client = new HttpClient(new StaticResponseHandler(() =>
+                new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new ChunkedStream(chunks: 10, chunkSize: 1000)) }));
+
+            var ex = await Assert.ThrowsAsync<IOException>(() => HttpFileDownloader.DownloadToFileAsync(
+                client, ["https://example.invalid/mod.zip"], Path.Combine(folder, "mod.zip"), TimeSpan.FromSeconds(5), maxBytes: 2500));
+
+            Assert.Contains("too big", ex.Message);
+            Assert.Empty(Directory.GetFiles(folder));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>A server that says up front the file is over the limit is refused before any of the body is read.</summary>
+    [Fact]
+    public async Task DownloadToFileAsync_ServerSaysTheFileIsOverTheSizeLimit_RefusesWithoutReadingIt()
+    {
+        var folder = Directory.CreateTempSubdirectory("HttpFileDownloaderTests").FullName;
+        try
+        {
+            using var client = new HttpClient(new StaticResponseHandler(() =>
+            {
+                var content = new StreamContent(new UnreadableStream());
+                content.Headers.ContentLength = 10_000;
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+            }));
+
+            var ex = await Assert.ThrowsAsync<IOException>(() => HttpFileDownloader.DownloadToFileAsync(
+                client, ["https://example.invalid/mod.zip"], Path.Combine(folder, "mod.zip"), TimeSpan.FromSeconds(5), maxBytes: 1000));
+
+            Assert.Contains("too big", ex.Message);
+            Assert.Empty(Directory.GetFiles(folder));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>A body exactly at the limit is still saved.</summary>
+    [Fact]
+    public async Task DownloadToFileAsync_BodyExactlyAtTheSizeLimit_IsSaved()
+    {
+        var folder = Directory.CreateTempSubdirectory("HttpFileDownloaderTests").FullName;
+        try
+        {
+            using var client = new HttpClient(new StaticResponseHandler(() =>
+                new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new ChunkedStream(chunks: 3, chunkSize: 1000)) }));
+            var destination = Path.Combine(folder, "mod.zip");
+
+            await HttpFileDownloader.DownloadToFileAsync(client, ["https://example.invalid/mod.zip"], destination, TimeSpan.FromSeconds(5), maxBytes: 3000);
+
+            Assert.Equal(3000, new FileInfo(destination).Length);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
     /// <summary>No Content-Length: the size is unknown (null), not zero, so the page shows just the bytes so far.</summary>
     [Fact]
     public async Task DownloadToFileAsync_ServerGivesNoSize_ReportsTheSizeAsUnknown()
@@ -335,6 +407,28 @@ public class HttpFileDownloaderTests
             ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
 
         public override int Read(byte[] buffer, int offset, int count) => ReadAsync(buffer.AsMemory(offset, count)).AsTask().Result;
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    /// <summary>A body that fails the test's download if anything reads it.</summary>
+    private sealed class UnreadableStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("The body was read.");
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("The body was read.");
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new InvalidOperationException("The body was read.");
         public override void Flush() { }
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
