@@ -130,6 +130,89 @@ public sealed partial class LibraryViewModel
     }
 
     /// <summary>
+    /// Before an import writes anything: when it is a mod already in the Library (one copy of each
+    /// half, found by ImportMatchFinder), asks Replace it / Keep both / Cancel. Replace swaps the old
+    /// copy out through ModReplacementService and returns true. Keep both, no match, or several
+    /// matches (copies the user keeps on purpose, asked nothing) return false and the import goes on
+    /// as before. Cancel throws ImportCancelledException; nothing has changed by then.
+    /// </summary>
+    /// <param name="stagedPath">What to import from: the .pak, the user's EXMOD folder, or the copy or unpacked archive in the temp folder.</param>
+    private async Task<bool> ReplacedExistingCopyAsync(string path, string stagedPath, Func<IncomingModNames> readIncoming)
+    {
+        ImportMatches matches;
+        try
+        {
+            var incoming = await Task.Run(readIncoming);
+            matches = ImportMatchFinder.Find(incoming, _repository.GetAll(), SafeUe4ssNames());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Can't tell what is inside yet: imported as before, and the import reports any real problem.
+            return false;
+        }
+
+        if (!matches.IsSingle)
+        {
+            return false;
+        }
+
+        var oldEntry = matches.Library.FirstOrDefault();
+        var oldUe4ss = matches.Ue4ss.FirstOrDefault();
+        var parts = new List<string>();
+        if (oldEntry is not null)
+        {
+            parts.Add($"'{oldEntry.Name}' (data mod)");
+        }
+
+        if (oldUe4ss is not null)
+        {
+            parts.Add($"'{oldUe4ss}' (UE4SS mod)");
+        }
+
+        var fileName = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var answer = _dialogService.AskReplaceExisting(
+            $"'{fileName}' is already in your Library: {string.Join(" and ", parts)}.\n\n"
+            + "Replace it: the old copy is backed up first, and its pin, notes and Nexus link stay.\n"
+            + "Keep both: adds a second copy beside it.");
+        if (answer == ReplaceExistingAnswer.Cancel)
+        {
+            throw new ImportCancelledException($"Didn't import '{fileName}'.");
+        }
+
+        if (answer == ReplaceExistingAnswer.KeepBoth)
+        {
+            return false;
+        }
+
+        ClassifiedImport? imported = null;
+        var result = await Downloads.ReplaceWithLocalImportAsync(stagedPath, path, oldEntry, oldUe4ss, c => imported = c);
+        if (result.Cancelled)
+        {
+            _activityLog.Log(result.Message ?? $"Didn't replace '{fileName}'.", ActivityEntryKind.Info);
+            throw new ImportCancelledException(result.Message ?? $"Didn't replace '{fileName}'.");
+        }
+
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException(result.Message ?? "The old copy couldn't be replaced.");
+        }
+
+        _activityLog.Log($"Replaced {string.Join(" and ", parts)} with '{fileName}'.{result.Summary}", ActivityEntryKind.Success);
+        if (imported is not null)
+        {
+            LogImportWarnings(path, imported.Warnings);
+        }
+
+        // A replaced UE4SS mod keeps its on/off state; a new Lua half lands off, as any import's does.
+        if (oldUe4ss is null && result.Items.Any(i => i.Kind == PendingDownloadActivationKind.Ue4ssMod))
+        {
+            _importNote = "UE4SS mods land unticked: tick them, then Apply UE4SS changes.";
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Imports one already-known path — a real folder, a bare .pak, or (falling through to the
     /// same auto-detection ImportFile's own dialog already uses) any other file, sniffed as an
     /// archive by its actual content rather than trusted by extension. Shared by drag-and-drop and
@@ -150,6 +233,11 @@ public sealed partial class LibraryViewModel
             // reads the folder (the imports copy from it) and never unpacks anything into it.
             if (Directory.EnumerateFiles(path, "*.EXMOD", SearchOption.AllDirectories).Any())
             {
+                if (await ReplacedExistingCopyAsync(path, path, () => ImportMatchFinder.ReadFolder(path, Path.GetFileNameWithoutExtension(path))))
+                {
+                    return;
+                }
+
                 var exmodResult = await ExtractedModClassifier.ClassifyAndImport(
                     path, path, _repository, _ue4ssModRepository,
                     _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, chooseArchive: Downloads.ChooseArchive);
@@ -164,6 +252,11 @@ public sealed partial class LibraryViewModel
             try
             {
                 await Task.Run(() => FolderBackup.CopyDirectory(path, tempCopy));
+                if (await ReplacedExistingCopyAsync(path, tempCopy, () => ImportMatchFinder.ReadFolder(tempCopy, Path.GetFileNameWithoutExtension(path))))
+                {
+                    return;
+                }
+
                 var folderResult = await ExtractedModClassifier.ClassifyAndImport(
                     tempCopy, path, _repository, _ue4ssModRepository,
                     _prebuiltPakImporter, _dataFolder, _settingsService.Current.UnrealPakExePath, chooseArchive: Downloads.ChooseArchive);
@@ -180,6 +273,11 @@ public sealed partial class LibraryViewModel
 
         if (path.EndsWith(".pak", StringComparison.OrdinalIgnoreCase))
         {
+            if (await ReplacedExistingCopyAsync(path, path, () => ImportMatchFinder.ForPak(path)))
+            {
+                return;
+            }
+
             var entry = await _prebuiltPakImporter.ImportAsync(path, _dataFolder, _settingsService.Current.UnrealPakExePath);
             _activityLog.Log($"Imported '{entry.Name}' v{entry.Version}.", ActivityEntryKind.Success);
             LogImportWarnings(path, entry.ImportWarnings);
@@ -190,6 +288,11 @@ public sealed partial class LibraryViewModel
         try
         {
             await Task.Run(() => AnyArchiveExtractor.ExtractToDirectory(path, tempExtractDirectory));
+            if (await ReplacedExistingCopyAsync(path, tempExtractDirectory, () => ImportMatchFinder.ReadFolder(tempExtractDirectory, Path.GetFileNameWithoutExtension(path))))
+            {
+                return;
+            }
+
             ClassifiedImport archiveResult;
             try
             {

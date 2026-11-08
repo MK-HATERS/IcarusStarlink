@@ -3013,6 +3013,8 @@ public sealed partial class LibraryViewModelTests
         public int ImportCallCount { get; private set; }
         public string? LastPakFilePath { get; private set; }
 
+        public int? LastNexusModId { get; private set; }
+
         /// <summary>Thrown by ImportAsync when set (a damaged download).</summary>
         public Exception? ImportException { get; set; }
 
@@ -3023,6 +3025,7 @@ public sealed partial class LibraryViewModelTests
         {
             ImportCallCount++;
             LastPakFilePath = pakFilePath;
+            LastNexusModId = nexusModId;
             if (ImportException is not null)
             {
                 throw ImportException;
@@ -3116,6 +3119,17 @@ public sealed partial class LibraryViewModelTests
             ConfirmCallCount++;
             ConfirmMessages.Add(message);
             return confirmResult ? ChooseAnswer : null;
+        }
+
+        /// <summary>Each "already in your Library" question asked on import, and its answer (Keep both unless a test says otherwise).</summary>
+        public List<string> ReplaceExistingMessages { get; } = [];
+
+        public ReplaceExistingAnswer ReplaceAnswer { get; set; } = ReplaceExistingAnswer.KeepBoth;
+
+        public ReplaceExistingAnswer AskReplaceExisting(string message)
+        {
+            ReplaceExistingMessages.Add(message);
+            return ReplaceAnswer;
         }
 
         /// <summary>Every question with its own button words (the "Replace your build" question), and the answer they get.</summary>
