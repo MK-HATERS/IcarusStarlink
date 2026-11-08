@@ -248,12 +248,25 @@ public sealed partial class LibraryViewModel
 
         Notice = message;
         IsNoticeWarning = LooksLikeAProblem(message);
-        _noticeTimer ??= new DebounceTimer(NoticeDuration, () => Notice = null);
+        _noticeTimer ??= new DebounceTimer(NoticeDuration, HideNotice);
         _noticeTimer.Restart();
     }
 
     [RelayCommand]
-    private void DismissNotice() => Notice = null;
+    private void DismissNotice() => HideNotice();
+
+    /// <summary>
+    /// Hides the notice and empties the two lines it shows. A property set to the text it already
+    /// has raises nothing, so an answer equal to the last one ("Nothing to update", clicked again
+    /// after the notice faded) used to show nothing and the click looked dead. Nothing else on the
+    /// page shows either line. Downloads' line stays: the Downloads page shows it.
+    /// </summary>
+    private void HideNotice()
+    {
+        Notice = null;
+        StatusMessage = null;
+        Ue4ssStatusMessage = null;
+    }
 
     internal static bool LooksLikeAProblem(string message) =>
         message.Contains("fail", StringComparison.OrdinalIgnoreCase)
