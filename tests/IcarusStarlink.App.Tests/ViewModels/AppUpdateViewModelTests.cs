@@ -130,11 +130,21 @@ public sealed class AppUpdateViewModelTests
         var release = new AppUpdateRelease("3.3.0", "", GitHubZip, AssetDigest: null, NexusFileId: 500);
         var viewModel = new AppUpdateViewModel(release, GitHubWithChecksum(), new FakeStarlinkNexus(), "key", () => null, skipOldExe: false, _ => { });
 
+        // Recorded as it changes: the failed run clears ProgressText on another thread right after.
+        var shown = new List<string?>();
+        viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(AppUpdateViewModel.ProgressText))
+            {
+                shown.Add(viewModel.ProgressText);
+            }
+        };
+
         var run = viewModel.RunAsync();
         viewModel.CancelOrCloseCommand.Execute(null);
 
-        Assert.Equal("Cancelling…", viewModel.ProgressText);
         Assert.False(await run);
+        Assert.Contains("Cancelling…", shown);
     }
 
     /// <summary>
