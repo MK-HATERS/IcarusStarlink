@@ -39,6 +39,11 @@ public sealed class GameUpdateOrchestratorTests
             return Task.FromResult(Refresh);
         }
 
+        /// <summary>The extracted game data already matches the game (not recorded in Calls).</summary>
+        public bool DataCurrent { get; set; }
+
+        public Task<bool> IsGameDataCurrentAsync() => Task.FromResult(DataCurrent);
+
         public GameUpdateStepResult Maps { get; set; } = GameUpdateStepResult.Done();
 
         public bool MapsThrow { get; set; }
@@ -124,6 +129,24 @@ public sealed class GameUpdateOrchestratorTests
         Assert.Contains("Refresh game data didn't work: UnrealPak.exe isn't at that path.", result.Message);
         Assert.Contains("Roll back", result.Message);
         Assert.Equal(GameUpdateStepState.Failed, progress[^1].State);
+    }
+
+    /// <summary>
+    /// Regression: after Settings' Refresh game data had already run on this version, Update everything
+    /// extracted again, found no changes, and that empty report became the one Weekly Changes opened on.
+    /// </summary>
+    [Fact]
+    public async Task GameDataAlreadyCurrent_SkipsTheRefresh()
+    {
+        var steps = new FakeSteps { DataCurrent = true };
+        var progress = new List<GameUpdateProgress>();
+
+        var result = await GameUpdateOrchestrator.RunAsync(steps, progress.Add);
+
+        Assert.DoesNotContain("refresh", steps.Calls);
+        Assert.True(result.Completed);
+        Assert.Contains(progress, p => p.Step == GameUpdateStep.RefreshGameData && p.State == GameUpdateStepState.Done
+            && p.Text == "Game data already matches this version of Icarus.");
     }
 
     [Fact]

@@ -49,6 +49,9 @@ public interface IGameUpdateSteps
     /// <summary>Records the game's own copies of the files mods replace, for the build on disk.</summary>
     Task RecordGameFingerprintsAsync();
 
+    /// <summary>True when the extracted game data already matches the game's data.pak (Refresh game data ran on this version), so the refresh step has nothing to do. False when it doesn't or can't be told.</summary>
+    Task<bool> IsGameDataCurrentAsync() => Task.FromResult(false);
+
     Task<GameUpdateStepResult> RefreshGameDataAsync();
 
     /// <summary>The Map page's Reload (when its Redraw during Update everything box is ticked): redraws only the maps the update changed. Never fails the run (Skipped with why).</summary>
@@ -95,7 +98,8 @@ public sealed class GameUpdateRunResult
 /// → check every mod → fix sure problems → check for mod updates → build the merge → install it
 /// (not while Icarus runs). Each step reports its progress; the first failure stops the run with
 /// what went wrong. The snapshot is made before anything else, so Roll back is there whatever
-/// happens after it.
+/// happens after it. Refresh game data is skipped when the extracted data already matches the
+/// game's data.pak: extracting again would only save an empty Weekly Changes report.
 /// </summary>
 public static class GameUpdateOrchestrator
 {
@@ -148,13 +152,23 @@ public static class GameUpdateOrchestrator
 
             current = GameUpdateStep.RefreshGameData;
             Report(GameUpdateStepState.Running);
-            var refreshed = await steps.RefreshGameDataAsync();
-            if (refreshed.State == GameUpdateStepState.Failed)
+            // Refresh game data already ran on this version (Settings' "Icarus has been updated" notice,
+            // or an earlier run): extracting again finds no changes, and that empty Weekly Changes
+            // report would be the one the page opens on.
+            if (await steps.IsGameDataCurrentAsync())
             {
-                return Stop(refreshed.Message);
+                Report(GameUpdateStepState.Done, "Game data already matches this version of Icarus.");
             }
+            else
+            {
+                var refreshed = await steps.RefreshGameDataAsync();
+                if (refreshed.State == GameUpdateStepState.Failed)
+                {
+                    return Stop(refreshed.Message);
+                }
 
-            Report(GameUpdateStepState.Done, refreshed.Message);
+                Report(GameUpdateStepState.Done, refreshed.Message);
+            }
 
             // The maps are only for looking at: a map that can't be drawn never stops the run.
             current = GameUpdateStep.Maps;

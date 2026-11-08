@@ -22,17 +22,21 @@ public interface IGameDataFreshness
 /// <summary>Compares data.pak's hash with AppSettings.LastDataPakHash, the same check Settings runs at start; the refresh is Settings' own Refresh game data.</summary>
 public sealed class GameDataFreshness(IUnrealPakService unrealPakService, ISettingsService settingsService, Func<SettingsViewModel> settingsViewModel) : IGameDataFreshness
 {
-    public async Task<bool> IsGameDataOutdatedAsync(CancellationToken cancellationToken = default)
+    /// <summary>data.pak against the hash the last Refresh game data recorded: true = the same, false = changed, null = can't tell (no game folder, no hash recorded yet, data.pak unreadable).</summary>
+    public static async Task<bool?> CompareWithLastRefreshAsync(IUnrealPakService unrealPakService, ISettingsService settingsService, CancellationToken cancellationToken = default)
     {
         if (settingsService.Current.IcarusContentPath is not { Length: > 0 } contentPath
             || settingsService.Current.LastDataPakHash is not { } lastKnownHash)
         {
-            return false;
+            return null;
         }
 
         var currentHash = await unrealPakService.TryGetDataPakHashAsync(contentPath, cancellationToken);
-        return currentHash is not null && !string.Equals(currentHash, lastKnownHash, StringComparison.OrdinalIgnoreCase);
+        return currentHash is null ? null : string.Equals(currentHash, lastKnownHash, StringComparison.OrdinalIgnoreCase);
     }
+
+    public async Task<bool> IsGameDataOutdatedAsync(CancellationToken cancellationToken = default) =>
+        await CompareWithLastRefreshAsync(unrealPakService, settingsService, cancellationToken) == false;
 
     public async Task<bool> RefreshGameDataAsync()
     {

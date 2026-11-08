@@ -49,6 +49,15 @@ public sealed class GameUpdateCoordinator(
 
         var build = await detector.ReadCurrentBuildAsync();
         var result = await viewModel.RunAsync(this);
+        // Roll back from this window goes where it goes from Check ▾ › What the last game update changed…:
+        // to the setup before this game update's first run. A retry's own snapshot already holds what the
+        // earlier run changed. Set right here, before anything else is awaited, so no Roll back click
+        // can slip in with the retry's snapshot.
+        if (result.Snapshot is { } runSnapshot)
+        {
+            viewModel.Snapshot = PreUpdateOr(runSnapshot);
+        }
+
         if (result.Snapshot is { } snapshot)
         {
             try
@@ -77,6 +86,19 @@ public sealed class GameUpdateCoordinator(
             result.Completed && !result.InstallSkippedGameRunning ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
 
         await FillReviewAsync(viewModel, result.Fixed, build);
+    }
+
+    /// <summary>The snapshot from before this game update's first run, or the fallback when there's none or the list can't be read.</summary>
+    private LastKnownGoodSnapshot PreUpdateOr(LastKnownGoodSnapshot fallback)
+    {
+        try
+        {
+            return snapshots.PreUpdate() ?? fallback;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return fallback;
+        }
     }
 
     /// <summary>Check ▾ › What the last game update changed…: the last run's fixes, and the mods as they are now.</summary>
@@ -177,6 +199,18 @@ public sealed class GameUpdateCoordinator(
     }
 
     public Task RecordGameFingerprintsAsync() => library().RateFileRisksNowAsync();
+
+    /// <summary>Waits for a Refresh game data already running first: otherwise it would be followed by a second extraction.</summary>
+    public async Task<bool> IsGameDataCurrentAsync()
+    {
+        var settings = settingsViewModel();
+        while (settings.IsUpdatingDataFolder)
+        {
+            await Task.Delay(200);
+        }
+
+        return await detector.IsGameDataCurrentAsync();
+    }
 
     public async Task<GameUpdateStepResult> RefreshGameDataAsync()
     {
@@ -293,40 +327,41 @@ public sealed class GameUpdateCoordinator(
         }
     }
 
-    public async Task<string> KeepOffAsync(string folderName)
+    /// <summary>Done only when nothing is left for the row's button to do: the merge without the mod is installed, or there's no merge to build.</summary>
+    public async Task<KeepOffResult> KeepOffAsync(string folderName)
     {
         var page = library();
         var merge = mergeInstall();
         if (page.FindItem(folderName) is not { } item)
         {
-            return "That mod isn't in your Library any more.";
+            return new(false, "That mod isn't in your Library any more.");
         }
 
         // The row's own tick: the same as unticking it in the Library (its Lua half follows).
         item.IsEnabled = false;
         if (merge.IsQueued(folderName))
         {
-            return merge.StatusMessage ?? $"Couldn't turn '{item.Name}' off right now.";
+            return new(false, merge.StatusMessage ?? $"Couldn't turn '{item.Name}' off right now.");
         }
 
         if (!merge.HasAnythingToBuild)
         {
-            return $"Turned '{item.Name}' off. Nothing else is ticked, so there's no merge to build: Remove from game on Merge & Install takes the old one out.";
+            return new(true, $"Turned '{item.Name}' off. Nothing else is ticked, so there's no merge to build: Remove from game on Merge & Install takes the old one out.");
         }
 
         if (IsGameRunning())
         {
-            return $"Turned '{item.Name}' off. Icarus is running, so the merge wasn't built again: close the game, then Merge & Install.";
+            return new(false, $"Turned '{item.Name}' off. Icarus is running, so the merge wasn't built again: close the game, then click Keep off until updated again.");
         }
 
         if (!await merge.RebuildAsync())
         {
-            return $"Turned '{item.Name}' off, but the merge couldn't be built: {merge.StatusMessage}";
+            return new(false, $"Turned '{item.Name}' off, but the merge couldn't be built: {merge.StatusMessage}");
         }
 
         return await merge.InstallAsync() == MergeInstallViewModel.InstallOutcome.Installed
-            ? $"Turned '{item.Name}' off and installed the merge without it. Tick it again once its author updates it."
-            : $"Turned '{item.Name}' off and built the merge without it, but it isn't installed: {merge.InstallStatusMessage}";
+            ? new(true, $"Turned '{item.Name}' off and installed the merge without it. Tick it again once its author updates it.")
+            : new(false, $"Turned '{item.Name}' off and built the merge without it, but it isn't installed: {merge.InstallStatusMessage}");
     }
 
     public async Task<string?> RollBackAsync(LastKnownGoodSnapshot snapshot)

@@ -12,6 +12,9 @@ namespace IcarusStarlink.App.ViewModels;
 public sealed record GameUpdateModInfo(
     string FolderName, string Name, bool IsUe4ss, int ReviewCount, bool HasUpdate, string? Version, string? LatestVersion, ModFileRisk? Risk, bool IsTicked);
 
+/// <summary>What Keep off did: Done when nothing is left for the button to do, and a line about it.</summary>
+public sealed record KeepOffResult(bool Done, string Message);
+
 /// <summary>What the review's buttons do; the app's version reaches the Library and Merge &amp; Install, tests pass a fake.</summary>
 public interface IGameUpdateReviewActions
 {
@@ -21,8 +24,8 @@ public interface IGameUpdateReviewActions
     /// <summary>The mod's Update (the Library's own: Database mods in place, Nexus mods through their page).</summary>
     Task GetUpdateAsync(string folderName, bool isUe4ss);
 
-    /// <summary>Unticks the mod and builds and installs the merge without it. Returns what happened, in a line.</summary>
-    Task<string> KeepOffAsync(string folderName);
+    /// <summary>Unticks the mod and builds and installs the merge without it. Returns whether that is done, and what happened in a line.</summary>
+    Task<KeepOffResult> KeepOffAsync(string folderName);
 
     /// <summary>Puts the snapshot back. Returns what happened, or null when the user said No.</summary>
     Task<string?> RollBackAsync(LastKnownGoodSnapshot snapshot);
@@ -121,9 +124,15 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
     private bool _showSteps;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanRollBack), nameof(IsNotRunning))]
-    [NotifyCanExecuteChangedFor(nameof(RollBackCommand))]
+    [NotifyPropertyChangedFor(nameof(CanRollBack), nameof(IsNotRunning), nameof(IsAllClear))]
+    [NotifyCanExecuteChangedFor(nameof(RollBackCommand), nameof(ActCommand))]
     private bool _isRunning;
+
+    /// <summary>The groups have been filled in (Load ran) at least once.</summary>
+    private bool _loaded;
+
+    /// <summary>The run on screen stopped before its last step: the groups weren't checked against all of it.</summary>
+    private bool _runIncomplete;
 
     public bool IsNotRunning => !IsRunning;
 
@@ -179,6 +188,7 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
         try
         {
             var result = await GameUpdateOrchestrator.RunAsync(steps, OnProgress);
+            _runIncomplete = !result.Completed;
             Snapshot = result.Snapshot;
             Summary = result.Message;
             return result;
@@ -192,6 +202,7 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
     /// <summary>Fills the three groups from what the run fixed and the mods as they are now.</summary>
     public void Load(IReadOnlyList<GameUpdateFixedMod> fixedMods, IReadOnlyList<GameUpdateModInfo> mods)
     {
+        _loaded = true;
         FixedForYou.Clear();
         NeedsALook.Clear();
         HighRisk.Clear();
@@ -270,10 +281,20 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
         OnPropertyChanged(nameof(IsAllClear));
     }
 
-    /// <summary>Nothing fixed, nothing to look at, nothing at risk.</summary>
-    public bool IsAllClear => !HasFixedForYou && !HasNeedsALook && !HasHighRisk;
+    /// <summary>
+    /// Nothing fixed, nothing to look at, nothing at risk, once the groups are filled in and any run
+    /// on screen finished. False before then, so the window never claims all clear while the steps
+    /// run, when the check couldn't be done, or after a run that stopped early.
+    /// </summary>
+    public bool IsAllClear => _loaded && !IsRunning && !_runIncomplete && !HasFixedForYou && !HasNeedsALook && !HasHighRisk;
 
-    [RelayCommand(FlowExceptionsToTaskScheduler = true)]
+    /// <summary>
+    /// Off while Roll back runs: a click used to do nothing at all. The row's own CanAct is also
+    /// bound to the button, since its changes don't re-query this.
+    /// </summary>
+    private bool CanActOn(GameUpdateReviewRow? row) => row is { CanAct: true } && !IsRunning;
+
+    [RelayCommand(CanExecute = nameof(CanActOn), FlowExceptionsToTaskScheduler = true)]
     private async Task ActAsync(GameUpdateReviewRow? row)
     {
         if (row is null || !row.CanAct || IsRunning)
@@ -302,7 +323,11 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
         }
     }
 
-    /// <summary>Unticks the mod and rebuilds without it; the row says it's off.</summary>
+    /// <summary>
+    /// Unticks the mod and rebuilds without it. The row says "Kept off" only when that finished;
+    /// otherwise (Icarus running, a failed build, not installed) it says what happened and the
+    /// button stays, to try again. It used to be marked done whatever happened.
+    /// </summary>
     private async Task KeepOffAsync(GameUpdateReviewRow row)
     {
         IsRunning = true;
@@ -310,10 +335,14 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
         {
             StatusMessage = $"Turning '{row.Name}' off and building the merge without it…";
             var result = await actions.KeepOffAsync(row.FolderName);
-            row.IsActionDone = true;
-            row.ActionLabel = "Kept off";
-            row.Result = result;
-            StatusMessage = result;
+            if (result.Done)
+            {
+                row.IsActionDone = true;
+                row.ActionLabel = "Kept off";
+            }
+
+            row.Result = result.Message;
+            StatusMessage = result.Message;
         }
         finally
         {

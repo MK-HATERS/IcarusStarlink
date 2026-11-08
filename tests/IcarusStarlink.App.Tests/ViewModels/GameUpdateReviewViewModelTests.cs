@@ -25,10 +25,13 @@ public sealed class GameUpdateReviewViewModelTests
             return Task.CompletedTask;
         }
 
-        public Task<string> KeepOffAsync(string folderName)
+        /// <summary>What Keep off answers; null: done, with the merge installed.</summary>
+        public KeepOffResult? KeepOffAnswer { get; set; }
+
+        public Task<KeepOffResult> KeepOffAsync(string folderName)
         {
             Calls.Add($"keep off {folderName}");
-            return Task.FromResult($"Turned '{folderName}' off and installed the merge without it.");
+            return Task.FromResult(KeepOffAnswer ?? new KeepOffResult(true, $"Turned '{folderName}' off and installed the merge without it."));
         }
 
         public Task<string?> RollBackAsync(LastKnownGoodSnapshot snapshot)
@@ -95,6 +98,45 @@ public sealed class GameUpdateReviewViewModelTests
         Assert.Empty(review.HighRisk);
     }
 
+    /// <summary>Regression: the window said "Nothing needed fixing…" under the steps for the whole run, before anything was checked.</summary>
+    [Fact]
+    public void ANewReview_IsNotAllClear_UntilItIsLoaded()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+
+        Assert.False(review.IsAllClear);
+
+        review.Load([], []);
+
+        Assert.True(review.IsAllClear);
+    }
+
+    /// <summary>Regression: after a run that stopped at Refresh game data, the groups from the earlier check still claimed all clear.</summary>
+    [Fact]
+    public async Task AfterARunThatStoppedEarly_IsNotAllClear()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+
+        await review.RunAsync(new FailingRefreshSteps());
+        review.Load([], []);
+
+        Assert.False(review.IsAllClear);
+    }
+
+    /// <summary>Regression: while Roll back ran, every row button stayed on and a click silently did nothing.</summary>
+    [Fact]
+    public void RowButtons_AreOff_WhileRollBackRuns()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+        review.Load([], [Mod("Pickup and Move", risk: Risk("the game changed Drink in this update", null))]);
+        var row = review.HighRisk[0];
+        Assert.True(review.ActCommand.CanExecute(row));
+
+        review.IsRunning = true;
+
+        Assert.False(review.ActCommand.CanExecute(row));
+    }
+
     [Fact]
     public async Task KeepOffUntilUpdated_TurnsTheModOff_AndTheRowSaysSo()
     {
@@ -115,6 +157,25 @@ public sealed class GameUpdateReviewViewModelTests
         // Done once: a second click does nothing.
         await review.ActCommand.ExecuteAsync(row);
         Assert.Single(actions.Calls);
+    }
+
+    /// <summary>Regression: a Keep off that didn't finish (Icarus running, a failed build) was marked "Kept off" and the row's button went, so it couldn't be tried again.</summary>
+    [Fact]
+    public async Task KeepOff_ThatDidntFinish_LeavesTheRowToTryAgain()
+    {
+        const string message = "Turned 'Pickup and Move' off. Icarus is running, so the merge wasn't built again: close the game, then click Keep off until updated again.";
+        var actions = new FakeActions { KeepOffAnswer = new KeepOffResult(false, message) };
+        var review = new GameUpdateReviewViewModel(actions);
+        review.Load([], [Mod("Pickup and Move", risk: Risk("the game changed Drink in this update", null))]);
+        var row = review.HighRisk[0];
+
+        await review.ActCommand.ExecuteAsync(row);
+
+        Assert.False(row.IsActionDone);
+        Assert.True(row.CanAct);
+        Assert.Equal("Keep off until updated", row.ActionLabel);
+        Assert.Equal(message, row.Result);
+        Assert.Equal(message, review.StatusMessage);
     }
 
     [Fact]

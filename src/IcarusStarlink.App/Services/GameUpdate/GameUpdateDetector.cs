@@ -18,8 +18,10 @@ public sealed record GameUpdateState(string CurrentBuild, string? PreviousBuild)
 /// <summary>
 /// "Has Icarus updated?" from Steam's own record of the installed build: the "buildid" in
 /// steamapps\appmanifest_1149460.acf of the library the game is in (found from the Icarus Content
-/// folder). When that file can't be found (a copied game folder, a non-Steam install), data.pak's
-/// hash stands in. The build the mod setup was last made ready for is AppSettings.LastSeenGameBuildId.
+/// folder). When there is no such file (a copied game folder, a non-Steam install), data.pak's
+/// hash stands in. When the file is there but can't be read or has no buildid, the build is
+/// unknown for that check, never the hash. The build the mod setup was last made ready for is
+/// AppSettings.LastSeenGameBuildId.
 /// </summary>
 public sealed class GameUpdateDetector(ISettingsService settingsService, IUnrealPakService unrealPakService)
 {
@@ -61,7 +63,11 @@ public sealed class GameUpdateDetector(ISettingsService settingsService, IUnreal
     public static string? ReadBuildId(string acfText) =>
         SteamCmd.ReadAppManifest(acfText).BuildId is { } id ? id.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
 
-    /// <summary>The build on disk now: Steam's build id, else data.pak's hash; null when neither can be read (no game folder set).</summary>
+    /// <summary>
+    /// The build on disk now: Steam's build id, else (no manifest at all) data.pak's hash. Null when
+    /// it can't be told: no game folder set, or Steam's manifest is there but can't be read or has
+    /// no buildid.
+    /// </summary>
     public async Task<string?> ReadCurrentBuildAsync(CancellationToken cancellationToken = default)
     {
         if (settingsService.Current.IcarusContentPath is not { Length: > 0 } contentPath)
@@ -69,20 +75,30 @@ public sealed class GameUpdateDetector(ISettingsService settingsService, IUnreal
             return null;
         }
 
-        var fromSteam = await Task.Run(() =>
+        var (found, text) = await Task.Run(() =>
         {
+            if (FindAppManifest(contentPath) is not { } manifest)
+            {
+                return (false, (string?)null);
+            }
+
             try
             {
-                return FindAppManifest(contentPath) is { } manifest ? ReadBuildId(File.ReadAllText(manifest)) : null;
+                return (true, File.ReadAllText(manifest));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return null;
+                return (true, (string?)null);
             }
         }, cancellationToken);
-        if (fromSteam is not null)
+
+        // Steam's record decides whenever there is one. Found but unreadable or without a buildid
+        // (Steam rewriting it, an antivirus lock, a file cut short): can't tell. data.pak's hash
+        // must not stand in: the next check would see a Steam/hash switch and record the new build
+        // without saying Icarus updated.
+        if (found)
         {
-            return fromSteam;
+            return text is null ? null : ReadBuildId(text);
         }
 
         var hash = await unrealPakService.TryGetDataPakHashAsync(contentPath, cancellationToken);
@@ -112,6 +128,10 @@ public sealed class GameUpdateDetector(ISettingsService settingsService, IUnreal
             ? new GameUpdateState(current, null)
             : new GameUpdateState(current, last);
     }
+
+    /// <summary>True only when data.pak's hash is read and equals the one the last Refresh game data recorded: the extracted game data is this version's. False when it differs or can't be told.</summary>
+    public async Task<bool> IsGameDataCurrentAsync(CancellationToken cancellationToken = default) =>
+        await GameDataFreshness.CompareWithLastRefreshAsync(unrealPakService, settingsService, cancellationToken) == true;
 
     /// <summary>The mod setup is ready for this build (Update everything finished, or the bar was dismissed).</summary>
     public void MarkReady(string build)

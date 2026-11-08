@@ -129,6 +129,54 @@ public sealed class GameUpdateDetectorTests : IDisposable
         Assert.False((await detector.CheckAsync())!.IsUpdated);
     }
 
+    /// <summary>
+    /// Regression: a manifest that was there but locked (Steam rewriting it, an antivirus) or empty
+    /// was replaced by data.pak's hash. The recorded Steam build was overwritten, and the next check
+    /// recorded the new build without calling it an update, so an Icarus update was never offered.
+    /// </summary>
+    [Fact]
+    public async Task AManifestThatCantBeRead_IsUnknown_AndAnUpdateIsStillSeen()
+    {
+        var content = SteamLibrary(RealManifest);
+        var settings = new FakeSettings();
+        settings.Current.IcarusContentPath = content;
+        settings.Current.LastSeenGameBuildId = "25956278";
+        var detector = new GameUpdateDetector(settings, new FakeUnrealPak("ABCDEF0123456789ABCDEF"));
+        var manifest = GameUpdateDetector.FindAppManifest(content)!;
+
+        using (new FileStream(manifest, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.Null(await detector.ReadCurrentBuildAsync());
+            Assert.Null(await detector.CheckAsync());
+        }
+
+        File.WriteAllText(manifest, "");
+        Assert.Null(await detector.CheckAsync());
+
+        Assert.Equal("25956278", settings.Current.LastSeenGameBuildId);
+        Assert.Equal(0, settings.Saves);
+
+        File.WriteAllText(manifest, RealManifest.Replace("25956278", "26010101"));
+        Assert.True((await detector.CheckAsync())!.IsUpdated);
+    }
+
+    /// <summary>Update everything skips Refresh game data only on a sure match: never when the hash can't be read or none was recorded.</summary>
+    [Fact]
+    public async Task IsGameDataCurrent_OnlyWhenDataPaksHashMatchesTheLastRefresh()
+    {
+        var settings = new FakeSettings();
+        settings.Current.IcarusContentPath = Path.Combine(_root, "Game", "Content");
+        Directory.CreateDirectory(settings.Current.IcarusContentPath);
+        settings.Current.LastDataPakHash = "ABCDEF";
+
+        Assert.True(await new GameUpdateDetector(settings, new FakeUnrealPak("abcdef")).IsGameDataCurrentAsync());
+        Assert.False(await new GameUpdateDetector(settings, new FakeUnrealPak("012345")).IsGameDataCurrentAsync());
+        Assert.False(await new GameUpdateDetector(settings, new FakeUnrealPak(null)).IsGameDataCurrentAsync());
+
+        settings.Current.LastDataPakHash = null;
+        Assert.False(await new GameUpdateDetector(settings, new FakeUnrealPak("abcdef")).IsGameDataCurrentAsync());
+    }
+
     [Fact]
     public async Task WithoutAManifest_DataPaksHashStandsIn()
     {
