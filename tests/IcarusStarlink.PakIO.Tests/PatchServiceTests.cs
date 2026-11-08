@@ -418,15 +418,13 @@ public class PatchServiceTests : IDisposable
     /// <summary>
     /// A Lua config that is data as a whole could still carry code into the
     /// mod's own file, because the import writes the patch's values into that file line by line,
-    /// and a value going into a table setting is written as Lua. A string holding Lua, and lines
-    /// hidden in a long comment the line reader takes as settings, are refused.
+    /// and a value going into a table setting is written as Lua. A string holding Lua is refused:
+    /// the import would write the call into the mod's own config.lua.
     /// </summary>
-    [Theory]
-    [InlineData("return {\n    Keys = \"{ os.execute('calc') }\",\n}\n")]
-    [InlineData("return {\n--[==[\n    Keys = { os.execute('calc') },\n--]==]\n}\n")]
-    [InlineData("return {\n    Speed = 1, --[[\n    Keys = { os.execute('calc') },\n--]]\n}\n")]
-    public void IsSafe_DataLuaWhoseValuesWouldWriteCodeIntoTheMod_IsRefused(string text)
+    [Fact]
+    public void IsSafe_DataLuaWhoseValuesWouldWriteCodeIntoTheMod_IsRefused()
     {
+        const string text = "return {\n    Keys = \"{ os.execute('calc') }\",\n}\n";
         var modFolder = Path.Combine(_dir, "TrustedMod");
         Directory.CreateDirectory(modFolder);
         File.WriteAllText(Path.Combine(modFolder, "config.lua"), "return {\n    Speed = 1,\n    Keys = { \"F1\" },\n}\n");
@@ -436,6 +434,28 @@ public class PatchServiceTests : IDisposable
         // What it would have done: the call lands in the mod's own config.lua.
         IcarusStarlink.Core.Ue4ss.Ue4ssModConfigCarryOver.ApplyValues(modFolder, "config.lua", text, Path.Combine(_dir, "backups"));
         Assert.Contains("os.execute", File.ReadAllText(Path.Combine(modFolder, "config.lua")));
+    }
+
+    /// <summary>
+    /// Lines hidden in a long comment (--[==[ ... ]==], or one opened after a value) are not
+    /// settings: the line reader skips them (Ue4ssModConfigCarryOverTests pins that), so whether
+    /// the patch is kept or refused, nothing from the comment reaches the mod's config.lua.
+    /// </summary>
+    [Theory]
+    [InlineData("return {\n--[==[\n    Keys = { os.execute('calc') },\n--]==]\n}\n")]
+    [InlineData("return {\n    Speed = 1, --[[\n    Keys = { os.execute('calc') },\n--]]\n}\n")]
+    public void DataLuaWithCodeInALongComment_NeverReachesTheMod(string text)
+    {
+        var modFolder = Path.Combine(_dir, "TrustedMod");
+        Directory.CreateDirectory(modFolder);
+        File.WriteAllText(Path.Combine(modFolder, "config.lua"), "return {\n    Speed = 1,\n    Keys = { \"F1\" },\n}\n");
+
+        if (PatchConfigSafety.IsSafe(new PatchConfigFile { Path = "config.lua", Text = text }))
+        {
+            IcarusStarlink.Core.Ue4ss.Ue4ssModConfigCarryOver.ApplyValues(modFolder, "config.lua", text, Path.Combine(_dir, "backups"));
+        }
+
+        Assert.DoesNotContain("os.execute", File.ReadAllText(Path.Combine(modFolder, "config.lua")));
     }
 
     [Fact]
