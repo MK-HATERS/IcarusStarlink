@@ -140,16 +140,16 @@ public sealed partial class HelpViewModel : ObservableObject
 
             - **Saves your setup as it is now**, so you can roll back: what's ticked and in what order, merge options and conflict picks, the merged pak in the game, and which UE4SS mods are on. The newest 3 of these are kept (in Backups\LastKnownGood).
             - **Notes the game files mods replace**, so Starlink can tell what the update changed in them.
-            - **Refreshes game data**, the same as the button in Settings.
+            - **Refreshes game data**, the same as the button in Settings. When Refresh game data has already run for this version of Icarus, this step is skipped ("Game data already matches this version of Icarus.").
             - **Checks every mod** against the new game and **makes only the proven fixes** (old copies of game data, links to rows the game no longer has). Each mod is backed up first.
             - **Checks for newer versions** of your mods on Nexus and the IMM Database.
-            - **Builds the merge and installs it.** Not while Icarus is running: then it builds it and tells you to close the game and click **Copy to game** on Merge & Install.
+            - **Builds the merge and installs it.** If Icarus is running, the new merge is built but not installed, and the Library's "Icarus updated" bar stays until it is in the game: close Icarus, then click **Update everything** again.
 
             If a step doesn't work, it stops there and says why. The steps before it stay done.
 
             At the end, **"Icarus updated — here's what changed"** shows folding sections with a count on each: **High risk** and **Needs a look** open, **Fixed for you** folded.
 
-            - **High risk**: mods that replace a game file the update changed. When the mod still has the game's code from before the update, the pill says **out of date** and the reason is named ("the game changed GetCurrentProspectLocation in this update; this mod still has its own older copy"). Starlink only says this with proof: it needs to have seen the game's files from before the update, so the first update after you start using Starlink can't show it yet. **Keep off until updated** unticks the mod and installs the merge without it. Tick it again once its author updates it.
+            - **High risk**: mods that replace a game file the update changed. When the mod still has the game's code from before the update, the pill says **out of date** and the reason is named ("the game changed GetCurrentProspectLocation in this update; this mod still has its own older copy"). Starlink only says this with proof: it needs to have seen the game's files from before the update, so the first update after you start using Starlink can't show it yet. **Keep off until updated** unticks the mod and installs the merge without it; it says "Kept off" only once that merge is installed (or nothing else is ticked). If Icarus was running or the build failed, the button stays so you can try again. Tick the mod again once its author updates it.
             - **Needs a look**: things Starlink wasn't sure enough to change by itself, and mods with a newer version out (**Update**).
             - **Fixed for you**: each mod Starlink fixed, and how many proven fixes. **Open fix window** shows them.
 
@@ -163,7 +163,7 @@ public sealed partial class HelpViewModel : ObservableObject
 
             What actually changed in the game's own data the last time it updated — a real, row-by-row diff, not a changelog someone wrote by hand.
 
-            Every time you click **Refresh game data** (Settings), this app keeps a record of what it just extracted. Run it once before a game update and again after, and this page compares the two: which files changed, which items/fields were added, removed, or edited, old value beside new. Genuinely useful for figuring out why a mod that used to work suddenly doesn't (see "if a game update breaks your mod" under "Making your own mods").
+            Every time you click **Refresh game data** (Settings), this app keeps a record of what it just extracted. Run it once before a game update and again after, and this page compares the two: which files changed, which items/fields were added, removed, or edited, old value beside new. A game update that changes only a table's Defaults (the values every row starts from) or its RowStruct is listed too, with one "(every row)" line for that table. Genuinely useful for figuring out why a mod that used to work suddenly doesn't (see "if a game update breaks your mod" under "Making your own mods").
 
             Pick a file on the left to see its changes on the right. **History** picks an earlier refresh (about a month is kept). **Refresh game data** reads the game again and compares. If you see "No changes tracked yet," you only have one extraction on record; run **Refresh game data** again after the next game update to get a real comparison.
             """),
