@@ -27,7 +27,10 @@ namespace IcarusStarlink.App.Tests.ViewModels;
 /// The Nexus page: IsPremium/IsKnownNonPremium (whether Download is shown as available, since it
 /// can never succeed for a non-Premium account), search by mod ID or link, the New tags, and the
 /// Tracked and Updates only views (every tracked mod, every Library mod with an update).
+/// The page sends on its own messenger, but the DownloadsViewModel it is built with listens on the
+/// app-wide one, so this class shares the messenger collection.
 /// </summary>
+[Collection(MessengerCollection.Name)]
 public class NexusCatalogViewModelTests
 {
     private sealed class Harness

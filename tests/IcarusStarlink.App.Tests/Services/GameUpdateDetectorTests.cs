@@ -23,7 +23,7 @@ public sealed class GameUpdateDetectorTests : IDisposable
         	"SizeOnDisk"		"54242039144"
         	"StagingSize"		"0"
         	"buildid"		"25956278"
-        	"LastOwner"		"76561198851388131"
+        	"LastOwner"		"76561198000000001"
         	"DownloadType"		"1"
         	"UpdateResult"		"0"
         	"TargetBuildID"		"25956278"
