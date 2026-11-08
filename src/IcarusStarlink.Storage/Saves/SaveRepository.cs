@@ -5,6 +5,7 @@ using IcarusStarlink.Core.Saves;
 using IcarusStarlink.Core.Settings;
 using IcarusStarlink.Core.Steam;
 using IcarusStarlink.PakIO.Install;
+using IcarusStarlink.PakIO.Safety;
 
 namespace IcarusStarlink.Storage.Saves;
 
@@ -438,7 +439,7 @@ public sealed class SaveRepository(string playerDataDirectory, string backupsDir
 
             using var source = entry.Open();
             using var bytes = new MemoryStream((int)entry.Length);
-            source.CopyTo(bytes);
+            BoundedZipEntryCopy.CopyBounded(source, bytes, entry.Length, fileName);
             JsonFileStore.WriteBytesAtomically(path, bytes.ToArray());
         }
     }
