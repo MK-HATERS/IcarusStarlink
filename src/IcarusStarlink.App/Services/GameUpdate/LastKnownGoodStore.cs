@@ -67,6 +67,9 @@ public sealed class LastKnownGoodStore(string rootDirectory, IcarusStarlink.Core
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    /// <summary>A folder with no snapshot.json is a snapshot that didn't finish; one this old isn't being written: only Update everything makes these, one at a time.</summary>
+    private static readonly TimeSpan UnfinishedAge = TimeSpan.FromMinutes(10);
+
     /// <summary>Saves a snapshot now, then keeps only the newest Kept.</summary>
     /// <param name="icarusContentPath">The game's Content folder: its Paks\mods merged pak and mod list are copied. Null: none saved.</param>
     public LastKnownGoodSnapshot Create(Profile? profile, string? icarusContentPath, IReadOnlyList<string> enabledUe4ssMods, string? gameBuildId, DateTimeOffset nowUtc)
@@ -80,30 +83,42 @@ public sealed class LastKnownGoodStore(string rootDirectory, IcarusStarlink.Core
         }
 
         Directory.CreateDirectory(folder);
-        var snapshot = new LastKnownGoodSnapshot
+        LastKnownGoodSnapshot snapshot;
+        try
         {
-            FolderPath = folder,
-            CreatedAtUtc = nowUtc,
-            GameBuildId = gameBuildId,
-            ProfileName = profile?.Name,
-            Profile = profile,
-            EnabledUe4ssMods = [.. enabledUe4ssMods],
-        };
-
-        if (icarusContentPath is { Length: > 0 })
-        {
-            var modsDirectory = GameModsDirectory(icarusContentPath);
-            var saved = Path.Combine(folder, ModsFolder);
-            foreach (var name in MergedFileNames().Where(n => File.Exists(Path.Combine(modsDirectory, n))))
+            snapshot = new LastKnownGoodSnapshot
             {
-                Directory.CreateDirectory(saved);
-                File.Copy(Path.Combine(modsDirectory, name), Path.Combine(saved, name));
-                snapshot.MergedFiles.Add(name);
+                FolderPath = folder,
+                CreatedAtUtc = nowUtc,
+                GameBuildId = gameBuildId,
+                ProfileName = profile?.Name,
+                Profile = profile,
+                EnabledUe4ssMods = [.. enabledUe4ssMods],
+            };
+
+            if (icarusContentPath is { Length: > 0 })
+            {
+                var modsDirectory = GameModsDirectory(icarusContentPath);
+                var saved = Path.Combine(folder, ModsFolder);
+                foreach (var name in MergedFileNames().Where(n => File.Exists(Path.Combine(modsDirectory, n))))
+                {
+                    Directory.CreateDirectory(saved);
+                    File.Copy(Path.Combine(modsDirectory, name), Path.Combine(saved, name));
+                    snapshot.MergedFiles.Add(name);
+                }
             }
+
+            // The description last: a folder without one is a snapshot that didn't finish, never listed.
+            AtomicFile.WriteAllText(Path.Combine(folder, SnapshotFile), JsonSerializer.Serialize(snapshot, JsonOptions));
+        }
+        catch (Exception)
+        {
+            // Regression: a copy that failed (disk full, a lock) left the folder and its partial pak
+            // behind for good, one more on every retry. One that can't be deleted now goes in a later Prune.
+            Directories.TryDelete(folder);
+            throw;
         }
 
-        // The description last: a folder without one is a snapshot that didn't finish, never listed.
-        AtomicFile.WriteAllText(Path.Combine(folder, SnapshotFile), JsonSerializer.Serialize(snapshot, JsonOptions));
         Prune();
         return snapshot;
     }
@@ -139,16 +154,18 @@ public sealed class LastKnownGoodStore(string rootDirectory, IcarusStarlink.Core
     public LastKnownGoodSnapshot? Latest() => List().FirstOrDefault();
 
     /// <summary>
-    /// The first snapshot taken on the newest game build: the setup as it was before any Update
-    /// everything run for that game update changed it. A retry after a failed or partial run takes
-    /// a snapshot of the already-changed setup, so the newest isn't always the one to go back to.
+    /// The first snapshot of the newest unbroken run of snapshots on the newest game build: the
+    /// setup as it was before any Update everything run for that game update changed it. A retry
+    /// after a failed or partial run takes a snapshot of the already-changed setup, so the newest
+    /// isn't always the one to go back to. The run stops at a snapshot of another build (or none):
+    /// after builds B, C and back to B, the B from before C is a different game update.
     /// </summary>
     public LastKnownGoodSnapshot? PreUpdate() => PreUpdate(List());
 
     private static LastKnownGoodSnapshot? PreUpdate(IReadOnlyList<LastKnownGoodSnapshot> newestFirst) =>
-        newestFirst.FirstOrDefault() is not { GameBuildId: { } build } newest
+        newestFirst.FirstOrDefault() is not { GameBuildId: { } build }
             ? newestFirst.FirstOrDefault()
-            : newestFirst.Last(s => s == newest || string.Equals(s.GameBuildId, build, StringComparison.Ordinal));
+            : newestFirst.TakeWhile(s => string.Equals(s.GameBuildId, build, StringComparison.Ordinal)).Last();
 
     /// <summary>Keeps what the run did beside its snapshot.</summary>
     public void SaveRunRecord(LastKnownGoodSnapshot snapshot, GameUpdateRunRecord record) =>
@@ -220,16 +237,40 @@ public sealed class LastKnownGoodStore(string rootDirectory, IcarusStarlink.Core
     private static IEnumerable<string> MergedFileNames() =>
         InstallManifestNames.AllMergedPakFileNames.Append(InstallManifestNames.PakManifest);
 
-    /// <summary>The newest Kept, and the pre-update snapshot (PreUpdate) however many retries came after it.</summary>
+    /// <summary>
+    /// The newest Kept, and the pre-update snapshot (PreUpdate) however many retries came after it.
+    /// Unfinished folders (no snapshot.json at all) older than UnfinishedAge go too; one whose
+    /// snapshot.json is there but can't be read is left alone.
+    /// </summary>
     private void Prune()
     {
         var all = List();
         var preUpdate = PreUpdate(all);
         foreach (var stale in all.Skip(Kept).Where(s => s != preUpdate))
         {
+            // Tried again after the next snapshot when it can't be deleted now.
+            Directories.TryDelete(stale.FolderPath);
+        }
+
+        string[] folders;
+        try
+        {
+            folders = Directory.GetDirectories(rootDirectory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        var cutoff = DateTime.UtcNow - UnfinishedAge;
+        foreach (var folder in folders)
+        {
             try
             {
-                Directory.Delete(stale.FolderPath, recursive: true);
+                if (!File.Exists(Path.Combine(folder, SnapshotFile)) && Directory.GetCreationTimeUtc(folder) < cutoff)
+                {
+                    Directories.TryDelete(folder);
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

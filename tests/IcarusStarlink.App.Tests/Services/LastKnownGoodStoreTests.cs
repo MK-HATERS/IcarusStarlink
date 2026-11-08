@@ -93,6 +93,64 @@ public sealed class LastKnownGoodStoreTests : IDisposable
         Assert.Equal(["Try0"], Store.PreUpdate()!.Profile!.MergeQueueFolderNames);
     }
 
+    /// <summary>Regression: after builds B, C and back to B, Roll back went to the first B snapshot from weeks earlier.</summary>
+    [Fact]
+    public void ABuildSeenAgainAfterAnother_StartsANewPreUpdate()
+    {
+        var start = new DateTimeOffset(2026, 10, 1, 8, 0, 0, TimeSpan.Zero);
+        Store.Create(Profile("B first"), null, [], "B", start);
+        Store.Create(Profile("C"), null, [], "C", start.AddDays(1));
+        Store.Create(Profile("B again"), null, [], "B", start.AddDays(2));
+
+        Assert.Equal(["B again"], Store.PreUpdate()!.Profile!.MergeQueueFolderNames);
+    }
+
+    /// <summary>Regression: an old snapshot of a build seen again later was kept for good as "the pre-update one".</summary>
+    [Fact]
+    public void AnOldSnapshotOfTheSameBuild_IsNotKeptForever()
+    {
+        var start = new DateTimeOffset(2026, 10, 1, 8, 0, 0, TimeSpan.Zero);
+        Store.Create(Profile("B1"), null, [], "B", start);
+        Store.Create(Profile("C1"), null, [], "C", start.AddDays(1));
+        Store.Create(Profile("C2"), null, [], "C", start.AddDays(2));
+        Store.Create(Profile("B2"), null, [], "B", start.AddDays(3));
+
+        var kept = Store.List();
+        Assert.Equal(3, kept.Count);
+        Assert.DoesNotContain(kept, s => s.Profile!.MergeQueueFolderNames[0] == "B1");
+    }
+
+    /// <summary>Regression: a pak copy that failed half-way left its snapshot folder (and the partial copy) behind for good.</summary>
+    [Fact]
+    public void Create_CopyFails_LeavesNoFolderBehind()
+    {
+        Install("pak", "list");
+
+        using (new FileStream(Path.Combine(ModsFolder, InstallManifestNames.MergedPakFileName), FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.ThrowsAny<IOException>(() => Store.Create(Profile("A"), Content, [], "1", DateTimeOffset.UtcNow));
+        }
+
+        Assert.Empty(Directory.GetDirectories(Path.Combine(Backups, "LastKnownGood")));
+    }
+
+    /// <summary>Regression: a snapshot folder that never got its snapshot.json was never listed, so never pruned.</summary>
+    [Fact]
+    public void Create_RemovesAnOldUnfinishedFolder_ButNotAFreshOne()
+    {
+        var old = Path.Combine(Backups, "LastKnownGood", "20260101-080000");
+        Directory.CreateDirectory(Path.Combine(old, "mods"));
+        File.WriteAllText(Path.Combine(old, "mods", InstallManifestNames.MergedPakFileName), "half a pak");
+        Directory.SetCreationTimeUtc(old, DateTime.UtcNow.AddHours(-1));
+        var fresh = Path.Combine(Backups, "LastKnownGood", "20260101-090000");
+        Directory.CreateDirectory(fresh);
+
+        Store.Create(Profile("A"), null, [], "1", DateTimeOffset.UtcNow);
+
+        Assert.False(Directory.Exists(old));
+        Assert.True(Directory.Exists(fresh));
+    }
+
     /// <summary>A snapshot copy that can't be read leaves the game's merged pak in place: the copies go in before anything is removed.</summary>
     [Fact]
     public void RestoreMergedPak_CopyFails_TheCurrentMergeStays()
