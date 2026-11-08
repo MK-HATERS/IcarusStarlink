@@ -357,6 +357,15 @@ public sealed class BrokenModFinderTests : IDisposable
         Assert.Equal([new BrokenModTarget("Items-D_ItemsStatic.json", "Canteen")], targets);
     }
 
+    /// <summary>Regression: typed in-game names ("steel canteen") matched the row list but found no target, so no suspects.</summary>
+    [Fact]
+    public void Suspects_FromTypedWords_MatchInGameNames()
+    {
+        var targets = BrokenModClues.TargetsFromWords("steel canteen", [("Traits-D_Itemable.json", "Item_Canteen", "Steel Canteen"), ("Traits-D_Itemable.json", "Item_Bread", "Bread")], []);
+
+        Assert.Equal([new BrokenModTarget("Traits-D_Itemable.json", "Item_Canteen")], targets);
+    }
+
     [Fact]
     public void FirstGroup_EveryModASuspect_IsEmpty()
     {
@@ -429,7 +438,19 @@ public sealed class BrokenModFinderTests : IDisposable
             return Task.FromResult<string?>(null);
         }
 
-        public void RemoveFromQueue(string folderName) => Queue.Remove(folderName);
+        /// <summary>Merge &amp; Install is building: taking a mod out of the queue is refused.</summary>
+        public bool RefuseRemove { get; set; }
+
+        public bool RemoveFromQueue(string folderName)
+        {
+            if (RefuseRemove)
+            {
+                return false;
+            }
+
+            Queue.Remove(folderName);
+            return true;
+        }
 
         public IReadOnlyList<string> BackUpSaves() => ["slot.zip"];
 
@@ -611,6 +632,99 @@ public sealed class BrokenModFinderTests : IDisposable
         Assert.DoesNotContain("Mod02", host.PutBacks.Single());
         Assert.DoesNotContain("Mod02", host.Queue);
         Assert.Equal(3, host.Queue.Count);
+    }
+
+    /// <summary>
+    /// Regression: Turn it off while Merge &amp; Install builds was refused by the queue, yet the
+    /// search recorded the mod as off, and putting the mods back then installed it again.
+    /// </summary>
+    [Fact]
+    public async Task Session_TurnOffRefusedWhileBuilding_IsNotRecorded()
+    {
+        var (host, _, session) = NewSession();
+        await session.InstallRoundAsync();
+        host.RefuseRemove = true;
+
+        var (off, note) = session.TurnOff("Mod02");
+
+        Assert.False(off);
+        Assert.NotNull(note);
+        Assert.Empty(session.Record.TurnedOff);
+        Assert.Contains("Mod02", host.Queue);
+    }
+
+    /// <summary>
+    /// Regression: after a round was installed, putting the mods back only left turned-off mods out
+    /// of the list it re-added; one still in the live queue was built and installed again.
+    /// </summary>
+    [Fact]
+    public async Task Session_TurnedOffModStillQueued_IsTakenOutWhenTheModsGoBack()
+    {
+        var (host, _, session) = NewSession();
+        await session.InstallRoundAsync();
+        session.Record.TurnedOff.Add("Mod02");
+
+        Assert.Null(await session.PutModsBackAsync());
+
+        Assert.DoesNotContain("Mod02", host.Queue);
+    }
+
+    /// <summary>Putting the mods back while Merge &amp; Install builds can't take the turned-off mod out: it says so and keeps the search.</summary>
+    [Fact]
+    public async Task Session_PutBackWhileBuilding_IsRefusedAndKeepsTheSearch()
+    {
+        var (host, store, session) = NewSession();
+        await session.InstallRoundAsync();
+        session.Record.TurnedOff.Add("Mod02");
+        host.RefuseRemove = true;
+
+        var failed = await session.PutModsBackAsync();
+
+        Assert.NotNull(failed);
+        Assert.Contains("building", failed);
+        Assert.Empty(host.PutBacks);
+        Assert.False(session.IsClosed);
+        Assert.NotNull(store.Load());
+    }
+
+    /// <summary>
+    /// Regression: find_broken_mod.json held for a moment by an antivirus, backup or sync tool made
+    /// an answer throw, and Starlink closed with a crash report. The search moves on in memory; the
+    /// next save writes it.
+    /// </summary>
+    [Fact]
+    public async Task Session_AnswerWhileTheSearchFileIsHeld_DoesNotThrow_AndMovesOn()
+    {
+        var (_, store, session) = NewSession();
+        await session.InstallRoundAsync();
+        var round = session.Record.Search.Round;
+
+        string? note;
+        using (new FileStream(store.FilePath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            note = session.Answer(BrokenModAnswer.WorksNow);
+        }
+
+        Assert.NotNull(note);
+        Assert.Equal(round + 1, session.Record.Search.Round);
+        Assert.False(session.Record.RoundInstalled);
+    }
+
+    /// <summary>Regression: the mods were back in the game, but a held search file made the delete throw and the finder said they weren't.</summary>
+    [Fact]
+    public async Task Session_PutBackWhileTheSearchFileIsHeld_StillCloses()
+    {
+        var (_, store, session) = NewSession();
+        await session.InstallRoundAsync();
+
+        string? failed;
+        using (new FileStream(store.FilePath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            failed = await session.PutModsBackAsync();
+        }
+
+        Assert.Null(failed);
+        Assert.True(session.IsClosed);
     }
 
     [Fact]

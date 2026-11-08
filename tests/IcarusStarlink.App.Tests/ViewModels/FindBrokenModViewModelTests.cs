@@ -51,13 +51,33 @@ public sealed class FindBrokenModViewModelTests : IDisposable
             return Task.FromResult(RoundFailure);
         }
 
+        /// <summary>Putting the mods back fails with this (null: it works).</summary>
+        public string? PutBackFailure { get; set; }
+
         public Task<string?> InstallWholeQueueAsync(IReadOnlyCollection<string> putBack, bool backUpWhatsThere)
         {
+            if (PutBackFailure is not null)
+            {
+                return Task.FromResult<string?>(PutBackFailure);
+            }
+
             PutBacks.Add(putBack);
             return Task.FromResult<string?>(null);
         }
 
-        public void RemoveFromQueue(string folderName) => Queue.Remove(folderName);
+        /// <summary>Merge &amp; Install is building: taking a mod out of the queue is refused.</summary>
+        public bool RefuseRemove { get; set; }
+
+        public bool RemoveFromQueue(string folderName)
+        {
+            if (RefuseRemove)
+            {
+                return false;
+            }
+
+            Queue.Remove(folderName);
+            return true;
+        }
 
         public IReadOnlyList<string> BackUpSaves()
         {
@@ -114,6 +134,47 @@ public sealed class FindBrokenModViewModelTests : IDisposable
             NexusModIdOf = folder => folder == "Mod3" ? 123 : null,
         };
         return (new FindBrokenModViewModel(context), host, dialogs, store);
+    }
+
+    private static BrokenModCandidate Candidate(string name, string rowsJson = "") => new(name, $"Nice {name}", ExmodJson.Parse($$"""
+        {"name": "{{name}}", "author": "T", "version": "1", "description": "D", "fileName": "{{name}}", "Rows": [{{rowsJson}}]}
+        """));
+
+    /// <summary>A small extracted game: the Canteen item, called "Steel Canteen" in game (its Itemable row Item_Canteen).</summary>
+    private GameTableIndex WriteCanteenGameData()
+    {
+        var data = Path.Combine(_tempRoot, "Data");
+        Directory.CreateDirectory(Path.Combine(data, "Items"));
+        Directory.CreateDirectory(Path.Combine(data, "Traits"));
+        File.WriteAllText(Path.Combine(data, "Items", "D_ItemsStatic.json"),
+            """{"RowStruct":"S","Defaults":{"Itemable":{"RowName":"None","DataTableName":"D_Itemable"}},"Rows":[{"Name":"Canteen","Itemable":{"RowName":"Item_Canteen"}}]}""");
+        File.WriteAllText(Path.Combine(data, "Traits", "D_Itemable.json"),
+            """{"RowStruct":"S","Defaults":{},"Rows":[{"Name":"Item_Canteen","DisplayName":"NSLOCTEXT(\"D_Itemable\", \"Item_Canteen-DisplayName\", \"Steel Canteen\")"}]}""");
+        return new GameTableIndex(data);
+    }
+
+    /// <summary>Three queued mods over the canteen game data; Mod3 changes Item_Canteen.</summary>
+    private (FindBrokenModViewModel Vm, FakeHost Host) CreateWithCanteenData()
+    {
+        var index = WriteCanteenGameData();
+        var host = new FakeHost();
+        var candidates = new List<BrokenModCandidate>
+        {
+            Candidate("Mod1"),
+            Candidate("Mod2"),
+            Candidate("Mod3", """{"CurrentFile": "Traits-D_Itemable.json", "File_Items": [{"Name": "Item_Canteen", "Weight": 2}]}"""),
+        };
+        host.Queue.AddRange(candidates.Select(c => c.FolderName));
+        var vm = new FindBrokenModViewModel(new FindBrokenModContext
+        {
+            Host = host,
+            Store = new BrokenModSearchStore(Path.Combine(_tempRoot, "find_broken_mod.json")),
+            Dialogs = new FakeDialogs(),
+            ReadCandidates = () => Task.FromResult<IReadOnlyList<BrokenModCandidate>>(candidates),
+            GameIndex = () => index,
+            GameRows = () => Task.FromResult<IReadOnlyList<GameDataItemRef>>([new GameDataItemRef("Traits-D_Itemable.json", "Traits/D_Itemable.json", "Item_Canteen")]),
+        });
+        return (vm, host);
     }
 
     /// <summary>Answers every round as a player whose game breaks while <paramref name="culprit"/> is in.</summary>
@@ -290,6 +351,133 @@ public sealed class FindBrokenModViewModelTests : IDisposable
         await resumed.InstallRoundCommand.ExecuteAsync(null);
         Assert.True(resumed.IsRoundInstalled);
         Assert.True(store.Load()!.RoundInstalled);
+    }
+
+    /// <summary>Regression: players type the name they see in game, as the tooltip asks; "steel canteen" listed the row but found no suspect.</summary>
+    [Fact]
+    public async Task FindSuspects_FromTheInGameName_FindsTheModThatChangesIt()
+    {
+        var (vm, _) = CreateWithCanteenData();
+        vm.ProblemText = "steel canteen";
+
+        await vm.FindSuspectsCommand.ExecuteAsync(null);
+
+        Assert.Equal("Mod3", Assert.Single(vm.Suspects).FolderName);
+        Assert.StartsWith("1 of your 3 queued mods point at it", vm.SuspectSummary);
+    }
+
+    /// <summary>Regression: after Find suspects, changing the words kept the old suspects, and Start searched with them.</summary>
+    [Fact]
+    public async Task ChangingTheDescription_ClearsTheSuspectsFoundForTheOldOne()
+    {
+        var (vm, _) = CreateWithCanteenData();
+        vm.ProblemText = "canteen";
+        await vm.FindSuspectsCommand.ExecuteAsync(null);
+        Assert.Single(vm.Suspects);
+
+        vm.ProblemText = "backpack";
+
+        Assert.Empty(vm.Suspects);
+        Assert.Null(vm.SuspectSummary);
+    }
+
+    /// <summary>Regression: a mod ticked between Find suspects and Start was left out of the search, then put in the game at the end.</summary>
+    [Fact]
+    public async Task Start_AfterTheQueueChanged_ReadsItAgain()
+    {
+        var host = new FakeHost();
+        host.Queue.AddRange(["Mod1", "Mod2"]);
+        var store = new BrokenModSearchStore(Path.Combine(_tempRoot, "find_broken_mod.json"));
+        var vm = new FindBrokenModViewModel(new FindBrokenModContext
+        {
+            Host = host,
+            Store = store,
+            Dialogs = new FakeDialogs(),
+            ReadCandidates = () => Task.FromResult<IReadOnlyList<BrokenModCandidate>>([.. host.Queue.Select(q => Candidate(q))]),
+        });
+        await vm.FindSuspectsCommand.ExecuteAsync(null);
+        host.Queue.Add("Mod9");
+
+        await vm.StartCommand.ExecuteAsync(null);
+
+        Assert.Contains("Mod9", store.Load()!.OriginalQueue);
+    }
+
+    /// <summary>Regression: the finder wrapped Merge &amp; Install's own text, so it read "Not installed: Not installed: you chose not to."</summary>
+    [Fact]
+    public async Task RoundNotInstalled_SaysWhyOnce()
+    {
+        var (vm, host, _, _) = Create();
+        host.RoundFailure = "Not installed: you chose not to.";
+
+        await vm.StartCommand.ExecuteAsync(null);
+
+        Assert.Equal("Not installed: you chose not to. Then click Install this round.", vm.StatusText);
+    }
+
+    /// <summary>A reason without a final full stop used to run into the next sentence.</summary>
+    [Fact]
+    public async Task PutBackFailed_EndsTheReasonBeforeWhatToDo()
+    {
+        var (vm, host, _, _) = Create();
+        await vm.StartCommand.ExecuteAsync(null);
+        host.PutBackFailure = "Install failed: the disk is full";
+
+        await vm.PutModsBackCommand.ExecuteAsync(null);
+
+        Assert.StartsWith("Your mods aren't back yet. Install failed: the disk is full. Then click Put my mods back again.", vm.StatusText);
+    }
+
+    /// <summary>Regression: an answer while find_broken_mod.json was held by an antivirus, backup or sync tool closed Starlink with a crash report.</summary>
+    [Fact]
+    public async Task AnswerWhileTheSearchFileIsHeld_DoesNotCrashStarlink()
+    {
+        var (vm, _, _, store) = Create();
+        await vm.StartCommand.ExecuteAsync(null);
+
+        using (new FileStream(store.FilePath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            await vm.WorksNowCommand.ExecuteAsync(null);
+        }
+
+        Assert.True(vm.IsRoundStep);
+        Assert.Equal("Round 2", vm.RoundTitle);
+        Assert.NotNull(vm.StatusText);
+    }
+
+    /// <summary>Regression: Turn it off while the search file was held closed Starlink with a crash report.</summary>
+    [Fact]
+    public async Task TurnOffWhileTheSearchFileIsHeld_TurnsItOffAndSaysTheSaveWaits()
+    {
+        var (vm, host, _, store) = Create();
+        await vm.StartCommand.ExecuteAsync(null);
+        await PlayAsync(vm, host, "Mod3");
+        var found = Assert.Single(vm.Culprits);
+
+        using (new FileStream(store.FilePath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            vm.TurnOffCommand.Execute(found);
+        }
+
+        Assert.True(found.IsTurnedOff);
+        Assert.DoesNotContain("Mod3", host.Queue);
+        Assert.Contains("Couldn't save", vm.StatusText);
+    }
+
+    /// <summary>Regression: Turn it off while Merge &amp; Install builds was refused, yet the row said it was off.</summary>
+    [Fact]
+    public async Task TurnOffWhileMergeAndInstallBuilds_LeavesTheRowOnAndSaysWhy()
+    {
+        var (vm, host, _, _) = Create();
+        await vm.StartCommand.ExecuteAsync(null);
+        await PlayAsync(vm, host, "Mod3");
+        var found = Assert.Single(vm.Culprits);
+        host.RefuseRemove = true;
+
+        vm.TurnOffCommand.Execute(found);
+
+        Assert.False(found.IsTurnedOff);
+        Assert.Contains("building", vm.StatusText);
     }
 
     [Fact]

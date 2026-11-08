@@ -112,8 +112,8 @@ public interface IBrokenModFinderHost
     /// <summary>Puts <paramref name="putBack"/> back in the queue where missing, then builds and installs the whole queue. Null when done; otherwise why not. backUpWhatsThere as InstallOnlyAsync's.</summary>
     Task<string?> InstallWholeQueueAsync(IReadOnlyCollection<string> putBack, bool backUpWhatsThere);
 
-    /// <summary>Takes the mod out of the merge queue (its Library ON tick goes off).</summary>
-    void RemoveFromQueue(string folderName);
+    /// <summary>Takes the mod out of the merge queue (its Library ON tick goes off). False when refused: Merge &amp; Install is building.</summary>
+    bool RemoveFromQueue(string folderName);
 
     /// <summary>Backs up every save slot (kept, never pruned). The zips written.</summary>
     IReadOnlyList<string> BackUpSaves();
@@ -132,6 +132,25 @@ public sealed class BrokenModFinderSession(IBrokenModFinderHost host, BrokenModS
     public bool IsClosed { get; private set; }
 
     public const string GameRunningMessage = "Icarus is running. Close the game first, then try again.";
+
+    /// <summary>
+    /// Saves the record. A write that a sync, backup or antivirus tool blocks right now is logged and
+    /// left to the next save (in memory the search is right), never thrown at the window. Null when
+    /// saved; otherwise a line for the player.
+    /// </summary>
+    private string? TrySave()
+    {
+        try
+        {
+            store.Save(record);
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "Couldn't save the Find the broken mod search; the next step saves it");
+            return $"Couldn't save the search just now ({ex.Message.TrimEnd('.')}). It's saved with the next step.";
+        }
+    }
 
     /// <summary>Backs up the saves before the first round (once). Null when done; otherwise why not (the search doesn't start then).</summary>
     public string? BackUpSaves()
@@ -174,6 +193,7 @@ public sealed class BrokenModFinderSession(IBrokenModFinderHost host, BrokenModS
 
         record.Installed = [.. test.Install];
         record.RoundInstalled = false;
+        // A hard failure here: the record must be on disk before the game holds a cut-down set.
         store.Save(record);
         // Only until a round's install has worked once: that one backed up the player's real
         // install. A failed one may not have got that far, so the next try backs up again.
@@ -182,29 +202,43 @@ public sealed class BrokenModFinderSession(IBrokenModFinderHost host, BrokenModS
         {
             record.RoundInstalled = true;
             record.PlayerInstallBackedUp = true;
-            store.Save(record);
+            // The round is in the game either way; a save that fails now only means a restart asks to install it again.
+            TrySave();
         }
 
         return failed;
     }
 
-    public void Answer(BrokenModAnswer answer)
+    /// <summary>
+    /// Takes the answer and moves the search on. Null when saved; otherwise a line saying the save
+    /// waits for the next step. The search isn't rolled back then: it has already moved on, and
+    /// answering again would apply the answer twice.
+    /// </summary>
+    public string? Answer(BrokenModAnswer answer)
     {
         record.RoundInstalled = false;
         BrokenModSearch.Answer(record.Search, answer);
-        store.Save(record);
+        return TrySave();
     }
 
-    /// <summary>Turns a found mod off in the queue: it stays out when the mods are put back.</summary>
-    public void TurnOff(string folderName)
+    /// <summary>
+    /// Turns a found mod off in the queue: it stays out when the mods are put back. Refused (and
+    /// not recorded) while Merge &amp; Install builds, which can't change its queue then. Note: a
+    /// line about a save that waits for the next step, or why it was refused.
+    /// </summary>
+    public (bool TurnedOff, string? Note) TurnOff(string folderName)
     {
+        if (!host.RemoveFromQueue(folderName))
+        {
+            return (false, "Merge & Install is building right now. Turn it off again when the build is done.");
+        }
+
         if (!record.TurnedOff.Contains(folderName, StringComparer.OrdinalIgnoreCase))
         {
             record.TurnedOff.Add(folderName);
         }
 
-        host.RemoveFromQueue(folderName);
-        store.Save(record);
+        return (true, TrySave());
     }
 
     /// <summary>
@@ -224,6 +258,16 @@ public sealed class BrokenModFinderSession(IBrokenModFinderHost host, BrokenModS
             return GameRunningMessage;
         }
 
+        // Out of the live queue first: the put-back installs the whole queue, so a turned-off mod
+        // still in it would go back in the game.
+        foreach (var turnedOff in record.TurnedOff)
+        {
+            if (!host.RemoveFromQueue(turnedOff))
+            {
+                return "Merge & Install is building right now. Try again when the build is done.";
+            }
+        }
+
         var putBack = record.OriginalQueue.Where(f => !record.TurnedOff.Contains(f, StringComparer.OrdinalIgnoreCase)).ToList();
         // Nothing was ever installed by a round: the game still has the player's own install.
         if (record.Installed is not null)
@@ -235,15 +279,17 @@ public sealed class BrokenModFinderSession(IBrokenModFinderHost host, BrokenModS
                 return failed;
             }
         }
-        else
+
+        try
         {
-            foreach (var turnedOff in record.TurnedOff)
-            {
-                host.RemoveFromQueue(turnedOff);
-            }
+            store.Delete();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The mods are back. A record left behind only makes the next start offer this again.
+            Serilog.Log.Warning(ex, "Couldn't delete the finished Find the broken mod search at {Path}", store.FilePath);
         }
 
-        store.Delete();
         IsClosed = true;
         return null;
     }

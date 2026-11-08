@@ -90,7 +90,15 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
     [ObservableProperty]
     private string? _suspectSummary;
 
-    partial void OnProblemTextChanged(string value) => _ = RefreshMatchesAsync(value);
+    partial void OnProblemTextChanged(string value)
+    {
+        // What was found was for the old words, so Start looks again.
+        _candidates = null;
+        _firstGroup = [];
+        Suspects.Clear();
+        SuspectSummary = null;
+        _ = RefreshMatchesAsync(value);
+    }
 
     private int _matchVersion;
 
@@ -107,24 +115,54 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
 
         try
         {
-            _gameRows ??= await LoadGameRowsAsync();
+            await EnsureGameRowsAsync();
         }
         catch (Exception)
         {
             _gameRows = [];
         }
 
-        if (version != _matchVersion)
+        if (version != _matchVersion || _gameRows is not { } gameRows)
         {
             return;
         }
 
+        // The row name or the in-game name, as the suspects match them: the part of the game in
+        // the label would make a word like "weights" match every row of a table.
         MatchingRows.Clear();
-        foreach (var row in _gameRows.Where(r => r.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase)
-                     || (r.Label?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)).Take(100))
+        foreach (var row in gameRows.Where(r => r.ItemName.Contains(term, StringComparison.OrdinalIgnoreCase)
+                     || (TitleOf(r)?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)).Take(100))
         {
             MatchingRows.Add(row);
         }
+    }
+
+    /// <summary>Each game row's in-game name, by table and row ("Steel Canteen"); rows without one aren't in it.</summary>
+    private IReadOnlyDictionary<(string CurrentFile, string ItemName), string> _gameRowTitles = new Dictionary<(string, string), string>();
+
+    private string? TitleOf(GameDataItemRef row) => _gameRowTitles.GetValueOrDefault((row.CurrentFile, row.ItemName));
+
+    /// <summary>Reads the game rows (and their in-game names) once.</summary>
+    private async Task EnsureGameRowsAsync()
+    {
+        if (_gameRows is not null)
+        {
+            return;
+        }
+
+        var rows = await LoadGameRowsAsync();
+        // Keyed by table and row, not by the row record: its equality includes the label.
+        var titles = new Dictionary<(string, string), string>();
+        foreach (var (row, title) in rows)
+        {
+            if (title is not null)
+            {
+                titles.TryAdd((row.CurrentFile, row.ItemName), title);
+            }
+        }
+
+        _gameRowTitles = titles;
+        _gameRows = [.. rows.Select(r => r.Row)];
     }
 
     /// <summary>
@@ -132,14 +170,18 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
     /// ("Canteen — Eating or using"), the row's own name in brackets when it differs. Was
     /// "Accolades/D_Accolades.json — GlassBuildingsCrafted20".
     /// </summary>
-    private async Task<IReadOnlyList<GameDataItemRef>> LoadGameRowsAsync()
+    private async Task<IReadOnlyList<(GameDataItemRef Row, string? Title)>> LoadGameRowsAsync()
     {
         var rows = await _context.GameRows();
         var index = _context.GameIndex();
-        return await Task.Run(() => WithPlainLabels(rows, index));
+        return await Task.Run(() => WithPlainLabelsAndTitles(rows, index));
     }
 
-    internal static IReadOnlyList<GameDataItemRef> WithPlainLabels(IReadOnlyList<GameDataItemRef> rows, GameTableIndex? index)
+    internal static IReadOnlyList<GameDataItemRef> WithPlainLabels(IReadOnlyList<GameDataItemRef> rows, GameTableIndex? index) =>
+        [.. WithPlainLabelsAndTitles(rows, index).Select(r => r.Row)];
+
+    /// <summary>The rows in plain words (see LoadGameRowsAsync), each with its in-game name when the game data gives one.</summary>
+    internal static IReadOnlyList<(GameDataItemRef Row, string? Title)> WithPlainLabelsAndTitles(IReadOnlyList<GameDataItemRef> rows, GameTableIndex? index)
     {
         var names = index is not null && index.CurrentFileFor("D_ItemsStatic") is not null ? new GameItemNames(index) : null;
         return [.. rows.Select(row =>
@@ -147,12 +189,13 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
             var part = ExmodEditorViewModel.PartOfGame(GameTableIndex.TableNameOf(row.CurrentFile));
             var gameItem = names?.ItemFor(row.CurrentFile, row.ItemName);
             var title = gameItem is null ? null : names!.DisplayName(gameItem);
-            return row with
+            var labelled = row with
             {
                 Label = title is null || string.Equals(title, row.ItemName, StringComparison.OrdinalIgnoreCase)
                     ? $"{row.ItemName} — {part}"
                     : $"{title} — {part}  ({row.ItemName})",
             };
+            return (labelled, title);
         })];
     }
 
@@ -192,15 +235,16 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
             var picked = PickedRows.Select(r => new BrokenModTarget(r.CurrentFile, r.ItemName)).ToList();
             if (picked.Count == 0 && words.Trim().Length >= 3)
             {
-                _gameRows ??= await LoadGameRowsAsync();
+                await EnsureGameRowsAsync();
             }
 
             var gameRows = _gameRows ?? [];
+            var titles = _gameRowTitles;
             var (needs, suspects) = await Task.Run(() =>
             {
                 var targets = picked.Count > 0
                     ? picked
-                    : BrokenModClues.TargetsFromWords(words, gameRows.Select(r => (r.CurrentFile, r.ItemName)), candidates);
+                    : BrokenModClues.TargetsFromWords(words, gameRows.Select(r => (r.CurrentFile, r.ItemName, titles.GetValueOrDefault((r.CurrentFile, r.ItemName)))), candidates);
                 var needs = index is null ? new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.OrdinalIgnoreCase) : BrokenModClues.Needs(candidates, index);
                 return (needs, BrokenModClues.Suspects(candidates, targets, index));
             });
@@ -276,6 +320,12 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
     [RelayCommand]
     private async Task StartAsync()
     {
+        // The window stays open beside Merge & Install: a queue changed since Find suspects is read again.
+        if (_candidates is not null && !_candidates.Select(c => c.FolderName).SequenceEqual(_context.Host.QueuedFolderNames(), StringComparer.OrdinalIgnoreCase))
+        {
+            _candidates = null;
+        }
+
         if (_candidates is null)
         {
             await FindSuspectsAsync();
@@ -408,7 +458,7 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            failed = ex.Message;
+            failed = $"Not installed: {ex.Message}";
         }
         finally
         {
@@ -417,7 +467,8 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
 
         if (failed is not null)
         {
-            StatusText = $"Not installed: {failed} Then click Install this round.";
+            // Merge & Install's own lines already say what didn't happen ("Not installed: …").
+            StatusText = $"{EndSentence(failed)} Then click Install this round.";
             return;
         }
 
@@ -442,15 +493,25 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
             return;
         }
 
-        _session.Answer(answer);
+        // A save that failed is said; the next round's install saves the search again.
+        var note = _session.Answer(answer);
         IsRoundInstalled = false;
         if (_session.CurrentTest is null)
         {
             ShowResult();
+            StatusText = note;
             return;
         }
 
+        StatusText = note;
         await InstallRoundAsync();
+    }
+
+    /// <summary>The text with a full stop at its end, so the next sentence doesn't run into it.</summary>
+    private static string EndSentence(string text)
+    {
+        var trimmed = text.TrimEnd();
+        return trimmed.EndsWith('.') || trimmed.EndsWith('!') || trimmed.EndsWith('?') ? trimmed : trimmed + ".";
     }
 
     /// <summary>Stops the search (asks first) and puts every mod back.</summary>
@@ -569,7 +630,7 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
         }
     }
 
-    /// <summary>Takes the mod out of the merge queue: it stays out when the mods are put back.</summary>
+    /// <summary>Takes the mod out of the merge queue: it stays out when the mods are put back. While Merge &amp; Install builds, the row stays as it is and says why.</summary>
     [RelayCommand]
     private void TurnOff(FindBrokenModCulpritRow? row)
     {
@@ -578,9 +639,16 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
             return;
         }
 
-        _session.TurnOff(row.FolderName);
+        var (turnedOff, note) = _session.TurnOff(row.FolderName);
+        if (!turnedOff)
+        {
+            StatusText = note;
+            return;
+        }
+
         row.IsTurnedOff = true;
-        StatusText = $"'{row.Name}' is off in your merge queue. Put your mods back to install the rest without it.";
+        StatusText = $"'{row.Name}' is off in your merge queue. Put your mods back to install the rest without it."
+            + (note is null ? "" : $" {note}");
     }
 
     [RelayCommand]
@@ -625,7 +693,7 @@ public sealed partial class FindBrokenModViewModel : ObservableObject
 
         if (failed is not null)
         {
-            StatusText = $"Your mods aren't back yet: {failed} Then click Put my mods back again. (If you close Starlink first, it offers this at the next start.)";
+            StatusText = $"Your mods aren't back yet. {EndSentence(failed)} Then click Put my mods back again. (If you close Starlink first, it offers this at the next start.)";
             return;
         }
 

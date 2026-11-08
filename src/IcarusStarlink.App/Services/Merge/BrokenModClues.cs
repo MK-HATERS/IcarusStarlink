@@ -167,7 +167,14 @@ public static class BrokenModClues
     /// Canteen_Water…), from the game data's row list, plus rows the queued mods add.
     /// At most <paramref name="limit"/>.
     /// </summary>
-    public static IReadOnlyList<BrokenModTarget> TargetsFromWords(string words, IEnumerable<(string CurrentFile, string RowName)> gameRows, IReadOnlyList<BrokenModCandidate> mods, int limit = 200)
+    public static IReadOnlyList<BrokenModTarget> TargetsFromWords(string words, IEnumerable<(string CurrentFile, string RowName)> gameRows, IReadOnlyList<BrokenModCandidate> mods, int limit = 200) =>
+        TargetsFromWords(words, gameRows.Select(r => (r.CurrentFile, r.RowName, (string?)null)), mods, limit);
+
+    /// <summary>
+    /// The same, where a game row may also be named by its in-game name (<c>Title</c>: "Steel
+    /// Canteen" for Item_Canteen), which is what players type. Rows the queued mods add have no title.
+    /// </summary>
+    public static IReadOnlyList<BrokenModTarget> TargetsFromWords(string words, IEnumerable<(string CurrentFile, string RowName, string? Title)> gameRows, IReadOnlyList<BrokenModCandidate> mods, int limit = 200)
     {
         var parts = words.Split([' ', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(p => p.Length >= 3).ToList();
         if (parts.Count == 0)
@@ -177,9 +184,9 @@ public static class BrokenModClues
 
         bool Matches(string name) => parts.All(p => name.Contains(p, StringComparison.OrdinalIgnoreCase));
         var modRows = mods.Where(m => m.Package is not null)
-            .SelectMany(m => m.Package!.Rows.Where(r => !IsEndOfMod(r.CurrentFile)).SelectMany(r => r.FileItems.Select(i => (r.CurrentFile, RowName: i.Name))));
+            .SelectMany(m => m.Package!.Rows.Where(r => !IsEndOfMod(r.CurrentFile)).SelectMany(r => r.FileItems.Select(i => (r.CurrentFile, RowName: i.Name, Title: (string?)null))));
         return [.. gameRows.Concat(modRows)
-            .Where(r => Matches(r.RowName))
+            .Where(r => Matches(r.RowName) || (r.Title is { } title && Matches(title)))
             .DistinctBy(r => (r.CurrentFile.ToLowerInvariant(), r.RowName.ToLowerInvariant()))
             .Take(limit)
             .Select(r => new BrokenModTarget(r.CurrentFile, r.RowName))];

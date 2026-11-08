@@ -32,7 +32,24 @@ public sealed class MergeInstallFinderHost(Func<MergeInstallViewModel> mergeInst
     public Task<string?> InstallWholeQueueAsync(IReadOnlyCollection<string> putBack, bool backUpWhatsThere) =>
         mergeInstall().InstallWholeQueueForFinderAsync(putBack, backUpWhatsThere);
 
-    public void RemoveFromQueue(string folderName) => mergeInstall().RemoveFromQueueByFolderNames([folderName]);
+    /// <summary>
+    /// False while Merge &amp; Install builds: the queue refuses changes then, so the mod isn't out
+    /// and the finder mustn't record it as off.
+    /// </summary>
+    public bool RemoveFromQueue(string folderName)
+    {
+        var page = mergeInstall();
+        if (page.IsRebuilding)
+        {
+            return false;
+        }
+
+        page.RemoveFromQueueByFolderNames([folderName]);
+        return true;
+    }
+
+    /// <summary>How many world zips each slot keeps.</summary>
+    private const int WorldZipsKept = 3;
 
     /// <summary>
     /// Every save slot as the Saves page's Backup now does it (a "manual" zip, never pruned, that
@@ -48,15 +65,44 @@ public sealed class MergeInstallFinderHost(Func<MergeInstallViewModel> mergeInst
             if (Directory.Exists(prospects) && Directory.EnumerateFileSystemEntries(prospects).Any())
             {
                 Directory.CreateDirectory(worldBackupFolder);
-                var zip = FolderBackup.MakeUniqueTimestampedPath(worldBackupFolder, $"{slot.SteamId}_worlds_before_find_broken_mod", DateTimeOffset.Now, ".zip");
+                var name = $"{slot.SteamId}_worlds_before_find_broken_mod";
+                var zip = FolderBackup.MakeUniqueTimestampedPath(worldBackupFolder, name, DateTimeOffset.Now, ".zip");
                 // Written under a temp name, then moved: a half-written zip never looks like a backup.
                 var temp = zip + ".partial";
-                ZipFile.CreateFromDirectory(prospects, temp);
-                File.Move(temp, zip);
+                try
+                {
+                    ZipFile.CreateFromDirectory(prospects, temp);
+                    File.Move(temp, zip);
+                }
+                catch
+                {
+                    TryDeleteFile(temp);
+                    throw;
+                }
+
                 zips.Add(zip);
+                // Each search zips every world, so the zips add up fast: only the newest few stay.
+                // This search's own zip is never removed (a clock set back could sort it older).
+                foreach (var old in FolderBackup.EnumerateFileBackups(worldBackupFolder, name, ".zip").Skip(WorldZipsKept)
+                             .Where(p => !string.Equals(p, zip, StringComparison.OrdinalIgnoreCase)))
+                {
+                    TryDeleteFile(old);
+                }
             }
         }
 
         return zips;
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A zip open elsewhere stays until the next search.
+        }
     }
 }

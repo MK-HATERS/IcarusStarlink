@@ -122,12 +122,7 @@ public sealed partial class MergeInstallViewModel
             return blocked;
         }
 
-        var inLibrary = _libraryRepository.GetAll().Select(e => e.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var missing = putBack.Where(f => inLibrary.Contains(f) && !Queue.Any(q => !q.IsMissingFromLibrary && string.Equals(q.FolderName, f, StringComparison.OrdinalIgnoreCase))).ToList();
-        if (missing.Count > 0)
-        {
-            AddToQueueByFolderNames(missing);
-        }
+        PutBackInPlace(putBack);
 
         _finderRestoring = true;
         _finderBacksUp = backUpWhatsThere;
@@ -145,6 +140,49 @@ public sealed partial class MergeInstallViewModel
         {
             _finderRestoring = false;
             _finderBacksUp = true;
+        }
+    }
+
+    /// <summary>
+    /// Puts each mod of <paramref name="putBack"/> (the player's queue order from before the search)
+    /// that's in the Library but no longer queued back where it was: in place of its greyed row, or
+    /// just before the next mod of that order still queued. The last mod in the queue wins a value
+    /// by default, so one put back at the end would win against every mod that used to follow it.
+    /// </summary>
+    private void PutBackInPlace(IReadOnlyCollection<string> putBack)
+    {
+        var order = putBack.ToList();
+        var byFolder = LibraryByFolder();
+        bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        int QueueIndexOf(string folder) => Queue.ToList().FindIndex(q => Same(q.FolderName, folder));
+        for (var i = 0; i < order.Count; i++)
+        {
+            var folder = order[i];
+            if (!byFolder.TryGetValue(folder, out var entry) || IsIslBuiltPack(entry))
+            {
+                continue;
+            }
+
+            var existing = QueueIndexOf(folder);
+            if (existing >= 0)
+            {
+                if (Queue[existing].IsMissingFromLibrary)
+                {
+                    Queue[existing] = entry;
+                }
+
+                continue;
+            }
+
+            var before = order.Skip(i + 1).Select(QueueIndexOf).FirstOrDefault(index => index >= 0, -1);
+            if (before >= 0)
+            {
+                Queue.Insert(before, entry);
+            }
+            else
+            {
+                Queue.Add(entry);
+            }
         }
     }
 
