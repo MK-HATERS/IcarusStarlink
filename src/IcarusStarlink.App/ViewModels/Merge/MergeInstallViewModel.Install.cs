@@ -603,17 +603,23 @@ public sealed partial class MergeInstallViewModel
                 backUpWhatsThere: _finderBacksUp);
 
             // The build already put this pak in the Library; it's only imported here when that
-            // didn't happen (it failed then, or the pak was built before the app started). It used
-            // to be imported again on every install, filed under whichever profile was selected by
-            // then and dropping the conflict picks on the way. The pak is in
-            // the game by now: a failure here (a locked Library folder) is a note, not "Install
-            // failed" with the install left unrecorded.
+            // didn't happen (it failed then, or the pak was built before the app started and the
+            // Library's copy isn't this one). It used to be imported again on every install, filed
+            // under whichever profile was selected by then. A Find the broken mod round's pak never
+            // goes in. The pak is in the game by now: a failure here (a locked Library folder) is a
+            // note, not "Install failed" with the install left unrecorded.
             string? libraryNote = null;
-            if (!_builtPackInLibrary)
+            var isPlayersBuild = !_stagedIsFinderRound && _finderOnly is null;
+            if (isPlayersBuild && !_builtPackInLibrary && LibraryHasThisBuild())
+            {
+                _builtPackInLibrary = true;
+            }
+
+            if (isPlayersBuild && !_builtPackInLibrary)
             {
                 try
                 {
-                    ImportBuiltPakKeepingPicks(_stagedBuildProfileName ?? BuiltPackProfileInLibrary() ?? SelectedProfileName ?? "Default");
+                    await ImportBuiltPakIntoLibraryAsync(_stagedBuildProfileName ?? BuiltPackProfileInLibrary() ?? SelectedProfileName ?? "Default");
                 }
                 catch (Exception ex)
                 {

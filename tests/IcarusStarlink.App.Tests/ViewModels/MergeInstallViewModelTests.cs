@@ -2795,6 +2795,9 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
         public Exception? ExceptionToThrow { get; set; }
         public Func<IEnumerable<string>, string, MergeReport, IReadOnlyDictionary<string, JsonObject>>? ReadKeyedBaseTablesHandler { get; set; }
 
+        /// <summary>The token the last RebuildAsync was handed (a Cancel on the page cancels it).</summary>
+        public CancellationToken LastCancellationToken { get; private set; }
+
         public Task<RebuildResult> RebuildAsync(
             IReadOnlyList<ExmodPackageContents> queuedMods, GameplayOptions gameplayOptions, string dataFolder, string unrealPakExePath,
             string outputPakPath, IReadOnlyList<string> prebuiltPakFilePaths,
@@ -2809,6 +2812,7 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
             LastPrebuiltPakQueuePositions = prebuiltPakQueuePositions;
             LastManualPicks = manualPicks;
             LastGameplayOptions = gameplayOptions;
+            LastCancellationToken = cancellationToken;
             if (ExceptionToThrow is not null)
             {
                 throw ExceptionToThrow;
@@ -2832,11 +2836,19 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
 
         public Task<IReadOnlyList<(string PakName, IReadOnlyList<FieldChange> Changes)>> ComputePrebuiltPakFieldChangesAsync(
             IReadOnlyList<string> prebuiltPakFilePaths, string dataFolder, string unrealPakExePath, MergeReport report,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<(string PakName, IReadOnlyList<FieldChange> Changes)>>(
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _prebuiltPakDiffCount);
+            return Task.FromResult<IReadOnlyList<(string PakName, IReadOnlyList<FieldChange> Changes)>>(
                 [.. prebuiltPakFilePaths
                     .Where(PrebuiltPakChanges.ContainsKey)
                     .Select(path => (Path.GetFileNameWithoutExtension(path), PrebuiltPakChanges[path]))]);
+        }
+
+        private int _prebuiltPakDiffCount;
+
+        /// <summary>How many times a prebuilt pak was unpacked and diffed (ComputePrebuiltPakFieldChangesAsync).</summary>
+        public int PrebuiltPakDiffCount => Volatile.Read(ref _prebuiltPakDiffCount);
 
         public IReadOnlyDictionary<string, JsonObject> ReadKeyedBaseTables(IEnumerable<string> currentFiles, string dataFolder, MergeReport report) =>
             ReadKeyedBaseTablesHandler?.Invoke(currentFiles, dataFolder, report)
@@ -2857,8 +2869,16 @@ public sealed partial class MergeInstallViewModelTests : IDisposable
             InstallCallCount++;
             LastKeepArcFissionDataPak = keepArcFissionDataPak;
             BackUps.Add(backUpWhatsThere);
+            if (InstallException is not null)
+            {
+                throw InstallException;
+            }
+
             return Task.FromResult(Result);
         }
+
+        /// <summary>Thrown by InstallAsync when set (a full disk, a locked file, a game folder that's gone).</summary>
+        public Exception? InstallException { get; set; }
 
         public int RemoveCallCount { get; private set; }
 

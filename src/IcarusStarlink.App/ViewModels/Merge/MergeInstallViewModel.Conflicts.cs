@@ -68,11 +68,72 @@ public sealed partial class MergeInstallViewModel
     [ObservableProperty]
     private IReadOnlyDictionary<string, IReadOnlyList<string>> _conflictingModNamesByMod = new Dictionary<string, IReadOnlyList<string>>();
 
-    /// <summary>The queued mods' content, the game data or a conflict-affecting option changed: the old conflict line goes and the badge is counted again.</summary>
-    private void InvalidateManualPicks()
+    /// <summary>
+    /// The queued mods' content, the game data or a conflict-affecting option changed: the old
+    /// conflict line goes, and the badge and the check are counted again once changes settle (the
+    /// debounce timer), so a profile load that sets five options costs one check, not five.
+    /// </summary>
+    private void ConflictInputsChanged()
     {
         ConflictStatusMessage = null;
-        _ = RecomputeConflictCountAsync();
+        _recomputeDebounceTimer.Restart();
+    }
+
+    /// <summary>
+    /// The keyed game tables the conflict check and Suggest order compare against, read once each
+    /// through IRebuildService.ReadKeyedBaseTables and kept until the game data changes or the app
+    /// sits idle (like _cachedGameTableIndex). A null value: the game has no such table. Under
+    /// _packageCacheLock. MergeEngine only reads them. The build itself reads its own fresh copy.
+    /// </summary>
+    private readonly Dictionary<string, JsonObject?> _baseTableCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The base tables for these files from the cache, reading only the ones not read yet (a file
+    /// the game doesn't have is simply absent). Off the UI thread. Throws what the read throws (a
+    /// locked file): the callers then check without base filtering.
+    /// </summary>
+    private IReadOnlyDictionary<string, JsonObject> BaseTablesFor(IEnumerable<string> currentFiles)
+    {
+        var wanted = currentFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        List<string> missing;
+        int generation;
+        lock (_packageCacheLock)
+        {
+            _packageCacheUsedUtc = DateTime.UtcNow;
+            missing = [.. wanted.Where(f => !_baseTableCache.ContainsKey(f))];
+            generation = _prebuiltPakChangesGeneration;
+        }
+
+        var read = missing.Count > 0
+            ? _rebuildService.ReadKeyedBaseTables(missing, _dataFolder, new MergeReport())
+            : new Dictionary<string, JsonObject>();
+
+        var tables = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
+        lock (_packageCacheLock)
+        {
+            foreach (var file in wanted)
+            {
+                if (read.TryGetValue(file, out var fresh))
+                {
+                    tables[file] = fresh;
+                }
+                else if (_baseTableCache.TryGetValue(file, out var cached) && cached is not null)
+                {
+                    tables[file] = cached;
+                }
+            }
+
+            // Read from game data a Refresh game data has replaced since: used for this check, not kept.
+            if (generation == _prebuiltPakChangesGeneration)
+            {
+                foreach (var file in missing)
+                {
+                    _baseTableCache[file] = read.GetValueOrDefault(file);
+                }
+            }
+        }
+
+        return tables;
     }
 
     /// <summary>One conflict check: what it found, and who took part, in merge order (Ids[i] is the winner id of the mod shown as Names[i]).</summary>
@@ -239,8 +300,7 @@ public sealed partial class MergeInstallViewModel
             IReadOnlyDictionary<string, JsonObject>? baseTablesByFile = null;
             try
             {
-                var requiredFiles = orderedModChanges.SelectMany(c => c).Select(c => c.CurrentFile).Distinct();
-                baseTablesByFile = _rebuildService.ReadKeyedBaseTables(requiredFiles, _dataFolder, new MergeReport());
+                baseTablesByFile = BaseTablesFor(orderedModChanges.SelectMany(c => c).Select(c => c.CurrentFile));
             }
             catch (Exception)
             {

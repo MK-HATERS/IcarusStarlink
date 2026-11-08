@@ -256,15 +256,19 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
         // but clearing it here too means a rename/re-import/delete under a REUSED folder name can
         // never serve another mod's stale cached content, however unlikely that coincidence is.
         // A queued mod's content may have changed, so the conflict line is cleared and the badge
-        // and the check counted again.
+        // and the check counted again (debounced: a burst of messages costs one run).
         _messenger.Register<LibraryChangedMessage>(this, (recipient, message) =>
         {
             var viewModel = (MergeInstallViewModel)recipient;
+            if (viewModel._sendingOwnBuiltPackChange)
+            {
+                return;
+            }
+
             viewModel.InvalidatePackageCache();
-            viewModel.InvalidateManualPicks();
             // A fix, an edit or a choice in a mod's fix window changes what the check flags.
             viewModel.InvalidateCheckCache();
-            _ = viewModel.RecomputeChecksAsync();
+            viewModel.ConflictInputsChanged();
             // A mod deleted from the Library greys its row; a missing one imported again takes it back.
             viewModel.SyncQueueWithLibrary();
             // A mod updated or re-imported since the installed merge was built needs another one.
@@ -281,14 +285,14 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
             lock (viewModel._packageCacheLock)
             {
                 viewModel._cachedGameTableIndex = null;
+                viewModel._baseTableCache.Clear();
                 // A prebuilt pak's changes are its diff against the game data, which just changed.
                 viewModel._prebuiltPakChangesCache.Clear();
                 viewModel._prebuiltPakChangesGeneration++;
             }
 
-            viewModel.InvalidateManualPicks();
             viewModel.InvalidateCheckCache();
-            _ = viewModel.RecomputeChecksAsync();
+            viewModel.ConflictInputsChanged();
         });
 
         // Closing the app, an update or Refresh game data mid-build or mid-install: asked first.
@@ -428,20 +432,22 @@ public sealed partial class MergeInstallViewModel : ObservableObject, IcarusStar
     private DateTime _packageCacheUsedUtc;
 
     /// <summary>
-    /// Every queued mod read from disk (about 50 MB for a 25-mod queue) is let go while the app
-    /// sits unused; the next build or conflict check reads them again.
+    /// Every queued mod read from disk (about 50 MB for a 25-mod queue) and the game tables read
+    /// for the checks are let go while the app sits unused; the next build or conflict check reads
+    /// them again. The prebuilt paks' diffs are kept: they're small, and each one costs an UnrealPak
+    /// unpack to make again (they go when the game data changes).
     /// </summary>
     public bool ReleaseIfIdle(TimeSpan idleFor)
     {
         lock (_packageCacheLock)
         {
-            if ((_packageCache.Count == 0 && _prebuiltPakChangesCache.Count == 0 && _cachedGameTableIndex is null) || DateTime.UtcNow - _packageCacheUsedUtc < idleFor)
+            if ((_packageCache.Count == 0 && _baseTableCache.Count == 0 && _cachedGameTableIndex is null) || DateTime.UtcNow - _packageCacheUsedUtc < idleFor)
             {
                 return false;
             }
 
             _packageCache.Clear();
-            _prebuiltPakChangesCache.Clear();
+            _baseTableCache.Clear();
             _cachedGameTableIndex = null;
             return true;
         }

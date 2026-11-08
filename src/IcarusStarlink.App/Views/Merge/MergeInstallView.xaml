@@ -320,10 +320,14 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <ProgressBar Grid.Column="0" Minimum="0" Maximum="100" Value="{Binding RebuildProgressPercent, Mode=OneWay}" VerticalAlignment="Center"/>
                     <TextBlock Grid.Column="1" Text="{Binding RebuildStageText}" Margin="10,0,0,0" VerticalAlignment="Center"
                                Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+                    <Button Grid.Column="2" Content="Cancel" Command="{Binding CancelBuildCommand}" Margin="10,0,0,0"
+                            AutomationProperties.Name="Cancel the build"
+                            ToolTip="Stops the build. Nothing is installed, and the game keeps the mods it has now."/>
                 </Grid>
 
                 <!-- The last build's warnings and notes: only shown when there are some, open so

@@ -195,8 +195,7 @@ public sealed partial class MergeInstallViewModel
             IReadOnlyDictionary<string, JsonObject>? baseTablesByFile = null;
             try
             {
-                var requiredFiles = modChangesByFolder.Values.SelectMany(c => c).Select(c => c.CurrentFile).Distinct();
-                baseTablesByFile = _rebuildService.ReadKeyedBaseTables(requiredFiles, _dataFolder, new MergeReport());
+                baseTablesByFile = BaseTablesFor(modChangesByFolder.Values.SelectMany(c => c).Select(c => c.CurrentFile));
             }
             catch (Exception)
             {

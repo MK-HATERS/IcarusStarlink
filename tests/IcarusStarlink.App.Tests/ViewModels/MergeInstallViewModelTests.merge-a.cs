@@ -1,11 +1,14 @@
 using System.IO;
+using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.Messaging;
 using IcarusStarlink.App.Messages;
 using IcarusStarlink.App.ViewModels;
 using IcarusStarlink.Core.Library;
 using IcarusStarlink.Core.Profiles;
+using IcarusStarlink.Diffing;
 using IcarusStarlink.PakIO;
 using IcarusStarlink.PakIO.Install;
+using IcarusStarlink.PakIO.Rebuild;
 
 namespace IcarusStarlink.App.Tests.ViewModels;
 
@@ -542,5 +545,409 @@ public sealed partial class MergeInstallViewModelTests
         Assert.Equal("ModB", store.Load("Coop").ConflictWinners["Other|Row|Field"]);
         Assert.Equal("ModB", store.Load("Coop").ConflictWinners[CraftTimeWinnerKey]);
         Assert.Contains("changed while checking", vm.ConflictStatusMessage);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The conflict badge's game tables and pak diffs are read once, and option changes wait
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>Every conflict check used to read and parse every game table the queue touches again (24 MB for a big profile).</summary>
+    [Fact]
+    public async Task ConflictCheck_ReadsEachBaseTableOnce_UntilTheGameDataChanges()
+    {
+        var (library, settings) = TwoConflictingMods();
+        var reads = 0;
+        var rebuild = new FakeRebuildService
+        {
+            ReadKeyedBaseTablesHandler = (_, _, _) =>
+            {
+                Interlocked.Increment(ref reads);
+                return BuildSmelterRecipeBaseTables();
+            },
+        };
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, settingsService: settings);
+        vm.Queue.Add(library.AllEntries[0]);
+        vm.Queue.Add(library.AllEntries[1]);
+
+        await vm.RecomputeConflictCountAsync();
+        await vm.RecomputeConflictCountAsync();
+
+        Assert.Equal(1, Volatile.Read(ref reads));
+        Assert.Equal(1, vm.ConflictCount);
+
+        _messenger.Send(new WeeklyChangeReportUpdatedMessage());
+        await vm.RecomputeConflictCountAsync();
+
+        Assert.Equal(2, Volatile.Read(ref reads));
+        Assert.Equal(1, vm.ConflictCount);
+    }
+
+    /// <summary>A boost change used to start a full conflict check at once, skipping the debounce (five of them on one profile switch).</summary>
+    [Fact]
+    public void ChangingABoost_RestartsTheDebounce_RatherThanRecountingInline()
+    {
+        var vm = CreateViewModel();
+        Assert.False(vm.IsRecomputeDebouncePending);
+
+        vm.SpeedBoost = BoostLevel.Level1;
+
+        Assert.True(vm.IsRecomputeDebouncePending);
+    }
+
+    /// <summary>Two idle minutes used to throw away every prebuilt pak's diff, so the next change ran UnrealPak on each one again.</summary>
+    [Fact]
+    public async Task ReleaseIfIdle_KeepsThePrebuiltPakDiffs()
+    {
+        var (library, settings) = TwoConflictingMods();
+        var pakFolder = CreateOpaquePakFolder("SomePak");
+        library.FolderPaths["SomePak"] = pakFolder;
+        var rebuild = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables() };
+        rebuild.PrebuiltPakChanges[Path.Combine(pakFolder, "Prebuilt.pak")] =
+            [new FieldChange("Crafting-D_ProcessorRecipes.json", "SmelterRecipe", "CraftTime", JsonValue.Create(3), JsonValue.Create(42), ValueSemantic.Scalar)];
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, settingsService: settings);
+        vm.Queue.Add(MakeEntry("SomePak", isOpaquePak: true));
+        vm.Queue.Add(library.AllEntries[0]);
+
+        await vm.RecomputeConflictCountAsync();
+        Assert.Equal(1, rebuild.PrebuiltPakDiffCount);
+        Assert.True(vm.ReleaseIfIdle(TimeSpan.Zero));
+        await vm.RecomputeConflictCountAsync();
+
+        Assert.Equal(1, rebuild.PrebuiltPakDiffCount);
+        Assert.Equal(1, vm.ConflictCount);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The build's own Library import
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The build's own pak landing in the Library used to be handled like an outside change: every
+    /// queued mod was read again and the conflict check run again. An edit that leaves a mod's
+    /// fingerprint as it was shows that the cache survived.
+    /// </summary>
+    [Fact]
+    public async Task Rebuild_ItsOwnLibraryImport_KeepsThePackageCache()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA"), MakeEntry("ModB")] };
+        library.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        library.FolderPaths["ModB"] = CreateExmodFolder("ModB", BuildCraftTimeExmodJson("ModB", craftTime: 5), out var modBExmodPath);
+        var rebuild = new FakeRebuildService { ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables() };
+        var settings = new FakeSettingsService();
+        settings.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, settingsService: settings);
+        vm.Queue.Add(library.AllEntries[0]);
+        vm.Queue.Add(library.AllEntries[1]);
+        await vm.RecomputeConflictCountAsync();
+        Assert.Equal(0, vm.ConflictCount);
+        var writeUtc = File.GetLastWriteTimeUtc(modBExmodPath);
+        File.WriteAllText(modBExmodPath, BuildCraftTimeExmodJson("ModB", craftTime: 99));
+        File.SetLastWriteTimeUtc(modBExmodPath, writeUtc);
+
+        Assert.True(await vm.RebuildAsync());
+        Assert.Equal(1, library.ImportPakCallCount);
+        await vm.RecomputeConflictCountAsync();
+
+        Assert.Equal(0, vm.ConflictCount);
+    }
+
+    /// <summary>After a restart, Copy to game used to import the staged pak into the Library again although the Library already had that same build.</summary>
+    [Fact]
+    public async Task CopyToGame_AfterARestart_DoesNotImportTheSameBuildAgain()
+    {
+        var settings = new FakeSettingsService();
+        var (contentPath, _) = MakeGameContent();
+        settings.Current.IcarusContentPath = contentPath;
+        var built = MakeEntry("IcarusStarlink-Merged", isOpaquePak: true);
+        built.MergedPackModNames = [];
+        var library = new FakeLibraryRepository { AllEntries = [built] };
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(libraryRepository: library, installService: install, settingsService: settings);
+        var copyFolder = Path.Combine(_tempRoot, "Mods", "IcarusStarlink-Merged");
+        Directory.CreateDirectory(copyFolder);
+        File.Copy(Path.Combine(_tempRoot, "Staged", "IcarusStarlink-Merged.pak"), Path.Combine(copyFolder, "IcarusStarlink-Merged.pak"));
+        library.FolderPaths["IcarusStarlink-Merged"] = copyFolder;
+        _dialogs.OnConfirm = (_, _) => true;
+
+        await vm.CopyToGameCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, install.InstallCallCount);
+        Assert.Equal(0, library.ImportPakCallCount);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // A Find the broken mod round isn't the player's build
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// A round used to replace the Library's built pack with the round's half queue, and warn that
+    /// saved picks "no longer match" because their partner mods were out for the round.
+    /// </summary>
+    [Fact]
+    public async Task FindBrokenRound_IsNotFiledAsYourBuild()
+    {
+        var library = new FakeLibraryRepository();
+        foreach (var (name, craftTime) in new[] { ("ModA", 5), ("ModB", 99), ("ModC", 7) })
+        {
+            library.FolderPaths[name] = CreateExmodFolder(name, BuildCraftTimeExmodJson(name, craftTime), out _);
+            library.AllEntries.Add(MakeEntry(name));
+        }
+
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Default", MergeQueueFolderNames = ["ModA", "ModB", "ModC"], ConflictWinners = new() { [CraftTimeWinnerKey] = "ModA" } });
+        var settings = new FakeSettingsService();
+        settings.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        var (contentPath, _) = MakeGameContent();
+        settings.Current.IcarusContentPath = contentPath;
+        var rebuild = new FakeRebuildService
+        {
+            Result = new RebuildResult(1, 1, "out.pak", "out.manifest", [], []),
+            ReadKeyedBaseTablesHandler = (_, _, _) => BuildSmelterRecipeBaseTables(),
+        };
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, profileStore: store, settingsService: settings);
+        Assert.Equal(3, vm.Queue.Count);
+
+        Assert.Null(await vm.InstallForFinderAsync(["ModA"]));
+
+        Assert.Equal(0, library.ImportPakCallCount);
+        Assert.DoesNotContain(vm.Warnings, w => w.Contains("no longer match", StringComparison.Ordinal));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Install's file errors say what went wrong
+    // ---------------------------------------------------------------------------------------
+
+    private (MergeInstallViewModel Vm, FakeInstallService Install) InstallSetup(Exception? installError = null, bool gameRunning = false)
+    {
+        var settings = new FakeSettingsService();
+        var (contentPath, _) = MakeGameContent();
+        settings.Current.IcarusContentPath = contentPath;
+        var install = new FakeInstallService { InstallException = installError };
+        var vm = CreateViewModel(installService: install, settingsService: settings, gameRunning: gameRunning);
+        _dialogs.OnConfirm = (_, _) => true;
+        return (vm, install);
+    }
+
+    /// <summary>A full drive used to read "the pak is in use … Close Icarus, then click Copy to game", which fails the same way.</summary>
+    [Fact]
+    public async Task Install_ADriveIsFull_SaysSo_NotThatThePakIsInUse()
+    {
+        var (vm, _) = InstallSetup(new IOException("There is not enough space on the disk.", unchecked((int)0x80070070)));
+
+        Assert.Equal(MergeInstallViewModel.InstallOutcome.Failed, await vm.InstallAsync());
+
+        Assert.Contains("full", vm.InstallStatusMessage);
+        Assert.DoesNotContain("in use", vm.InstallStatusMessage);
+        Assert.True(vm.CanCopyToGame);
+    }
+
+    /// <summary>The game's drive unplugged or the game moved: the Content folder setting is what to check.</summary>
+    [Fact]
+    public async Task Install_TheGameFolderIsGone_PointsAtTheContentFolderSetting()
+    {
+        var (vm, _) = InstallSetup(new DirectoryNotFoundException(@"Could not find a part of the path 'X:\Icarus\Content\Paks\mods'."));
+
+        Assert.Equal(MergeInstallViewModel.InstallOutcome.Failed, await vm.InstallAsync());
+
+        Assert.Contains("Icarus Content folder", vm.InstallStatusMessage);
+        Assert.DoesNotContain("in use", vm.InstallStatusMessage);
+    }
+
+    /// <summary>A sharing violation is the one case where a file in the mods folder really is in use.</summary>
+    [Fact]
+    public async Task Install_AFileInUse_SaysAFileInTheModsFolderIsInUse()
+    {
+        var (vm, _) = InstallSetup(new IOException("The process cannot access the file because it is being used by another process.", unchecked((int)0x80070020)));
+
+        Assert.Equal(MergeInstallViewModel.InstallOutcome.Failed, await vm.InstallAsync());
+
+        Assert.Contains("a file in the game's mods folder is in use", vm.InstallStatusMessage);
+        Assert.Contains("Copy to game", vm.InstallStatusMessage);
+    }
+
+    /// <summary>Refused because the game runs, right after a fresh build: Copy to game saves building again.</summary>
+    [Fact]
+    public async Task Install_WhileTheGameRuns_PointsAtCopyToGame()
+    {
+        var (vm, install) = InstallSetup(gameRunning: true);
+
+        Assert.Equal(MergeInstallViewModel.InstallOutcome.NotDone, await vm.InstallAsync());
+
+        Assert.Equal(0, install.InstallCallCount);
+        Assert.Contains("Copy to game", vm.InstallStatusMessage);
+    }
+
+    /// <summary>Copy to game during a search would install the round's pak outside the finder: a round's error never suggests it.</summary>
+    [Fact]
+    public async Task FindBrokenRound_AFileInUse_DoesNotPointAtCopyToGame()
+    {
+        var (vm, _, _, install, _) = FinderSetup();
+        install.InstallException = new IOException("locked", unchecked((int)0x80070020));
+
+        var failed = await vm.InstallForFinderAsync(["ModA"]);
+
+        Assert.NotNull(failed);
+        Assert.DoesNotContain("Copy to game", failed);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Copy to game checks the staged pak is still current
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>Copy to game used to install a pak built before an Icarus update, putting the old game tables back.</summary>
+    [Fact]
+    public async Task CopyToGame_AfterAGameUpdate_IsRefused()
+    {
+        var settings = new FakeSettingsService();
+        var (contentPath, _) = MakeGameContent();
+        settings.Current.IcarusContentPath = contentPath;
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(installService: install, settingsService: settings, gameDataFreshness: new FakeGameDataFreshness { Outdated = true });
+        _dialogs.OnConfirm = (_, _) => true;
+
+        await vm.CopyToGameCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, install.InstallCallCount);
+        Assert.Contains("updated", vm.InstallStatusMessage);
+    }
+
+    /// <summary>A pak built before the last Refresh game data may hold old game tables.</summary>
+    [Fact]
+    public async Task CopyToGame_AfterRefreshGameData_IsRefused()
+    {
+        var settings = new FakeSettingsService();
+        var (contentPath, _) = MakeGameContent();
+        settings.Current.IcarusContentPath = contentPath;
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(installService: install, settingsService: settings);
+        settings.Current.LastDataFolderUpdatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+        _dialogs.OnConfirm = (_, _) => true;
+
+        await vm.CopyToGameCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, install.InstallCallCount);
+        Assert.Contains("refreshed", vm.InstallStatusMessage);
+    }
+
+    /// <summary>After a profile switch, Copy to game's question says which profile the staged pak was built from.</summary>
+    [Fact]
+    public async Task CopyToGame_AfterAProfileSwitch_NamesTheProfileThePakWasBuiltFrom()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA")] };
+        library.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        var settings = new FakeSettingsService();
+        settings.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        var (contentPath, _) = MakeGameContent();
+        settings.Current.IcarusContentPath = contentPath;
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", MergeQueueFolderNames = ["ModA"] });
+        store.Save(new Profile { Name = "Solo" });
+        var vm = CreateViewModel(libraryRepository: library, profileStore: store, settingsService: settings);
+        vm.SelectedProfileName = "Coop";
+        Assert.True(await vm.RebuildAsync());
+        vm.SelectedProfileName = "Solo";
+        string? question = null;
+        _dialogs.OnConfirm = (text, _) =>
+        {
+            question = text;
+            return false;
+        };
+
+        await vm.CopyToGameCommand.ExecuteAsync(null);
+
+        Assert.Contains("built from profile 'Coop'", question);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Queue buttons and the merge option pills
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>Move up, Move down and Remove used to look enabled with nothing selected, and did nothing.</summary>
+    [Fact]
+    public void QueueButtons_NeedASelectedRow()
+    {
+        var vm = CreateViewModel();
+        vm.Queue.Add(MakeEntry("ModA"));
+        vm.Queue.Add(MakeEntry("ModB"));
+
+        Assert.False(vm.RemoveFromQueueCommand.CanExecute(null));
+        Assert.False(vm.MoveQueueEntryUpCommand.CanExecute(null));
+        Assert.False(vm.MoveQueueEntryDownCommand.CanExecute(null));
+
+        vm.SelectedQueueEntry = vm.Queue[0];
+        Assert.True(vm.RemoveFromQueueCommand.CanExecute(null));
+        Assert.False(vm.MoveQueueEntryUpCommand.CanExecute(null));
+        Assert.True(vm.MoveQueueEntryDownCommand.CanExecute(null));
+
+        vm.Queue.Move(0, 1);
+        Assert.True(vm.MoveQueueEntryUpCommand.CanExecute(null));
+        Assert.False(vm.MoveQueueEntryDownCommand.CanExecute(null));
+    }
+
+    /// <summary>
+    /// A profile's Stacks x2.5 shows as Off, but clicking the highlighted Off pill changed no
+    /// selection, so x2.5 stayed in the summary and every build until another pill was clicked first.
+    /// </summary>
+    [Fact]
+    public void ClickingTheHighlightedPill_DropsAKeptMultiplier()
+    {
+        var store = new FakeProfileStore();
+        store.Save(new Profile { Name = "Coop", Options = new GameplayOptions { StacksMultiplier = 2.5, SlotsMultiplier = 3 } });
+        var vm = CreateViewModel(profileStore: store);
+        vm.SelectedProfileName = "Coop";
+        Assert.Equal(MultiplierLevel.Off, vm.StacksMultiplierLevel);
+        Assert.Contains("Stacks x2.5", vm.ActiveOptionsSummary);
+
+        vm.UsePillInsteadOfKeptMultiplier(slots: false);
+        vm.SaveWorkingState();
+
+        Assert.DoesNotContain("Stacks", vm.ActiveOptionsSummary);
+        var saved = store.Load("Coop").Options;
+        Assert.Null(saved.StacksMultiplier);
+        Assert.Equal(3, saved.SlotsMultiplier);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Cancel a build
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// A build couldn't be stopped: a hung UnrealPak kept the page on "Rebuilding…" with Install
+    /// refused until it was killed by hand. Cancel stops it, and nothing is installed.
+    /// </summary>
+    [Fact]
+    public async Task CancelDuringABuild_StopsIt_AndInstallsNothing()
+    {
+        var library = new FakeLibraryRepository { AllEntries = [MakeEntry("ModA")] };
+        library.FolderPaths["ModA"] = CreateExmodFolder("ModA", BuildCraftTimeExmodJson("ModA", craftTime: 5), out _);
+        var settings = new FakeSettingsService();
+        settings.Current.UnrealPakExePath = @"C:\fake\UnrealPak.exe";
+        var (contentPath, _) = MakeGameContent();
+        settings.Current.IcarusContentPath = contentPath;
+        var rebuild = new FakeRebuildService();
+        var install = new FakeInstallService();
+        var vm = CreateViewModel(libraryRepository: library, rebuildService: rebuild, installService: install, settingsService: settings);
+        vm.Queue.Add(library.AllEntries[0]);
+        _dialogs.OnConfirm = (_, _) => true;
+        Assert.False(vm.CancelBuildCommand.CanExecute(null));
+        var couldCancel = false;
+        rebuild.DuringRebuild = () =>
+        {
+            // UnrealPak is stopped when the token is cancelled (ProcessRunner); the fake throws as it would.
+            couldCancel = vm.CancelBuildCommand.CanExecute(null);
+            vm.CancelBuildCommand.Execute(null);
+            rebuild.LastCancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        };
+
+        await vm.RebuildAndInstallCommand.ExecuteAsync(null);
+
+        Assert.True(couldCancel);
+        Assert.Equal(1, rebuild.RebuildCallCount);
+        Assert.Equal(0, install.InstallCallCount);
+        Assert.Equal(0, library.ImportPakCallCount);
+        Assert.Contains("cancelled", vm.StatusMessage);
+        Assert.False(vm.IsRebuilding);
+        Assert.False(vm.CancelBuildCommand.CanExecute(null));
     }
 }

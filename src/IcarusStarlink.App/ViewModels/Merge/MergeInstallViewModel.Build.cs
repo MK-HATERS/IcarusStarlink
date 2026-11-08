@@ -23,9 +23,20 @@ public sealed partial class MergeInstallViewModel
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsNotRebuilding), nameof(IsInstallIdle))]
+    [NotifyCanExecuteChangedFor(nameof(CancelBuildCommand))]
     private bool _isRebuilding;
 
     public bool IsNotRebuilding => !IsRebuilding;
+
+    /// <summary>Cancels the build that runs now; null when none runs. Set and cleared on the UI thread.</summary>
+    private CancellationTokenSource? _buildCancellation;
+
+    /// <summary>
+    /// Cancel next to a running build's progress bar: the build stops (UnrealPak is stopped too)
+    /// and nothing is installed. For a build that takes too long, or an UnrealPak that hangs.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(IsRebuilding))]
+    private void CancelBuild() => _buildCancellation?.Cancel();
 
     [ObservableProperty]
     private int _rebuildProgressPercent;
@@ -122,20 +133,25 @@ public sealed partial class MergeInstallViewModel
         IsRebuilding = true;
         // The staged pak is about to be replaced: whatever the Library holds is of the old one.
         _builtPackInLibrary = false;
+        using var cancellation = new CancellationTokenSource();
+        _buildCancellation = cancellation;
+        var cancel = cancellation.Token;
         try
         {
             // The merge writes whole tables from the extracted game data: built after a game update
             // but before Refresh game data, it puts the old version of every table a mod touches back
             // into the game, undoing the update there.
-            if (!await EnsureGameDataCurrentAsync())
+            if (!await EnsureGameDataCurrentAsync(cancel))
             {
                 return false;
             }
 
+            cancel.ThrowIfCancellationRequested();
+
             // Everything this build is made from, taken once: a queue, profile or option change made
             // while it runs (from the Library's ON box, say) can't change which mod a conflict pick
             // means, what's merged, what's logged or which profile the built pack is filed under.
-            var snapshot = TakeSnapshot();
+            var snapshot = TakeSnapshot(forBuild: true);
             if (snapshot.Queue.Count == 0 && !snapshot.Options.IsAnyActive)
             {
                 StatusMessage = "Add at least one mod to the queue, or enable a gameplay option, first.";
@@ -186,6 +202,7 @@ public sealed partial class MergeInstallViewModel
             // Before the mods are read, so a change made while the build runs counts as "Changed".
             var builtFrom = await FingerprintQueueAsync(snapshot.Queue);
             var loaded = await LoadQueuedPackagesAsync(snapshot.Queue);
+            cancel.ThrowIfCancellationRequested();
             foreach (var gone in loaded.SkippedMissing)
             {
                 Warnings.Add($"'{gone.Name}' is in this profile but not in your Library, so it is NOT part of this build. Import it again, or remove it from the queue.");
@@ -226,7 +243,9 @@ public sealed partial class MergeInstallViewModel
             });
 
             var (picks, unmatchedPicks) = await ResolveWinnerPicksAsync(snapshot, loaded);
-            if (unmatchedPicks > 0)
+            cancel.ThrowIfCancellationRequested();
+            // A Find the broken mod round leaves mods out, so a winner whose partner is out can't match.
+            if (unmatchedPicks > 0 && _finderOnly is null)
             {
                 Warnings.Add(
                     $"{unmatchedPicks} saved conflict pick(s) no longer match what the queued mods change (a mod was updated or reordered into agreement), so they weren't used. "
@@ -240,7 +259,9 @@ public sealed partial class MergeInstallViewModel
                 picks?.Count ?? 0, picks?.Select(p => $"{p.Key.CurrentFile}/{p.Key.ItemName}.{p.Key.FieldName}=#{p.Value}"), snapshot.OptionsSummary);
             var result = await _rebuildService.RebuildAsync(
                 loaded.Packages, snapshot.Options, _dataFolder, snapshot.UnrealPakExePath, _outputPakPath, loaded.PrebuiltPakFilePaths, picks, progress,
-                lowPriorityPackages: lowPriority, prebuiltPakQueuePositions: loaded.PrebuiltPakQueuePositions);
+                cancellationToken: cancel, lowPriorityPackages: lowPriority, prebuiltPakQueuePositions: loaded.PrebuiltPakQueuePositions);
+            // Cancel pressed as the build finished: still nothing goes in the game.
+            cancel.ThrowIfCancellationRequested();
 
             var foldedInCount = loaded.PrebuiltPakFilePaths.Count;
             var prebuiltNote = foldedInCount > 0 ? $", {foldedInCount} prebuilt pak(s) folded in" : "";
@@ -267,20 +288,34 @@ public sealed partial class MergeInstallViewModel
 
             // The import is bookkeeping AFTER a verified pak exists, so its own failure (a locked
             // ISL-Merged folder, antivirus) is a warning, never "Rebuild failed" with Install
-            // withheld (Install tries it again).
+            // withheld (Install tries it again). A Find the broken mod round's pak (part of the
+            // queue) isn't the player's build: the Library keeps their own built pack.
             _stagedBuildProfileName = snapshot.ProfileName;
-            try
+            _stagedIsFinderRound = _finderOnly is not null;
+            if (!_stagedIsFinderRound)
             {
-                ImportBuiltPakKeepingPicks(snapshot.ProfileName);
-            }
-            catch (Exception ex)
-            {
-                Warnings.Add($"The built pack couldn't be added to your Library ({ex.Message}) — the pak itself is fine and can still be installed.");
+                try
+                {
+                    await ImportBuiltPakIntoLibraryAsync(snapshot.ProfileName);
+                }
+                catch (Exception ex)
+                {
+                    Warnings.Add($"The built pack couldn't be added to your Library ({ex.Message}) — the pak itself is fine and can still be installed.");
+                }
             }
 
             var pickNote = picks is { Count: > 0 } ? $", {picks.Count} conflict(s) won by your pick" : "";
             _activityLog.Log($"Rebuilt pack with {snapshot.Queue.Count} mod(s) — {result.PackedFileCount} files packed{pickNote}.", ActivityEntryKind.Success);
             return true;
+        }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+        {
+            StatusMessage = "Build cancelled. Nothing was installed, and the game still has what it had.";
+            RebuildStageText = null;
+            _activityLog.Log("Build cancelled.", ActivityEntryKind.Info);
+            // What's in Staged_Build now may be half made: Copy to game doesn't offer it (as after a failed build).
+            CanCopyToGame = false;
+            return false;
         }
         catch (Exception ex)
         {
@@ -297,6 +332,7 @@ public sealed partial class MergeInstallViewModel
         }
         finally
         {
+            _buildCancellation = null;
             IsRebuilding = false;
         }
     }
@@ -388,7 +424,7 @@ public sealed partial class MergeInstallViewModel
     /// data, asks to refresh first (Yes runs it, then the build goes on with the fresh data) and
     /// stops with the reason otherwise. True when the build can go ahead.
     /// </summary>
-    private async Task<bool> EnsureGameDataCurrentAsync()
+    private async Task<bool> EnsureGameDataCurrentAsync(CancellationToken cancellationToken)
     {
         if (_gameDataFreshness is null)
         {
@@ -398,7 +434,7 @@ public sealed partial class MergeInstallViewModel
         bool outdated;
         try
         {
-            outdated = await _gameDataFreshness.IsGameDataOutdatedAsync();
+            outdated = await _gameDataFreshness.IsGameDataOutdatedAsync(cancellationToken);
         }
         catch (Exception)
         {
@@ -469,9 +505,13 @@ public sealed partial class MergeInstallViewModel
 
     private bool IsBuildable(LibraryEntry entry) => !entry.IsMissingFromLibrary && !IsIslBuiltPack(entry);
 
-    private BuildSnapshot TakeSnapshot() => new(
-        // A Find the broken mod round builds only part of the queue (FindBroken.cs); the queue itself stays.
-        [.. Queue.Where(IsBuildable).Where(e => _finderOnly is null || _finderOnly.Contains(e.FolderName))],
+    /// <param name="forBuild">
+    /// The build's own snapshot: a Find the broken mod round builds only part of the queue
+    /// (FindBroken.cs). Everything else (the badge recounted during a round, Check the merge) sees
+    /// the whole queue, which stays as it is.
+    /// </param>
+    private BuildSnapshot TakeSnapshot(bool forBuild = false) => new(
+        [.. Queue.Where(IsBuildable).Where(e => !forBuild || _finderOnly is null || _finderOnly.Contains(e.FolderName))],
         [.. Queue.Where(e => e.IsMissingFromLibrary).Select(e => e.Name)],
         BuildGameplayOptionsFromUi(),
         ActiveOptionsSummary,
@@ -480,43 +520,95 @@ public sealed partial class MergeInstallViewModel
         SelectedProfileName ?? "Default",
         _settingsService.Current.UnrealPakExePath ?? "");
 
-    /// <summary>
-    /// Imports the just-built pak into Library so it's a real, inspectable, re-mountable entry the
-    /// moment it exists — not only after a full Install. Build and Install (Copy to game) are two
-    /// genuinely separate steps under the hood already (RebuildAsync only ever writes to this app's
-    /// own Staged_Build folder; InstallAsync is the one thing that touches the real game folder,
-    /// gated behind its own confirmation) — this closes the one gap that made Build not feel like
-    /// its own first-class result: previously the pak only became a Library entry after a successful
-    /// Install, so a build the user didn't (yet) choose to install had nowhere to be seen or reused
-    /// from later.
-    ///
-    /// "Replace, not accumulate": ImportPak would otherwise derive a fresh "_2"/"_3"-suffixed folder
-    /// name every time (its own collision-avoidance rule), leaving one stale Library entry behind
-    /// per build instead of one that stays current.
-    /// </summary>
     /// <summary>The profile the staged pak was built from (this session); null when it was built before the app started.</summary>
     private string? _stagedBuildProfileName;
 
     /// <summary>Whether the staged pak is already the Library's built pack (the build imported it, or an install after it did).</summary>
     private bool _builtPackInLibrary;
 
+    /// <summary>The staged pak is a Find the broken mod round's (part of the queue): it never goes in the Library.</summary>
+    private bool _stagedIsFinderRound;
+
     /// <summary>
-    /// ImportBuiltPakIntoLibrary without losing the conflict status line. The import sends
-    /// LibraryChangedMessage, and this VM's own handler for that message clears the line (right
-    /// for an outside change to a queued mod, wrong here, where the only change is the app's own
-    /// built pack landing in the Library), so the line is carried across it.
+    /// True while this page sends LibraryChangedMessage for its own built pack landing in the
+    /// Library: that changes no queued mod, pick or check, so this page's own handler keeps its
+    /// caches and conflict line (the other pages still reload on the message).
     /// </summary>
-    private void ImportBuiltPakKeepingPicks(string profileName)
+    private bool _sendingOwnBuiltPackChange;
+
+    /// <summary>
+    /// Imports the just-built pak into the Library, so a build is an entry there the moment it
+    /// exists, installed or not. Off the UI thread: it deletes the previous built pack and copies
+    /// the merged pak (100+ MB). The repository is safe to read meanwhile, and this page refuses
+    /// its own edits while it builds or installs.
+    ///
+    /// "Replace, not accumulate": ImportPak would otherwise derive a fresh "_2"/"_3"-suffixed folder
+    /// name every time (its own collision-avoidance rule), leaving one stale Library entry behind
+    /// per build instead of one that stays current.
+    /// </summary>
+    /// <param name="profileName">
+    /// "Default" when none was selected (RebuildAsync's own auto-save uses the same effective name,
+    /// without changing SelectedProfileName itself); for a build, the profile the build started
+    /// from, not whatever is selected by the time it finishes.
+    /// </param>
+    private async Task ImportBuiltPakIntoLibraryAsync(string profileName)
     {
-        var pickStatusBeforeImport = ConflictStatusMessage;
+        var outputPak = _outputPakPath;
+        await Task.Run(() =>
+        {
+            // The built pack under the merged pak's other names is replaced too.
+            foreach (var legacy in InstallManifestNames.AllMergedPakFileNames.Select(Path.GetFileNameWithoutExtension))
+            {
+                if (_libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, legacy, StringComparison.OrdinalIgnoreCase)) is { IsOpaquePak: true } old
+                    && old.MergedPackModNames is not null)
+                {
+                    _libraryRepository.Delete(old.FolderName);
+                }
+            }
+
+            var builtFolderName = Path.GetFileNameWithoutExtension(outputPak);
+            if (_libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, builtFolderName, StringComparison.OrdinalIgnoreCase)) is { } existing)
+            {
+                _libraryRepository.Delete(existing.FolderName);
+            }
+
+            _libraryRepository.ImportPak(outputPak, mergedPackProfileName: profileName);
+        });
+
+        _builtPackInLibrary = true;
+        _sendingOwnBuiltPackChange = true;
         try
         {
-            ImportBuiltPakIntoLibrary(profileName);
-            _builtPackInLibrary = true;
+            _messenger.Send(new LibraryChangedMessage());
         }
         finally
         {
-            ConflictStatusMessage = pickStatusBeforeImport;
+            _sendingOwnBuiltPackChange = false;
+        }
+    }
+
+    /// <summary>
+    /// The Library's built pack is a copy of the staged pak (same size and time written; the
+    /// import's File.Copy keeps the time), so there's nothing to import again (after a restart
+    /// _builtPackInLibrary starts false).
+    /// </summary>
+    private bool LibraryHasThisBuild()
+    {
+        var folder = Path.GetFileNameWithoutExtension(_outputPakPath);
+        if (_libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, folder, StringComparison.OrdinalIgnoreCase)) is not { MergedPackModNames: not null } built)
+        {
+            return false;
+        }
+
+        try
+        {
+            var copy = new FileInfo(Path.Combine(_libraryRepository.GetFolderPath(built.FolderName), Path.GetFileName(_outputPakPath)));
+            var staged = new FileInfo(_outputPakPath);
+            return copy.Exists && staged.Exists && copy.Length == staged.Length && copy.LastWriteTimeUtc == staged.LastWriteTimeUtc;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 
@@ -527,30 +619,5 @@ public sealed partial class MergeInstallViewModel
         return _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, builtFolderName, StringComparison.OrdinalIgnoreCase)) is { MergedPackModNames: not null } built
             ? built.Author
             : null;
-    }
-
-    private void ImportBuiltPakIntoLibrary(string profileName)
-    {
-        // The built pack under the merged pak's other names is replaced too.
-        foreach (var legacy in InstallManifestNames.AllMergedPakFileNames.Select(Path.GetFileNameWithoutExtension))
-        {
-            if (_libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, legacy, StringComparison.OrdinalIgnoreCase)) is { IsOpaquePak: true } old
-                && old.MergedPackModNames is not null)
-            {
-                _libraryRepository.Delete(old.FolderName);
-            }
-        }
-
-        var builtFolderName = Path.GetFileNameWithoutExtension(_outputPakPath);
-        var existing = _libraryRepository.GetAll().FirstOrDefault(e => string.Equals(e.FolderName, builtFolderName, StringComparison.OrdinalIgnoreCase));
-        if (existing is not null)
-        {
-            _libraryRepository.Delete(existing.FolderName);
-        }
-        // profileName is "Default" when none was selected (RebuildAsync's own auto-save uses the same
-        // effective name, without changing SelectedProfileName itself), and for a build it's the
-        // profile the build started from, not whatever is selected by the time it finishes.
-        _libraryRepository.ImportPak(_outputPakPath, mergedPackProfileName: profileName);
-        _messenger.Send(new LibraryChangedMessage());
     }
 }

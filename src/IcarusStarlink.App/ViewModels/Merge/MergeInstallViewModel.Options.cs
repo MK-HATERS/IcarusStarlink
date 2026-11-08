@@ -83,16 +83,15 @@ public sealed partial class MergeInstallViewModel
     private static string ShortLabel(object level) =>
         (string)LevelLabelConverter.Convert(level, typeof(string), null, CultureInfo.InvariantCulture);
 
-    // Speed/Player/XP Boost, Disable Temperatures and Remove Level Cap (Category 1, the ones that
-    // are a real FieldChange) also clear the conflict line and recount the badge: toggling one
-    // changes what the "Built-in gameplay options" entry takes part in. Category 2 options (Craft
-    // Cost, Stacks/Slots multiplier, ...) are their own post-merge pass and only need the summary
-    // refresh, not a conflict recount.
-    partial void OnSpeedBoostChanged(BoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
-    partial void OnPlayerBoostChanged(BoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
-    partial void OnXpBoostChanged(XpBoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
-    partial void OnDisableTemperaturesChanged(bool value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
-    partial void OnRemoveLevelCapChanged(bool value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); InvalidateManualPicks(); }
+    // Speed/Player/XP Boost, Disable Temperatures and Remove Level Cap (Category 1: real field
+    // changes) change whether the "Built-in gameplay options" entry takes part in conflicts, so they
+    // recount the badge (debounced). Category 2 options are a separate pass after the merge and only
+    // refresh the summary.
+    partial void OnSpeedBoostChanged(BoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); ConflictInputsChanged(); }
+    partial void OnPlayerBoostChanged(BoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); ConflictInputsChanged(); }
+    partial void OnXpBoostChanged(XpBoostLevel value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); ConflictInputsChanged(); }
+    partial void OnDisableTemperaturesChanged(bool value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); ConflictInputsChanged(); }
+    partial void OnRemoveLevelCapChanged(bool value) { OnPropertyChanged(nameof(ActiveOptionsSummary)); ConflictInputsChanged(); }
     partial void OnCraftCostChanged(CraftCostReduction value) => OnPropertyChanged(nameof(ActiveOptionsSummary));
     partial void OnStacksMultiplierLevelChanged(MultiplierLevel value) { KeepUnlessApplying(ref _keptStacksMultiplier); OnPropertyChanged(nameof(ActiveOptionsSummary)); }
     partial void OnSlotsMultiplierLevelChanged(MultiplierLevel value) { KeepUnlessApplying(ref _keptSlotsMultiplier); OnPropertyChanged(nameof(ActiveOptionsSummary)); }
