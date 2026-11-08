@@ -109,7 +109,8 @@ public partial class SearchGameDataWindow : Window
     /// </summary>
     private void ResultsListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (ResultsListBox.SelectedItem is not ResultRow row)
+        // Only a double-click on a row opens it (not one on the scrollbar or empty space).
+        if (!ListDoubleClick.IsOnItem(ResultsListBox, e) || ResultsListBox.SelectedItem is not ResultRow row)
         {
             return;
         }

@@ -74,7 +74,14 @@ public partial class PickGameItemDialog : Window
         DialogResult = true;
     }
 
-    private void ItemsListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e) => Add_Click(sender, e);
+    /// <summary>Only a double-click on a row adds it (not one on the scrollbar or empty space).</summary>
+    private void ItemsListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (ListDoubleClick.IsOnItem(ItemsListBox, e))
+        {
+            Add_Click(sender, e);
+        }
+    }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
 }
