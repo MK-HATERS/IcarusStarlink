@@ -2,7 +2,7 @@ namespace IcarusStarlink.App.ViewModels;
 
 /// <summary>
 /// The mod editor's Undo/Redo: whole-mod snapshots, taken before each discrete structural action
-/// (Add/Remove field, Add item, Duplicate, mass edit, a raw-JSON Apply, Apply rules) and before
+/// (Add/Remove field, Add item, Duplicate, mass edit, Apply rules) and before
 /// the first write to a field after anything else happened — deliberately NOT per keystroke, so
 /// Undo takes back one meaningful change instead of one character. Each entry is a full
 /// serialized copy of the mod, never a reference: JsonNode/ExmodPackage are mutable, so anything

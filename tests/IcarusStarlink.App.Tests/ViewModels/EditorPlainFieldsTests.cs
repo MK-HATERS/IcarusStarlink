@@ -198,7 +198,7 @@ public sealed class EditorPlainFieldsTests : IDisposable
         GC.KeepAlive(page);
     }
 
-    /// <summary>A review finding: the game value came from a cache of differing fields, so after an edit and reselect "game:" showed the mod's own value.</summary>
+    /// <summary>Regression:the game value came from a cache of differing fields, so after an edit and reselect "game:" showed the mod's own value.</summary>
     [Fact]
     public void TheGameValue_StaysTheGames_AfterEditingAndReselecting()
     {
@@ -212,7 +212,7 @@ public sealed class EditorPlainFieldsTests : IDisposable
         Assert.True(Field(editor, "Weight").IsChanged);
     }
 
-    /// <summary>A review finding: a stat box being typed into (not a number yet) was saved as 0 when another stat changed.</summary>
+    /// <summary>Regression:a stat box being typed into (not a number yet) was saved as 0 when another stat changed.</summary>
     [Fact]
     public void AStatBeingTyped_KeepsItsLastGoodValue_WhenAnotherStatChanges()
     {
@@ -226,7 +226,7 @@ public sealed class EditorPlainFieldsTests : IDisposable
         Assert.Equal(15, JsonNode.Parse(stats.ValueText)!["(Value=\"BaseColdResistance_%\")"]!.GetValue<long>());
     }
 
-    /// <summary>A review finding: emptying a number box wrote null, taking the field out of the mod without a word.</summary>
+    /// <summary>Regression:emptying a number box wrote null, taking the field out of the mod without a word.</summary>
     [Fact]
     public void EmptyingANumberBox_IsAnError_NotARemoval()
     {
@@ -251,7 +251,7 @@ public sealed class EditorPlainFieldsTests : IDisposable
         Assert.Equal(1, row.ChangeCount);
     }
 
-    /// <summary>A review finding: closing the editor threw typed changes away without a word.</summary>
+    /// <summary>Regression:closing the editor threw typed changes away without a word.</summary>
     [Fact]
     public void Closing_WithUnsavedChanges_AsksSaveDontSaveOrCancel()
     {
@@ -293,7 +293,7 @@ public sealed class EditorPlainFieldsTests : IDisposable
         Assert.False(editor.ConfirmClose()); // the save didn't happen: stays open with the reason showing
     }
 
-    /// <summary>A review finding: Undo restored the snapshot from before the last structural action, wiping values typed since.</summary>
+    /// <summary>Regression:Undo restored the snapshot from before the last structural action, wiping values typed since.</summary>
     [Fact]
     public void Undo_TakesBackTypingFirst_ThenTheActionBeforeIt()
     {
@@ -364,7 +364,7 @@ public sealed class EditorPlainFieldsTests : IDisposable
         Assert.Equal(1, row.ChangeCount);
     }
 
-    /// <summary>A review finding: typing in the filter box lost the selection and emptied the Fields pane.</summary>
+    /// <summary>Regression:typing in the filter box lost the selection and emptied the Fields pane.</summary>
     [Fact]
     public void Filtering_KeepsTheSelectedItem_WhileItStillShows()
     {
@@ -384,7 +384,7 @@ public sealed class EditorPlainFieldsTests : IDisposable
         Assert.Null(editor.SelectedItem);
     }
 
-    /// <summary>A review finding: the Editor page saving into a mod open here was silently overwritten by this window's next Save.</summary>
+    /// <summary>Regression:the Editor page saving into a mod open here was silently overwritten by this window's next Save.</summary>
     [Fact]
     public void Save_WhenTheModChangedElsewhere_WarnsFirst_ThenOverwritesOnASecondSave()
     {

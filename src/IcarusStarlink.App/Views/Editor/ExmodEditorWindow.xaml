@@ -523,7 +523,7 @@
                         Visibility="{Binding HasSaved, Converter={StaticResource BoolToVisibilityConverter}}"
                         ToolTip="Ticks this mod ON (adds it to the merge queue) and opens Merge &amp; Install, where Install puts it in the game"/>
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Undo (Ctrl+Z)" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" Margin="8,0,0,0"
-                        ToolTip="Takes back the last change: adding or removing a field, adding or duplicating an item, a mass edit, or applying raw JSON (not each key you type). Greyed out: nothing to undo yet."
+                        ToolTip="Takes back the last change: a value you typed, adding, renaming or taking out rows and fields, a mass edit, or Apply rules. Greyed out: nothing to undo yet."
                         ToolTipService.ShowOnDisabled="True"/>
                 <Button DockPanel.Dock="Left" VerticalAlignment="Top" Content="Redo (Ctrl+Y)" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" Margin="8,0,0,0"
                         ToolTip="Puts back what Undo just took away. Greyed out: nothing undone, or a new change since."
