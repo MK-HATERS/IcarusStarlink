@@ -47,7 +47,7 @@ public sealed partial class LocalServerViewModel
 
         if (Running is { } r)
         {
-            UptimeTile = FormatUptime(DateTime.Now - r.StartTime);
+            UptimeTile = FormatUptime(Clock() - r.StartTime);
             UptimeHint = $"started {r.StartTime:HH:mm}";
             MemoryTile = _memoryBytes is { } b ? $"{b / (1024.0 * 1024 * 1024):0.0} GB" : "-";
             MemoryHint = $"PID {r.ProcessId}";
@@ -77,7 +77,7 @@ public sealed partial class LocalServerViewModel
         // Coming up: ServerAutomation's own state (what it waits for, when it next looks), for the options that are on.
         // What automation last did is in Recent events, with everything else that happened.
         var watch = _watches.GetValueOrDefault(p.Id);
-        var players = watch?.Events.Online.Count ?? OnlinePlayers.Count;
+        var players = watch?.Events.Online.Count ?? 0;
         // Running per either look (the page's, refreshed every second, or automation's last beat): a
         // stopped server has no daily restart "due now"; its next start is a fresh one.
         var running = Running is not null || watch?.Running is not null;
@@ -162,14 +162,14 @@ public sealed partial class LocalServerViewModel
             var automation = watch?.Automation;
             if (Running is { } r)
             {
-                var up = DateTime.Now - r.StartTime;
-                var prospect = watch?.Events.CurrentProspect ?? CurrentProspect;
+                var up = Clock() - r.StartTime;
+                var prospect = watch?.Events.CurrentProspect;
                 if (prospect is null && up < WorldLoadGrace && ExpectsAWorld())
                 {
                     return "Starting… (loading the world)";
                 }
 
-                var players = watch?.Events.Online.Count ?? OnlinePlayers.Count;
+                var players = watch?.Events.Online.Count ?? 0;
                 var parts = new List<string>
                 {
                     "Running",

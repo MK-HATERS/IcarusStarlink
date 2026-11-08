@@ -715,7 +715,7 @@ public sealed partial class LocalServerViewModel
         {
             return SteamCmd.ReadAppManifest(File.ReadAllText(path));
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return (null, null);
         }

@@ -49,7 +49,7 @@ public sealed class SteamCmdServiceTests : IDisposable
         public bool Save() => true;
     }
 
-    // steamcmd +login anonymous +app_info_update 1 +app_info_print 2089300 +quit, 2026-10-30.
+    // steamcmd +login anonymous +app_info_update 1 +app_info_print 2089300 +quit
     private const string RealAppInfo = """
         "2089300"
         {

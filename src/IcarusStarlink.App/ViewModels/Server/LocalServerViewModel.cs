@@ -225,7 +225,7 @@ public sealed partial class LocalServerViewModel : ObservableObject
         : IsBusy && _busyWith is { } busyWith ? busyWith
         : IsBusy && Running is null ? "STARTING"
         : IsBusy ? "STOPPING"
-        : Running is { } r ? $"RUNNING · up {FormatUptime(DateTime.Now - r.StartTime)}"
+        : Running is { } r ? $"RUNNING · up {FormatUptime(Clock() - r.StartTime)}"
         : "STOPPED";
 
     partial void OnRunningChanged(RunningServer? value)

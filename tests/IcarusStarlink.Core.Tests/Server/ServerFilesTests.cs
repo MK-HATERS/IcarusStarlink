@@ -413,6 +413,7 @@ public sealed partial class ServerFilesTests : IDisposable
     /// abort the backup and leave a cut-off zip that List showed as a good backup.
     /// </summary>
     [Fact]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     public void CreateBackup_AFileWeMayNotRead_IsSkipped_AndTheBackupIsWhole()
     {
         var install = Path.Combine(_root, "Server");

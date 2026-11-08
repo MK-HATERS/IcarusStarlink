@@ -143,24 +143,7 @@ public sealed partial class LocalServerViewModel
             && watch.LatestKnown is { } known && known.Branch == SteamCmd.NormalizeBranch(Branch)
             ? known.Build
             : null;
-        if (SelectedProfile is not { } p || !File.Exists(DedicatedServerLayout.AppManifestPath(p.InstallFolder)))
-        {
-            InstalledBuildId = null;
-            InstalledBranch = null;
-            return;
-        }
-
-        try
-        {
-            var (buildId, branch) = SteamCmd.ReadAppManifest(File.ReadAllText(DedicatedServerLayout.AppManifestPath(p.InstallFolder)));
-            InstalledBuildId = buildId;
-            InstalledBranch = branch;
-        }
-        catch (IOException)
-        {
-            InstalledBuildId = null;
-            InstalledBranch = null;
-        }
+        (InstalledBuildId, InstalledBranch) = SelectedProfile is { } p ? ReadManifest(p) : (null, null);
     }
 
     private bool CanUseSteamCmd() => _steamCmd is not null && !IsSteamCmdBusy && !IsBusy;
