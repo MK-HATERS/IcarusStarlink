@@ -85,6 +85,13 @@
         <Setter Property="Foreground" Value="{Binding (TextElement.Foreground), RelativeSource={RelativeSource AncestorType={x:Type ContentPresenter}}}"/>
     </Style>
 
+    <!-- For a TextBlock put in a button's content (an icon plus words): it takes the button's own
+         Foreground. Looking for the nearest ContentPresenter can resolve before the button's template
+         is in place and land on an outer page's presenter, whose default text is dark. -->
+    <Style x:Key="ButtonContentTextStyle" TargetType="{x:Type TextBlock}" BasedOn="{StaticResource {x:Type TextBlock}}">
+        <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type ButtonBase}}}"/>
+    </Style>
+
     <Style x:Key="PageHeaderStyle" TargetType="TextBlock">
         <Setter Property="FontSize" Value="24"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
@@ -426,7 +433,7 @@
     <Style TargetType="{x:Type Button}">
         <Style.Resources>
             <!-- A TextBlock put in the button's content takes the button's Foreground (PrimaryButtonStyle's text on accent, a red Delete). -->
-            <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource ContainerForegroundTextStyle}"/>
+            <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource ButtonContentTextStyle}"/>
         </Style.Resources>
         <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
