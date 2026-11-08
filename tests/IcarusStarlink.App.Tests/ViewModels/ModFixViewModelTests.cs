@@ -430,7 +430,7 @@ public sealed class ModFixViewModelTests : IDisposable
 
         using (new FileStream(Path.Combine(_root, "Library_Meta", _folder + ".json"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         {
-            Assert.Throws<IOException>(() => service.Apply(_folder, fixes));
+            Assert.Throws<ModNotMarkedException>(() => service.Apply(_folder, fixes));
         }
 
         Assert.Equal(before, File.ReadAllText(exmod));
@@ -458,6 +458,25 @@ public sealed class ModFixViewModelTests : IDisposable
         Assert.Contains("Restore backup", vm.StatusMessage);
         Assert.True(vm.HasBackup);
         Assert.Equal(0, Service.RememberedCount(_folder));
+        Assert.Equal(before, File.ReadAllText(exmod));
+    }
+
+    /// <summary>Regression: a fix stopped by a locked Library file (before anything was written) said the mod "may be partly fixed".</summary>
+    [Fact]
+    public async Task AFixStoppedByALockedLibraryFile_DoesNotSayTheModMayBePartlyFixed()
+    {
+        var vm = Open();
+        vm.Close = () => { };
+        var exmod = ExmodPath(_folder);
+        var before = File.ReadAllText(exmod);
+
+        using (new FileStream(Path.Combine(_root, "Library_Meta", _folder + ".json"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            await vm.ApplyCommand.ExecuteAsync(null);
+        }
+
+        Assert.StartsWith("Couldn't fix the mod", vm.StatusMessage);
+        Assert.DoesNotContain("partly fixed", vm.StatusMessage);
         Assert.Equal(before, File.ReadAllText(exmod));
     }
 
@@ -569,6 +588,25 @@ public sealed class ModFixViewModelTests : IDisposable
         await vm.ForgetChoicesCommand.ExecuteAsync(null);
 
         Assert.Equal(1, ran);
+    }
+
+    /// <summary>Regression: Forget set the window's "changed" flag inside the background work, off the window's thread.</summary>
+    [Fact]
+    public async Task ForgetChoices_SetsTheChangedFlagOnTheWindowsThread_AfterTheBackgroundWork()
+    {
+        var vm = Open();
+        bool? changedDuringWork = null;
+        vm.RunInBackground = work =>
+        {
+            work();
+            changedDuringWork = vm.ChangedWithoutApply;
+            return Task.CompletedTask;
+        };
+
+        await vm.ForgetChoicesCommand.ExecuteAsync(null);
+
+        Assert.False(changedDuringWork);
+        Assert.True(vm.ChangedWithoutApply);
     }
 
     [Fact]

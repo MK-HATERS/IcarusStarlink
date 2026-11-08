@@ -497,13 +497,20 @@ public sealed class ModFixService(
 
         // The marks before the mod is touched: a mark that can't be written (a locked Library file)
         // stops the fix with nothing changed, instead of reporting a fix that was made as failed.
-        repository.MarkFixedByIsl(folderName);
-
-        // A converted pak that hasn't been hand-edited stays "live": it keeps re-converting against
-        // new game data, with these fixes made again each time. Anything else shows the ✎.
-        if (Entry(folderName) is not { ConvertedFromPrebuiltPak: true, IsLocallyEdited: false })
+        try
         {
-            repository.MarkLocallyEdited(folderName);
+            repository.MarkFixedByIsl(folderName);
+
+            // A converted pak that hasn't been hand-edited stays "live": it keeps re-converting against
+            // new game data, with these fixes made again each time. Anything else shows the ✎.
+            if (Entry(folderName) is not { ConvertedFromPrebuiltPak: true, IsLocallyEdited: false })
+            {
+                repository.MarkLocallyEdited(folderName);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ModNotMarkedException(ex);
         }
 
         if (applied > 0)
@@ -655,6 +662,12 @@ public sealed class ModFixService(
 
     private static string SafeName(string folderName) => string.Join("_", folderName.Split(Path.GetInvalidFileNameChars()));
 }
+
+/// <summary>
+/// A fix stopped because the mod's Library file couldn't be marked: nothing in the mod was written
+/// (its backup may have been taken). Carries the cause's message.
+/// </summary>
+public sealed class ModNotMarkedException(Exception inner) : IOException(inner.Message, inner);
 
 /// <summary>The rows every Library mod adds (AddedRowKey keys), which of them more than one mod adds (old game rows two prebuilt paks both carry) and by whom, and the game files Library mods have.</summary>
 public sealed class LibraryAddedRowSet() : HashSet<string>(StringComparer.Ordinal)

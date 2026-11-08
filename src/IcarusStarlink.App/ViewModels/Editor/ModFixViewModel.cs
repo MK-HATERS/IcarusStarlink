@@ -492,10 +492,11 @@ public sealed partial class ModFixViewModel : ObservableObject
 
             if (failure is not null)
             {
-                // A backup taken for this fix means the write may have got part of the way.
+                // A backup taken for this fix means the write may have got part of the way, unless
+                // the fix stopped at marking the mod, before anything in it was written.
                 HasBackup = backupAfter is not null;
                 StatusMessage = $"Couldn't fix the mod: {failure.Message}"
-                    + (backupAfter is not null && !string.Equals(backupAfter, backupBefore, StringComparison.OrdinalIgnoreCase)
+                    + (failure is not ModNotMarkedException && backupAfter is not null && !string.Equals(backupAfter, backupBefore, StringComparison.OrdinalIgnoreCase)
                         ? " It may be partly fixed: Restore backup puts it back as it was before this fix."
                         : "");
                 return;
@@ -629,14 +630,27 @@ public sealed partial class ModFixViewModel : ObservableObject
             ModHealthReport? report = null;
             var remembered = 0;
             var hasBackup = false;
-            await RunInBackground(() =>
+            var forgot = false;
+            try
             {
-                _service.Forget(_folderName);
-                ChangedWithoutApply = true;
-                report = _service.Check(_folderName);
-                remembered = _service.RememberedCount(_folderName);
-                hasBackup = _service.HasBackup(_folderName);
-            });
+                await RunInBackground(() =>
+                {
+                    _service.Forget(_folderName);
+                    forgot = true;
+                    report = _service.Check(_folderName);
+                    remembered = _service.RememberedCount(_folderName);
+                    hasBackup = _service.HasBackup(_folderName);
+                });
+            }
+            finally
+            {
+                // Here, not in the background work: the window's state is set on its own thread.
+                // Set even when the check after it failed: the choices are gone either way.
+                if (forgot)
+                {
+                    ChangedWithoutApply = true;
+                }
+            }
 
             Load(report!, remembered, hasBackup);
             StatusMessage = "Earlier choices forgotten: everything below is suggested afresh.";
