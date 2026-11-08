@@ -40,6 +40,35 @@ public sealed class ServerAddressesTests
         ]));
     }
 
+    /// <summary>
+    /// Regression: on a Hyper-V host with an External switch the PC's real address sits on
+    /// "vEthernet (…)" and the physical card has none, so the Connect card found no address.
+    /// </summary>
+    [Fact]
+    public void Lan_HyperVExternalSwitchOnly_IsUsed()
+    {
+        Assert.Equal("192.168.1.20", ServerAddresses.PickLanAddress(
+            [Adapter("vEthernet (External)", "192.168.1.20", description: "Hyper-V Virtual Ethernet Adapter")]));
+    }
+
+    /// <summary>A real adapter still beats a Hyper-V switch adapter listed first.</summary>
+    [Fact]
+    public void Lan_HyperVSwitch_LosesToARealAdapter()
+    {
+        Assert.Equal("192.168.0.9", ServerAddresses.PickLanAddress(
+        [
+            Adapter("vEthernet (External)", "192.168.1.20", description: "Hyper-V Virtual Ethernet Adapter"),
+            Adapter("Wi-Fi", "192.168.0.9", kind: NetworkAdapterKind.Wireless),
+        ]));
+    }
+
+    [Fact]
+    public void Lan_VpnOnly_StillNotUsed()
+    {
+        Assert.Null(ServerAddresses.PickLanAddress([Adapter("NordLynx", "10.5.0.2", description: "NordLynx Tunnel")]));
+        Assert.Null(ServerAddresses.PickLanAddress([Adapter("vEthernet (WSL)", "172.24.80.1", description: "Hyper-V Virtual Ethernet Adapter")]));
+    }
+
     [Fact]
     public void Lan_DownLoopbackTunnelAndSelfAssignedAddressesLose()
     {
@@ -92,6 +121,18 @@ public sealed class ServerAddressesTests
     [InlineData(null, null)]
     public void PublicReply_OnlyAPlainIPv4AddressIsTaken(string? reply, string? expected) =>
         Assert.Equal(expected, ServerAddresses.ParsePublicIPv4(reply));
+
+    /// <summary>The Bind IP the Connect card shows: only a plain IPv4 address that isn't "every adapter".</summary>
+    [Theory]
+    [InlineData("192.168.1.50", "192.168.1.50")]
+    [InlineData(" 192.168.1.50 ", "192.168.1.50")]
+    [InlineData("0.0.0.0", null)]
+    [InlineData("host.lan", null)]
+    [InlineData("fe80::1", null)]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    public void BindAddress_OnlyAPlainIPv4AddressCounts(string? multihome, string? expected) =>
+        Assert.Equal(expected, ServerAddresses.BindAddress(multihome));
 
     [Fact]
     public void JoinAddress_IsIpColonGamePort() =>

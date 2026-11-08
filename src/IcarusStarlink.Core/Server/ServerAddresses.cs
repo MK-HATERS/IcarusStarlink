@@ -40,7 +40,10 @@ public static partial class ServerAddresses
     /// <summary>
     /// Words in an adapter's name or description that mark it as virtual or a VPN: Hyper-V and WSL
     /// switches, VM host adapters, VPN and mesh tunnels. Their addresses aren't where friends on
-    /// the home network can reach this PC, so they never win, even with a gateway.
+    /// the home network can reach this PC, so they lose even with a gateway. The one exception is
+    /// a plain Hyper-V switch adapter (<see cref="HyperVMarkers"/>): on a PC with an External
+    /// virtual switch it holds the PC's real home network address, so it counts, after any real
+    /// adapter.
     /// </summary>
     private static readonly string[] VirtualMarkers =
     [
@@ -50,12 +53,17 @@ public static partial class ServerAddresses
         "radmin", "npcap", "bluetooth",
     ];
 
+    /// <summary>The markers a Hyper-V switch adapter carries ("vEthernet (External)", "Hyper-V Virtual Ethernet Adapter").</summary>
+    private static readonly string[] HyperVMarkers = ["vethernet", "hyper-v"];
+
     /// <summary>
     /// This PC's address on the home network: an IPv4 address of an adapter that is up, isn't
-    /// loopback or a tunnel, has a default gateway, and isn't virtual or a VPN. A private address
-    /// (192.168.x.x, 10.x.x.x, 172.16-31.x.x) beats any other; then wired beats wireless beats
-    /// any other kind; otherwise the first in Windows' order. Self-assigned 169.254.x.x addresses never
-    /// count. Null when no adapter qualifies.
+    /// loopback or a tunnel, has a default gateway, and isn't virtual or a VPN. A plain Hyper-V
+    /// switch adapter (no WSL, VM or VPN marker) counts too, but after every real adapter: behind
+    /// an External switch it is the only one with the PC's address, while the WSL and Default
+    /// Switch adapters have no gateway. A private address (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    /// beats any other; then wired beats wireless beats any other kind; otherwise the first in
+    /// Windows' order. Self-assigned 169.254.x.x addresses never count. Null when no adapter qualifies.
     /// </summary>
     public static string? PickLanAddress(IEnumerable<NetworkAdapterInfo> adapters)
     {
@@ -64,9 +72,10 @@ public static partial class ServerAddresses
         foreach (var adapter in adapters)
         {
             order++;
+            var hyperVSwitch = IsHyperVSwitch(adapter);
             if (!adapter.IsUp || !adapter.HasGateway
                 || adapter.Kind is NetworkAdapterKind.Loopback or NetworkAdapterKind.Tunnel
-                || LooksVirtual(adapter))
+                || (LooksVirtual(adapter) && !hyperVSwitch))
             {
                 continue;
             }
@@ -83,7 +92,7 @@ public static partial class ServerAddresses
                     NetworkAdapterKind.Ethernet => 0,
                     NetworkAdapterKind.Wireless => 1,
                     _ => 2,
-                });
+                }) + (hyperVSwitch ? 100 : 0);
                 candidates.Add((ip.ToString(), rank, order));
             }
         }
@@ -91,11 +100,30 @@ public static partial class ServerAddresses
         return candidates.OrderBy(c => c.Rank).ThenBy(c => c.Order).Select(c => c.Address).FirstOrDefault();
     }
 
-    public static bool LooksVirtual(NetworkAdapterInfo adapter)
+    public static bool LooksVirtual(NetworkAdapterInfo adapter) => VirtualMarkers.Any(marker => HasMarker(MarkerText(adapter), marker));
+
+    /// <summary>
+    /// The address a server with Settings › Advanced › Bind IP (-MULTIHOME) answers on: the IPv4
+    /// address typed there, or null when it is blank, 0.0.0.0 (every adapter), a host name or IPv6.
+    /// </summary>
+    public static string? BindAddress(string? multihome)
     {
-        var text = $" {adapter.Name} {adapter.Description} ".ToLowerInvariant();
-        return VirtualMarkers.Any(marker => marker == "tun" ? TunWord().IsMatch(text) : text.Contains(marker, StringComparison.Ordinal));
+        var text = (multihome ?? "").Trim();
+        return text.Length > 0 && TryParseIPv4(text, out var ip) && !ip.Equals(IPAddress.Any) ? ip.ToString() : null;
     }
+
+    /// <summary>A Hyper-V switch adapter and nothing else virtual: its only markers are Hyper-V's and "virtual".</summary>
+    private static bool IsHyperVSwitch(NetworkAdapterInfo adapter)
+    {
+        var text = MarkerText(adapter);
+        return HyperVMarkers.Any(m => HasMarker(text, m))
+            && VirtualMarkers.Where(m => m != "virtual" && !HyperVMarkers.Contains(m)).All(m => !HasMarker(text, m));
+    }
+
+    private static string MarkerText(NetworkAdapterInfo adapter) => $" {adapter.Name} {adapter.Description} ".ToLowerInvariant();
+
+    private static bool HasMarker(string text, string marker) =>
+        marker == "tun" ? TunWord().IsMatch(text) : text.Contains(marker, StringComparison.Ordinal);
 
     /// <summary>
     /// The public IP service's reply as an IPv4 address, or null when it is anything else (an

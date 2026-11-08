@@ -45,16 +45,25 @@ public sealed partial class LocalServerViewModel
     /// <summary>The selected server's query port (what the server browser uses), as saved.</summary>
     public int ConnectQueryPort => SelectedProfile?.QueryPort ?? DedicatedServerDefaults.QueryPort;
 
-    public bool HasLanAddress => LanAddress is not null;
+    /// <summary>The saved Bind IP (-MULTIHOME) as an IPv4 address: the server answers only there. Null when it listens on every adapter.</summary>
+    private string? BoundAddress => ServerAddresses.BindAddress(SelectedProfile?.Multihome);
+
+    /// <summary>Where friends on the home network reach the server: its Bind IP when one is set, else this PC's home network address.</summary>
+    private string? JoinIp => BoundAddress ?? LanAddress;
+
+    public bool HasLanAddress => JoinIp is not null;
 
     public bool HasPublicAddress => PublicAddress is not null;
 
-    public string? LanJoinAddress => LanAddress is { } ip ? ServerAddresses.JoinAddress(ip, ConnectGamePort) : null;
+    public string? LanJoinAddress => JoinIp is { } ip ? ServerAddresses.JoinAddress(ip, ConnectGamePort) : null;
 
     public string? PublicJoinAddress => PublicAddress is { } ip ? ServerAddresses.JoinAddress(ip, ConnectGamePort) : null;
 
-    public string LanAddressText => LanJoinAddress
-        ?? "No home network address found. Is this PC connected to your router (by cable or Wi-Fi)?";
+    public string LanAddressText => LanJoinAddress is not { } address
+        ? "No home network address found. Is this PC connected to your router (by cable or Wi-Fi)?"
+        : BoundAddress is not null
+            ? $"{address} (Bind IP: the server answers only on this address)"
+            : address;
 
     public string PortForwardHint
     {
@@ -62,20 +71,23 @@ public sealed partial class LocalServerViewModel
         {
             var game = ConnectGamePort.ToString(CultureInfo.InvariantCulture);
             var query = ConnectQueryPort.ToString(CultureInfo.InvariantCulture);
-            var to = LanAddress is { } ip ? $"this PC ({ip})" : "this PC";
+            var to = JoinIp is { } ip ? $"this PC ({ip})" : "this PC";
             return $"Friends outside your home network need UDP {game} and UDP {query} forwarded on your router to {to}. "
                 + "In game they type the address exactly as shown into the Direct Connect box.";
         }
     }
 
+    /// <summary>Runs on select and after a Settings save: the ports and the Bind IP come from the saved profile.</summary>
     private void RaiseConnectChanged()
     {
         OnPropertyChanged(nameof(ConnectGamePort));
         OnPropertyChanged(nameof(ConnectQueryPort));
+        OnPropertyChanged(nameof(HasLanAddress));
         OnPropertyChanged(nameof(LanJoinAddress));
         OnPropertyChanged(nameof(LanAddressText));
         OnPropertyChanged(nameof(PublicJoinAddress));
         OnPropertyChanged(nameof(PortForwardHint));
+        CopyLanAddressCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>Reads this PC's adapters again (off the UI thread) and picks the home network address.</summary>
