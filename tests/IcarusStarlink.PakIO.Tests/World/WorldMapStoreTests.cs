@@ -33,6 +33,14 @@ public sealed class WorldMapStoreTests : IDisposable
         /// <summary>The picture is the world's id as bytes, so a test can tell whose picture a file is.</summary>
         public bool PictureIsId { get; init; }
 
+        /// <summary>
+        /// False: the game's files can't be read (the game folder moved, its drive unplugged). Like the
+        /// real renderer then, nothing is found and every stamp changes.
+        /// </summary>
+        public bool Readable { get; set; } = true;
+
+        public bool CanReadGame() => Readable;
+
         public (byte[]? Jpeg, WorldPictureSource Source) RenderPicture(WorldMapInfo map)
         {
             Drawn.Add(map.Id);
@@ -41,14 +49,28 @@ public sealed class WorldMapStoreTests : IDisposable
                 throw new IOException("The pak is locked.");
             }
 
-            return map.PictureTiles.Count > 0
+            return map.PictureTiles.Count > 0 && Readable
                 ? (PictureIsId ? System.Text.Encoding.UTF8.GetBytes(map.Id) : [1, 2, 3], WorldPictureSource.Picture)
                 : (null, WorldPictureSource.None);
         }
 
-        public WorldLayerPixels? ReadLayer(string heatmapAssetPath) => new(2, [0x00FF90, 0x00FF90, 0, 0]);
+        public WorldLayerPixels? ReadLayer(string heatmapAssetPath) => Readable ? new(2, [0x00FF90, 0x00FF90, 0, 0]) : null;
 
-        public string Stamp(WorldMapInfo map) => Stamps.GetValueOrDefault(map.Id, "1");
+        public string Stamp(WorldMapInfo map) => Readable ? Stamps.GetValueOrDefault(map.Id, "1") : "unreadable";
+    }
+
+    /// <summary>Throws (as closing Starlink would stop it) on the given call: Reload reports just before each world it draws.</summary>
+    private sealed class StopAt(int call) : IProgress<string>
+    {
+        private int _calls;
+
+        public void Report(string value)
+        {
+            if (++_calls == call)
+            {
+                throw new OperationCanceledException();
+            }
+        }
     }
 
     private static WorldMapInfo Map(string id, string name, params WorldZoneEntry[] creatures) =>
@@ -82,7 +104,7 @@ public sealed class WorldMapStoreTests : IDisposable
         renderer.Broken.Add("Terrain_016");
         var store = new WorldMapStore(_root, () => [Map("Terrain_016", "Olympus", Wolf), Map("Terrain_017", "Styx", Wolf)], renderer);
 
-        // Rebuild all deletes everything first: one broken world mustn't leave the rest undrawn and no index.
+        // Rebuild all: one broken world mustn't leave the rest undrawn and no index.
         var result = store.Reload(everything: true);
 
         Assert.Equal(1, result.Redrawn);
@@ -225,10 +247,129 @@ public sealed class WorldMapStoreTests : IDisposable
         Assert.Empty(store.PictureSources());
     }
 
+    /// <summary>Regression: with the game folder moved or its drive unplugged, Reload "redrew" every map as nothing.</summary>
+    [Fact]
+    public void AGameThatCantBeRead_KeepsTheDrawnMaps()
+    {
+        var renderer = new FakeRenderer();
+        var store = new WorldMapStore(_root, () => [Map("Terrain_016", "Olympus", Wolf)], renderer);
+        store.Reload(everything: false);
+        renderer.Readable = false;
+
+        Assert.Throws<IOException>(store.Check);
+        Assert.Throws<IOException>(() => store.Reload(everything: false));
+        Assert.Throws<IOException>(() => store.Reload(everything: true));
+
+        Assert.True(File.Exists(store.PicturePath("Terrain_016")));
+        Assert.NotNull(store.ReadLayer("Terrain_016", WorldLayerKind.Creatures));
+        Assert.Equal(WorldPictureSource.Picture, store.PictureSources()["Terrain_016"]);
+    }
+
+    /// <summary>Regression: an unreadable world list (D_WorldData.json) read as "the game has no worlds" and every map was deleted.</summary>
+    [Fact]
+    public void AnUnreadableWorldList_DeletesNoMaps()
+    {
+        var maps = new List<WorldMapInfo> { Map("Terrain_016", "Olympus", Wolf) };
+        var store = new WorldMapStore(_root, () => maps, new FakeRenderer());
+        store.Reload(everything: false);
+        maps.Clear();
+
+        Assert.Throws<IOException>(() => store.Reload(everything: false));
+        Assert.Throws<IOException>(() => store.Reload(everything: true));
+
+        Assert.True(File.Exists(store.PicturePath("Terrain_016")));
+        Assert.True(store.PictureSources().ContainsKey("Terrain_016"));
+    }
+
+    /// <summary>Regression: a map that failed to redraw lost its last drawing (its folder was deleted before anything was read).</summary>
+    [Fact]
+    public void AMapThatFailsToRedraw_KeepsItsLastDrawing()
+    {
+        var renderer = new FakeRenderer();
+        var store = new WorldMapStore(_root, () => [Map("Terrain_016", "Olympus", Wolf)], renderer);
+        store.Reload(everything: false);
+        renderer.Stamps["Terrain_016"] = "2";
+        renderer.Broken.Add("Terrain_016");
+
+        var result = store.Reload(everything: false);
+
+        Assert.Contains("Couldn't draw Olympus", result.Summary);
+        Assert.True(File.Exists(store.PicturePath("Terrain_016")));
+        Assert.Equal(WorldPictureSource.Picture, store.PictureSources()["Terrain_016"]);
+        Assert.True(store.Check().OutOfDate);
+
+        // Rebuild all that fails keeps it too.
+        store.Reload(everything: true);
+        Assert.True(File.Exists(store.PicturePath("Terrain_016")));
+
+        renderer.Broken.Clear();
+        renderer.Drawn.Clear();
+        store.Reload(everything: false);
+
+        Assert.Equal(["Terrain_016"], renderer.Drawn);
+        Assert.False(store.Check().OutOfDate);
+    }
+
+    /// <summary>Regression: Starlink closed during the first (minutes-long) build left no index, and the next one started over from the first world.</summary>
+    [Fact]
+    public void AnInterruptedReload_KeepsTheWorldsItDrew_AndTheNextOneDrawsTheRest()
+    {
+        var renderer = new FakeRenderer();
+        var store = new WorldMapStore(_root, () => [Map("A", "Alpha", Wolf), Map("B", "Beta", Wolf), Map("C", "Gamma", Wolf)], renderer);
+
+        Assert.ThrowsAny<OperationCanceledException>(() => store.Reload(everything: false, new StopAt(3)));
+
+        Assert.Equal(2, store.PictureSources().Count);
+        Assert.False(store.IsComplete());
+
+        renderer.Drawn.Clear();
+        store.Reload(everything: false);
+
+        Assert.Equal(["C"], renderer.Drawn);
+        Assert.True(store.IsComplete());
+    }
+
+    /// <summary>Old index.json files have no Complete flag: they read as a finished build.</summary>
+    [Fact]
+    public void AnIndexFromBeforeTheCompleteFlag_ReadsAsComplete()
+    {
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(Path.Combine(_root, "index.json"), """{ "Maps": { "Terrain_016": { "Stamp": "1" } } }""");
+        var store = new WorldMapStore(_root, () => [Map("Terrain_016", "Olympus", Wolf)], new FakeRenderer());
+
+        Assert.True(store.IsComplete());
+    }
+
+    /// <summary>Rebuild all also clears stray files left in the folder itself (a half-written index's temp file).</summary>
+    [Fact]
+    public void RebuildAll_ClearsStrayFiles_ButKeepsTheIndex()
+    {
+        var store = new WorldMapStore(_root, () => [Map("Terrain_016", "Olympus", Wolf)], new FakeRenderer());
+        store.Reload(everything: false);
+        var stray = Path.Combine(_root, "index.json.1234.tmp");
+        File.WriteAllText(stray, "x");
+
+        store.Reload(everything: true);
+
+        Assert.False(File.Exists(stray));
+        Assert.True(store.IsComplete());
+    }
+
     [Fact]
     public void ZoneImages_KeepTheirExactColours_ThroughThePng()
     {
         var pixels = new WorldLayerPixels(2, [0x00E0A0, 0xE06500, 0x0BE000, 0xFFFFFF]);
+
+        var back = WorldLayerPixels.FromPng(pixels.ToPng());
+
+        Assert.Equal(pixels.Pixels, back!.Pixels);
+    }
+
+    /// <summary>An odd width: each row of the decoded image is read from its own start.</summary>
+    [Fact]
+    public void ZoneImages_KeepTheirExactColours_OnAnOddWidth()
+    {
+        var pixels = new WorldLayerPixels(3, [0x00E0A0, 0xE06500, 0x0BE000, 0xFFFFFF, 0x000001, 0x123456, 0xABCDEF, 0x010203, 0xFEDCBA]);
 
         var back = WorldLayerPixels.FromPng(pixels.ToPng());
 

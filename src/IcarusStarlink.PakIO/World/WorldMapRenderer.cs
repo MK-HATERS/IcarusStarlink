@@ -37,13 +37,33 @@ public sealed record WorldLayerPixels(int Size, uint[] Pixels)
     /// <summary>Back from ToPng; null when it isn't a square image.</summary>
     public static WorldLayerPixels? FromPng(byte[] png)
     {
-        using var bitmap = SKBitmap.Decode(png);
-        if (bitmap is null || bitmap.Width != bitmap.Height || bitmap.Width == 0)
+        var bounds = SKBitmap.DecodeBounds(png);
+        if (bounds.Width == 0 || bounds.Width != bounds.Height)
         {
             return null;
         }
 
-        return new WorldLayerPixels(bitmap.Width, [.. bitmap.Pixels.Select(c => ((uint)c.Red << 16) | ((uint)c.Green << 8) | c.Blue)]);
+        // Decoded straight into BGRA and read once: no SKColor[] or LINQ copies (16 MB each at 2048²).
+        using var bitmap = SKBitmap.Decode(png, new SKImageInfo(bounds.Width, bounds.Height, SKColorType.Bgra8888, SKAlphaType.Unpremul));
+        if (bitmap is null)
+        {
+            return null;
+        }
+
+        var size = bitmap.Width;
+        var bytes = bitmap.GetPixelSpan();
+        var pixels = new uint[size * size];
+        for (var y = 0; y < size; y++)
+        {
+            var row = y * bitmap.RowBytes;
+            for (var x = 0; x < size; x++)
+            {
+                var i = row + x * 4; // B, G, R, A
+                pixels[y * size + x] = (uint)bytes[i + 2] << 16 | (uint)bytes[i + 1] << 8 | bytes[i];
+            }
+        }
+
+        return new WorldLayerPixels(size, pixels);
     }
 }
 
@@ -61,6 +81,9 @@ public interface IWorldMapRenderer
 
     /// <summary>What's placed on the world (caves, geysers, spots, water), read from its level files; None when they can't be read.</summary>
     WorldFeatures ReadFeatures(WorldMapInfo map) => WorldFeatures.None;
+
+    /// <summary>Whether the game's files can be read now (false: the game folder moved, its drive is unplugged, or its paks couldn't be opened). Nothing is drawn or compared then.</summary>
+    bool CanReadGame() => true;
 }
 
 /// <summary>
@@ -85,6 +108,10 @@ public sealed class WorldMapRenderer(IBaseGameContentProvider game, Func<string?
 {
     public WorldFeatures ReadFeatures(WorldMapInfo map) =>
         contentPath?.Invoke() is { Length: > 0 } content ? WorldFeatureReader.Read(Path.Combine(content, "Paks"), map) : WorldFeatures.None;
+
+    // HasAsset is null only when the game's content can't be read at all (no Paks folder, or the
+    // paks couldn't be opened), so the path asked about doesn't matter.
+    public bool CanReadGame() => game.HasAsset("Maps") is not null;
 
     /// <summary>A map picture is never drawn larger than this per side (Olympus: 8 tiles of 512 = 4096).</summary>
     private const int MaxPictureSize = 4096;

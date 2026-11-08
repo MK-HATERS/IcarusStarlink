@@ -4,7 +4,8 @@ namespace IcarusStarlink.PakIO.World;
 
 /// <param name="Summary">One line for the page: what changed ("Styx: map redrawn; Olympus, Conifer Hard: Desert Wolf added").</param>
 /// <param name="Redrawn">How many maps were drawn again.</param>
-public sealed record WorldMapReloadResult(string Summary, int Redrawn, IReadOnlyList<WorldMapInfo> Maps);
+/// <param name="Failed">Worlds that couldn't be drawn, with why ("Olympus (The pak is locked.)"); Reload tries them again.</param>
+public sealed record WorldMapReloadResult(string Summary, int Redrawn, IReadOnlyList<WorldMapInfo> Maps, IReadOnlyList<string> Failed);
 
 /// <param name="OutOfDate">The game's map files or zones differ from what the maps were made from (or they were never made).</param>
 public sealed record WorldMapCheckResult(bool OutOfDate, string Summary);
@@ -13,13 +14,17 @@ public sealed record WorldMapCheckResult(bool OutOfDate, string Summary);
 /// The drawn maps, kept in one folder (Cache\World): &lt;world id&gt;\picture.jpg and one
 /// &lt;layer&gt;.png per zone image and features.json (caves, geysers, spots, water), plus index.json
 /// with what each was made from (where the game keeps its files, and every zone's contents). One
-/// copy only: a map that changed is deleted and drawn again, a world the game dropped is deleted.
-/// Reload redraws only what changed; Rebuild all deletes everything and draws every map again.
+/// copy only: a map that changed is drawn again and its old copy replaced only once the new one is
+/// fully read; a world that fails to draw keeps its last drawing; a world the game dropped is
+/// deleted. Reload redraws only what changed; Rebuild all redraws every map. Nothing is touched when
+/// the game's files or its world list can't be read.
 /// </summary>
 public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>> readCatalog, IWorldMapRenderer renderer)
 {
     private const string IndexFile = "index.json";
     private const string PictureFile = "picture.jpg";
+    private const string NoWorldList = "the game's list of worlds (Data\\World\\D_WorldData.json) can't be read: refresh game data in Settings. Nothing was changed.";
+    private const string GameUnreadable = "the game's files can't be read: check the game folder in Settings. Nothing was changed.";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public string Root { get; } = root;
@@ -65,11 +70,15 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
     public IReadOnlyDictionary<string, WorldPictureSource> PictureSources() =>
         (LoadIndex()?.Maps ?? []).ToDictionary(kv => kv.Key, kv => kv.Value.Picture, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Every world was drawn by a Reload that ran to the end (false: never made, or stopped half-way).</summary>
+    public bool IsComplete() => LoadIndex() is { Complete: true, Maps.Count: > 0 };
+
     /// <summary>Compares the game's files and zones with what the maps were made from, without drawing anything.</summary>
     public WorldMapCheckResult Check()
     {
-        var index = LoadIndex();
         var maps = readCatalog();
+        ThrowIfUnreadable(maps);
+        var index = LoadIndex();
         if (index is null)
         {
             return new WorldMapCheckResult(maps.Count > 0, maps.Count > 0 ? "The maps haven't been made yet." : "");
@@ -84,50 +93,92 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
 
     /// <summary>
     /// Draws the maps whose files changed or aren't drawn (all of them when <paramref name="everything"/>),
-    /// deletes worlds the game dropped, and says what changed. A world that fails to draw is left out
-    /// of the index (named in the summary), so the next Reload tries it again.
+    /// deletes worlds the game dropped, and says what changed. Each map's old copy is replaced only once
+    /// its new one is fully read; a world that fails to draw keeps its last drawing (or is left out of
+    /// the index when it had none) and is named in the summary, so the next Reload tries it again. The
+    /// index is saved after each world, so a Reload stopped half-way is picked up where it left off.
+    /// Throws, changing nothing, when the game's files or its world list can't be read.
     /// </summary>
     public WorldMapReloadResult Reload(bool everything, IProgress<string>? progress = null)
     {
         var maps = readCatalog();
+        ThrowIfUnreadable(maps);
         var previous = LoadIndex();
         var old = everything ? null : previous;
+        Directory.CreateDirectory(Root);
         if (everything)
         {
-            TryDelete(Root);
+            DeleteStrayFiles();
         }
 
-        Directory.CreateDirectory(Root);
         var stamps = maps.ToDictionary(m => m.Id, renderer.Stamp, StringComparer.OrdinalIgnoreCase);
-        var index = new WorldMapIndex();
+        // Worlds not reached yet keep their entries while this runs: if it's stopped half-way (Starlink
+        // closed, the PC restarted), the next Reload picks up where it left off.
+        var index = new WorldMapIndex { Complete = false };
+        foreach (var (id, e) in previous?.Maps ?? [])
+        {
+            index.Maps[id] = e;
+        }
+
         var redrawn = 0;
         var failed = new List<string>();
         foreach (var map in maps)
         {
             var entry = old?.Maps.GetValueOrDefault(map.Id);
-            if (entry is null || entry.Stamp != stamps[map.Id] || !IsDrawn(map, old!))
+            if (entry is not null && entry.Stamp == stamps[map.Id] && IsDrawn(map, old!))
             {
-                progress?.Report($"Drawing {map.Name} and reading its caves and spots ({redrawn + 1} of up to {maps.Count}; a big map takes about a minute)…");
-                try
+                index.Maps[map.Id] = entry with { Zones = ZoneFingerprints(map) };
+                continue;
+            }
+
+            progress?.Report($"Drawing {map.Name} and reading its caves and spots ({redrawn + 1} of up to {maps.Count}; a big map takes about a minute)…");
+            PendingDrawing drawing;
+            try
+            {
+                drawing = Read(map);
+            }
+            catch (Exception ex)
+            {
+                // One world that can't be drawn (a mod's odd tiles, a locked pak) mustn't stop the others.
+                // Nothing on disk was touched: a world drawn before keeps its last drawing. Its stamp is
+                // cleared so the next Reload tries it again, even when the game's files didn't change
+                // (Rebuild all); its old zone fingerprints stay, so a zone change is still said then.
+                failed.Add($"{map.Name} ({ex.Message})");
+                if (previous?.Maps.GetValueOrDefault(map.Id) is { } kept && IsDrawn(map, previous))
                 {
-                    entry = Draw(map, stamps[map.Id]);
+                    index.Maps[map.Id] = kept with { Stamp = "" };
                 }
-                catch (Exception ex)
+                else
                 {
-                    // One world that can't be drawn (a mod's odd tiles, a locked pak) mustn't stop the
-                    // others or leave the index unsaved.
-                    TryDelete(Path.Combine(Root, Safe(map.Id)));
-                    failed.Add($"{map.Name} ({ex.Message})");
-                    continue;
+                    index.Maps.Remove(map.Id);
                 }
 
-                redrawn++;
+                SaveIndex(index);
+                continue;
+            }
+
+            // The index never lists a world whose folder is being rewritten.
+            index.Maps.Remove(map.Id);
+            SaveIndex(index);
+            try
+            {
+                entry = Write(map, drawing, stamps[map.Id]);
+            }
+            catch (Exception ex)
+            {
+                // Half-written: its folder goes and it stays out of the index, so the next Reload draws it again.
+                TryDelete(Path.Combine(Root, Safe(map.Id)));
+                failed.Add($"{map.Name} ({ex.Message})");
+                SaveIndex(index);
+                continue;
             }
 
             index.Maps[map.Id] = entry with { Zones = ZoneFingerprints(map) };
+            SaveIndex(index);
+            redrawn++;
         }
 
-        // Worlds the game no longer has: their folders go.
+        // Worlds the game no longer has: their folders and entries go.
         foreach (var folder in SafeDirectories())
         {
             if (!maps.Any(m => string.Equals(Safe(m.Id), Path.GetFileName(folder), StringComparison.OrdinalIgnoreCase)))
@@ -136,6 +187,12 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
             }
         }
 
+        foreach (var id in index.Maps.Keys.Where(id => !maps.Any(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase))).ToList())
+        {
+            index.Maps.Remove(id);
+        }
+
+        index.Complete = true;
         SaveIndex(index);
 
         var changes = previous is null ? [] : Changes(maps, previous, stamps);
@@ -160,34 +217,80 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
             summary += $" Couldn't draw {Join(failed)}: Reload tries again.";
         }
 
-        return new WorldMapReloadResult(summary, redrawn, maps);
+        return new WorldMapReloadResult(summary, redrawn, maps, failed);
     }
 
-    private WorldMapIndexEntry Draw(WorldMapInfo map, string stamp)
+    /// <summary>
+    /// The game always has worlds: none means its world list couldn't be read. And with its files
+    /// unreadable every map would compare as changed and draw as nothing. Nothing is changed then.
+    /// </summary>
+    private void ThrowIfUnreadable(IReadOnlyList<WorldMapInfo> maps)
     {
-        var folder = Path.Combine(Root, Safe(map.Id));
-        TryDelete(folder);
-        Directory.CreateDirectory(folder);
-        var (jpeg, source) = renderer.RenderPicture(map);
-        if (jpeg is not null)
+        if (maps.Count == 0)
         {
-            File.WriteAllBytes(Path.Combine(folder, PictureFile), jpeg);
+            throw new IOException(NoWorldList);
         }
 
-        var layers = new List<WorldLayerKind>();
+        if (!renderer.CanReadGame())
+        {
+            throw new IOException(GameUnreadable);
+        }
+    }
+
+    /// <summary>Rebuild all: files left directly in the folder (a half-written index's temp file) go; the index stays until it's replaced.</summary>
+    private void DeleteStrayFiles()
+    {
+        try
+        {
+            foreach (var file in Directory.GetFiles(Root))
+            {
+                if (!string.Equals(Path.GetFileName(file), IndexFile, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Delete(file);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    /// <summary>A world's new drawing, read from the game but not written yet.</summary>
+    private sealed record PendingDrawing(byte[]? Jpeg, WorldPictureSource Source, IReadOnlyList<(WorldLayerKind Kind, byte[] Png)> Layers, string FeaturesJson);
+
+    private PendingDrawing Read(WorldMapInfo map)
+    {
+        var (jpeg, source) = renderer.RenderPicture(map);
+        var layers = new List<(WorldLayerKind, byte[])>();
         foreach (var layer in map.Layers)
         {
             if (layer.HeatmapAssetPath is { } path && renderer.ReadLayer(path) is { } pixels)
             {
-                File.WriteAllBytes(LayerPath(map.Id, layer.Kind), pixels.ToPng());
-                layers.Add(layer.Kind);
+                layers.Add((layer.Kind, pixels.ToPng()));
             }
         }
 
-        var features = renderer.ReadFeatures(map);
-        File.WriteAllText(Path.Combine(folder, FeaturesFile), JsonSerializer.Serialize(features));
+        return new PendingDrawing(jpeg, source, layers, JsonSerializer.Serialize(renderer.ReadFeatures(map)));
+    }
 
-        return new WorldMapIndexEntry { Stamp = stamp, Picture = source, Layers = layers };
+    private WorldMapIndexEntry Write(WorldMapInfo map, PendingDrawing drawing, string stamp)
+    {
+        var folder = Path.Combine(Root, Safe(map.Id));
+        // The old copy goes only now, with the new one fully read (this also clears stray files in it).
+        TryDelete(folder);
+        Directory.CreateDirectory(folder);
+        if (drawing.Jpeg is not null)
+        {
+            File.WriteAllBytes(Path.Combine(folder, PictureFile), drawing.Jpeg);
+        }
+
+        foreach (var (kind, png) in drawing.Layers)
+        {
+            File.WriteAllBytes(LayerPath(map.Id, kind), png);
+        }
+
+        File.WriteAllText(Path.Combine(folder, FeaturesFile), drawing.FeaturesJson);
+        return new WorldMapIndexEntry { Stamp = stamp, Picture = drawing.Source, Layers = [.. drawing.Layers.Select(l => l.Kind)] };
     }
 
     private bool IsDrawn(WorldMapInfo map, WorldMapIndex index) =>
@@ -339,6 +442,9 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
 public sealed class WorldMapIndex
 {
     public Dictionary<string, WorldMapIndexEntry> Maps { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>False while a Reload is still drawing (the index is saved after each world); an index left that way was stopped half-way.</summary>
+    public bool Complete { get; set; } = true;
 }
 
 public sealed record WorldMapIndexEntry
