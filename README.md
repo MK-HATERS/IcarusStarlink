@@ -282,6 +282,11 @@ gathered from the feature descriptions above:
   (`ZZ_ArcFission_Data_<n>_P.pak`, about 19 MB each, which that library rebuilds from the game's
   data) are removed at Install without a backup; its current one is never touched. On a local
   dedicated server they are moved into the server's backups instead.
+- **The UE4SS loader** (`dwmapi.dll` and the `ue4ss` folder in the game's `Binaries\Win64`, or a
+  local dedicated server's) — written only when you click Install or Uninstall on Settings › UE4SS,
+  or **Install UE4SS from my game** on the Server page. The one you had is backed up first, and your
+  UE4SS settings and mods are kept. An old setup with its files directly in `Binaries\Win64` is
+  moved into the `ue4ss` folder, with a backup.
 - **UE4SS mod config files** (`Binaries\Win64\ue4ss\Mods\<mod>\config.lua` and the like, in the
   game and on a local dedicated server) — written only when you save in Edit config, press Match
   settings on the Server page, or import a patch that carries settings; the file being replaced is
