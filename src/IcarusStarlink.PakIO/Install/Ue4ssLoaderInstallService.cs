@@ -58,16 +58,18 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
     public Task InstallOrUpdateAsync(string icarusContentPath, string downloadedZipPath, string backupDirectory, CancellationToken cancellationToken = default) =>
         InstallOrUpdateAsync(icarusContentPath, downloadedZipPath, backupDirectory, knownVersion: null, knownCommit: null, cancellationToken);
 
-    public Task InstallOrUpdateAsync(
+    public Task<Ue4ssOldLayout.Outcome> InstallOrUpdateAsync(
         string icarusContentPath, string downloadedZipPath, string backupDirectory, string? knownVersion, string? knownCommit,
         CancellationToken cancellationToken = default) =>
         Task.Run(() =>
         {
-            InstallOrUpdateCore(icarusContentPath, downloadedZipPath, backupDirectory);
+            var movedOldSetup = InstallOrUpdateCore(icarusContentPath, downloadedZipPath, backupDirectory);
             Ue4ssInstalledBuild.RecordInstalled(Ue4ssGamePaths.ResolveLoaderFolder(icarusContentPath), knownVersion, knownCommit);
+            return movedOldSetup;
         }, cancellationToken);
 
-    private static void InstallOrUpdateCore(string icarusContentPath, string downloadedZipPath, string backupDirectory)
+    /// <summary>Returns what moving an old setup did (Outcome.None when there was none).</summary>
+    private static Ue4ssOldLayout.Outcome InstallOrUpdateCore(string icarusContentPath, string downloadedZipPath, string backupDirectory)
     {
         var win64Folder = Ue4ssGamePaths.ResolveWin64Folder(icarusContentPath);
         var loaderFolder = Ue4ssGamePaths.ResolveLoaderFolder(icarusContentPath);
@@ -161,6 +163,8 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
                 });
                 written.Add(item);
             }
+
+            return oldLayout.ToOutcome();
         }
         catch (Exception ex)
         {

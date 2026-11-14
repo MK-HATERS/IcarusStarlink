@@ -114,8 +114,13 @@ public static class ServerModFiles
     /// <paramref name="backupsFolder"/> and moved back if the copy fails; with no backups folder an
     /// old setup is left where it is.
     /// </summary>
-    public static bool InstallUe4ssFromGame(string gameWin64Folder, string installFolder, string? backupsFolder = null)
+    public static bool InstallUe4ssFromGame(string gameWin64Folder, string installFolder, string? backupsFolder = null) =>
+        InstallUe4ssFromGame(gameWin64Folder, installFolder, backupsFolder, out _);
+
+    /// <summary>The same, also saying what an old setup's move did (what moved, what stayed in Binaries\Win64, where the backup is).</summary>
+    public static bool InstallUe4ssFromGame(string gameWin64Folder, string installFolder, string? backupsFolder, out Ue4ssOldLayout.Outcome movedOldSetup)
     {
+        movedOldSetup = Ue4ssOldLayout.Outcome.None;
         var gameUe4ss = Path.Combine(gameWin64Folder, "ue4ss");
         if (!File.Exists(Path.Combine(gameWin64Folder, "dwmapi.dll")) || !File.Exists(Path.Combine(gameUe4ss, "UE4SS.dll")))
         {
@@ -140,6 +145,7 @@ public static class ServerModFiles
             throw;
         }
 
+        movedOldSetup = oldLayout.ToOutcome();
         return true;
     }
 

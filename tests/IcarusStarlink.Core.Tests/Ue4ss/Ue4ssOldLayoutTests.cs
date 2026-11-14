@@ -79,6 +79,77 @@ public sealed class Ue4ssOldLayoutTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(win64, "ue4ss", "Mods", "StorageLink")));
     }
 
+    /// <summary>
+    /// Starlink's UE4SS beside a leftover hand-unpacked one: what the ue4ss folder already has a
+    /// namesake of stays in Binaries\Win64 and is named, and the leftover is not an old setup any
+    /// more, so a second move does nothing and makes no second backup.
+    /// </summary>
+    [Fact]
+    public void MoveIntoUe4ssFolder_Ue4ssFolderAlreadyHasTheSameNames_LeavesThemNamesThem_AndASecondMoveDoesNothing()
+    {
+        var win64 = Path.Combine(_root, "Win64");
+        SeedOldSetup(win64);
+        Seed(Path.Combine(win64, "Mods", "MiniMapa", "Scripts", "main.lua"), "-- old minimap");
+        Seed(Path.Combine(win64, "ue4ss", "UE4SS.dll"), "new dll");
+        Seed(Path.Combine(win64, "ue4ss", "UE4SS-settings.ini"), "starlink settings");
+        Seed(Path.Combine(win64, "ue4ss", "Mods", "mods.txt"), "MiniMapa : 1\n");
+        Seed(Path.Combine(win64, "ue4ss", "Mods", "MiniMapa", "Scripts", "main.lua"), "-- new minimap");
+        var backups = Path.Combine(_root, "Backups");
+
+        var outcome = Ue4ssOldLayout.MoveIntoUe4ssFolder(win64, backups).ToOutcome();
+
+        Assert.Equal(["StorageLink"], outcome.Mods);
+        Assert.Equal(["MiniMapa"], outcome.LeftInPlace);
+        Assert.Equal([@"Mods\mods.txt", "UE4SS-settings.ini"], outcome.LeftFiles);
+        Assert.False(outcome.MovedSettings);
+        Assert.Equal("-- new minimap", File.ReadAllText(Path.Combine(win64, "ue4ss", "Mods", "MiniMapa", "Scripts", "main.lua")));
+        Assert.Equal("-- old minimap", File.ReadAllText(Path.Combine(win64, "Mods", "MiniMapa", "Scripts", "main.lua")));
+        Assert.Equal("StorageLink : 1\n", File.ReadAllText(Path.Combine(win64, "Mods", "mods.txt")));
+        Assert.Equal("my settings", File.ReadAllText(Path.Combine(win64, "UE4SS-settings.ini")));
+        Assert.Equal(
+            @" Your mod is now in the ue4ss folder. Left in Binaries\Win64, because the ue4ss folder already has one of that name: Mods\MiniMapa, Mods\mods.txt, UE4SS-settings.ini." +
+            $" UE4SS's own old mods (Keybinds and the like) were replaced by the new build's. The old setup is backed up in {outcome.BackupFolder}.",
+            outcome.Describe());
+
+        Assert.Null(Ue4ssOldLayout.Find(win64));
+        Assert.False(Ue4ssOldLayout.MoveIntoUe4ssFolder(win64, backups).Changed);
+        Assert.Single(Directory.GetDirectories(backups, "old-layout_*"));
+    }
+
+    [Fact]
+    public void Outcome_Describe_SaysOnlyWhatMoved()
+    {
+        Assert.Equal("", Ue4ssOldLayout.Outcome.None.Describe());
+        Assert.StartsWith(
+            " Your 2 mods and your UE4SS settings are now in the ue4ss folder. UE4SS's own old mods",
+            new Ue4ssOldLayout.Outcome(["A", "B"], [], [], true, @"C:\B\old-layout_1").Describe());
+        Assert.StartsWith(
+            " Your UE4SS settings are now in the ue4ss folder. UE4SS's own old mods",
+            new Ue4ssOldLayout.Outcome([], [], [], true, @"C:\B\old-layout_1").Describe());
+    }
+
+    /// <summary>A built-in mod's folder that can't be deleted whole (a file in it is open) is put back from the backup, with everything moved before it.</summary>
+    [Fact]
+    public void MoveIntoUe4ssFolder_ABuiltInModCannotBeDeletedWhole_PutsItBack()
+    {
+        var win64 = Path.Combine(_root, "Win64");
+        SeedOldSetup(win64);
+        Seed(Path.Combine(win64, "Mods", "Keybinds", "Scripts", "a.lua"), "-- a");
+        Seed(Path.Combine(win64, "Mods", "Keybinds", "Scripts", "z.lua"), "-- z");
+        var locked = Path.Combine(win64, "Mods", "Keybinds", "zz-locked.txt");
+        Seed(locked, "held open");
+
+        using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Assert.ThrowsAny<Exception>(() => Ue4ssOldLayout.MoveIntoUe4ssFolder(win64, Path.Combine(_root, "Backups")));
+        }
+
+        Assert.Equal("-- old keybinds", File.ReadAllText(Path.Combine(win64, "Mods", "Keybinds", "Scripts", "main.lua")));
+        Assert.Equal("-- a", File.ReadAllText(Path.Combine(win64, "Mods", "Keybinds", "Scripts", "a.lua")));
+        Assert.Equal("-- z", File.ReadAllText(Path.Combine(win64, "Mods", "Keybinds", "Scripts", "z.lua")));
+        Assert.Equal("old dll", File.ReadAllText(Path.Combine(win64, "UE4SS.dll")));
+    }
+
     /// <summary>A server set up the old way keeps its mods, their on/off state and its settings when the game's UE4SS is copied onto it.</summary>
     [Fact]
     public void InstallUe4ssFromGame_ServerWithAnOldSetup_MovesItsModsAndSettingsIntoTheUe4ssFolder()
@@ -94,7 +165,9 @@ public sealed class Ue4ssOldLayoutTests : IDisposable
         var serverWin64 = DedicatedServerLayout.Win64Folder(server);
         SeedOldSetup(serverWin64);
 
-        Assert.True(ServerModFiles.InstallUe4ssFromGame(gameWin64, server, Path.Combine(_root, "ServerBackups")));
+        Assert.True(ServerModFiles.InstallUe4ssFromGame(gameWin64, server, Path.Combine(_root, "ServerBackups"), out var moved));
+        Assert.Equal(["StorageLink"], moved.Mods);
+        Assert.True(moved.MovedSettings);
 
         var serverUe4ss = Path.Combine(serverWin64, "ue4ss");
         Assert.True(DedicatedServerLayout.IsUe4ssInstalled(server));

@@ -77,9 +77,14 @@ public sealed partial class SettingsViewModel
         {
             // Arrives after the constructor's first status read: say the line again with the servers.
             _ue4ssServers = value;
-            Ue4ssInstalledBuildsText = DescribeInstalledBuilds();
+            RefreshInstalledBuildsText();
         }
     }
+
+    /// <summary>The last read of the servers' folders for <see cref="Ue4ssInstalledBuildsText"/>; done when the text is set. For tests to wait on.</summary>
+    internal Task Ue4ssInstalledBuildsRead { get; private set; } = Task.CompletedTask;
+
+    private int _ue4ssInstalledBuildsReadNumber;
 
     private readonly Func<IReadOnlyList<(string Name, string InstallFolder)>>? _ue4ssServers;
 
@@ -204,7 +209,7 @@ public sealed partial class SettingsViewModel
         }
     }
 
-    /// <summary>The build number of a commit Starlink has seen named: the build inside it, or one in the list.</summary>
+    /// <summary>The build number of a commit Starlink has seen named: the build inside it, one in the list, or a dev build an earlier Starlink came with.</summary>
     private int? KnownBuildNumber(string? commit)
     {
         if (Ue4ssBuild.SameCommit(commit, BundledUe4ss.Commit))
@@ -220,7 +225,7 @@ public sealed partial class SettingsViewModel
             }
         }
 
-        return null;
+        return Ue4ssBuild.ShippedBuildNumber(commit);
     }
 
     private void NotifyUe4ssLabels()
@@ -298,7 +303,7 @@ public sealed partial class SettingsViewModel
             Ue4ssHasOldLayout = false;
             Ue4ssInstalledVersion = null;
             Ue4ssInstalledCommit = null;
-            Ue4ssInstalledBuildsText = DescribeInstalledBuilds();
+            RefreshInstalledBuildsText();
             return;
         }
 
@@ -321,57 +326,77 @@ public sealed partial class SettingsViewModel
             Ue4ssInstalledCommit = null;
         }
 
-        Ue4ssInstalledBuildsText = DescribeInstalledBuilds();
+        RefreshInstalledBuildsText();
     }
 
-    /// <summary>"Your game has 4.0.0 (official release). Server Home has 3.0.1 dev build 1181." Null when Starlink has no servers.</summary>
-    private string? DescribeInstalledBuilds()
+    /// <summary>
+    /// Sets <see cref="Ue4ssInstalledBuildsText"/>: "Your game has 4.0.0 (official release). Server
+    /// Home has 3.0.1 dev build 1181." Null when Starlink has no servers. Each server's folder and
+    /// UE4SS.log are read off the UI thread (a server can be on a network or sleeping drive); the
+    /// text is set when that read is done, and a read overtaken by a newer one sets nothing.
+    /// </summary>
+    private void RefreshInstalledBuildsText()
     {
         IReadOnlyList<(string Name, string InstallFolder)> servers;
         try
         {
-            servers = Ue4ssServers?.Invoke() ?? [];
+            servers = _ue4ssServers?.Invoke() ?? [];
         }
         catch (Exception)
         {
             servers = [];
         }
 
+        var readNumber = ++_ue4ssInstalledBuildsReadNumber;
         if (servers.Count == 0)
         {
-            return null;
+            Ue4ssInstalledBuildsText = null;
+            return;
         }
 
-        var game = Ue4ssHasOldLayout ? "an old UE4SS setup"
-            : !IsUe4ssInstalled ? "no UE4SS"
-            : Ue4ssInstalledVersion is null ? "UE4SS (its build shows once the game has started with it)"
-            : Ue4ssInstalledLabel;
-        var parts = new List<string> { $"Your game has {game}." };
-        foreach (var (name, installFolder) in servers)
+        Ue4ssInstalledBuildsRead = ReadAsync();
+
+        async Task ReadAsync()
         {
-            parts.Add($"Server {name} has {DescribeServerBuild(installFolder)}.");
-        }
+            var builds = await Task.Run(() => servers.Select(server => (server.Name, Build: ReadServerBuild(server.InstallFolder))).ToList());
+            if (readNumber != _ue4ssInstalledBuildsReadNumber)
+            {
+                return;
+            }
 
-        parts.Add("To give a server your game's UE4SS, use Install UE4SS from my game on the Server page.");
-        return string.Join(" ", parts);
+            var game = Ue4ssHasOldLayout ? "an old UE4SS setup"
+                : !IsUe4ssInstalled ? "no UE4SS"
+                : Ue4ssInstalledVersion is null ? "UE4SS (its build shows once the game has started with it)"
+                : Ue4ssInstalledLabel;
+            var parts = new List<string> { $"Your game has {game}." };
+            foreach (var (name, build) in builds)
+            {
+                var has = build.Other ?? Ue4ssBuild.Describe(build.Version, build.Commit, KnownBuildNumber(build.Commit));
+                parts.Add($"Server {name} has {has}.");
+            }
+
+            parts.Add("To give a server your game's UE4SS, use Install UE4SS from my game on the Server page.");
+            Ue4ssInstalledBuildsText = string.Join(" ", parts);
+        }
     }
 
-    private string DescribeServerBuild(string installFolder)
+    /// <summary>What a server's folder says about its UE4SS: the build's version and commit, or, in Other, the words for a server with no build to name. Reads disk; never throws.</summary>
+    private static (string? Version, string? Commit, string? Other) ReadServerBuild(string installFolder)
     {
         try
         {
             var win64 = IcarusStarlink.Core.Server.DedicatedServerLayout.Win64Folder(installFolder);
             if (!IcarusStarlink.Core.Server.DedicatedServerLayout.IsUe4ssInstalled(installFolder))
             {
-                return Ue4ssOldLayout.Find(win64) is null ? "no UE4SS" : "an old UE4SS setup";
+                return (null, null, Ue4ssOldLayout.Find(win64) is null ? "no UE4SS" : "an old UE4SS setup");
             }
 
             var (version, commit) = Ue4ssInstalledBuild.Read(Path.Combine(win64, "ue4ss"));
-            return version is null ? "UE4SS (its build shows once the server has started with it)" : Ue4ssBuild.Describe(version, commit, KnownBuildNumber(commit));
+            return version is null ? (null, null, "UE4SS (its build shows once the server has started with it)") : (version, commit, null);
         }
         catch (Exception)
         {
-            return "a folder Starlink couldn't read";
+            return (null, null, "a folder Starlink couldn't read");
         }
     }
 
@@ -499,7 +524,7 @@ public sealed partial class SettingsViewModel
 
             // A build number learned here may name the installed build.
             NotifyUe4ssLabels();
-            Ue4ssInstalledBuildsText = DescribeInstalledBuilds();
+            RefreshInstalledBuildsText();
             Ue4ssStatusMessage = added == 0
                 ? "The older builds are already in the list."
                 : $"Added {added} {(added == 1 ? "build" : "builds")} to the list. Pick one, then press Install.";
@@ -516,19 +541,9 @@ public sealed partial class SettingsViewModel
     /// version changes (3 to 4), the C++ mods that may not load until their authors update them.
     /// Without a version change it is the usual C++ mod warning.
     /// </summary>
-    private string Ue4ssChangeNotes(string contentPath, string? targetVersion, bool changing)
+    private string Ue4ssChangeNotes(string contentPath, Ue4ssOldLayout.Found? old, string? targetVersion, bool changing)
     {
         var notes = "";
-        Ue4ssOldLayout.Found? old = null;
-        try
-        {
-            old = _ue4ssLoaderInstallService.FindOldLayout(contentPath);
-        }
-        catch (Exception)
-        {
-            // Unreadable right now: the install itself still moves what it finds.
-        }
-
         if (old is not null)
         {
             var what = old.UserMods.Count switch
@@ -538,7 +553,10 @@ public sealed partial class SettingsViewModel
                 _ => $"your {old.UserMods.Count} mods ({string.Join(", ", old.UserMods)}), which ones are on, and your UE4SS settings",
             };
             notes += "Your UE4SS is set up the old way, with its files directly in Binaries\\Win64. UE4SS 4 looks in the ue4ss folder instead, " +
-                     $"so Starlink moves {what} there. The old setup is backed up first and moved back if the install fails.\n\n";
+                     $"so Starlink moves {what} there. The old setup is backed up first and moved back if the install fails. " +
+                     "A mod or settings file the ue4ss folder already has one of stays where it is. " +
+                     "UE4SS's own old mods (Keybinds, BPModLoaderMod and the like) are replaced by the new build's; " +
+                     "if you changed one, your copy is in the backup.\n\n";
         }
 
         if (Ue4ssBuild.Major(Ue4ssInstalledVersion) is { } from && Ue4ssBuild.Major(targetVersion) is { } to && from != to)
@@ -553,8 +571,12 @@ public sealed partial class SettingsViewModel
                 native = [];
             }
 
+            // Going down (4 to 3) nobody is waiting on an author: a mod made for the newer UE4SS may not load on the older one.
+            var nativeNote = native.Count == 0 ? ""
+                : to < from ? $"C++ mods made for UE4SS {from} may not load on UE4SS {to}. Your C++ mods: {string.Join(", ", native)}. "
+                : $"These C++ mods may not load until their authors update them for UE4SS {to}: {string.Join(", ", native)}. ";
             notes += $"This changes UE4SS {from} to UE4SS {to}. All your mods are kept. " +
-                     (native.Count == 0 ? "" : $"These C++ mods may not load until their authors update them for UE4SS {to}: {string.Join(", ", native)}. ") +
+                     nativeNote +
                      "Play once, then look at the Library: each UE4SS mod shows Started or Didn't start, so you can see what works. " +
                      "If something breaks, the UE4SS you have now is in Backups\\UE4SS-Loader.\n\n";
             return notes;
@@ -563,25 +585,24 @@ public sealed partial class SettingsViewModel
         return notes + NativeModsWarningFor(changing);
     }
 
-    /// <summary>After an install that moved an old setup: what went where, for the status line.</summary>
-    private string OldLayoutMovedNote(string contentPath)
+    /// <summary>The old setup an install would move, for the confirmation; null when there is none or the folder can't be read right now (the install still moves what it finds).</summary>
+    private Ue4ssOldLayout.Found? FindOldUe4ssSetup(string contentPath)
     {
         try
         {
-            return _ue4ssLoaderInstallService.FindOldLayout(contentPath) is { } old
-                ? old.UserMods.Count switch
-                {
-                    0 => " Your UE4SS settings are now in the ue4ss folder.",
-                    1 => " Your mod and your UE4SS settings are now in the ue4ss folder.",
-                    _ => $" Your {old.UserMods.Count} mods and your UE4SS settings are now in the ue4ss folder.",
-                }
-                : "";
+            return _ue4ssLoaderInstallService.FindOldLayout(contentPath);
         }
         catch (Exception)
         {
-            return "";
+            return null;
         }
     }
+
+    /// <summary>The confirmation's last note: what an install leaves alone. With an old setup the Mods folder meant is the ue4ss folder's, since UE4SS's own old mods are replaced.</summary>
+    private static string Ue4ssKeptNote(Ue4ssOldLayout.Found? old) => old is null
+        ? "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Any mods already in your Mods folder, " +
+          "and your own UE4SS-settings.ini if you've customized it, are left untouched."
+        : "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Mods and a UE4SS-settings.ini already in the ue4ss folder are left untouched.";
 
     /// <summary>The paragraph about the user's C++ mods for an install/update confirmation; empty when there are none or the build isn't changing.</summary>
     private string NativeModsWarningFor(bool changing)
@@ -672,15 +693,14 @@ public sealed partial class SettingsViewModel
         var downgrade = order == Ue4ssBuildOrder.Older
             ? "Yours is newer: this replaces it with an older build. To keep yours, cancel.\n\n"
             : "";
-        var movedNote = OldLayoutMovedNote(contentPath);
+        var oldSetup = FindOldUe4ssSetup(contentPath);
         var result = _dialogService.Confirm(
             current + downgrade + (fromGitHub
                 ? $"This downloads UE4SS {label} from GitHub and installs it into your game's Binaries\\Win64 folder "
                 : $"This installs UE4SS {label}, which comes with Starlink (no download), into your game's Binaries\\Win64 folder ") +
             "— the loader that lets Lua/scripting mods run.\n\n" +
-            Ue4ssChangeNotes(contentPath, version, changing: order != Ue4ssBuildOrder.Same) +
-            "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Any mods already in your Mods folder, " +
-            "and your own UE4SS-settings.ini if you've customized it, are left untouched.\n\n" +
+            Ue4ssChangeNotes(contentPath, oldSetup, version, changing: order != Ue4ssBuildOrder.Same) +
+            Ue4ssKeptNote(oldSetup) + "\n\n" +
             "Continue?",
             $"{verb} UE4SS", ThemedConfirmSeverity.Question);
 
@@ -729,17 +749,18 @@ public sealed partial class SettingsViewModel
             }
 
             Ue4ssStatusMessage = "Installing…";
-            await _ue4ssLoaderInstallService.InstallOrUpdateAsync(contentPath, tempZipPath, _backupDirectory, version, commit);
+            var movedOldSetup = await _ue4ssLoaderInstallService.InstallOrUpdateAsync(contentPath, tempZipPath, _backupDirectory, version, commit);
 
             RefreshUe4ssStatus();
             Ue4ssCheckedOrder = Ue4ssBuildOrder.Unknown;
             // From the same verb the confirm used: a reinstall or an older build isn't an "update".
+            // What the install says it moved (and left) of an old setup follows.
             Ue4ssStatusMessage = verb switch
             {
                 "Install" => $"Installed UE4SS {label}.",
                 "Update" => $"Updated to UE4SS {label}.",
                 _ => $"Reinstalled UE4SS {label}.",
-            } + movedNote;
+            } + movedOldSetup.Describe();
             WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage($"UE4SS {label} is installed in the game."));
         }
         catch (Exception ex)
@@ -785,12 +806,11 @@ public sealed partial class SettingsViewModel
         // A release zip keeps GitHub's name ("UE4SS_v4.0.0.zip", "UE4SS_v3.0.1-1176-g1ba38db4.zip"), which says which build it is.
         var knownBuild = Ue4ssBuild.TryParseAssetName(Path.GetFileName(zipPath), out var zipVersion, out _, out var zipCommit);
         var changesBuild = !knownBuild || !Ue4ssBuild.SameCommit(zipCommit, Ue4ssInstalledCommit);
-        var movedNote = OldLayoutMovedNote(contentPath);
+        var oldSetup = FindOldUe4ssSetup(contentPath);
         if (!_dialogService.Confirm(
                 $"Install UE4SS from\n{zipPath}\ninto your game's Binaries\\Win64 folder?\n\n" +
-                Ue4ssChangeNotes(contentPath, knownBuild ? zipVersion : null, changesBuild) +
-                "Your existing UE4SS.dll/dwmapi.dll are backed up first (last 5 kept). Mods already in your Mods folder, " +
-                "and your own UE4SS-settings.ini, are left untouched.",
+                Ue4ssChangeNotes(contentPath, oldSetup, knownBuild ? zipVersion : null, changesBuild) +
+                Ue4ssKeptNote(oldSetup),
                 "Install UE4SS from a zip", ThemedConfirmSeverity.Question))
         {
             return;
@@ -806,11 +826,11 @@ public sealed partial class SettingsViewModel
         Ue4ssStatusMessage = "Installing…";
         try
         {
-            await _ue4ssLoaderInstallService.InstallOrUpdateAsync(
+            var movedOldSetup = await _ue4ssLoaderInstallService.InstallOrUpdateAsync(
                 contentPath, zipPath, _backupDirectory, knownBuild ? zipVersion : null, knownBuild ? zipCommit : null);
             RefreshUe4ssStatus();
             Ue4ssCheckedOrder = Ue4ssBuildOrder.Unknown;
-            Ue4ssStatusMessage = $"Installed UE4SS{(Ue4ssInstalledVersion is not null ? $" {Ue4ssInstalledLabel}" : "")} from {Path.GetFileName(zipPath)}.{movedNote}";
+            Ue4ssStatusMessage = $"Installed UE4SS{(Ue4ssInstalledVersion is not null ? $" {Ue4ssInstalledLabel}" : "")} from {Path.GetFileName(zipPath)}.{movedOldSetup.Describe()}";
             WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage(Ue4ssStatusMessage));
         }
         catch (Exception ex)

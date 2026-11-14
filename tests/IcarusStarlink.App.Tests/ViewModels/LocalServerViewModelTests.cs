@@ -706,6 +706,28 @@ public sealed partial class LocalServerViewModelTests : IDisposable
         Assert.Equal(["ZZ_ArcFission_Data_2_P.pak", "zz_zz_ISL-Merged_9999_P.pak"], vm.ServerPaks.Select(p => p.FileName).Order(StringComparer.Ordinal));
     }
 
+    /// <summary>A server with UE4SS set up the old way: the status line says what moved into the ue4ss folder and where the backup is.</summary>
+    [Fact]
+    public void Ue4ss_InstallFromGame_ServerWithAnOldSetup_StatusSaysWhatMoved()
+    {
+        var gameWin64 = MakeGameWithUe4ss();
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        var serverWin64 = DedicatedServerLayout.Win64Folder(_install);
+        Directory.CreateDirectory(Path.Combine(serverWin64, "Mods", "StorageLink", "Scripts"));
+        File.WriteAllText(Path.Combine(serverWin64, "UE4SS.dll"), "old loader");
+        File.WriteAllText(Path.Combine(serverWin64, "UE4SS-settings.ini"), "server settings");
+        File.WriteAllText(Path.Combine(serverWin64, "Mods", "StorageLink", "Scripts", "main.lua"), "-- mine");
+        var (vm, _, _, _) = Build(pick: _install);
+        vm.AddExistingServerCommand.Execute(null);
+
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+
+        Assert.Contains("Your mod and your UE4SS settings are now in the ue4ss folder.", vm.StatusMessage);
+        Assert.Contains("The old setup is backed up in ", vm.StatusMessage);
+        Assert.EndsWith("Tick the Lua mods to put on it below.", vm.StatusMessage);
+        Assert.Equal("-- mine", File.ReadAllText(Path.Combine(DedicatedServerLayout.Ue4ssModsFolder(_install), "StorageLink", "Scripts", "main.lua")));
+    }
+
     [Fact]
     public void Ue4ss_InstallFromGameThenMatch_CopiesTheModsOnInTheGame()
     {

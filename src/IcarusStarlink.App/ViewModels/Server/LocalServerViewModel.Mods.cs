@@ -387,8 +387,10 @@ public sealed partial class LocalServerViewModel
             // A server set up the old way (UE4SS files directly in Binaries\Win64) has its mods and
             // settings moved into the ue4ss folder first, backed up with the server's other backups.
             var backups = ServerBackupsFolder(p);
-            StatusMessage = await OffUiThread(() => ServerModFiles.InstallUe4ssFromGame(gameWin64, p.InstallFolder, backups))
-                ? $"UE4SS copied from your game to '{p.Name}' (loader, settings, framework). Tick the Lua mods to put on it below."
+            var (copied, movedOldSetup) = await OffUiThread(() =>
+                (ServerModFiles.InstallUe4ssFromGame(gameWin64, p.InstallFolder, backups, out var moved), moved));
+            StatusMessage = copied
+                ? $"UE4SS copied from your game to '{p.Name}' (loader, settings, framework).{movedOldSetup.Describe()} Tick the Lua mods to put on it below."
                 : "Your game has no UE4SS to copy — install it from the Settings page first.";
         }
         catch (Exception ex)

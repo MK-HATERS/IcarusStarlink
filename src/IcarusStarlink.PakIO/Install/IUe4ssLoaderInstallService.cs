@@ -24,12 +24,17 @@ public interface IUe4ssLoaderInstallService
     /// The same install, for a build Starlink knows (the bundled one, a GitHub dev build, a zip
     /// named like a release). UE4SS only rewrites UE4SS.log on the game's next start, so the stale
     /// log is dropped and the installed version/commit recorded (Ue4ssInstalledBuild), letting
-    /// GetStatus name the new build straight away.
+    /// GetStatus name the new build straight away. Returns what moving an old setup did (which
+    /// mods and settings are now in the ue4ss folder, what stayed in Binaries\Win64, where the
+    /// backup is); Ue4ssOldLayout.Outcome.None when there was no old setup.
     /// </summary>
-    Task InstallOrUpdateAsync(
+    async Task<Ue4ssOldLayout.Outcome> InstallOrUpdateAsync(
         string icarusContentPath, string downloadedZipPath, string backupDirectory, string? knownVersion, string? knownCommit,
-        CancellationToken cancellationToken = default) =>
-        InstallOrUpdateAsync(icarusContentPath, downloadedZipPath, backupDirectory, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        await InstallOrUpdateAsync(icarusContentPath, downloadedZipPath, backupDirectory, cancellationToken);
+        return Ue4ssOldLayout.Outcome.None;
+    }
 
     /// <summary>The names of the user's OWN mods currently in the game's Mods folder — everything that isn't one of UE4SS's own mods: the known built-ins plus the installed mods.json (Ue4ssFrameworkMods.In), shared\ included. What UninstallAsync will preserve; surfaced separately so the confirmation dialog can name them before anything happens.</summary>
     IReadOnlyList<string> ListUserAddedMods(string icarusContentPath);

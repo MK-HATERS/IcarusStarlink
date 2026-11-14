@@ -522,6 +522,9 @@ public sealed partial class SettingsViewModelTests
         Assert.Contains("downloads UE4SS 3.0.1 dev build 1221 from GitHub", confirm);
         Assert.Contains("replaces it with an older build", confirm);
         Assert.Contains("This changes UE4SS 4 to UE4SS 3", confirm);
+        // Going down, nobody is waiting for an author to update a mod.
+        Assert.Contains("C++ mods made for UE4SS 4 may not load on UE4SS 3. Your C++ mods: NoStability.", confirm);
+        Assert.DoesNotContain("until their authors update them", confirm);
         Assert.Equal(1, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
         Assert.Equal("aea3ed6e", harness.Ue4ssLoaderInstallService.LastKnownCommit);
         Assert.Equal("3.0.1 dev build 1221 installed.", vm.Ue4ssStatusText);
@@ -570,6 +573,8 @@ public sealed partial class SettingsViewModelTests
         service.OldLayout = new Ue4ssOldLayout.Found(@"C:\Game\Icarus\Binaries\Win64", ["MiniMapa", "NoStability"], ["NoStability"], true, "3.0.1", Ue4ssBuild.OfficialReleaseCommit[..8]);
         service.NativeMods = ["NoStability"];
         service.StatusAfterInstall = new Ue4ssLoaderStatus(true, BundledUe4ss.Version, BundledUe4ss.Commit);
+        // What the install really did: the ue4ss folder already had a NoStability, so that one stayed.
+        service.MovedOldSetup = new Ue4ssOldLayout.Outcome(["MiniMapa"], ["NoStability"], [], true, @"C:\Backups\UE4SS-Loader\old-layout_1");
         var vm = harness.BuildViewModel();
 
         Assert.True(vm.Ue4ssHasOldLayout);
@@ -583,14 +588,36 @@ public sealed partial class SettingsViewModelTests
         Assert.Contains("Starlink moves your 2 mods (MiniMapa, NoStability), which ones are on, and your UE4SS settings there", confirm);
         Assert.Contains("backed up first and moved back if the install fails", confirm);
         Assert.Contains("for UE4SS 4: NoStability.", confirm);
+        // UE4SS's own old mods are replaced, so the note that every mod is left untouched isn't said.
+        Assert.Contains("UE4SS's own old mods (Keybinds, BPModLoaderMod and the like) are replaced by the new build's; if you changed one, your copy is in the backup.", confirm);
+        Assert.DoesNotContain("Any mods already in your Mods folder", confirm);
+        Assert.Contains("Mods and a UE4SS-settings.ini already in the ue4ss folder are left untouched.", confirm);
         Assert.Equal(1, service.InstallOrUpdateCallCount);
-        Assert.Equal("Installed UE4SS 4.0.0 (official release). Your 2 mods and your UE4SS settings are now in the ue4ss folder.", vm.Ue4ssStatusMessage);
+        // The status line is what the install says it did, not what was there before it.
+        Assert.Equal(
+            @"Installed UE4SS 4.0.0 (official release). Your mod and your UE4SS settings are now in the ue4ss folder. " +
+            @"Left in Binaries\Win64, because the ue4ss folder already has one of that name: Mods\NoStability. " +
+            @"UE4SS's own old mods (Keybinds and the like) were replaced by the new build's. The old setup is backed up in C:\Backups\UE4SS-Loader\old-layout_1.",
+            vm.Ue4ssStatusMessage);
         Assert.False(vm.Ue4ssHasOldLayout);
+    }
+
+    /// <summary>Without an old setup the confirmation keeps its usual last note.</summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_NoOldSetup_SaysModsAreLeftUntouched()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        var vm = harness.BuildViewModel();
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Contains("Any mods already in your Mods folder", harness.DialogService.LastConfirmMessage);
+        Assert.Equal("Installed UE4SS 4.0.0 (official release).", vm.Ue4ssStatusMessage);
     }
 
     /// <summary>With servers set up, one line says which build the game and each server has.</summary>
     [Fact]
-    public void Ue4ssInstalledBuildsText_NamesTheGameAndEachServer()
+    public async Task Ue4ssInstalledBuildsText_NamesTheGameAndEachServer()
     {
         using var harness = new Harness();
         harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "4.0.0", Ue4ssBuild.Official400Commit[..8]);
@@ -603,11 +630,26 @@ public sealed partial class SettingsViewModelTests
         harness.Ue4ssServers = [("Home", withUe4ss), ("Test", Path.Combine(harness.TempDir, "ServerB"))];
 
         var vm = harness.BuildViewModel();
+        // The servers' folders are read off the UI thread; the line is set when that is done.
+        await vm.Ue4ssInstalledBuildsRead;
 
         Assert.True(vm.HasUe4ssInstalledBuildsText);
+        // 83330635 is the dev build the last Starlink came with: still named by its number.
         Assert.StartsWith(
-            "Your game has 4.0.0 (official release). Server Home has 3.0.1 dev build 83330635. Server Test has no UE4SS.",
+            "Your game has 4.0.0 (official release). Server Home has 3.0.1 dev build 1181. Server Test has no UE4SS.",
             vm.Ue4ssInstalledBuildsText);
+    }
+
+    /// <summary>A player updating from the last Starlink has its dev build 1181: still named by number, though it is no longer the build inside Starlink.</summary>
+    [Fact]
+    public void Ue4ssInstalledLabel_TheDevBuildAnEarlierStarlinkCameWith_KeepsItsBuildNumber()
+    {
+        using var harness = new Harness();
+        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "3.0.1", "83330635");
+
+        var vm = harness.BuildViewModel();
+
+        Assert.Equal("3.0.1 dev build 1181", vm.Ue4ssInstalledLabel);
     }
 
     [Fact]
@@ -2355,10 +2397,14 @@ public sealed partial class SettingsViewModelTests
         public string? LastKnownCommit { get; private set; }
         public IReadOnlyList<string> NativeMods { get; set; } = [];
 
-        public Task InstallOrUpdateAsync(string icarusContentPath, string downloadedZipPath, string backupDirectory, string? knownVersion, string? knownCommit, CancellationToken cancellationToken = default)
+        /// <summary>What the install says moving an old setup did.</summary>
+        public Ue4ssOldLayout.Outcome MovedOldSetup { get; set; } = Ue4ssOldLayout.Outcome.None;
+
+        public async Task<Ue4ssOldLayout.Outcome> InstallOrUpdateAsync(string icarusContentPath, string downloadedZipPath, string backupDirectory, string? knownVersion, string? knownCommit, CancellationToken cancellationToken = default)
         {
             LastKnownCommit = knownCommit;
-            return InstallOrUpdateAsync(icarusContentPath, downloadedZipPath, backupDirectory, cancellationToken);
+            await InstallOrUpdateAsync(icarusContentPath, downloadedZipPath, backupDirectory, cancellationToken);
+            return MovedOldSetup;
         }
 
         public IReadOnlyList<string> ListNativeMods(string icarusContentPath) => NativeMods;

@@ -488,6 +488,36 @@ public class Ue4ssLoaderInstallServiceTests : IDisposable
         Assert.Equal(["MiniMapa", "NoStability"], _service.ListUserAddedMods(_fakeContentPath));
     }
 
+    /// <summary>
+    /// Starlink's UE4SS beside a leftover old one: the first install says what moved and what
+    /// stayed in Binaries\Win64; what stayed is not an old setup any more, so the next install
+    /// moves nothing, makes no second old-layout backup and reports no move.
+    /// </summary>
+    [Fact]
+    public async Task InstallOrUpdateAsync_SecondInstallAfterSomethingWasLeftInPlace_FindsNoOldSetup_AndMakesNoSecondBackup()
+    {
+        SeedOldFlatSetup();
+        Seed(Path.Combine(LoaderFolder, "Mods", "MiniMapa", "Scripts", "main.lua"), "-- newer copy");
+        Seed(Path.Combine(LoaderFolder, "Mods", "mods.txt"), "MiniMapa : 1\n");
+        Seed(Path.Combine(LoaderFolder, "UE4SS-settings.ini"), "current settings");
+
+        var first = await _service.InstallOrUpdateAsync(_fakeContentPath, CreateFake400Zip(), _backupDirectory, "4.0.0", Ue4ssBuild.Official400Commit);
+
+        Assert.Equal(["NoStability"], first.Mods);
+        Assert.Equal(["MiniMapa"], first.LeftInPlace);
+        Assert.Equal([@"Mods\mods.txt", "UE4SS-settings.ini"], first.LeftFiles);
+        Assert.False(first.MovedSettings);
+        Assert.True(File.Exists(Path.Combine(Win64Folder, "Mods", "mods.txt")));
+        Assert.Null(_service.FindOldLayout(_fakeContentPath));
+
+        var second = await _service.InstallOrUpdateAsync(_fakeContentPath, CreateFake400Zip(), _backupDirectory, "4.0.0", Ue4ssBuild.Official400Commit);
+
+        Assert.False(second.Changed);
+        Assert.Equal("", second.Describe());
+        Assert.Single(Directory.GetDirectories(Path.Combine(_backupDirectory, "UE4SS-Loader"), "old-layout_*"));
+        Assert.Equal("-- my lua mod", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "Mods", "MiniMapa", "Scripts", "main.lua")));
+    }
+
     /// <summary>A mod the ue4ss folder already has is never written over: the old copy stays where it was.</summary>
     [Fact]
     public async Task InstallOrUpdateAsync_OverAnOldSetup_NeverOverwritesAModAlreadyInTheUe4ssFolder()

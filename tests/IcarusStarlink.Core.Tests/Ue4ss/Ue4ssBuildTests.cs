@@ -41,6 +41,16 @@ public class Ue4ssBuildTests : IDisposable
         Assert.Equal("3.0.1", Ue4ssBuild.Describe("3.0.1", null));
     }
 
+    /// <summary>The dev build an earlier Starlink came with keeps its number after GitHub's archive drops it.</summary>
+    [Fact]
+    public void ShippedBuildNumber_KnowsTheDevBuildsStarlinkCameWith()
+    {
+        Assert.Equal(1181, Ue4ssBuild.ShippedBuildNumber("83330635"));
+        Assert.Equal(1181, Ue4ssBuild.ShippedBuildNumber("83330635aabbccdd"));
+        Assert.Null(Ue4ssBuild.ShippedBuildNumber("1c1a1497"));
+        Assert.Null(Ue4ssBuild.ShippedBuildNumber(null));
+    }
+
     /// <summary>Official releases are known by their tag's commit, so a 4.0.0 install reads as the release and a later commit as a dev build of it.</summary>
     [Fact]
     public void Describe_KnowsTheOfficial400Release_AndItsDevBuilds()

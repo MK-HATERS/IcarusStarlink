@@ -23,14 +23,17 @@ public static class Ue4ssOldLayout
     public sealed record Found(
         string Win64Folder, IReadOnlyList<string> UserMods, IReadOnlyList<string> NativeMods, bool HasSettings, string? Version, string? Commit);
 
-    /// <summary>The old setup in this Binaries\Win64 folder; null when there is none. Reads only.</summary>
+    /// <summary>
+    /// The old setup in this Binaries\Win64 folder; null when there is none. Reads only. UE4SS.dll
+    /// is what makes it one: a Mods folder alone (what a move leaves behind when the ue4ss folder
+    /// already had a mod of the same name) is not a setup to move again.
+    /// </summary>
     public static Found? Find(string win64Folder)
     {
         try
         {
             var modsFolder = Path.Combine(win64Folder, "Mods");
-            var hasDll = File.Exists(Path.Combine(win64Folder, "UE4SS.dll"));
-            if (!hasDll && !File.Exists(Path.Combine(modsFolder, "mods.txt")))
+            if (!File.Exists(Path.Combine(win64Folder, "UE4SS.dll")))
             {
                 return null;
             }
@@ -65,6 +68,59 @@ public static class Ue4ssOldLayout
         }
     }
 
+    /// <summary>What a move did, for the caller to tell the player. <see cref="None"/> when there was no old setup.</summary>
+    /// <param name="Mods">The player's mods now in ue4ss\Mods.</param>
+    /// <param name="LeftInPlace">The player's mods still in Binaries\Win64\Mods: ue4ss\Mods already has one of that name.</param>
+    /// <param name="LeftFiles">Files and folders still where they were for the same reason, as paths under Binaries\Win64 ("Mods\mods.txt", "UE4SS-settings.ini").</param>
+    /// <param name="MovedSettings">The old UE4SS-settings.ini is now the ue4ss folder's.</param>
+    /// <param name="BackupFolder">The copy of the old setup made before anything moved; null when nothing changed.</param>
+    public sealed record Outcome(
+        IReadOnlyList<string> Mods, IReadOnlyList<string> LeftInPlace, IReadOnlyList<string> LeftFiles, bool MovedSettings, string? BackupFolder)
+    {
+        public static Outcome None { get; } = new([], [], [], false, null);
+
+        public bool Changed => BackupFolder is not null;
+
+        /// <summary>
+        /// The move in plain words for a status line, starting with a space; empty when nothing
+        /// changed. Says what is now in the ue4ss folder, what stayed in Binaries\Win64 and why,
+        /// and where the backup of the old setup (UE4SS's own old mods included) is.
+        /// </summary>
+        public string Describe()
+        {
+            if (!Changed)
+            {
+                return "";
+            }
+
+            var movedParts = new List<string>();
+            if (Mods.Count > 0)
+            {
+                movedParts.Add(Mods.Count == 1 ? "Your mod" : $"Your {Mods.Count} mods");
+            }
+
+            if (MovedSettings)
+            {
+                movedParts.Add(movedParts.Count == 0 ? "Your UE4SS settings" : "your UE4SS settings");
+            }
+
+            var text = "";
+            if (movedParts.Count > 0)
+            {
+                var verb = movedParts.Count == 1 && Mods.Count == 1 ? "is" : "are";
+                text = $" {string.Join(" and ", movedParts)} {verb} now in the ue4ss folder.";
+            }
+
+            var left = LeftInPlace.Select(name => $@"Mods\{name}").Concat(LeftFiles).ToList();
+            if (left.Count > 0)
+            {
+                text += $@" Left in Binaries\Win64, because the ue4ss folder already has one of that name: {string.Join(", ", left)}.";
+            }
+
+            return text + $" UE4SS's own old mods (Keybinds and the like) were replaced by the new build's. The old setup is backed up in {BackupFolder}.";
+        }
+    }
+
     /// <summary>What <see cref="MoveIntoUe4ssFolder"/> did, and the way back.</summary>
     public sealed class Moved
     {
@@ -83,6 +139,15 @@ public static class Ue4ssOldLayout
 
         /// <summary>Mods left where they were because ue4ss\Mods already has a folder of that name.</summary>
         public List<string> LeftInPlace { get; } = [];
+
+        /// <summary>Files and folders left where they were for the same reason, as paths under Binaries\Win64.</summary>
+        public List<string> LeftFiles { get; } = [];
+
+        /// <summary>The old UE4SS-settings.ini moved into the ue4ss folder.</summary>
+        public bool MovedSettings { get; internal set; }
+
+        /// <summary>What happened, without the way back.</summary>
+        public Outcome ToOutcome() => Changed ? new Outcome([.. Mods], [.. LeftInPlace], [.. LeftFiles], MovedSettings, BackupFolder) : Outcome.None;
 
         internal void Did(Action undo) => _undo.Add(undo);
 
@@ -113,8 +178,9 @@ public static class Ue4ssOldLayout
     /// mods are on; each mod's own enabled.txt travels inside its folder) and UE4SS-settings.ini
     /// move across, never over something the ue4ss folder already has. UE4SS's own old files
     /// (UE4SS.dll, its built-in mods) are taken out: they are in the backup, and the install that
-    /// follows brings the new ones. A step that fails undoes the ones before it and throws.
-    /// Does nothing when there is no old setup.
+    /// follows brings the new ones. What the ue4ss folder already has a namesake of stays in
+    /// Binaries\Win64 and is named in the result. A step that fails undoes the ones before it, and
+    /// its own half-done delete, and throws. Does nothing when there is no old setup.
     /// </summary>
     public static Moved MoveIntoUe4ssFolder(string win64Folder, string backupDirectory)
     {
@@ -143,8 +209,9 @@ public static class Ue4ssOldLayout
                     if (framework.Contains(name) && !isShared)
                     {
                         // One of UE4SS's own built-in mods: the new build brings its own copy.
+                        // The way back is noted first, so a delete that stops halfway is put back too.
+                        moved.Did(() => RestoreMissing(Path.Combine(backup, "Mods", name), folder));
                         Directory.Delete(folder, recursive: true);
-                        moved.Did(() => Directories.Copy(Path.Combine(backup, "Mods", name), folder));
                     }
                     else if (Directory.Exists(target) || File.Exists(target))
                     {
@@ -172,12 +239,12 @@ public static class Ue4ssOldLayout
                     if (name.Equals("mods.json", StringComparison.OrdinalIgnoreCase))
                     {
                         // The old build's list of its own built-in mods: stale beside a new build.
-                        File.Delete(file);
                         moved.Did(() => File.Copy(Path.Combine(backup, "Mods", name), file, overwrite: true));
+                        File.Delete(file);
                     }
-                    else
+                    else if (!MoveFileIfFree(file, Path.Combine(newMods, name), moved))
                     {
-                        MoveFileIfFree(file, Path.Combine(newMods, name), moved);
+                        moved.LeftFiles.Add($@"Mods\{name}");
                     }
                 }
 
@@ -191,9 +258,18 @@ public static class Ue4ssOldLayout
             foreach (var name in PlayerFiles)
             {
                 var file = Path.Combine(win64Folder, name);
-                if (File.Exists(file))
+                if (!File.Exists(file))
                 {
-                    MoveFileIfFree(file, Path.Combine(newRoot, name), moved);
+                    continue;
+                }
+
+                if (!MoveFileIfFree(file, Path.Combine(newRoot, name), moved))
+                {
+                    moved.LeftFiles.Add(name);
+                }
+                else if (name == Ue4ssServerFiles.SettingsFileName)
+                {
+                    moved.MovedSettings = true;
                 }
             }
 
@@ -201,7 +277,16 @@ public static class Ue4ssOldLayout
             {
                 var folder = Path.Combine(win64Folder, name);
                 var target = Path.Combine(newRoot, name);
-                if (Directory.Exists(folder) && !Directory.Exists(target))
+                if (!Directory.Exists(folder))
+                {
+                    continue;
+                }
+
+                if (Directory.Exists(target))
+                {
+                    moved.LeftFiles.Add(name);
+                }
+                else
                 {
                     Directory.Move(folder, target);
                     moved.Did(() => Directory.Move(target, folder));
@@ -211,8 +296,8 @@ public static class Ue4ssOldLayout
             var oldDll = Path.Combine(win64Folder, "UE4SS.dll");
             if (File.Exists(oldDll))
             {
-                File.Delete(oldDll);
                 moved.Did(() => File.Copy(Path.Combine(backup, "UE4SS.dll"), oldDll, overwrite: true));
+                File.Delete(oldDll);
             }
 
             return moved;
@@ -224,15 +309,39 @@ public static class Ue4ssOldLayout
         }
     }
 
-    private static void MoveFileIfFree(string file, string target, Moved moved)
+    /// <summary>
+    /// Copies back from the backup every file the target no longer has. A file still there
+    /// survived the delete whole (and may be the open one that stopped it), so it is left alone.
+    /// </summary>
+    private static void RestoreMissing(string source, string target)
+    {
+        Directory.CreateDirectory(target);
+        foreach (var file in Directory.GetFiles(source))
+        {
+            var dest = Path.Combine(target, Path.GetFileName(file));
+            if (!File.Exists(dest))
+            {
+                File.Copy(file, dest);
+            }
+        }
+
+        foreach (var folder in Directory.GetDirectories(source))
+        {
+            RestoreMissing(folder, Path.Combine(target, Path.GetFileName(folder)));
+        }
+    }
+
+    /// <summary>False when the target is taken: the file stays where it is.</summary>
+    private static bool MoveFileIfFree(string file, string target, Moved moved)
     {
         if (File.Exists(target) || Directory.Exists(target))
         {
-            return;
+            return false;
         }
 
         File.Move(file, target);
         moved.Did(() => File.Move(target, file));
+        return true;
     }
 
     /// <summary>Copies the old setup (UE4SS.dll, the player's files and the whole Mods folder) to a new folder and returns it.</summary>

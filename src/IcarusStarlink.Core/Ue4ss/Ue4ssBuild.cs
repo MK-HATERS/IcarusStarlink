@@ -24,6 +24,29 @@ public static partial class Ue4ssBuild
         ("4.0.0", Official400Commit),
     ];
 
+    /// <summary>
+    /// Dev builds Starlink has come with, by commit. GitHub's archive drops old builds, so this is
+    /// what still names one a player has from an earlier Starlink ("3.0.1 dev build 1181").
+    /// </summary>
+    private static readonly (string Commit, int BuildNumber)[] ShippedDevBuilds =
+    [
+        ("83330635", 1181),
+    ];
+
+    /// <summary>The build number of a dev build Starlink has come with; null for any other commit.</summary>
+    public static int? ShippedBuildNumber(string? commit)
+    {
+        foreach (var shipped in ShippedDevBuilds)
+        {
+            if (SameCommit(commit, shipped.Commit))
+            {
+                return shipped.BuildNumber;
+            }
+        }
+
+        return null;
+    }
+
     [GeneratedRegex(@"^UE4SS_v(?<version>[\d.]+)-(?<build>\d+)-g(?<commit>[0-9a-fA-F]{7,40})\.zip$")]
     private static partial Regex DevAssetName();
 
