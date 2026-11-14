@@ -67,6 +67,35 @@ public sealed partial class LocalServerViewModelTests
         Assert.Contains(log.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message.StartsWith("Restore failed", StringComparison.Ordinal));
     }
 
+    // ---- UE4SS from the game ----
+
+    /// <summary>
+    /// Regression: copying the game's UE4SS over the server's own left no line in the activity log
+    /// and no word on where the server's previous loader went (nowhere: it wasn't kept).
+    /// </summary>
+    [Fact]
+    public void Ue4ss_InstallFromGame_OverAnotherLoader_SaysWhereTheOldOneIsKept_AndLogsIt()
+    {
+        var gameWin64 = MakeGameWithUe4ss();
+        Settings.Current.IcarusContentPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(gameWin64)!)!, "Content");
+        var serverWin64 = DedicatedServerLayout.Win64Folder(_install);
+        Directory.CreateDirectory(Path.Combine(serverWin64, "ue4ss"));
+        File.WriteAllText(Path.Combine(serverWin64, "dwmapi.dll"), "the server's older dwmapi");
+        File.WriteAllText(Path.Combine(serverWin64, "ue4ss", "UE4SS.dll"), "the server's older loader");
+        var log = new ActivityLog();
+        var (vm, _) = BuildLogged(log);
+        vm.AddExistingServerCommand.Execute(null);
+
+        vm.InstallUe4ssOnServerCommand.Execute(null);
+
+        Assert.StartsWith("UE4SS copied from your game to ", vm.StatusMessage);
+        Assert.Contains("The UE4SS it had before is kept in ", vm.StatusMessage);
+        var kept = Assert.Single(Directory.GetDirectories(Path.Combine(vm.BackupsFolderPath, "UE4SS-Loader"), "loader_*"));
+        Assert.Contains(kept, vm.StatusMessage);
+        Assert.Equal("the server's older loader", File.ReadAllText(Path.Combine(kept, "ue4ss", "UE4SS.dll")));
+        Assert.Contains(log.Entries, e => e.Kind == ActivityEntryKind.Success && e.Message.StartsWith("UE4SS copied from your game to ", StringComparison.Ordinal));
+    }
+
     // ---- Admin list ----
 
     /// <summary>Regression: Save took 17 digits that don't start 7656, which the hint under the box calls not a Steam64 id.</summary>

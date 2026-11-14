@@ -112,15 +112,21 @@ public static class ServerModFiles
     /// Mods\ and UE4SS-settings.ini directly in Binaries\Win64) has its mods, their on/off state and
     /// its settings moved into the ue4ss folder first (Ue4ssOldLayout), backed up under
     /// <paramref name="backupsFolder"/> and moved back if the copy fails; with no backups folder an
-    /// old setup is left where it is.
+    /// old setup is left where it is. A loader the copy replaces with another build is kept under
+    /// the backups folder first (KeepServerLoader).
     /// </summary>
     public static bool InstallUe4ssFromGame(string gameWin64Folder, string installFolder, string? backupsFolder = null) =>
-        InstallUe4ssFromGame(gameWin64Folder, installFolder, backupsFolder, out _);
+        InstallUe4ssFromGame(gameWin64Folder, installFolder, backupsFolder, out _, out _);
 
-    /// <summary>The same, also saying what an old setup's move did (what moved, what stayed in Binaries\Win64, where the backup is).</summary>
-    public static bool InstallUe4ssFromGame(string gameWin64Folder, string installFolder, string? backupsFolder, out Ue4ssOldLayout.Outcome movedOldSetup)
+    /// <summary>
+    /// The same, also saying what an old setup's move did (what moved, what stayed in Binaries\Win64,
+    /// where the backup is) and where the server's previous loader was kept (null when it had none,
+    /// already had the game's build, or there is no backups folder).
+    /// </summary>
+    public static bool InstallUe4ssFromGame(string gameWin64Folder, string installFolder, string? backupsFolder, out Ue4ssOldLayout.Outcome movedOldSetup, out string? keptLoader)
     {
         movedOldSetup = Ue4ssOldLayout.Outcome.None;
+        keptLoader = null;
         var gameUe4ss = Path.Combine(gameWin64Folder, "ue4ss");
         if (!File.Exists(Path.Combine(gameWin64Folder, "dwmapi.dll")) || !File.Exists(Path.Combine(gameUe4ss, "UE4SS.dll")))
         {
@@ -137,6 +143,7 @@ public static class ServerModFiles
         var oldLayout = Ue4ssOldLayout.MoveIntoUe4ssFolder(serverWin64, Path.Combine(backupsFolder, "UE4SS-Loader"));
         try
         {
+            keptLoader = KeepServerLoader(gameWin64Folder, gameUe4ss, serverWin64, Path.Combine(backupsFolder, "UE4SS-Loader"));
             CopyUe4ssFromGame(gameWin64Folder, gameUe4ss, serverWin64);
         }
         catch (Exception)
@@ -146,6 +153,77 @@ public static class ServerModFiles
         }
 
         movedOldSetup = oldLayout.ToOutcome();
+        return true;
+    }
+
+    /// <summary>
+    /// Before the game's UE4SS is written over the server's: copies the server's own loader (dwmapi.dll,
+    /// every loader file about to be replaced, and the framework's Mods\shared and Mods\Keybinds) to
+    /// loader_&lt;time&gt; under <paramref name="loaderBackups"/>, so the build the server ran can be
+    /// put back. Returns that folder; null (nothing kept) when the server has no loader yet or already
+    /// has the game's build.
+    /// </summary>
+    private static string? KeepServerLoader(string gameWin64Folder, string gameUe4ss, string serverWin64, string loaderBackups)
+    {
+        var serverUe4ss = Path.Combine(serverWin64, "ue4ss");
+        var replaced = new List<(string Game, string Server, string Relative)>
+        {
+            (Path.Combine(gameWin64Folder, "dwmapi.dll"), Path.Combine(serverWin64, "dwmapi.dll"), "dwmapi.dll"),
+        };
+        replaced.AddRange(Ue4ssServerFiles.LoaderFiles(gameUe4ss)
+            .Where(r => !string.Equals(r, Ue4ssServerFiles.SettingsFileName, StringComparison.OrdinalIgnoreCase))
+            .Select(r => (Path.Combine(gameUe4ss, r), Path.Combine(serverUe4ss, r), Path.Combine("ue4ss", r))));
+        replaced.RemoveAll(f => !File.Exists(f.Server));
+
+        // Starlink's own build note is rewritten on every copy, so it never counts as a change.
+        var changes = replaced.Any(f =>
+            !string.Equals(Path.GetFileName(f.Server), Ue4ssInstalledBuild.MarkerFileName, StringComparison.OrdinalIgnoreCase)
+            && !SameBytes(f.Game, f.Server));
+        if (!changes)
+        {
+            return null;
+        }
+
+        var keep = Path.Combine(loaderBackups, $"loader_{DateTime.Now:yyyyMMdd-HHmmss}");
+        foreach (var (_, server, relative) in replaced)
+        {
+            var target = Path.Combine(keep, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(server, target, overwrite: true);
+        }
+
+        foreach (var framework in new[] { "shared", "Keybinds" })
+        {
+            var source = Path.Combine(serverUe4ss, "Mods", framework);
+            if (Directory.Exists(source))
+            {
+                Directories.Copy(source, Path.Combine(keep, "ue4ss", "Mods", framework));
+            }
+        }
+
+        return keep;
+    }
+
+    private static bool SameBytes(string first, string second)
+    {
+        using var a = File.OpenRead(first);
+        using var b = File.OpenRead(second);
+        if (a.Length != b.Length)
+        {
+            return false;
+        }
+
+        var bufferA = new byte[81920];
+        var bufferB = new byte[81920];
+        int read;
+        while ((read = a.ReadAtLeast(bufferA, bufferA.Length, throwOnEndOfStream: false)) > 0)
+        {
+            if (b.ReadAtLeast(bufferB, read, throwOnEndOfStream: false) != read || !bufferA.AsSpan(0, read).SequenceEqual(bufferB.AsSpan(0, read)))
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 

@@ -165,7 +165,7 @@ public sealed class Ue4ssOldLayoutTests : IDisposable
         var serverWin64 = DedicatedServerLayout.Win64Folder(server);
         SeedOldSetup(serverWin64);
 
-        Assert.True(ServerModFiles.InstallUe4ssFromGame(gameWin64, server, Path.Combine(_root, "ServerBackups"), out var moved));
+        Assert.True(ServerModFiles.InstallUe4ssFromGame(gameWin64, server, Path.Combine(_root, "ServerBackups"), out var moved, out _));
         Assert.Equal(["StorageLink"], moved.Mods);
         Assert.True(moved.MovedSettings);
 
@@ -179,5 +179,33 @@ public sealed class Ue4ssOldLayoutTests : IDisposable
         Assert.False(File.Exists(Path.Combine(serverWin64, "UE4SS.dll")));
         Assert.Equal(("4.0.0", "30afe5ff"), Ue4ssInstalledBuild.Read(serverUe4ss));
         Assert.Single(Directory.GetDirectories(Path.Combine(_root, "ServerBackups", "UE4SS-Loader"), "old-layout_*"));
+    }
+
+    /// <summary>Regression: copying the game's UE4SS onto a server wrote over the server's own loader with no copy kept, so the build it ran before couldn't be put back.</summary>
+    [Fact]
+    public void InstallUe4ssFromGame_ServerWithAnotherLoader_KeepsACopyOfItFirst_AndNoneForTheSameBuild()
+    {
+        var gameWin64 = Path.Combine(_root, "Game", "Icarus", "Binaries", "Win64");
+        Seed(Path.Combine(gameWin64, "dwmapi.dll"), "4.0 dwmapi");
+        Seed(Path.Combine(gameWin64, "ue4ss", "UE4SS.dll"), "4.0 dll");
+        Seed(Path.Combine(gameWin64, "ue4ss", Ue4ssInstalledBuild.MarkerFileName), "4.0.0\n30afe5ff\n");
+        var server = Path.Combine(_root, "Server");
+        var serverWin64 = DedicatedServerLayout.Win64Folder(server);
+        Seed(Path.Combine(serverWin64, "dwmapi.dll"), "3.x dwmapi");
+        Seed(Path.Combine(serverWin64, "ue4ss", "UE4SS.dll"), "3.x dll");
+        Seed(Path.Combine(serverWin64, "ue4ss", Ue4ssInstalledBuild.MarkerFileName), "3.0.1\n83330635\n");
+        var backups = Path.Combine(_root, "ServerBackups");
+
+        Assert.True(ServerModFiles.InstallUe4ssFromGame(gameWin64, server, backups));
+
+        var kept = Assert.Single(Directory.GetDirectories(Path.Combine(backups, "UE4SS-Loader"), "loader_*"));
+        Assert.Equal("3.x dwmapi", File.ReadAllText(Path.Combine(kept, "dwmapi.dll")));
+        Assert.Equal("3.x dll", File.ReadAllText(Path.Combine(kept, "ue4ss", "UE4SS.dll")));
+        Assert.Equal("3.0.1\n83330635\n", File.ReadAllText(Path.Combine(kept, "ue4ss", Ue4ssInstalledBuild.MarkerFileName)));
+        Assert.Equal("4.0 dll", File.ReadAllText(Path.Combine(serverWin64, "ue4ss", "UE4SS.dll")));
+
+        // The same build copied again changes nothing, so nothing more is kept.
+        Assert.True(ServerModFiles.InstallUe4ssFromGame(gameWin64, server, backups));
+        Assert.Single(Directory.GetDirectories(Path.Combine(backups, "UE4SS-Loader"), "loader_*"));
     }
 }

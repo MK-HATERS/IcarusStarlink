@@ -750,6 +750,26 @@ public sealed partial class SettingsViewModelTests
         Assert.Equal($"Install {BundledUe4ss.Label}", vm.Ue4ssInstallButtonLabel);
     }
 
+    /// <summary>Regression: a UE4SS install, install from a zip, or removal that worked left nothing in the activity log; only failures were written there.</summary>
+    [Fact]
+    public async Task Ue4ssInstallFromZipAndUninstall_EachLeaveALineInTheActivityLog()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, BundledUe4ss.Version, BundledUe4ss.Commit);
+        harness.Ue4ssLoaderInstallService.StatusAfterUninstall = new Ue4ssLoaderStatus(false, null);
+        var vm = harness.BuildViewModel();
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+        Assert.Single(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Success && e.Message == $"Installed UE4SS {BundledUe4ss.Label}.");
+
+        harness.DialogService.FileToPick = @"C:\Downloads\UE4SS_v4.0.0.zip";
+        await vm.InstallUe4ssFromZipCommand.ExecuteAsync(null);
+        Assert.Single(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Success && e.Message.EndsWith("from UE4SS_v4.0.0.zip.", StringComparison.Ordinal));
+
+        await vm.UninstallUe4ssCommand.ExecuteAsync(null);
+        Assert.Single(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Success && e.Message == "UE4SS removed. A backup was kept.");
+    }
+
     [Fact]
     public async Task InstallUe4ssFromZip_InstallsThePickedZip_AndCancelDoesNothing()
     {

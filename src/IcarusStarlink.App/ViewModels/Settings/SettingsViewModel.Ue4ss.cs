@@ -761,6 +761,7 @@ public sealed partial class SettingsViewModel
                 "Update" => $"Updated to UE4SS {label}.",
                 _ => $"Reinstalled UE4SS {label}.",
             } + movedOldSetup.Describe();
+            _activityLog.Log(Ue4ssStatusMessage, ActivityEntryKind.Success);
             WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage($"UE4SS {label} is installed in the game."));
         }
         catch (Exception ex)
@@ -831,6 +832,7 @@ public sealed partial class SettingsViewModel
             RefreshUe4ssStatus();
             Ue4ssCheckedOrder = Ue4ssBuildOrder.Unknown;
             Ue4ssStatusMessage = $"Installed UE4SS{(Ue4ssInstalledVersion is not null ? $" {Ue4ssInstalledLabel}" : "")} from {Path.GetFileName(zipPath)}.{movedOldSetup.Describe()}";
+            _activityLog.Log(Ue4ssStatusMessage, ActivityEntryKind.Success);
             WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage(Ue4ssStatusMessage));
         }
         catch (Exception ex)
@@ -925,6 +927,7 @@ public sealed partial class SettingsViewModel
             Ue4ssStatusMessage = uninstallResult.PreservedUserMods.Count > 0
                 ? $"UE4SS removed. Your {uninstallResult.PreservedUserMods.Count} mod(s) were kept in this app's staging; the rest is backed up."
                 : "UE4SS removed. A backup was kept.";
+            _activityLog.Log(Ue4ssStatusMessage, ActivityEntryKind.Success);
             WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage(Ue4ssStatusMessage));
         }
         catch (Exception ex)
