@@ -76,7 +76,8 @@ public sealed class GameUpdateOrchestratorTests
         public Task<IReadOnlyList<GameUpdateFixCandidate>> ListSureFixesAsync()
         {
             Calls.Add("list fixes");
-            return Task.FromResult<IReadOnlyList<GameUpdateFixCandidate>>(Candidates);
+            // A new list each time, as the Library gives: Candidates can change between the two calls.
+            return Task.FromResult<IReadOnlyList<GameUpdateFixCandidate>>([.. Candidates]);
         }
 
         public Task<IReadOnlyList<GameUpdateFixedMod>> FixSureProblemsAsync(IReadOnlyCollection<string> folders)
@@ -398,11 +399,58 @@ public sealed class GameUpdateOrchestratorTests
         Assert.Equal(2, shown!.Count);
         // Nothing was fixed (or built) before the answer.
         Assert.Equal(["snapshot", "fingerprints", "refresh", "maps", "check", "list fixes"], callsWhenAsked);
-        Assert.Equal(["snapshot", "fingerprints", "refresh", "maps", "check", "list fixes", "fix Bows", "updates", "rebuild", "running?", "install"], steps.Calls);
+        // The fixes are listed again on Continue: only what is still as it was shown is fixed.
+        Assert.Equal(["snapshot", "fingerprints", "refresh", "maps", "check", "list fixes", "list fixes", "fix Bows", "updates", "rebuild", "running?", "install"], steps.Calls);
         Assert.Equal(["Bows"], result.Fixed.Select(m => m.FolderName));
         Assert.True(result.Installed);
         Assert.Contains(progress, p => p.Step == GameUpdateStep.FixSure && p.State == GameUpdateStepState.Running && p.Text.Contains("Waiting for you", StringComparison.Ordinal));
         Assert.Equal(GameUpdateStepState.Done, Last(progress, GameUpdateStep.FixSure).State);
+        Assert.DoesNotContain("changed while", Last(progress, GameUpdateStep.FixSure).Text);
+    }
+
+    /// <summary>
+    /// The main window stays usable while the fixes are shown: a mod edited or checked again
+    /// meanwhile has other fixes than the ones listed, so it is left alone and named.
+    /// </summary>
+    [Fact]
+    public async Task ShowMeFirst_AModThatChangedWhileTheListWasShown_IsNotFixed_AndIsNamed()
+    {
+        var steps = new FakeSteps();
+        var progress = new List<GameUpdateProgress>();
+
+        var result = await GameUpdateOrchestrator.RunAsync(steps, progress.Add, AllOn(GameUpdateFixChoice.ShowFirst), _ =>
+        {
+            // Better Bows was edited while the list was open: its fixes are no longer the ones shown.
+            steps.Candidates[1] = steps.Candidates[1] with { FixCount = 4, Lines = ["Rows the game no longer has: 4 in D_ItemsStatic"] };
+            return Task.FromResult(GameUpdateFixDecision.Fix(["laanp-Canteens", "Bows"]));
+        });
+
+        Assert.Contains("fix laanp-Canteens", steps.Calls);
+        Assert.DoesNotContain(steps.Calls, c => c.Contains("Bows", StringComparison.Ordinal));
+        Assert.Equal(["laanp-Canteens"], result.Fixed.Select(m => m.FolderName));
+        var text = Last(progress, GameUpdateStep.FixSure).Text;
+        Assert.Contains("Not fixed, changed while you were looking: Better Bows", text);
+        Assert.True(result.Completed);
+    }
+
+    /// <summary>A mod whose sure problems are gone by Continue (fixed by hand meanwhile) is left alone too.</summary>
+    [Fact]
+    public async Task ShowMeFirst_EveryTickedModChangedMeanwhile_FixesNothing_AndGoesOn()
+    {
+        var steps = new FakeSteps();
+        var progress = new List<GameUpdateProgress>();
+
+        var result = await GameUpdateOrchestrator.RunAsync(steps, progress.Add, AllOn(GameUpdateFixChoice.ShowFirst), _ =>
+        {
+            steps.Candidates.RemoveAt(1);
+            return Task.FromResult(GameUpdateFixDecision.Fix(["Bows"]));
+        });
+
+        Assert.DoesNotContain(steps.Calls, c => c.StartsWith("fix", StringComparison.Ordinal));
+        Assert.Empty(result.Fixed);
+        Assert.Equal(GameUpdateStepState.Skipped, Last(progress, GameUpdateStep.FixSure).State);
+        Assert.Contains("Not fixed, changed while you were looking: Better Bows", Last(progress, GameUpdateStep.FixSure).Text);
+        Assert.True(result.Installed);
     }
 
     [Fact]

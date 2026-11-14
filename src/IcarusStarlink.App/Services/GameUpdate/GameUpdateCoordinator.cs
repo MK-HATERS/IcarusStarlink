@@ -48,7 +48,19 @@ public sealed class GameUpdateCoordinator(
 
         RememberOptions(options);
 
-        var build = await detector.ReadCurrentBuildAsync();
+        // The window counts as running from the Start click (it can't be closed, and the check at
+        // the top holds), so reading the build here leaves no gap for a second run to start in.
+        string? build;
+        try
+        {
+            build = await detector.ReadCurrentBuildAsync();
+        }
+        catch
+        {
+            viewModel.IsRunning = false;
+            throw;
+        }
+
         var result = await viewModel.RunAsync(this, options);
         // Roll back from this window goes where it goes from Check ▾ › What the last game update changed…:
         // to the setup before this game update's first run. A retry's own snapshot already holds what the
@@ -108,9 +120,14 @@ public sealed class GameUpdateCoordinator(
             lines.Add($"Leftover ArcFission data is in the mods folder ({string.Join(", ", extras.LeftoverArcFission)}). You're asked whether to remove it when you click Start.");
         }
 
-        if (extras.OldArcFissionCopies.Count > 0)
+        var old = extras.OldArcFissionCopies;
+        if (old.Count > 0)
         {
-            lines.Add($"Install also removes {extras.OldArcFissionCopies.Count} older cop{(extras.OldArcFissionCopies.Count == 1 ? "y" : "ies")} of ArcFission's data (not used; ArcFission Library only needs its newest).");
+            // With leftover data the answer at Start decides: Yes takes every copy out (backed up);
+            // No keeps the newest only, and the older ones still go, with no backup.
+            lines.Add(extras.LeftoverArcFission.Count > 0
+                ? $"If you keep it, Install still removes its {(old.Count == 1 ? "older copy" : $"{old.Count} older copies")}, not backed up ({string.Join(", ", old)}): only the newest is kept."
+                : $"Install also removes {old.Count} older cop{(old.Count == 1 ? "y" : "ies")} of ArcFission's data (not used; ArcFission Library only needs its newest).");
         }
 
         return lines.Count > 0 ? string.Join("\n", lines) : null;
@@ -124,27 +141,46 @@ public sealed class GameUpdateCoordinator(
     /// </summary>
     private bool ConfirmInstallExtras(GameUpdateOptions options)
     {
-        _installConsent = null;
+        var (start, consent) = AskInstallExtras(
+            options, () => mergeInstall().PreviewInstallExtras(),
+            (message, title) => dialogService.Confirm(message, title, ThemedConfirmSeverity.Question));
+        _installConsent = consent;
+        return start;
+    }
+
+    /// <summary>
+    /// The questions asked at Start and the yes they add up to. Start false: No to removing the
+    /// other files (nothing runs). Consent null: Install isn't ticked, so nothing is asked.
+    /// Leftover ArcFission data is only in the consent's files when its removal was agreed to.
+    /// </summary>
+    internal static (bool Start, MergeInstallViewModel.InstallConsent? Consent) AskInstallExtras(
+        GameUpdateOptions options, Func<MergeInstallViewModel.InstallExtras> preview, Func<string, string, bool> confirm)
+    {
         if (!options.Install)
         {
-            return true;
+            return (true, null);
         }
 
-        var extras = mergeInstall().PreviewInstallExtras();
-        var removeLeftover = extras.LeftoverArcFission.Count > 0
-            && dialogService.Confirm(MergeInstallViewModel.LeftoverArcFissionQuestion(extras.LeftoverArcFission), "Leftover ArcFission data", ThemedConfirmSeverity.Question);
-        if (extras.OtherFiles.Count > 0 && !dialogService.Confirm(
+        var extras = preview();
+        var old = extras.OldArcFissionCopies;
+        var removeLeftover = extras.LeftoverArcFission.Count > 0 && confirm(
+            MergeInstallViewModel.LeftoverArcFissionQuestion(extras.LeftoverArcFission)
+            // Keeping it still loses the older copies (Install keeps only the newest), so No says so.
+            + (old.Count > 0
+                ? $"\n\nNo: the newest is kept. Its {(old.Count == 1 ? "older copy is" : $"{old.Count} older copies are")} still removed, not backed up ({string.Join(", ", old)})."
+                : ""),
+            "Leftover ArcFission data");
+        if (extras.OtherFiles.Count > 0 && !confirm(
                 $"Install it in the game will also remove {(extras.OtherFiles.Count == 1 ? "this file" : "these files")} from the game's mods folder (backed up first, not part of the merge):\n"
                 + string.Join('\n', extras.OtherFiles.Select(n => $"  - {n}"))
                 + "\n\nYes: start, and remove them when the merge is installed.\nNo: go back. Untick Install it in the game to run without it.",
-                "Update everything", ThemedConfirmSeverity.Question))
+                "Update everything"))
         {
-            return false;
+            return (false, null);
         }
 
-        _installConsent = new MergeInstallViewModel.InstallConsent(
-            removeLeftover, [.. extras.OtherFiles, .. removeLeftover ? extras.LeftoverArcFission : []]);
-        return true;
+        return (true, new MergeInstallViewModel.InstallConsent(
+            removeLeftover, [.. extras.OtherFiles, .. removeLeftover ? extras.LeftoverArcFission : []]));
     }
 
     /// <summary>The ticks are kept for next time. Best-effort: a settings file that can't be written never stops the run.</summary>

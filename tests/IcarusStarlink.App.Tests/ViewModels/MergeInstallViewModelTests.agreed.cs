@@ -78,6 +78,69 @@ public sealed partial class MergeInstallViewModelTests
         Assert.Equal(0, install.InstallCallCount);
     }
 
+    /// <summary>ArcFission Library is gone and two of its data paks are left: the newest and one older copy.</summary>
+    private static void LeaveArcFissionData(string modsFolder)
+    {
+        File.WriteAllText(Path.Combine(modsFolder, "ZZ_ArcFission_Data_2_P.pak"), "old");
+        File.WriteAllText(Path.Combine(modsFolder, "ZZ_ArcFission_Data_3_P.pak"), "new");
+    }
+
+    /// <summary>
+    /// Regression: with leftover ArcFission data the older copies weren't listed, yet keeping the
+    /// leftover data (No at Start) still removes them, with no backup: files went that the window
+    /// never named.
+    /// </summary>
+    [Fact]
+    public void PreviewInstallExtras_LeftoverArcFissionData_StillListsItsOlderCopies()
+    {
+        var (vm, _, modsFolder) = AgreedInstallSetup();
+        LeaveArcFissionData(modsFolder);
+
+        var extras = vm.PreviewInstallExtras();
+
+        Assert.Equal(["ZZ_ArcFission_Data_2_P.pak", "ZZ_ArcFission_Data_3_P.pak"], extras.LeftoverArcFission.Order());
+        Assert.Equal(["ZZ_ArcFission_Data_2_P.pak"], extras.OldArcFissionCopies);
+        Assert.Empty(extras.OtherFiles);
+    }
+
+    [Fact]
+    public async Task Install_AgreedBeforehand_KeepTheLeftoverArcFissionData_KeepsIt_AndAsksNothing()
+    {
+        var (vm, install, modsFolder) = AgreedInstallSetup();
+        LeaveArcFissionData(modsFolder);
+
+        var outcome = await vm.InstallAsync(new MergeInstallViewModel.InstallConsent(RemoveLeftoverArcFission: false, []));
+
+        Assert.Equal(MergeInstallViewModel.InstallOutcome.Installed, outcome);
+        Assert.True(install.LastKeepArcFissionDataPak);
+    }
+
+    [Fact]
+    public async Task Install_AgreedBeforehand_RemoveTheLeftoverArcFissionData_RemovesIt_AndAsksNothing()
+    {
+        var (vm, install, modsFolder) = AgreedInstallSetup();
+        LeaveArcFissionData(modsFolder);
+
+        var outcome = await vm.InstallAsync(new MergeInstallViewModel.InstallConsent(
+            RemoveLeftoverArcFission: true, ["ZZ_ArcFission_Data_2_P.pak", "ZZ_ArcFission_Data_3_P.pak"]));
+
+        Assert.Equal(MergeInstallViewModel.InstallOutcome.Installed, outcome);
+        Assert.False(install.LastKeepArcFissionDataPak);
+    }
+
+    /// <summary>Yes to removing the leftover data, but its names not among the files agreed to: nothing is removed unseen.</summary>
+    [Fact]
+    public async Task Install_AgreedBeforehand_RemoveTheLeftoverData_WithoutItsNamesAgreed_IsNotInstalled()
+    {
+        var (vm, install, modsFolder) = AgreedInstallSetup();
+        LeaveArcFissionData(modsFolder);
+
+        var outcome = await vm.InstallAsync(new MergeInstallViewModel.InstallConsent(RemoveLeftoverArcFission: true, []));
+
+        Assert.Equal(MergeInstallViewModel.InstallOutcome.NotDone, outcome);
+        Assert.Equal(0, install.InstallCallCount);
+    }
+
     [Fact]
     public void PreviewInstallExtras_AnEmptyModsFolder_HasNothingToList()
     {
@@ -98,6 +161,91 @@ public sealed partial class MergeInstallViewModelTests
         Assert.Contains("A_P.pak, B_P.pak", text);
         Assert.Contains("backed up first", text);
         Assert.Contains("when you click Start", text);
+    }
+
+    [Fact]
+    public void DescribeInstallExtras_LeftoverArcFissionData_SaysKeepingItStillRemovesTheOlderCopies()
+    {
+        var text = GameUpdateCoordinator.DescribeInstallExtras(new MergeInstallViewModel.InstallExtras(
+            ["ZZ_ArcFission_Data_2_P.pak", "ZZ_ArcFission_Data_3_P.pak"], [], ["ZZ_ArcFission_Data_2_P.pak"]));
+
+        Assert.Contains("If you keep it, Install still removes its older copy, not backed up (ZZ_ArcFission_Data_2_P.pak)", text);
+    }
+
+    private static readonly GameUpdateOptions WithInstall = new() { BuildMerge = true, Install = true };
+
+    /// <summary>Start with Install unticked: nothing is looked up or asked, and there is no yes to an install.</summary>
+    [Fact]
+    public void AskInstallExtras_InstallUnticked_AsksNothing_AndGivesNoConsent()
+    {
+        var (start, consent) = GameUpdateCoordinator.AskInstallExtras(
+            new GameUpdateOptions { BuildMerge = true, Install = false },
+            () => throw new InvalidOperationException("not looked up"),
+            (_, _) => throw new InvalidOperationException("not asked"));
+
+        Assert.True(start);
+        Assert.Null(consent);
+    }
+
+    [Fact]
+    public void AskInstallExtras_NothingElseToRemove_StartsWithoutAQuestion()
+    {
+        var (start, consent) = GameUpdateCoordinator.AskInstallExtras(
+            WithInstall, () => new MergeInstallViewModel.InstallExtras([], [], []), (_, _) => throw new InvalidOperationException("not asked"));
+
+        Assert.True(start);
+        Assert.False(consent!.RemoveLeftoverArcFission);
+        Assert.Empty(consent.OtherFilesAgreed);
+    }
+
+    /// <summary>No to removing the other files: nothing starts (the window stays on the ticks) and there is no yes.</summary>
+    [Fact]
+    public void AskInstallExtras_NoToTheOtherFiles_DoesNotStart_AndGivesNoConsent()
+    {
+        var asked = new List<string>();
+        var (start, consent) = GameUpdateCoordinator.AskInstallExtras(
+            WithInstall, () => new MergeInstallViewModel.InstallExtras([], ["A_P.pak", "B_P.pak"], []),
+            (message, _) => { asked.Add(message); return false; });
+
+        Assert.False(start);
+        Assert.Null(consent);
+        Assert.Contains("A_P.pak", Assert.Single(asked));
+        Assert.Contains("B_P.pak", asked[0]);
+    }
+
+    [Fact]
+    public void AskInstallExtras_YesToTheOtherFiles_AgreesToExactlyThose()
+    {
+        var (start, consent) = GameUpdateCoordinator.AskInstallExtras(
+            WithInstall, () => new MergeInstallViewModel.InstallExtras([], ["A_P.pak"], []), (_, _) => true);
+
+        Assert.True(start);
+        Assert.False(consent!.RemoveLeftoverArcFission);
+        Assert.Equal(["A_P.pak"], consent.OtherFilesAgreed);
+    }
+
+    /// <summary>Yes to the leftover ArcFission data adds its files to the ones agreed to; No leaves them out, and was told the older copies still go.</summary>
+    [Fact]
+    public void AskInstallExtras_LeftoverArcFissionData_YesAddsItsFiles_NoKeepsThemOut()
+    {
+        var extras = new MergeInstallViewModel.InstallExtras(
+            ["ZZ_ArcFission_Data_2_P.pak", "ZZ_ArcFission_Data_3_P.pak"], ["A_P.pak"], ["ZZ_ArcFission_Data_2_P.pak"]);
+        var asked = new List<string>();
+
+        var (start, yes) = GameUpdateCoordinator.AskInstallExtras(WithInstall, () => extras, (message, title) => { asked.Add($"{title}: {message}"); return true; });
+
+        Assert.True(start);
+        Assert.True(yes!.RemoveLeftoverArcFission);
+        Assert.Equal(["A_P.pak", "ZZ_ArcFission_Data_2_P.pak", "ZZ_ArcFission_Data_3_P.pak"], yes.OtherFilesAgreed);
+        Assert.Equal(2, asked.Count);
+        Assert.StartsWith("Leftover ArcFission data", asked[0]);
+        Assert.Contains("No: the newest is kept. Its older copy is still removed, not backed up (ZZ_ArcFission_Data_2_P.pak).", asked[0]);
+
+        var (startKeeping, no) = GameUpdateCoordinator.AskInstallExtras(WithInstall, () => extras, (_, title) => title != "Leftover ArcFission data");
+
+        Assert.True(startKeeping);
+        Assert.False(no!.RemoveLeftoverArcFission);
+        Assert.Equal(["A_P.pak"], no.OtherFilesAgreed);
     }
 
     /// <summary>Update everything's build: game data still out of date is refreshed without the question (its Refresh step always runs).</summary>

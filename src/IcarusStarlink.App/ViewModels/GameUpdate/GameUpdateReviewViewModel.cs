@@ -322,6 +322,9 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
 
         StatusMessage = null;
         IsChoosing = false;
+        // Running from this click on, not from the first step: in between, the window could be
+        // closed and Update everything started a second time next to this one.
+        IsRunning = true;
         _choice?.TrySetResult(options);
     }
 

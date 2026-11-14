@@ -515,7 +515,9 @@ public sealed partial class MergeInstallViewModel
         {
             var leftover = LeftoverArcFissionDataPaks(contentPath);
             var (_, otherFiles, oldArcFission) = FilesInstallRemoves(contentPath, keepArcFission: true);
-            return new InstallExtras(leftover, otherFiles, leftover.Count > 0 ? [] : oldArcFission);
+            // The older copies are listed with leftover data too: keeping that data (No at Start)
+            // still takes them out, so they are named before anything runs.
+            return new InstallExtras(leftover, otherFiles, oldArcFission);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

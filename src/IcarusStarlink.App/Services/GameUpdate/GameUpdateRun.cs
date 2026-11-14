@@ -240,9 +240,11 @@ public sealed class GameUpdateRunResult
 /// what went wrong. The snapshot is made before anything else, so Roll back is there whatever
 /// happens after it. Refresh game data is skipped when the extracted data already matches the
 /// game's data.pak: extracting again would only save an empty Weekly Changes report.
-/// The steps the user unticked (GameUpdateOptions) are reported Skipped. Nothing here asks a
-/// question in a dialog: with Show me first the run waits on reviewFixes (the window lists the
-/// fixes) and changes no mod until it answers.
+/// The steps the user unticked (GameUpdateOptions) are reported Skipped. The run itself asks no
+/// question in a dialog: with Show me first it waits on reviewFixes (the window lists the fixes)
+/// and changes no mod until it answers, then fixes only the mods whose fixes are still the ones
+/// listed. The steps are the pages' own commands; the build's and the install's questions are
+/// settled before Start (GameUpdateCoordinator).
 /// </summary>
 public static class GameUpdateOrchestrator
 {
@@ -395,9 +397,35 @@ public static class GameUpdateOrchestrator
                     }
                     else
                     {
-                        Report(GameUpdateStepState.Running, $"Fixing {Mods(decision.Folders.Count)}…");
-                        fixedMods = await steps.FixSureProblemsAsync(decision.Folders);
-                        ReportFixed();
+                        // The main window stayed usable while the list was shown: a mod edited,
+                        // checked or converted again meanwhile has other fixes than the ones the
+                        // user saw. Only mods whose fixes are still the ones listed are fixed.
+                        var now = (await steps.ListSureFixesAsync()).ToDictionary(c => c.FolderName, StringComparer.OrdinalIgnoreCase);
+                        var same = new List<string>();
+                        var changed = new List<string>();
+                        foreach (var listed in candidates.Where(c => decision.Folders.Contains(c.FolderName, StringComparer.OrdinalIgnoreCase)))
+                        {
+                            if (now.TryGetValue(listed.FolderName, out var asNow) && asNow.FixCount == listed.FixCount && asNow.Lines.SequenceEqual(listed.Lines))
+                            {
+                                same.Add(listed.FolderName);
+                            }
+                            else
+                            {
+                                changed.Add(listed.Name);
+                            }
+                        }
+
+                        var notFixed = changed.Count > 0 ? $"Not fixed, changed while you were looking: {string.Join(", ", changed)}." : "";
+                        if (same.Count == 0)
+                        {
+                            Report(GameUpdateStepState.Skipped, $"{notFixed} No mod was changed.");
+                        }
+                        else
+                        {
+                            Report(GameUpdateStepState.Running, $"Fixing {Mods(same.Count)}…");
+                            fixedMods = await steps.FixSureProblemsAsync(same);
+                            ReportFixed(notFixed);
+                        }
                     }
                 }
             }
@@ -472,10 +500,11 @@ public static class GameUpdateOrchestrator
             return Stop(ex.Message);
         }
 
-        void ReportFixed()
+        void ReportFixed(string notFixed = "")
         {
             var fixCount = fixedMods.Sum(m => m.FixCount);
-            Report(GameUpdateStepState.Done, fixCount == 0 ? "Nothing sure to fix." : $"Fixed {fixCount} thing(s) in {fixedMods.Count} mod(s).");
+            var done = fixCount == 0 ? "Nothing sure to fix." : $"Fixed {fixCount} thing(s) in {fixedMods.Count} mod(s).";
+            Report(GameUpdateStepState.Done, notFixed.Length > 0 ? $"{done} {notFixed}" : done);
         }
 
         static string Mods(int count) => count == 1 ? "1 mod" : $"{count} mods";

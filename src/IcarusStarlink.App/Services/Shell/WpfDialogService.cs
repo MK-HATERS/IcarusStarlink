@@ -133,7 +133,8 @@ public sealed class WpfDialogService : IDialogService
                 IsUsable: w.IsLoaded && PresentationSource.FromVisual(w) is not null,
                 w.IsVisible,
                 IsMain: ReferenceEquals(w, app.MainWindow),
-                ZOrder: handle != IntPtr.Zero && order.TryGetValue(handle, out var z) ? z : int.MaxValue);
+                ZOrder: handle != IntPtr.Zero && order.TryGetValue(handle, out var z) ? z : int.MaxValue,
+                ClosesByItself: w is SplashWindow or AppUpdateWindow);
         })]);
         if (index < 0)
         {
@@ -150,12 +151,14 @@ public sealed class WpfDialogService : IDialogService
     }
 
     /// <summary>A window as OwnerWindow sees it. ZOrder: 0 is the front-most window on screen, higher is further back.</summary>
-    internal readonly record struct OwnerCandidate(bool IsActive, bool IsUsable, bool IsVisible, bool IsMain, int ZOrder);
+    /// <param name="ClosesByItself">The window closes without the user (the splash, the app update's progress): a dialog it owns is closed with it, which answers No.</param>
+    internal readonly record struct OwnerCandidate(bool IsActive, bool IsUsable, bool IsVisible, bool IsMain, int ZOrder, bool ClosesByItself = false);
 
     /// <summary>
     /// Which window owns a dialog: the active one; else the front-most visible window other than
     /// the main one (those sit over the main window, so a dialog owned by the main window would
-    /// open behind them); else the main window. -1 when no window is usable.
+    /// open behind them); else the main window; a window that closes by itself only when nothing
+    /// else is there. -1 when no window is usable.
     /// </summary>
     internal static int PickOwner(IReadOnlyList<OwnerCandidate> windows)
     {
@@ -181,8 +184,9 @@ public sealed class WpfDialogService : IDialogService
 
         return best;
 
-        // Visible windows over the main one first, front-most first; the main window after them.
-        static (int Group, int ZOrder) Rank(OwnerCandidate w) => (w.IsMain ? 1 : w.IsVisible ? 0 : 2, w.ZOrder);
+        // Visible windows over the main one first, front-most first; the main window after them;
+        // then windows that close by themselves, and hidden ones.
+        static (int Group, int ZOrder) Rank(OwnerCandidate w) => (w.IsMain ? 1 : !w.IsVisible ? 3 : w.ClosesByItself ? 2 : 0, w.ZOrder);
     }
 
     /// <summary>Every top-level window on screen by its handle, front-most first (0).</summary>

@@ -381,6 +381,24 @@ public sealed class GameUpdateReviewViewModelTests
         Assert.False(review.StartCommand.CanExecute(null));
     }
 
+    /// <summary>
+    /// Regression: between Start and the first step the window was neither choosing nor running,
+    /// so it could be closed and Update everything started a second time next to the first.
+    /// </summary>
+    [Fact]
+    public async Task Start_CountsAsRunningAtOnce_SoTheWindowCantBeClosedBeforeTheFirstStep()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+        var choosing = review.ChooseAsync();
+        Assert.Null(review.WhyCantClose);
+
+        review.StartCommand.Execute(null);
+
+        Assert.True(review.IsRunning);
+        Assert.NotNull(review.WhyCantClose);
+        await choosing.WaitAsync(Limit);
+    }
+
     [Fact]
     public async Task ChooseAsync_WindowClosedBeforeStart_RunsNothing()
     {

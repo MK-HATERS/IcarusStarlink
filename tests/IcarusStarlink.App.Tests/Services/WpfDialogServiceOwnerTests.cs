@@ -42,6 +42,22 @@ public sealed class WpfDialogServiceOwnerTests
         Assert.Equal(0, WpfDialogService.PickOwner([Main(), Other(visible: false, z: 0)]));
     }
 
+    /// <summary>
+    /// The splash and the app update's progress window close without the user, and a dialog owned
+    /// by one is closed with it (answering No): the main window owns it instead.
+    /// </summary>
+    [Fact]
+    public void NoActiveWindow_AWindowThatClosesByItself_ComesAfterTheMainWindow()
+    {
+        var closesByItself = Other(z: 1) with { ClosesByItself = true };
+
+        Assert.Equal(0, WpfDialogService.PickOwner([Main(z: 5), closesByItself]));
+        // A window the user closes still comes first.
+        Assert.Equal(2, WpfDialogService.PickOwner([Main(z: 5), closesByItself, Other(z: 3)]));
+        // Nothing else there: better than no owner.
+        Assert.Equal(0, WpfDialogService.PickOwner([closesByItself]));
+    }
+
     [Fact]
     public void AClosedWindowIsNeverTheOwner()
     {
