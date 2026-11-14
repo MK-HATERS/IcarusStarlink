@@ -82,6 +82,9 @@ public sealed partial class LocalServerViewModelTests
         Directory.CreateDirectory(Path.Combine(serverWin64, "ue4ss"));
         File.WriteAllText(Path.Combine(serverWin64, "dwmapi.dll"), "the server's older dwmapi");
         File.WriteAllText(Path.Combine(serverWin64, "ue4ss", "UE4SS.dll"), "the server's older loader");
+        File.WriteAllText(Path.Combine(serverWin64, "ue4ss", "UE4SS-settings.ini"), "the server's settings");
+        Directory.CreateDirectory(Path.Combine(serverWin64, "ue4ss", "Mods", "StorageLink", "Scripts"));
+        File.WriteAllText(Path.Combine(serverWin64, "ue4ss", "Mods", "StorageLink", "Scripts", "main.lua"), "-- mine");
         var log = new ActivityLog();
         var (vm, _) = BuildLogged(log);
         vm.AddExistingServerCommand.Execute(null);
@@ -89,7 +92,8 @@ public sealed partial class LocalServerViewModelTests
         vm.InstallUe4ssOnServerCommand.Execute(null);
 
         Assert.StartsWith("UE4SS copied from your game to ", vm.StatusMessage);
-        Assert.Contains("The UE4SS it had before is kept in ", vm.StatusMessage);
+        Assert.Contains(" Checked: your UE4SS settings and your mod are as they were (it's off). The UE4SS it had before is kept in ", vm.StatusMessage);
+        Assert.Equal("the server's settings", File.ReadAllText(Path.Combine(serverWin64, "ue4ss", "UE4SS-settings.ini")));
         var kept = Assert.Single(Directory.GetDirectories(Path.Combine(vm.BackupsFolderPath, "UE4SS-Loader"), "loader_*"));
         Assert.Contains(kept, vm.StatusMessage);
         Assert.Equal("the server's older loader", File.ReadAllText(Path.Combine(kept, "ue4ss", "UE4SS.dll")));

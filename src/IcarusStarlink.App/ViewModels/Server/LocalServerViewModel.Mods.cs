@@ -387,8 +387,15 @@ public sealed partial class LocalServerViewModel
             // A server set up the old way (UE4SS files directly in Binaries\Win64) has its mods and
             // settings moved into the ue4ss folder first, backed up with the server's other backups.
             var backups = ServerBackupsFolder(p);
-            var (copied, movedOldSetup, keptLoader) = await OffUiThread(() =>
-                (ServerModFiles.InstallUe4ssFromGame(gameWin64, p.InstallFolder, backups, out var moved, out var kept), moved, kept));
+            var (copied, movedOldSetup, keptLoader, setupCheck) = await OffUiThread(() =>
+            {
+                // The server's own settings and mods, compared after the copy; an old setup that was moved describes itself.
+                var serverUe4ss = Path.Combine(DedicatedServerLayout.Win64Folder(p.InstallFolder), "ue4ss");
+                var before = Ue4ssSetupSnapshot.TryTake(serverUe4ss);
+                var done = ServerModFiles.InstallUe4ssFromGame(gameWin64, p.InstallFolder, backups, out var moved, out var kept);
+                var check = done && before is not null && !moved.Changed ? before.CheckAgainst(serverUe4ss) : Ue4ssSetupCheck.Nothing;
+                return (done, moved, kept, check);
+            });
             if (!copied)
             {
                 StatusMessage = "Your game has no UE4SS to copy — install it from the Settings page first.";
@@ -396,8 +403,8 @@ public sealed partial class LocalServerViewModel
             else
             {
                 var kept = keptLoader is null ? "" : $" The UE4SS it had before is kept in {keptLoader}.";
-                StatusMessage = $"UE4SS copied from your game to '{p.Name}' (loader, settings, framework).{movedOldSetup.Describe()}{kept} Tick the Lua mods to put on it below.";
-                _activityLog.Log(StatusMessage, ActivityEntryKind.Success);
+                StatusMessage = $"UE4SS copied from your game to '{p.Name}' (loader, settings, framework).{movedOldSetup.Describe()}{setupCheck.Summary}{kept} Tick the Lua mods to put on it below.";
+                _activityLog.Log(StatusMessage, setupCheck.Problems.Count > 0 ? ActivityEntryKind.Warning : ActivityEntryKind.Success);
             }
         }
         catch (Exception ex)

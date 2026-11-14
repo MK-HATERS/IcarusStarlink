@@ -289,6 +289,26 @@ public sealed partial class SettingsViewModel
     /// since the Library's "Install UE4SS" bar runs these commands with Settings not showing, and
     /// used to give no answer at all.
     /// </summary>
+    /// <summary>The player's UE4SS settings and mods as they are before an install (null when the game has no ue4ss folder yet).</summary>
+    private static Task<Ue4ssSetupSnapshot?> TakeUe4ssSetupAsync(string contentPath) =>
+        Task.Run(() => Ue4ssSetupSnapshot.TryTake(Ue4ssGamePaths.ResolveLoaderFolder(contentPath)));
+
+    /// <summary>
+    /// After an install: whether the player's settings and mods are as they were, and where the
+    /// UE4SS they had is kept. Says nothing for a first install, or for an old setup that was moved
+    /// (the move describes itself).
+    /// </summary>
+    private async Task<Ue4ssSetupCheck> CheckUe4ssSetupAsync(Ue4ssSetupSnapshot? before, Ue4ssOldLayout.Outcome movedOldSetup, string contentPath)
+    {
+        if (before is null || movedOldSetup.Changed)
+        {
+            return Ue4ssSetupCheck.Nothing;
+        }
+
+        var check = await Task.Run(() => before.CheckAgainst(Ue4ssGamePaths.ResolveLoaderFolder(contentPath)));
+        return check with { Summary = $"{check.Summary} The UE4SS you had before is in {Path.Combine(_backupDirectory, "UE4SS-Loader")}." };
+    }
+
     private void ReportUe4ssProblem(string status, string? logged = null)
     {
         Ue4ssStatusMessage = status;
@@ -749,7 +769,9 @@ public sealed partial class SettingsViewModel
             }
 
             Ue4ssStatusMessage = "Installing…";
+            var setupBefore = await TakeUe4ssSetupAsync(contentPath);
             var movedOldSetup = await _ue4ssLoaderInstallService.InstallOrUpdateAsync(contentPath, tempZipPath, _backupDirectory, version, commit);
+            var setupCheck = await CheckUe4ssSetupAsync(setupBefore, movedOldSetup, contentPath);
 
             RefreshUe4ssStatus();
             Ue4ssCheckedOrder = Ue4ssBuildOrder.Unknown;
@@ -760,8 +782,8 @@ public sealed partial class SettingsViewModel
                 "Install" => $"Installed UE4SS {label}.",
                 "Update" => $"Updated to UE4SS {label}.",
                 _ => $"Reinstalled UE4SS {label}.",
-            } + movedOldSetup.Describe();
-            _activityLog.Log(Ue4ssStatusMessage, ActivityEntryKind.Success);
+            } + movedOldSetup.Describe() + setupCheck.Summary;
+            _activityLog.Log(Ue4ssStatusMessage, setupCheck.Problems.Count > 0 ? ActivityEntryKind.Warning : ActivityEntryKind.Success);
             WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage($"UE4SS {label} is installed in the game."));
         }
         catch (Exception ex)
@@ -827,12 +849,14 @@ public sealed partial class SettingsViewModel
         Ue4ssStatusMessage = "Installing…";
         try
         {
+            var setupBefore = await TakeUe4ssSetupAsync(contentPath);
             var movedOldSetup = await _ue4ssLoaderInstallService.InstallOrUpdateAsync(
                 contentPath, zipPath, _backupDirectory, knownBuild ? zipVersion : null, knownBuild ? zipCommit : null);
+            var setupCheck = await CheckUe4ssSetupAsync(setupBefore, movedOldSetup, contentPath);
             RefreshUe4ssStatus();
             Ue4ssCheckedOrder = Ue4ssBuildOrder.Unknown;
-            Ue4ssStatusMessage = $"Installed UE4SS{(Ue4ssInstalledVersion is not null ? $" {Ue4ssInstalledLabel}" : "")} from {Path.GetFileName(zipPath)}.{movedOldSetup.Describe()}";
-            _activityLog.Log(Ue4ssStatusMessage, ActivityEntryKind.Success);
+            Ue4ssStatusMessage = $"Installed UE4SS{(Ue4ssInstalledVersion is not null ? $" {Ue4ssInstalledLabel}" : "")} from {Path.GetFileName(zipPath)}.{movedOldSetup.Describe()}{setupCheck.Summary}";
+            _activityLog.Log(Ue4ssStatusMessage, setupCheck.Problems.Count > 0 ? ActivityEntryKind.Warning : ActivityEntryKind.Success);
             WeakReferenceMessenger.Default.Send(new Ue4ssLoaderChangedMessage(Ue4ssStatusMessage));
         }
         catch (Exception ex)

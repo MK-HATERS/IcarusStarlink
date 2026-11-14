@@ -770,6 +770,34 @@ public sealed partial class SettingsViewModelTests
         Assert.Single(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Success && e.Message == "UE4SS removed. A backup was kept.");
     }
 
+    /// <summary>An install over an existing UE4SS ends by saying the player's settings and mods are as they were and where the old build is kept; a mod that changed is named and logged as a warning.</summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ss_OverAnExistingSetup_SaysWhatIsLeftOfIt_AndNamesWhatChanged()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "3.0.1", "83330635");
+        harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, BundledUe4ss.Version, BundledUe4ss.Commit);
+        var ue4ss = Ue4ssGamePaths.ResolveLoaderFolder(harness.Settings.IcarusContentPath!);
+        Directory.CreateDirectory(Path.Combine(ue4ss, "Mods", "StorageLink", "Scripts"));
+        File.WriteAllText(Path.Combine(ue4ss, "UE4SS-settings.ini"), "[General]\n");
+        File.WriteAllText(Path.Combine(ue4ss, "Mods", "StorageLink", "Scripts", "main.lua"), "-- mine");
+        File.WriteAllText(Path.Combine(ue4ss, "Mods", "StorageLink", "enabled.txt"), "");
+        var vm = harness.BuildViewModel();
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Contains(" Checked: your UE4SS settings and your mod are as they were (it's on). The UE4SS you had before is in ", vm.Ue4ssStatusMessage);
+        Assert.EndsWith(@"UE4SS-Loader.", vm.Ue4ssStatusMessage);
+        Assert.Single(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Success && e.Message == vm.Ue4ssStatusMessage);
+
+        // The next install takes the mod's switch away: that is named, and logged as a warning.
+        harness.Ue4ssLoaderInstallService.OnInstall = () => File.Delete(Path.Combine(ue4ss, "Mods", "StorageLink", "enabled.txt"));
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Contains(" Check these: StorageLink was on and is now off. The rest is as it was.", vm.Ue4ssStatusMessage);
+        Assert.Single(harness.ActivityLog.Entries, e => e.Kind == ActivityEntryKind.Warning && e.Message == vm.Ue4ssStatusMessage);
+    }
+
     [Fact]
     public async Task InstallUe4ssFromZip_InstallsThePickedZip_AndCancelDoesNothing()
     {
@@ -2371,6 +2399,9 @@ public sealed partial class SettingsViewModelTests
 
         /// <summary>Applied to StatusToReturn after a successful InstallOrUpdateAsync — mirrors the real service actually changing what's on disk, so a test can assert RefreshUe4ssStatus picked up the change.</summary>
         public Ue4ssLoaderStatus? StatusAfterInstall { get; set; }
+
+        /// <summary>What a successful install does to the game's files, for tests that look at them afterwards.</summary>
+        public Action? OnInstall { get; set; }
         public Ue4ssLoaderStatus? StatusAfterUninstall { get; set; }
         public IReadOnlyList<string> UserAddedMods { get; set; } = [];
         public int UninstallCallCount { get; private set; }
@@ -2400,6 +2431,7 @@ public sealed partial class SettingsViewModelTests
                 throw InstallOrUpdateException;
             }
 
+            OnInstall?.Invoke();
             if (StatusAfterInstall is { } status)
             {
                 StatusToReturn = status;
