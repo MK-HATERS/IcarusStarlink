@@ -352,7 +352,26 @@ makes it much faster to track down.
 
 ## Changelog
 
-### 5.0.0 (latest)
+### 5.1.0 (latest)
+
+UE4SS 4.0.0, maps that show what changed, and a game update you steer yourself.
+
+**Added**
+- Starlink now comes with the official **UE4SS 4.0.0**. Settings › UE4SS has a list to pick which build to install: the one built in, the newest dev build, older builds, or a zip you downloaded.
+- A UE4SS install ends with a check: it says your UE4SS settings and mods are as they were (and how many are on) and where the UE4SS you had before is kept, or names what changed. The same on a local server.
+- An old UE4SS setup with its files directly in `Binaries\Win64` is moved into the `ue4ss` folder on install, with a backup, so your mods, which are on, and your settings come along. Old mods are never refused.
+- Map: **What changed** on a map after a game update: new, moved and removed zones and spots, the squares of the picture that changed, and which of the game's files changed. A new world is tagged **New**.
+- Game update: **Update everything** lets you pick its steps before it starts, and shows the fixes first by default so you can look before anything is changed.
+
+**Changed**
+- Map: a game update that only moves the game's files no longer redraws every map. Maps you already have are kept.
+- Server: **Install UE4SS from my game** keeps the server's previous UE4SS in the server's backups before replacing it.
+- UE4SS installs, removals and the server copy are written to the activity log.
+
+**Fixed**
+- Game update: Update everything no longer hangs at Install waiting on a question hidden behind its window.
+
+### 5.0.0
 
 A big release: a check of the whole app fixed more than 450 problems, and a long list of new features came with it.
 
