@@ -37,6 +37,7 @@ internal static class SharedViewChecks
         ("Disabled pill button", DisabledPillButton),
         ("Long question box message", LongQuestionMessage),
         ("Question box Ctrl+C", QuestionBoxCopy),
+        ("Game update window", GameUpdateWindowChecks.ChoicesThenFixList),
     ];
 
     /// <summary>A question with a very long message scrolls inside the box, so Yes and No stay on screen.</summary>

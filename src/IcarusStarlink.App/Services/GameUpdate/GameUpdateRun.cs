@@ -1,3 +1,6 @@
+using IcarusStarlink.Core.Settings;
+using IcarusStarlink.PakIO.Exmod;
+
 namespace IcarusStarlink.App.Services;
 
 /// <summary>The steps of Update everything, in the order they run.</summary>
@@ -36,6 +39,123 @@ public sealed record GameUpdateStepResult(GameUpdateStepState State, string Mess
     public static GameUpdateStepResult Failed(string message) => new(GameUpdateStepState.Failed, message);
 }
 
+/// <summary>What Update everything does about the sure problems the check finds.</summary>
+public enum GameUpdateFixChoice
+{
+    /// <summary>Stop after the check and list what would be fixed, mod by mod; nothing changes until Continue.</summary>
+    ShowFirst,
+
+    /// <summary>Make every proven fix without asking (each mod backed up first).</summary>
+    FixByItself,
+
+    /// <summary>Change no mod.</summary>
+    DontFix,
+}
+
+/// <summary>
+/// What the user ticked before Start. Saving the setup, noting the game files, Refresh game data
+/// and checking every mod always run; the rest can be left out.
+/// </summary>
+public sealed record GameUpdateOptions
+{
+    public bool RedrawMaps { get; init; } = true;
+
+    public bool CheckForModUpdates { get; init; } = true;
+
+    public bool BuildMerge { get; init; } = true;
+
+    /// <summary>Only with BuildMerge: there is nothing new to install without a build.</summary>
+    public bool Install { get; init; } = true;
+
+    public GameUpdateFixChoice Fix { get; init; } = GameUpdateFixChoice.ShowFirst;
+
+    /// <summary>Every step, fixes made without asking: a run with nobody to ask.</summary>
+    public static GameUpdateOptions Everything { get; } = new() { Fix = GameUpdateFixChoice.FixByItself };
+
+    /// <summary>What was ticked last time (first time: everything but the maps, fixes shown first).</summary>
+    public static GameUpdateOptions FromSettings(AppSettings settings) => new()
+    {
+        RedrawMaps = settings.RedrawMapsDuringGameUpdate,
+        CheckForModUpdates = settings.GameUpdateChecksForModUpdates,
+        BuildMerge = settings.GameUpdateBuildsMerge,
+        Install = settings.GameUpdateInstalls && settings.GameUpdateBuildsMerge,
+        Fix = settings.GameUpdateFix switch
+        {
+            "fix" => GameUpdateFixChoice.FixByItself,
+            "none" => GameUpdateFixChoice.DontFix,
+            _ => GameUpdateFixChoice.ShowFirst,
+        },
+    };
+
+    /// <summary>Writes the ticks into the settings (the caller saves them). The maps tick is the Map page's own setting.</summary>
+    public void CopyTo(AppSettings settings)
+    {
+        settings.RedrawMapsDuringGameUpdate = RedrawMaps;
+        settings.GameUpdateChecksForModUpdates = CheckForModUpdates;
+        settings.GameUpdateBuildsMerge = BuildMerge;
+        settings.GameUpdateInstalls = Install && BuildMerge;
+        settings.GameUpdateFix = Fix switch
+        {
+            GameUpdateFixChoice.FixByItself => "fix",
+            GameUpdateFixChoice.DontFix => "none",
+            _ => "show",
+        };
+    }
+}
+
+/// <summary>A mod the sure fixes would change, with what they would do in plain lines.</summary>
+public sealed record GameUpdateFixCandidate(string FolderName, string Name, int FixCount, IReadOnlyList<string> Lines)
+{
+    /// <summary>
+    /// What Fix sure problems would change in a mod, from its last check: one line per kind of
+    /// problem, with how many and in which tables. Null when there is nothing sure to fix.
+    /// </summary>
+    public static GameUpdateFixCandidate? From(string folderName, string name, ModHealthReport? report)
+    {
+        var sure = report?.Issues.Where(i => i.IsAutomatic).ToList() ?? [];
+        if (sure.Count == 0)
+        {
+            return null;
+        }
+
+        var lines = sure.GroupBy(i => i.Kind).OrderByDescending(g => g.Count()).Select(group =>
+        {
+            var tables = group.Select(i => System.IO.Path.GetFileNameWithoutExtension(i.CurrentFile))
+                .Where(t => t.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var where = tables.Count switch
+            {
+                0 => "",
+                <= 3 => $" in {string.Join(", ", tables)}",
+                _ => $" in {string.Join(", ", tables.Take(3))} and {tables.Count - 3} more",
+            };
+            return $"{ViewModels.ModFixViewModel.KindTitle(group.Key)}: {group.Count()}{where}";
+        }).ToList();
+        return new GameUpdateFixCandidate(folderName, name, sure.Count, lines);
+    }
+}
+
+public enum GameUpdateFixAnswer
+{
+    /// <summary>Fix the mods named, then go on.</summary>
+    Fix,
+
+    /// <summary>Fix nothing, go on with the later steps.</summary>
+    Skip,
+
+    /// <summary>Fix nothing and end the run here.</summary>
+    Stop,
+}
+
+/// <summary>What the user chose after seeing the fixes: which mods to fix (Fix), or none.</summary>
+public sealed record GameUpdateFixDecision(GameUpdateFixAnswer Answer, IReadOnlyCollection<string> Folders)
+{
+    public static GameUpdateFixDecision Fix(IEnumerable<string> folders) => new(GameUpdateFixAnswer.Fix, [.. folders]);
+
+    public static GameUpdateFixDecision Skip { get; } = new(GameUpdateFixAnswer.Skip, []);
+
+    public static GameUpdateFixDecision Stop { get; } = new(GameUpdateFixAnswer.Stop, []);
+}
+
 /// <summary>
 /// What Update everything needs done, one method per step — the app's version calls the pages'
 /// own commands (Settings' Refresh game data, the Library's checks and fixes, Merge &amp; Install's
@@ -62,6 +182,12 @@ public interface IGameUpdateSteps
     /// <summary>Proven fixes only; what was fixed, per mod.</summary>
     Task<IReadOnlyList<GameUpdateFixedMod>> FixSureProblemsAsync();
 
+    /// <summary>The mods the proven fixes would change and what they would do, without changing anything (Show me first).</summary>
+    Task<IReadOnlyList<GameUpdateFixCandidate>> ListSureFixesAsync() => Task.FromResult<IReadOnlyList<GameUpdateFixCandidate>>([]);
+
+    /// <summary>Proven fixes in these mods only (the ones left ticked after Show me first). Fixes nothing unless implemented.</summary>
+    Task<IReadOnlyList<GameUpdateFixedMod>> FixSureProblemsAsync(IReadOnlyCollection<string> folders) => Task.FromResult<IReadOnlyList<GameUpdateFixedMod>>([]);
+
     Task CheckForModUpdatesAsync();
 
     Task<GameUpdateStepResult> RebuildAsync();
@@ -80,6 +206,12 @@ public sealed class GameUpdateRunResult
     /// <summary>The step that failed; null when none did.</summary>
     public GameUpdateStep? FailedStep { get; init; }
 
+    /// <summary>The user clicked Stop when shown the fixes: nothing was fixed and the later steps didn't run.</summary>
+    public bool Stopped { get; init; }
+
+    /// <summary>Build the merge or Install was unticked, so the game still has the merge from before.</summary>
+    public bool MergeLeftOut { get; init; }
+
     public string Message { get; init; } = "";
 
     /// <summary>The snapshot made first; null when even that failed (then nothing was changed).</summary>
@@ -95,9 +227,10 @@ public sealed class GameUpdateRunResult
     /// <summary>
     /// The game update is handled, so the Library's "Icarus updated" bar can go: every step ran and
     /// the new merge wasn't left out of the game because Icarus was running (the game would keep
-    /// the old merge, with whole tables from before the update).
+    /// the old merge, with whole tables from before the update) or because the build or the install
+    /// was unticked.
     /// </summary>
-    public bool ReadyForUpdatedGame => Completed && !InstallSkippedGameRunning;
+    public bool ReadyForUpdatedGame => Completed && !InstallSkippedGameRunning && !MergeLeftOut;
 }
 
 /// <summary>
@@ -107,6 +240,9 @@ public sealed class GameUpdateRunResult
 /// what went wrong. The snapshot is made before anything else, so Roll back is there whatever
 /// happens after it. Refresh game data is skipped when the extracted data already matches the
 /// game's data.pak: extracting again would only save an empty Weekly Changes report.
+/// The steps the user unticked (GameUpdateOptions) are reported Skipped. Nothing here asks a
+/// question in a dialog: with Show me first the run waits on reviewFixes (the window lists the
+/// fixes) and changes no mod until it answers.
 /// </summary>
 public static class GameUpdateOrchestrator
 {
@@ -124,8 +260,15 @@ public static class GameUpdateOrchestrator
         _ => step.ToString(),
     };
 
-    public static async Task<GameUpdateRunResult> RunAsync(IGameUpdateSteps steps, Action<GameUpdateProgress>? report = null)
+    private const string LeftOut = "Left out: you unticked it.";
+
+    /// <param name="options">What to run; null: every step, fixes made without asking.</param>
+    /// <param name="reviewFixes">Show me first: shown the fixes, answers which mods to fix, to skip them, or to stop. Null: nothing can be shown, so nothing is fixed.</param>
+    public static async Task<GameUpdateRunResult> RunAsync(
+        IGameUpdateSteps steps, Action<GameUpdateProgress>? report = null, GameUpdateOptions? options = null,
+        Func<IReadOnlyList<GameUpdateFixCandidate>, Task<GameUpdateFixDecision>>? reviewFixes = null)
     {
+        options ??= GameUpdateOptions.Everything;
         LastKnownGoodSnapshot? snapshot = null;
         IReadOnlyList<GameUpdateFixedMod> fixedMods = [];
         var current = GameUpdateStep.Snapshot;
@@ -183,7 +326,9 @@ public static class GameUpdateOrchestrator
             GameUpdateStepResult maps;
             try
             {
-                maps = await steps.RedrawMapsAsync();
+                maps = options.RedrawMaps
+                    ? await steps.RedrawMapsAsync()
+                    : GameUpdateStepResult.Skipped("Left out: the Map page says which maps changed, and its Reload redraws them.");
             }
             catch (Exception ex)
             {
@@ -200,16 +345,86 @@ public static class GameUpdateOrchestrator
 
             current = GameUpdateStep.FixSure;
             Report(GameUpdateStepState.Running);
-            fixedMods = await steps.FixSureProblemsAsync();
-            var fixCount = fixedMods.Sum(m => m.FixCount);
-            Report(GameUpdateStepState.Done, fixCount == 0 ? "Nothing sure to fix." : $"Fixed {fixCount} thing(s) in {fixedMods.Count} mod(s).");
+            if (options.Fix == GameUpdateFixChoice.DontFix)
+            {
+                Report(GameUpdateStepState.Skipped, "Left out: you chose Don't fix. No mod was changed.");
+            }
+            else if (options.Fix == GameUpdateFixChoice.FixByItself)
+            {
+                fixedMods = await steps.FixSureProblemsAsync();
+                ReportFixed();
+            }
+            else
+            {
+                // Show me first: nothing is changed until the user has seen the list and answered.
+                var candidates = await steps.ListSureFixesAsync();
+                if (candidates.Count == 0)
+                {
+                    Report(GameUpdateStepState.Done, "Nothing sure to fix.");
+                }
+                else if (reviewFixes is null)
+                {
+                    Report(GameUpdateStepState.Skipped, "Not fixed: the fixes couldn't be shown first. No mod was changed.");
+                }
+                else
+                {
+                    Report(GameUpdateStepState.Running, $"Waiting for you: {Mods(candidates.Count)} with sure fixes. Nothing is changed until you click Continue.");
+                    var decision = await reviewFixes(candidates);
+                    if (decision.Answer == GameUpdateFixAnswer.Stop)
+                    {
+                        Report(GameUpdateStepState.Skipped, "You stopped here. No mod was changed.");
+                        var notRun = new List<string>();
+                        foreach (var later in new[] { GameUpdateStep.CheckUpdates, GameUpdateStep.Merge, GameUpdateStep.Install })
+                        {
+                            current = later;
+                            Report(GameUpdateStepState.Skipped, "Not run: you stopped.");
+                            notRun.Add(Describe(later));
+                        }
+
+                        return new GameUpdateRunResult
+                        {
+                            Stopped = true,
+                            Message = $"Stopped before fixing: no mod was changed. Not run: {string.Join(", ", notRun)}. Click Update everything again when you're ready.",
+                            Snapshot = snapshot,
+                        };
+                    }
+
+                    if (decision.Answer == GameUpdateFixAnswer.Skip || decision.Folders.Count == 0)
+                    {
+                        Report(GameUpdateStepState.Skipped, "Not fixed: you chose Skip fixes. No mod was changed.");
+                    }
+                    else
+                    {
+                        Report(GameUpdateStepState.Running, $"Fixing {Mods(decision.Folders.Count)}…");
+                        fixedMods = await steps.FixSureProblemsAsync(decision.Folders);
+                        ReportFixed();
+                    }
+                }
+            }
 
             current = GameUpdateStep.CheckUpdates;
-            Report(GameUpdateStepState.Running);
-            await steps.CheckForModUpdatesAsync();
-            Report(GameUpdateStepState.Done);
+            if (options.CheckForModUpdates)
+            {
+                Report(GameUpdateStepState.Running);
+                await steps.CheckForModUpdatesAsync();
+                Report(GameUpdateStepState.Done);
+            }
+            else
+            {
+                Report(GameUpdateStepState.Skipped, LeftOut);
+            }
 
             current = GameUpdateStep.Merge;
+            if (!options.BuildMerge)
+            {
+                Report(GameUpdateStepState.Skipped, LeftOut);
+                current = GameUpdateStep.Install;
+                Report(GameUpdateStepState.Skipped, "Nothing was built.");
+                return Finished(
+                    "Done, but the merge wasn't built: you left that step out. The game still has the merge from before. Click Install on Merge & Install when you're ready.",
+                    mergeLeftOut: true);
+            }
+
             Report(GameUpdateStepState.Running);
             var built = await steps.RebuildAsync();
             if (built.State == GameUpdateStepState.Failed)
@@ -223,6 +438,14 @@ public static class GameUpdateOrchestrator
             {
                 Report(GameUpdateStepState.Skipped, "Nothing was built.");
                 return Finished("Done. " + built.Message);
+            }
+
+            if (!options.Install)
+            {
+                Report(GameUpdateStepState.Skipped, LeftOut);
+                return Finished(
+                    "Done. The new merge is built but not in the game: you left Install out. Copy to game on Merge & Install (under Advanced actions) puts it in.",
+                    mergeLeftOut: true);
             }
 
             if (steps.IsGameRunning())
@@ -249,7 +472,15 @@ public static class GameUpdateOrchestrator
             return Stop(ex.Message);
         }
 
-        GameUpdateRunResult Finished(string message, bool installSkippedGameRunning = false, bool installed = false) => new()
+        void ReportFixed()
+        {
+            var fixCount = fixedMods.Sum(m => m.FixCount);
+            Report(GameUpdateStepState.Done, fixCount == 0 ? "Nothing sure to fix." : $"Fixed {fixCount} thing(s) in {fixedMods.Count} mod(s).");
+        }
+
+        static string Mods(int count) => count == 1 ? "1 mod" : $"{count} mods";
+
+        GameUpdateRunResult Finished(string message, bool installSkippedGameRunning = false, bool installed = false, bool mergeLeftOut = false) => new()
         {
             Completed = true,
             Message = message,
@@ -257,6 +488,7 @@ public static class GameUpdateOrchestrator
             Fixed = fixedMods,
             InstallSkippedGameRunning = installSkippedGameRunning,
             Installed = installed,
+            MergeLeftOut = mergeLeftOut,
         };
     }
 }

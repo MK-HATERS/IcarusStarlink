@@ -16,11 +16,14 @@ public partial class GameUpdateWindow : Window
         // Closing mid-run would hide the steps, not stop them: it waits for the run.
         Closing += (_, e) =>
         {
-            if (viewModel.IsRunning)
+            if (viewModel.WhyCantClose is { } why)
             {
                 e.Cancel = true;
-                viewModel.StatusMessage = "Still working: close this once the steps are done.";
+                viewModel.StatusMessage = why;
             }
         };
+
+        // Closed before Start: nothing runs.
+        Closed += (_, _) => viewModel.WindowClosed();
     }
 }

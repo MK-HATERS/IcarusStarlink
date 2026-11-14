@@ -25,30 +25,31 @@ public sealed class GameUpdateCoordinator(
     /// <summary>The bar's Update everything…: runs the steps in the review window, then fills in what changed.</summary>
     public async Task RunAsync()
     {
-        if (_window is { IsVisible: true } open && open.DataContext is GameUpdateReviewViewModel { IsRunning: true })
+        if (_window is { IsVisible: true } open && open.DataContext is GameUpdateReviewViewModel busy && (busy.IsRunning || busy.IsChoosing))
         {
             open.Activate();
             return;
         }
 
-        if (!dialogService.Confirm(
-                "Update everything gets your mods ready for the updated game:\n\n"
-                + "1. Saves your setup as it is now, so you can roll back.\n"
-                + "2. Refreshes game data.\n"
-                + "3. Checks every mod and makes the proven fixes (each mod backed up first).\n"
-                + "4. Checks for newer versions of your mods.\n"
-                + "5. Builds the merge and installs it (not while Icarus is running).\n\n"
-                + "Then it shows what changed. Start?",
-                "Update everything", ThemedConfirmSeverity.Question))
+        // The window opens on the steps with a tick each (as chosen last time) and a Start button.
+        // Everything that needs a yes is settled there, before anything runs: a question in the
+        // middle of the run opened behind this window when the user was in another program, and
+        // the run sat on its Install step until Starlink was restarted.
+        var viewModel = new GameUpdateReviewViewModel(this);
+        viewModel.LoadOptions(GameUpdateOptions.FromSettings(settingsService.Current));
+        viewModel.InstallNote = DescribeInstallExtras(mergeInstall().PreviewInstallExtras());
+        viewModel.ConfirmStart = ConfirmInstallExtras;
+        var choosing = viewModel.ChooseAsync();
+        ShowWindow(viewModel);
+        if (await choosing is not { } options)
         {
             return;
         }
 
-        var viewModel = new GameUpdateReviewViewModel(this);
-        ShowWindow(viewModel);
+        RememberOptions(options);
 
         var build = await detector.ReadCurrentBuildAsync();
-        var result = await viewModel.RunAsync(this);
+        var result = await viewModel.RunAsync(this, options);
         // Roll back from this window goes where it goes from Check ▾ › What the last game update changed…:
         // to the setup before this game update's first run. A retry's own snapshot already holds what the
         // earlier run changed. Set right here, before anything else is awaited, so no Roll back click
@@ -87,6 +88,83 @@ public sealed class GameUpdateCoordinator(
             result.ReadyForUpdatedGame ? ActivityEntryKind.Success : ActivityEntryKind.Warning);
 
         await FillReviewAsync(viewModel, result.Fixed, build);
+    }
+
+    /// <summary>The yes to Install given before the run started (ConfirmInstallExtras); null: Install isn't in this run.</summary>
+    private MergeInstallViewModel.InstallConsent? _installConsent;
+
+    /// <summary>What else Install would take out of the game's mods folder, for the line under its tick; null: nothing else.</summary>
+    internal static string? DescribeInstallExtras(MergeInstallViewModel.InstallExtras extras)
+    {
+        var lines = new List<string>();
+        if (extras.OtherFiles.Count > 0)
+        {
+            lines.Add($"Install will also take {(extras.OtherFiles.Count == 1 ? "1 other file" : $"{extras.OtherFiles.Count} other files")} out of the game's mods folder, backed up first: "
+                + $"{string.Join(", ", extras.OtherFiles)}. You're asked about {(extras.OtherFiles.Count == 1 ? "it" : "them")} when you click Start.");
+        }
+
+        if (extras.LeftoverArcFission.Count > 0)
+        {
+            lines.Add($"Leftover ArcFission data is in the mods folder ({string.Join(", ", extras.LeftoverArcFission)}). You're asked whether to remove it when you click Start.");
+        }
+
+        if (extras.OldArcFissionCopies.Count > 0)
+        {
+            lines.Add($"Install also removes {extras.OldArcFissionCopies.Count} older cop{(extras.OldArcFissionCopies.Count == 1 ? "y" : "ies")} of ArcFission's data (not used; ArcFission Library only needs its newest).");
+        }
+
+        return lines.Count > 0 ? string.Join("\n", lines) : null;
+    }
+
+    /// <summary>
+    /// Start was clicked: when Install is ticked and it would remove more than the old merged pak,
+    /// that is asked now, before anything runs (it used to be asked at the end of the run). False:
+    /// the user said No to removing the other files, so the window stays on the ticks. The answers
+    /// are what the Install step goes by; it asks nothing itself.
+    /// </summary>
+    private bool ConfirmInstallExtras(GameUpdateOptions options)
+    {
+        _installConsent = null;
+        if (!options.Install)
+        {
+            return true;
+        }
+
+        var extras = mergeInstall().PreviewInstallExtras();
+        var removeLeftover = extras.LeftoverArcFission.Count > 0
+            && dialogService.Confirm(MergeInstallViewModel.LeftoverArcFissionQuestion(extras.LeftoverArcFission), "Leftover ArcFission data", ThemedConfirmSeverity.Question);
+        if (extras.OtherFiles.Count > 0 && !dialogService.Confirm(
+                $"Install it in the game will also remove {(extras.OtherFiles.Count == 1 ? "this file" : "these files")} from the game's mods folder (backed up first, not part of the merge):\n"
+                + string.Join('\n', extras.OtherFiles.Select(n => $"  - {n}"))
+                + "\n\nYes: start, and remove them when the merge is installed.\nNo: go back. Untick Install it in the game to run without it.",
+                "Update everything", ThemedConfirmSeverity.Question))
+        {
+            return false;
+        }
+
+        _installConsent = new MergeInstallViewModel.InstallConsent(
+            removeLeftover, [.. extras.OtherFiles, .. removeLeftover ? extras.LeftoverArcFission : []]);
+        return true;
+    }
+
+    /// <summary>The ticks are kept for next time. Best-effort: a settings file that can't be written never stops the run.</summary>
+    private void RememberOptions(GameUpdateOptions options)
+    {
+        try
+        {
+            // The maps tick is the Map page's own box: set through the page so its box follows.
+            if (worldMap is not null)
+            {
+                worldMap().RedrawDuringUpdate = options.RedrawMaps;
+            }
+
+            options.CopyTo(settingsService.Current);
+            settingsService.Save();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            activityLog.Log($"Couldn't save your Update everything choices for next time: {ex.Message}", ActivityEntryKind.Warning);
+        }
     }
 
     /// <summary>The snapshot from before this game update's first run, or the fallback when there's none or the list can't be read.</summary>
@@ -253,6 +331,20 @@ public sealed class GameUpdateCoordinator(
         return await page.FixSureProblemsCoreAsync();
     }
 
+    public async Task<IReadOnlyList<GameUpdateFixCandidate>> ListSureFixesAsync()
+    {
+        var page = library();
+        await page.WaitForModPassesAsync();
+        return page.ListSureFixes();
+    }
+
+    public async Task<IReadOnlyList<GameUpdateFixedMod>> FixSureProblemsAsync(IReadOnlyCollection<string> folders)
+    {
+        var page = library();
+        await page.WaitForModPassesAsync();
+        return await page.FixSureProblemsCoreAsync(folders);
+    }
+
     public async Task CheckForModUpdatesAsync()
     {
         var page = library();
@@ -272,7 +364,7 @@ public sealed class GameUpdateCoordinator(
             return GameUpdateStepResult.Skipped("Nothing is ticked to merge, so there's nothing to build.");
         }
 
-        return await merge.RebuildAsync()
+        return await merge.RebuildWithoutAskingAsync()
             ? GameUpdateStepResult.Done(merge.StatusMessage ?? "")
             : GameUpdateStepResult.Failed(merge.StatusMessage ?? "The merge couldn't be built.");
     }
@@ -292,7 +384,9 @@ public sealed class GameUpdateCoordinator(
     public async Task<GameUpdateStepResult> InstallAsync()
     {
         var merge = mergeInstall();
-        var outcome = await merge.InstallAsync();
+        // The yes was given before the run started (the Install tick, and the question about other
+        // files then): nothing is asked here.
+        var outcome = await merge.InstallAsync(_installConsent ?? new MergeInstallViewModel.InstallConsent(false, []));
         var message = merge.InstallStatusMessage ?? "";
         return outcome switch
         {

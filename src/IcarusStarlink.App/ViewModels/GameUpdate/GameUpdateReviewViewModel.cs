@@ -90,6 +90,22 @@ public sealed partial class GameUpdateReviewRow : ObservableObject
     public bool CanAct => !IsActionDone && ActionLabel.Length > 0;
 }
 
+/// <summary>A mod in the Show me first list: what the sure fixes would change in it, and a tick to fix it or leave it.</summary>
+public sealed partial class GameUpdateFixRow(GameUpdateFixCandidate candidate) : ObservableObject
+{
+    public string FolderName { get; } = candidate.FolderName;
+
+    public string Name { get; } = candidate.Name;
+
+    public string Tag { get; } = candidate.FixCount == 1 ? "1 sure fix" : $"{candidate.FixCount} sure fixes";
+
+    public string Detail { get; } = string.Join("\n", candidate.Lines);
+
+    /// <summary>Ticked: fixed on Continue. Unticked: left as it is.</summary>
+    [ObservableProperty]
+    private bool _isTicked = true;
+}
+
 public enum GameUpdateRowAction
 {
     OpenFix,
@@ -121,7 +137,7 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
     private bool _showSteps;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CanRollBack), nameof(IsAllClear))]
+    [NotifyPropertyChangedFor(nameof(CanRollBack), nameof(IsAllClear), nameof(WhyCantClose))]
     [NotifyCanExecuteChangedFor(nameof(RollBackCommand), nameof(ActCommand))]
     private bool _isRunning;
 
@@ -174,15 +190,214 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
         }
     }
 
-    /// <summary>Runs Update everything with these steps, showing each one as it goes.</summary>
-    public async Task<GameUpdateRunResult> RunAsync(IGameUpdateSteps steps)
+    // --- Before Start: which steps to run ---
+
+    /// <summary>The window is waiting for the ticks and Start (ChooseAsync): nothing has run yet.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StartCommand))]
+    private bool _isChoosing;
+
+    /// <summary>Redraw the maps that changed: the same setting as the Map page's box.</summary>
+    [ObservableProperty]
+    private bool _redrawMaps;
+
+    [ObservableProperty]
+    private bool _checkForModUpdates = true;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanTickInstall))]
+    private bool _buildMerge = true;
+
+    [ObservableProperty]
+    private bool _install = true;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FixShowFirst), nameof(FixByItself), nameof(FixDontFix))]
+    private GameUpdateFixChoice _fixChoice = GameUpdateFixChoice.ShowFirst;
+
+    /// <summary>Install needs a build: its box is off while Build the merge is unticked.</summary>
+    public bool CanTickInstall => BuildMerge;
+
+    public bool FixShowFirst
     {
+        get => FixChoice == GameUpdateFixChoice.ShowFirst;
+        set => PickFix(value, GameUpdateFixChoice.ShowFirst);
+    }
+
+    public bool FixByItself
+    {
+        get => FixChoice == GameUpdateFixChoice.FixByItself;
+        set => PickFix(value, GameUpdateFixChoice.FixByItself);
+    }
+
+    public bool FixDontFix
+    {
+        get => FixChoice == GameUpdateFixChoice.DontFix;
+        set => PickFix(value, GameUpdateFixChoice.DontFix);
+    }
+
+    private void PickFix(bool picked, GameUpdateFixChoice choice)
+    {
+        if (picked)
+        {
+            FixChoice = choice;
+        }
+    }
+
+    /// <summary>What else Install would take out of the game's mods folder, listed under its box; null: nothing else.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasInstallNote))]
+    private string? _installNote;
+
+    public bool HasInstallNote => !string.IsNullOrEmpty(InstallNote);
+
+    /// <summary>
+    /// Asked when Start is clicked, before anything runs: false keeps the window on the ticks (the
+    /// app's version asks about other files Install would remove). Null: nothing to ask.
+    /// </summary>
+    public Func<GameUpdateOptions, bool>? ConfirmStart { get; set; }
+
+    private TaskCompletionSource<GameUpdateOptions?>? _choice;
+
+    partial void OnBuildMergeChanged(bool value)
+    {
+        if (!value)
+        {
+            Install = false;
+        }
+    }
+
+    partial void OnInstallChanged(bool value)
+    {
+        // Nothing new to install without a build.
+        if (value && !BuildMerge)
+        {
+            Install = false;
+        }
+    }
+
+    /// <summary>The ticks as they are now.</summary>
+    public GameUpdateOptions Options => new()
+    {
+        RedrawMaps = RedrawMaps,
+        CheckForModUpdates = CheckForModUpdates,
+        BuildMerge = BuildMerge,
+        Install = Install && BuildMerge,
+        Fix = FixChoice,
+    };
+
+    /// <summary>Sets the ticks (from what was chosen last time).</summary>
+    public void LoadOptions(GameUpdateOptions options)
+    {
+        RedrawMaps = options.RedrawMaps;
+        CheckForModUpdates = options.CheckForModUpdates;
+        BuildMerge = options.BuildMerge;
+        Install = options.Install && options.BuildMerge;
+        FixChoice = options.Fix;
+    }
+
+    /// <summary>Shows the ticks and waits for Start. Null when the window is closed first: nothing runs.</summary>
+    public Task<GameUpdateOptions?> ChooseAsync()
+    {
+        _choice = new TaskCompletionSource<GameUpdateOptions?>();
+        Summary = "Choose what Update everything does, then click Start. Nothing is changed before that.";
+        IsChoosing = true;
+        return _choice.Task;
+    }
+
+    [RelayCommand(CanExecute = nameof(IsChoosing))]
+    private void Start()
+    {
+        if (!IsChoosing)
+        {
+            return;
+        }
+
+        var options = Options;
+        if (ConfirmStart is { } confirm && !confirm(options))
+        {
+            StatusMessage = "Not started. Untick Install it in the game to run without it, or click Start again.";
+            return;
+        }
+
+        StatusMessage = null;
+        IsChoosing = false;
+        _choice?.TrySetResult(options);
+    }
+
+    /// <summary>The window was closed: a choice still open is cancelled (nothing runs).</summary>
+    public void WindowClosed()
+    {
+        IsChoosing = false;
+        _choice?.TrySetResult(null);
+    }
+
+    // --- Show me first: the fixes, before any is made ---
+
+    /// <summary>The run is waiting on the list of fixes: nothing is changed until Continue.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(WhyCantClose))]
+    private bool _isReviewingFixes;
+
+    public ObservableCollection<GameUpdateFixRow> FixesToReview { get; } = [];
+
+    private TaskCompletionSource<GameUpdateFixDecision>? _fixDecision;
+
+    /// <summary>Lists what would be fixed and waits for Continue, Skip fixes or Stop.</summary>
+    public Task<GameUpdateFixDecision> ReviewFixesAsync(IReadOnlyList<GameUpdateFixCandidate> candidates)
+    {
+        FixesToReview.Clear();
+        foreach (var candidate in candidates.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            FixesToReview.Add(new GameUpdateFixRow(candidate));
+        }
+
+        _fixDecision = new TaskCompletionSource<GameUpdateFixDecision>();
+        Summary = "The check is done. Below is what the sure fixes would change. Nothing is changed until you click Continue.";
+        IsReviewingFixes = true;
+        return _fixDecision.Task;
+    }
+
+    private void AnswerFixes(GameUpdateFixDecision decision)
+    {
+        if (!IsReviewingFixes)
+        {
+            return;
+        }
+
+        IsReviewingFixes = false;
+        FixesToReview.Clear();
+        Summary = decision.Answer == GameUpdateFixAnswer.Stop ? "Stopping…" : "Getting your mods ready for the updated game…";
+        _fixDecision?.TrySetResult(decision);
+    }
+
+    /// <summary>Fixes the ticked mods (each backed up first), then goes on. None ticked: the same as Skip fixes.</summary>
+    [RelayCommand]
+    private void ContinueWithFixes() => AnswerFixes(GameUpdateFixDecision.Fix(FixesToReview.Where(r => r.IsTicked).Select(r => r.FolderName)));
+
+    [RelayCommand]
+    private void SkipFixes() => AnswerFixes(GameUpdateFixDecision.Skip);
+
+    [RelayCommand]
+    private void StopRun() => AnswerFixes(GameUpdateFixDecision.Stop);
+
+    /// <summary>Why the window can't be closed right now; null when it can.</summary>
+    public string? WhyCantClose => !IsRunning
+        ? null
+        : IsReviewingFixes
+            ? "Waiting for you: click Continue, Skip fixes or Stop first."
+            : "Still working: close this once the steps are done.";
+
+    /// <summary>Runs Update everything with these steps, showing each one as it goes. Options null: the ticks as they are now.</summary>
+    public async Task<GameUpdateRunResult> RunAsync(IGameUpdateSteps steps, GameUpdateOptions? options = null)
+    {
+        IsChoosing = false;
         ShowSteps = true;
         IsRunning = true;
         Summary = "Getting your mods ready for the updated game…";
         try
         {
-            var result = await GameUpdateOrchestrator.RunAsync(steps, OnProgress);
+            var result = await GameUpdateOrchestrator.RunAsync(steps, OnProgress, options ?? Options, ReviewFixesAsync);
             _runIncomplete = !result.Completed;
             Snapshot = result.Snapshot;
             Summary = result.Message;
@@ -190,6 +405,7 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
         }
         finally
         {
+            IsReviewingFixes = false;
             IsRunning = false;
         }
     }

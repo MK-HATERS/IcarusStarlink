@@ -362,8 +362,19 @@ public sealed partial class LibraryViewModel
     [RelayCommand]
     private Task FixSureProblemsAsync() => FixSureProblemsCoreAsync();
 
+    /// <summary>
+    /// What Fix sure problems would change, mod by mod, from the last check, without changing
+    /// anything (Update everything's Show me first lists it).
+    /// </summary>
+    internal IReadOnlyList<GameUpdateFixCandidate> ListSureFixes() =>
+        [.. AllLibraryItems()
+            .Where(i => i.Health is { SureProblemCount: > 0 } && !i.IsOpaquePak && !_foldersCurrentlyConvertingToExmod.Contains(i.FolderName))
+            .Select(i => GameUpdateFixCandidate.From(i.FolderName, i.Name, i.Health))
+            .OfType<GameUpdateFixCandidate>()];
+
     /// <summary>Fix sure problems in every mod; what was fixed, per mod (Update everything lists it).</summary>
-    internal async Task<IReadOnlyList<GameUpdateFixedMod>> FixSureProblemsCoreAsync()
+    /// <param name="onlyFolders">Only these mods (the ones left ticked after Show me first); null: every flagged mod.</param>
+    internal async Task<IReadOnlyList<GameUpdateFixedMod>> FixSureProblemsCoreAsync(IReadOnlyCollection<string>? onlyFolders = null)
     {
         var fixedMods = new List<GameUpdateFixedMod>();
         if (IsCheckingStaleness)
@@ -372,8 +383,10 @@ public sealed partial class LibraryViewModel
         }
 
         // A mod being converted again right now is left for that conversion (it rewrites the mod).
+        var only = onlyFolders?.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var flagged = AllLibraryItems()
-            .Where(i => i.Health is { SureProblemCount: > 0 } && !i.IsOpaquePak && !_foldersCurrentlyConvertingToExmod.Contains(i.FolderName))
+            .Where(i => i.Health is { SureProblemCount: > 0 } && !i.IsOpaquePak && !_foldersCurrentlyConvertingToExmod.Contains(i.FolderName)
+                && (only is null || only.Contains(i.FolderName)))
             .ToList();
         if (flagged.Count == 0)
         {

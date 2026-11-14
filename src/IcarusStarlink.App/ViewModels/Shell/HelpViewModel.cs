@@ -147,9 +147,11 @@ public sealed partial class HelpViewModel : ObservableObject
             - **Saves your setup as it is now**, so you can roll back: what's ticked and in what order, merge options and conflict picks, the merged pak in the game, and which UE4SS mods are on. The newest 3 of these are kept (in Backups\LastKnownGood).
             - **Notes the game files mods replace**, so Starlink can tell what the update changed in them.
             - **Refreshes game data**, the same as the button in Settings. When Refresh game data has already run for this version of Icarus, this step is skipped ("Game data already matches this version of Icarus.").
-            - **Checks every mod** against the new game and **makes only the proven fixes** (old copies of game data, links to rows the game no longer has). Each mod is backed up first.
+            - **Checks every mod** against the new game. What happens to the **proven fixes** (old copies of game data, links to rows the game no longer has) is your choice, below. Each mod that is fixed is backed up first.
             - **Checks for newer versions** of your mods on Nexus and the IMM Database.
             - **Builds the merge and installs it.** If Icarus is running, the new merge is built but not installed, and the Library's "Icarus updated" bar stays until it is in the game: close Icarus, then click **Update everything** again.
+
+            **You choose the steps before it starts.** The window opens on a list with a tick for each step you can leave out (**Redraw the maps that changed**, **Check for mod updates**, **Build the merge**, **Install it in the game**) and three choices for the fixes: **Show me first** (the run stops after the check and lists each mod with what would be fixed and a tick; nothing is changed until you click **Continue**, **Skip fixes** goes on without fixing, **Stop** ends the run there), **Fix by itself**, or **Don't fix**. Unticking Build also unticks Install. Nothing runs until you click **Start**, and your choices are remembered. Ticking Install is your yes to it: if it would also remove other files from the game's mods folder, you are asked when you click Start, not at the end, so the run never waits on a question while you are doing something else.
 
             If a step doesn't work, it stops there and says why. The steps before it stay done.
 

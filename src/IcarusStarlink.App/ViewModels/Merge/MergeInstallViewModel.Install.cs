@@ -462,7 +462,13 @@ public sealed partial class MergeInstallViewModel
     /// No [RelayCommand] — reached through RebuildAndInstallAsync's chain (the Install button),
     /// Copy to game (the staged pak again, without rebuilding) and Update everything.
     /// </summary>
-    internal async Task<InstallOutcome> InstallAsync()
+    /// <param name="agreed">
+    /// Update everything: the user said yes before the run started (its Install tick, and the
+    /// question about the other files listed then), so nothing is asked here. A question at the
+    /// end of a long run opened behind the Game update window while the user was in another
+    /// program, and the run sat there waiting on it. Null: asks, as the Install button does.
+    /// </param>
+    internal async Task<InstallOutcome> InstallAsync(InstallConsent? agreed = null)
     {
         if (RefuseInstallWhileBusy())
         {
@@ -473,7 +479,7 @@ public sealed partial class MergeInstallViewModel
         CanInstallWhenGameCloses = false;
         try
         {
-            return await InstallCoreAsync();
+            return await InstallCoreAsync(agreed);
         }
         finally
         {
@@ -481,7 +487,85 @@ public sealed partial class MergeInstallViewModel
         }
     }
 
-    private async Task<InstallOutcome> InstallCoreAsync()
+    /// <summary>
+    /// A yes to an install given ahead of it: whether leftover ArcFission data is removed too, and
+    /// the other files in the mods folder the user was shown and agreed to have removed (backed up).
+    /// </summary>
+    internal sealed record InstallConsent(bool RemoveLeftoverArcFission, IReadOnlyCollection<string> OtherFilesAgreed);
+
+    /// <summary>
+    /// What an install would take out of the game's mods folder besides replacing the merged pak, as
+    /// it is now: leftover ArcFission data (removing it is a choice), other files (always removed,
+    /// backed up first) and ArcFission's older data copies.
+    /// </summary>
+    internal sealed record InstallExtras(IReadOnlyList<string> LeftoverArcFission, IReadOnlyList<string> OtherFiles, IReadOnlyList<string> OldArcFissionCopies)
+    {
+        public bool Any => LeftoverArcFission.Count > 0 || OtherFiles.Count > 0 || OldArcFissionCopies.Count > 0;
+    }
+
+    /// <summary>What Install would remove from the mods folder right now (nothing is changed). Empty when no game folder is set.</summary>
+    internal InstallExtras PreviewInstallExtras()
+    {
+        if (_settingsService.Current.IcarusContentPath is not { Length: > 0 } contentPath)
+        {
+            return new InstallExtras([], [], []);
+        }
+
+        try
+        {
+            var leftover = LeftoverArcFissionDataPaks(contentPath);
+            var (_, otherFiles, oldArcFission) = FilesInstallRemoves(contentPath, keepArcFission: true);
+            return new InstallExtras(leftover, otherFiles, leftover.Count > 0 ? [] : oldArcFission);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Can't be read now: the install itself reports it.
+            return new InstallExtras([], [], []);
+        }
+    }
+
+    /// <summary>
+    /// The files in the game's mods folder an install removes: Starlink's merged pak under another
+    /// of its names, other files (not part of the merge), and ArcFission's older data copies (only
+    /// its newest is kept). With keepArcFission false its data paks count as other files.
+    /// </summary>
+    private static (List<string> OwnOtherNames, List<string> OtherFiles, List<string> OldArcFission) FilesInstallRemoves(string contentPath, bool keepArcFission)
+    {
+        var modsDirectory = Path.Combine(contentPath, "Paks", "mods");
+        if (!Directory.Exists(modsDirectory))
+        {
+            return ([], [], []);
+        }
+
+        // The name InstallService writes the merge under in this game (its own rule), not the
+        // staged name: the staged name is zz_zz_…_9999 only because a build can't know the game.
+        var targetPakFileName = InstallManifestNames.InstalledMergedPakFileName(contentPath);
+        var names = Directory.GetFiles(modsDirectory).Select(Path.GetFileName).OfType<string>().ToList();
+        var filesThere = names
+            .Where(name => !string.Equals(name, targetPakFileName, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(name, InstallManifestNames.PakManifest, StringComparison.OrdinalIgnoreCase)
+                && !(keepArcFission && InstallManifestNames.IsArcFissionDataPak(name)))
+            .ToList();
+        // Starlink's own merged pak under another of its names (ArcFission Library turned on or
+        // off since, an older version) is replaced, not "another file": a Find the broken mod
+        // round doesn't ask about it either.
+        var ownOtherNames = filesThere.Where(InstallManifestNames.IsMergedPakFile).ToList();
+        // ArcFission's older data copies go too (InstallService keeps only the newest).
+        var newestArcFission = Path.GetFileName(InstallManifestNames.CurrentArcFissionDataPak(contentPath));
+        var oldArcFission = keepArcFission
+            ? names.Where(n => InstallManifestNames.IsArcFissionDataPak(n) && !string.Equals(n, newestArcFission, StringComparison.OrdinalIgnoreCase)).ToList()
+            : [];
+        return (ownOtherNames, [.. filesThere.Except(ownOtherNames)], oldArcFission);
+    }
+
+    /// <summary>The question about ArcFission data nothing updates any more (asked by Install, and by Update everything before it starts).</summary>
+    internal static string LeftoverArcFissionQuestion(IReadOnlyList<string> leftoverArcFission) =>
+        "ArcFission Library isn't installed (or is turned off), but its data pak is still in the mods folder:\n"
+        + string.Join('\n', leftoverArcFission.Select(n => $"  - {n}"))
+        + "\n\nNothing updates it any more: it holds whole game tables from the game version it was written for, so it can put old values back in game.\n\n"
+        + "Back it up and remove it?";
+
+    private async Task<InstallOutcome> InstallCoreAsync(InstallConsent? agreed = null)
     {
         if (string.IsNullOrWhiteSpace(_settingsService.Current.IcarusContentPath))
         {
@@ -517,37 +601,31 @@ public sealed partial class MergeInstallViewModel
         // leaving anything else (a classic IMM merged pak, a stray leftover) loaded alongside the
         // new one. Matches the same "name every file before deleting it" transparency the FTP
         // "Install merged pak to server" action already established.
-        var modsDirectory = Path.Combine(_settingsService.Current.IcarusContentPath!, "Paks", "mods");
-        // The name InstallService writes the merge under in this game (its own rule), not the
-        // staged name: the staged name is zz_zz_…_9999 only because a build can't know the game.
-        var targetPakFileName = InstallManifestNames.InstalledMergedPakFileName(_settingsService.Current.IcarusContentPath!);
-
         // ArcFission Library's data pak is kept (its rows are in the merge, and the library would
         // only write it again) — unless the library itself is gone or off: then nothing rewrites it,
         // and it holds whole tables from an older game, so removing it is offered.
         var leftoverArcFission = LeftoverArcFissionDataPaks(_settingsService.Current.IcarusContentPath!);
-        // A Find the broken mod round leaves it be: that's a question for a normal install.
-        var keepArcFission = leftoverArcFission.Count == 0 || forFinder || !Confirm(
-            $"ArcFission Library isn't installed (or is turned off), but its data pak is still in the mods folder:\n"
-            + string.Join('\n', leftoverArcFission.Select(n => $"  - {n}"))
-            + "\n\nNothing updates it any more: it holds whole game tables from the game version it was written for, so it can put old values back in game.\n\n"
-            + "Back it up and remove it?",
-            "Leftover ArcFission data");
+        // A Find the broken mod round leaves it be: that's a question for a normal install. A yes
+        // given ahead (Update everything) already holds the answer.
+        var keepArcFission = leftoverArcFission.Count == 0 || forFinder || (agreed is not null
+            ? !agreed.RemoveLeftoverArcFission
+            : !Confirm(LeftoverArcFissionQuestion(leftoverArcFission), "Leftover ArcFission data"));
 
-        var filesThere = Directory.Exists(modsDirectory)
-            ? Directory.GetFiles(modsDirectory)
-                .Select(Path.GetFileName)
-                .OfType<string>()
-                .Where(name => !string.Equals(name, targetPakFileName, StringComparison.OrdinalIgnoreCase)
-                    && !string.Equals(name, InstallManifestNames.PakManifest, StringComparison.OrdinalIgnoreCase)
-                    && !(keepArcFission && InstallManifestNames.IsArcFissionDataPak(name)))
-                .ToList()
-            : [];
-        // Starlink's own merged pak under another of its names (ArcFission Library turned on or
-        // off since, an older version) is replaced, not "another file": a Find the broken mod
-        // round doesn't ask about it either.
-        var ownOtherNames = filesThere.Where(InstallManifestNames.IsMergedPakFile).ToList();
-        var otherFilesToClear = filesThere.Except(ownOtherNames).ToList();
+        var (ownOtherNames, otherFilesToClear, oldArcFissionNames) = FilesInstallRemoves(_settingsService.Current.IcarusContentPath!, keepArcFission);
+        if (agreed is not null)
+        {
+            // Agreed before the run: only the files listed then. Anything that turned up since
+            // would be removed unseen, and asking now is the question that hid behind the window.
+            var notAgreed = otherFilesToClear.Except(agreed.OtherFilesAgreed, StringComparer.OrdinalIgnoreCase).ToList();
+            if (notAgreed.Count > 0)
+            {
+                InstallStatusMessage = $"Not installed: the game's mods folder has {(notAgreed.Count == 1 ? "a file" : "files")} that {(notAgreed.Count == 1 ? "wasn't" : "weren't")} there when you clicked Start ({string.Join(", ", notAgreed)}). "
+                    + "Installing would remove them. The new merge is built: click Copy to game under Advanced actions on Merge & Install to install it (it asks first).";
+                CanCopyToGame = HasCompleteStagedBuild();
+                return InstallOutcome.NotDone;
+            }
+        }
+
         var clearNote = otherFilesToClear.Count > 0
             ? $"\n\nIt will also remove {otherFilesToClear.Count} other file(s) already there (backed up first, not part of this merge):\n"
                 + string.Join('\n', otherFilesToClear.Select(n => $"  - {n}"))
@@ -559,11 +637,7 @@ public sealed partial class MergeInstallViewModel
         }
 
         // ArcFission's older data copies go too (InstallService keeps only the newest).
-        var newestArcFission = Path.GetFileName(InstallManifestNames.CurrentArcFissionDataPak(_settingsService.Current.IcarusContentPath!));
-        var oldArcFission = keepArcFission && Directory.Exists(modsDirectory)
-            ? Directory.GetFiles(modsDirectory).Select(Path.GetFileName).OfType<string>()
-                .Count(n => InstallManifestNames.IsArcFissionDataPak(n) && !string.Equals(n, newestArcFission, StringComparison.OrdinalIgnoreCase))
-            : 0;
+        var oldArcFission = oldArcFissionNames.Count;
         if (oldArcFission > 0)
         {
             clearNote += $"\n\nIt also removes {oldArcFission} older cop{(oldArcFission == 1 ? "y" : "ies")} of ArcFission's data (not used; ArcFission Library only needs its newest).";
@@ -582,7 +656,7 @@ public sealed partial class MergeInstallViewModel
         // accidental click. A Find the broken mod round (or putting the mods back after one) was
         // asked for in its own window, which said what it installs: asked again only when the
         // install would also remove other files (FinderSkipsInstallQuestion).
-        if (FinderSkipsInstallQuestion(otherFilesToClear.Count, oldArcFission))
+        if (agreed is not null || FinderSkipsInstallQuestion(otherFilesToClear.Count, oldArcFission))
         {
             if (RefuseWhileGameRunning("Icarus is running — close it before installing, or the game keeps loading the old pack and the copy can fail halfway."))
             {

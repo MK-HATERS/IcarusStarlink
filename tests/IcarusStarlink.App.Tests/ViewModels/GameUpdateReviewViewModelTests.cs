@@ -250,4 +250,261 @@ public sealed class GameUpdateReviewViewModelTests
 
         public Task<GameUpdateStepResult> InstallAsync() => throw new InvalidOperationException("not reached");
     }
+
+    // --- Before Start: the steps with a tick each; Show me first ---
+
+    /// <summary>How long a test waits on a choice or a run that should already be answered.</summary>
+    private static readonly TimeSpan Limit = TimeSpan.FromSeconds(30);
+
+    /// <summary>Every step works; two mods have sure fixes.</summary>
+    private sealed class WorkingSteps : IGameUpdateSteps
+    {
+        public List<string> Calls { get; } = [];
+
+        public Task<LastKnownGoodSnapshot> SnapshotAsync() => Task.FromResult(new LastKnownGoodSnapshot { CreatedAtUtc = DateTimeOffset.UtcNow });
+
+        public Task RecordGameFingerprintsAsync() => Task.CompletedTask;
+
+        public Task<GameUpdateStepResult> RefreshGameDataAsync() => Task.FromResult(GameUpdateStepResult.Done());
+
+        public Task CheckModsAsync() => Task.CompletedTask;
+
+        public Task<IReadOnlyList<GameUpdateFixCandidate>> ListSureFixesAsync() => Task.FromResult<IReadOnlyList<GameUpdateFixCandidate>>(
+        [
+            new("Canteens", "Canteens", 3, ["Old copies of game data: 3 in D_Itemable"]),
+            new("Bows", "Better Bows", 1, ["Rows the game no longer has: 1 in D_ItemsStatic"]),
+        ]);
+
+        public Task<IReadOnlyList<GameUpdateFixedMod>> FixSureProblemsAsync()
+        {
+            Calls.Add("fix all");
+            return Task.FromResult<IReadOnlyList<GameUpdateFixedMod>>([]);
+        }
+
+        public Task<IReadOnlyList<GameUpdateFixedMod>> FixSureProblemsAsync(IReadOnlyCollection<string> folders)
+        {
+            Calls.Add($"fix {string.Join("+", folders)}");
+            return Task.FromResult<IReadOnlyList<GameUpdateFixedMod>>([.. folders.Select(f => new GameUpdateFixedMod(f, f, 1))]);
+        }
+
+        public Task CheckForModUpdatesAsync()
+        {
+            Calls.Add("updates");
+            return Task.CompletedTask;
+        }
+
+        public Task<GameUpdateStepResult> RebuildAsync()
+        {
+            Calls.Add("rebuild");
+            return Task.FromResult(GameUpdateStepResult.Done());
+        }
+
+        public bool IsGameRunning() => false;
+
+        public Task<GameUpdateStepResult> InstallAsync()
+        {
+            Calls.Add("install");
+            return Task.FromResult(GameUpdateStepResult.Done());
+        }
+    }
+
+    [Fact]
+    public void Choices_StartOnShowMeFirst_WithTheOtherStepsTicked()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+
+        Assert.True(review.FixShowFirst);
+        Assert.False(review.FixByItself);
+        Assert.False(review.FixDontFix);
+        Assert.True(review.CheckForModUpdates);
+        Assert.True(review.BuildMerge);
+        Assert.True(review.Install);
+        Assert.Equal(GameUpdateFixChoice.ShowFirst, review.Options.Fix);
+
+        review.FixDontFix = true;
+
+        Assert.False(review.FixShowFirst);
+        Assert.Equal(GameUpdateFixChoice.DontFix, review.Options.Fix);
+    }
+
+    [Fact]
+    public void UntickingBuild_AlsoUnticksInstall_AndInstallCantBeTickedWithoutIt()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+
+        review.BuildMerge = false;
+
+        Assert.False(review.Install);
+        Assert.False(review.CanTickInstall);
+        review.Install = true;
+        Assert.False(review.Install);
+        Assert.False(review.Options.Install);
+
+        review.BuildMerge = true;
+        Assert.True(review.CanTickInstall);
+        review.Install = true;
+        Assert.True(review.Options.Install);
+    }
+
+    [Fact]
+    public void LoadOptions_SetsTheTicksFromLastTime()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+
+        review.LoadOptions(new GameUpdateOptions { RedrawMaps = true, CheckForModUpdates = false, BuildMerge = true, Install = false, Fix = GameUpdateFixChoice.FixByItself });
+
+        Assert.True(review.RedrawMaps);
+        Assert.False(review.CheckForModUpdates);
+        Assert.True(review.BuildMerge);
+        Assert.False(review.Install);
+        Assert.True(review.FixByItself);
+    }
+
+    [Fact]
+    public async Task ChooseAsync_WaitsForStart_AndGivesTheTicks()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+
+        var choosing = review.ChooseAsync();
+
+        Assert.True(review.IsChoosing);
+        Assert.False(choosing.IsCompleted);
+        Assert.False(review.ShowSteps);
+        review.CheckForModUpdates = false;
+        review.StartCommand.Execute(null);
+
+        var options = await choosing.WaitAsync(Limit);
+        Assert.False(review.IsChoosing);
+        Assert.False(options!.CheckForModUpdates);
+        Assert.True(options.Install);
+        Assert.Equal(GameUpdateFixChoice.ShowFirst, options.Fix);
+        Assert.False(review.StartCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task ChooseAsync_WindowClosedBeforeStart_RunsNothing()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+        var choosing = review.ChooseAsync();
+
+        review.WindowClosed();
+
+        Assert.Null(await choosing.WaitAsync(Limit));
+        Assert.False(review.IsChoosing);
+    }
+
+    /// <summary>What Install would also remove is asked at Start, not at the end of the run: No keeps the window on the ticks.</summary>
+    [Fact]
+    public async Task Start_AsksBeforeAnythingRuns_NoStaysOnTheTicks()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+        var answers = new Queue<bool>([false, true]);
+        var asked = new List<GameUpdateOptions>();
+        review.ConfirmStart = options =>
+        {
+            asked.Add(options);
+            return answers.Dequeue();
+        };
+        var choosing = review.ChooseAsync();
+
+        review.StartCommand.Execute(null);
+
+        Assert.True(review.IsChoosing);
+        Assert.False(choosing.IsCompleted);
+        Assert.Contains("Not started", review.StatusMessage);
+
+        review.StartCommand.Execute(null);
+
+        Assert.NotNull(await choosing.WaitAsync(Limit));
+        Assert.Equal(2, asked.Count);
+        Assert.Null(review.StatusMessage);
+    }
+
+    [Fact]
+    public async Task ShowMeFirst_ListsTheFixesInTheWindow_AndChangesNothingUntilContinue()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+        var steps = new WorkingSteps();
+
+        var run = review.RunAsync(steps);
+
+        Assert.True(review.IsReviewingFixes);
+        Assert.False(run.IsCompleted);
+        Assert.Empty(steps.Calls);
+        Assert.Equal(["Better Bows", "Canteens"], review.FixesToReview.Select(r => r.Name));
+        Assert.All(review.FixesToReview, r => Assert.True(r.IsTicked));
+        Assert.Equal("3 sure fixes", review.FixesToReview[1].Tag);
+        Assert.Equal("Old copies of game data: 3 in D_Itemable", review.FixesToReview[1].Detail);
+        // The window can't be closed on a run that is waiting, and says what to do.
+        Assert.Contains("Continue, Skip fixes or Stop", review.WhyCantClose);
+
+        review.FixesToReview[1].IsTicked = false;
+        review.ContinueWithFixesCommand.Execute(null);
+        // With a limit: a run still waiting would hang the test, not fail it.
+        var result = await run.WaitAsync(Limit);
+
+        Assert.False(review.IsReviewingFixes);
+        Assert.Equal(["fix Bows", "updates", "rebuild", "install"], steps.Calls);
+        Assert.Equal(["Bows"], result.Fixed.Select(m => m.FolderName));
+        Assert.True(result.Installed);
+        Assert.Null(review.WhyCantClose);
+    }
+
+    [Fact]
+    public async Task ShowMeFirst_SkipFixes_GoesOnWithoutFixing()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+        var steps = new WorkingSteps();
+        var run = review.RunAsync(steps);
+
+        review.SkipFixesCommand.Execute(null);
+        // With a limit: a run still waiting would hang the test, not fail it.
+        var result = await run.WaitAsync(Limit);
+
+        Assert.Equal(["updates", "rebuild", "install"], steps.Calls);
+        Assert.Empty(result.Fixed);
+        Assert.Equal(GameUpdateStepState.Skipped, review.Steps.Single(s => s.Step == GameUpdateStep.FixSure).State);
+    }
+
+    [Fact]
+    public async Task ShowMeFirst_Stop_EndsTheRun_WithTheLaterStepsShownAsNotRun()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+        var steps = new WorkingSteps();
+        var run = review.RunAsync(steps);
+
+        review.StopRunCommand.Execute(null);
+        // With a limit: a run still waiting would hang the test, not fail it.
+        var result = await run.WaitAsync(Limit);
+
+        Assert.Empty(steps.Calls);
+        Assert.True(result.Stopped);
+        Assert.False(review.IsRunning);
+        Assert.Equal(result.Message, review.Summary);
+        foreach (var step in new[] { GameUpdateStep.CheckUpdates, GameUpdateStep.Merge, GameUpdateStep.Install })
+        {
+            var row = review.Steps.Single(s => s.Step == step);
+            Assert.Equal(GameUpdateStepState.Skipped, row.State);
+            Assert.Equal("Not run: you stopped.", row.Text);
+        }
+
+        // A stopped run never reads as all clear.
+        review.Load(result.Fixed, []);
+        Assert.False(review.IsAllClear);
+    }
+
+    [Fact]
+    public async Task RunAsync_UsesTheTicks_FixByItselfNeverStops()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions()) { FixByItself = true, CheckForModUpdates = false };
+        review.BuildMerge = false;
+        var steps = new WorkingSteps();
+
+        var result = await review.RunAsync(steps);
+
+        Assert.Equal(["fix all"], steps.Calls);
+        Assert.True(result.Completed);
+        Assert.False(result.ReadyForUpdatedGame);
+        Assert.Equal(GameUpdateStepState.Skipped, review.Steps.Single(s => s.Step == GameUpdateStep.Merge).State);
+    }
 }

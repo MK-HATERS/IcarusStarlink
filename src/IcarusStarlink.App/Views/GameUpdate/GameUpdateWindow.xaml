@@ -6,6 +6,14 @@
         Background="{DynamicResource ContentBackgroundBrush}">
 
     <Window.Resources>
+        <!-- What a tick or choice does, under it, wrapping. -->
+        <Style x:Key="GameUpdateHintStyle" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="22,0,0,6"/>
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryForegroundBrush}"/>
+        </Style>
+
         <!-- One line in a group: the mod, a short tag, why, and its one button. -->
         <DataTemplate x:Key="ReviewRowTemplate">
             <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,0,0,6"
@@ -82,6 +90,84 @@
 
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel>
+                <!-- Before Start: what the run does, with a tick for each step that can be left out.
+                     Nothing runs, and nothing is asked later, until Start. -->
+                <StackPanel Margin="0,0,0,12" Visibility="{Binding IsChoosing, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <TextBlock Text="These always run" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" FontSize="12.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,12"
+                               Text="Save your setup as it is now (so you can roll back), note the game files mods replace, refresh game data, and check every mod against the new game. None of these change a mod."/>
+
+                    <TextBlock Text="When the check finds sure problems in a mod" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <RadioButton GroupName="GameUpdateFix" IsChecked="{Binding FixShowFirst}" Margin="0,2" Content="Show me first"/>
+                    <TextBlock Style="{StaticResource GameUpdateHintStyle}"
+                               Text="Stops after the check and lists what would be fixed in each mod, with a tick for each. Nothing is changed until you click Continue."/>
+                    <RadioButton GroupName="GameUpdateFix" IsChecked="{Binding FixByItself}" Margin="0,2" Content="Fix by itself"/>
+                    <TextBlock Style="{StaticResource GameUpdateHintStyle}"
+                               Text="Makes the proven fixes without stopping. Each mod is backed up first."/>
+                    <RadioButton GroupName="GameUpdateFix" IsChecked="{Binding FixDontFix}" Margin="0,2" Content="Don't fix"/>
+                    <TextBlock Style="{StaticResource GameUpdateHintStyle}" Margin="22,0,0,12"
+                               Text="Changes no mod. The review still lists what the check found."/>
+
+                    <TextBlock Text="Also do" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <CheckBox IsChecked="{Binding RedrawMaps}" Margin="0,2" Content="Redraw the maps that changed"/>
+                    <TextBlock Style="{StaticResource GameUpdateHintStyle}"
+                               Text="About a minute for each big map. This is the same box as Redraw during Update everything on the Map page."/>
+                    <CheckBox IsChecked="{Binding CheckForModUpdates}" Margin="0,2" Content="Check for mod updates"/>
+                    <TextBlock Style="{StaticResource GameUpdateHintStyle}"
+                               Text="Looks for newer versions of your mods. Downloads nothing."/>
+                    <CheckBox IsChecked="{Binding BuildMerge}" Margin="0,2" Content="Build the merge"/>
+                    <TextBlock Style="{StaticResource GameUpdateHintStyle}"
+                               Text="Makes the merged pak from your ticked mods. Unticking this also unticks Install."/>
+                    <CheckBox IsChecked="{Binding Install}" IsEnabled="{Binding CanTickInstall}" Margin="0,2" Content="Install it in the game"/>
+                    <TextBlock Style="{StaticResource GameUpdateHintStyle}"
+                               Text="Copies the merged pak into the game's Paks\mods folder, backing up the one there. Ticking this is your yes: it isn't asked again at the end. Left out if Icarus is running by then."/>
+                    <TextBlock Text="{Binding InstallNote}" Style="{StaticResource GameUpdateHintStyle}" Foreground="{DynamicResource DangerBrush}"
+                               Visibility="{Binding HasInstallNote, Converter={StaticResource BoolToVisibilityConverter}}"/>
+
+                    <DockPanel LastChildFill="True" Margin="0,14,0,0">
+                        <Button DockPanel.Dock="Left" Content="Start" Command="{Binding StartCommand}" IsDefault="True" Padding="18,4"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                ToolTip="Runs the steps above. Your choices are remembered for next time."/>
+                        <TextBlock Text="Your choices are remembered. Close this window to do nothing." VerticalAlignment="Center" TextWrapping="Wrap" Margin="12,0,0,0"
+                                   FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                    </DockPanel>
+                </StackPanel>
+
+                <!-- Show me first: the run waits here after the check. Each mod with what would be
+                     fixed and a tick; nothing is changed until Continue. -->
+                <StackPanel Margin="0,0,0,12" Visibility="{Binding IsReviewingFixes, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <TextBlock Text="Sure fixes, not made yet" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" FontSize="12.5" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,0,0,8"
+                               Text="Only proven fixes: old copies of game data and links to rows the game no longer has. Untick a mod to leave it as it is. Each mod that is fixed is backed up first (right-click it in the Library › Restore latest backup undoes it)."/>
+                    <WrapPanel Margin="0,0,0,10">
+                        <Button Content="Continue" Command="{Binding ContinueWithFixesCommand}" Padding="14,3" Margin="0,0,8,4" Style="{StaticResource PrimaryButtonStyle}"
+                                ToolTip="Fixes the ticked mods, then goes on with the next steps."/>
+                        <Button Content="Skip fixes" Command="{Binding SkipFixesCommand}" Padding="14,3" Margin="0,0,8,4"
+                                ToolTip="Fixes nothing and goes on with the next steps."/>
+                        <Button Content="Stop" Command="{Binding StopRunCommand}" Padding="14,3" Margin="0,0,8,4"
+                                ToolTip="Fixes nothing and ends here. The later steps don't run."/>
+                    </WrapPanel>
+                    <ItemsControl ItemsSource="{Binding FixesToReview}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10,8" Margin="0,0,0,6"
+                                        Background="{DynamicResource CardBackgroundBrush}">
+                                    <DockPanel>
+                                        <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsTicked}" VerticalAlignment="Top" Margin="0,2,10,0"
+                                                  AutomationProperties.Name="{Binding Name}" ToolTip="Ticked: fixed when you click Continue. Unticked: left as it is."/>
+                                        <StackPanel>
+                                            <TextBlock TextWrapping="Wrap">
+                                                <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="   "/><Run Text="{Binding Tag, Mode=OneWay}" Foreground="{DynamicResource AccentBrush}" FontSize="12"/>
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource SecondaryForegroundBrush}" Margin="0,4,0,0"/>
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
                 <TextBlock Text="Nothing needed fixing, nothing to look at and nothing at risk." FontSize="13" Margin="0,0,0,12"
                            Visibility="{Binding IsAllClear, Converter={StaticResource BoolToVisibilityConverter}}"/>
 

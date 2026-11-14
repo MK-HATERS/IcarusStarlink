@@ -407,6 +407,26 @@ public sealed partial class MergeInstallViewModel
     /// <summary>True while a build runs the Refresh game data it asked for (EnsureGameDataCurrentAsync).</summary>
     private bool _refreshingGameDataForBuild;
 
+    /// <summary>True while Update everything's build runs: no question is asked mid-run (RebuildWithoutAskingAsync).</summary>
+    private bool _buildAsksNothing;
+
+    /// <summary>
+    /// The build for Update everything: the same as RebuildAsync, but nothing is asked. A question
+    /// in the middle of a long run opens while the user is in another program and holds the run up.
+    /// </summary>
+    internal async Task<bool> RebuildWithoutAskingAsync()
+    {
+        _buildAsksNothing = true;
+        try
+        {
+            return await RebuildAsync();
+        }
+        finally
+        {
+            _buildAsksNothing = false;
+        }
+    }
+
     /// <summary>
     /// What this page has running that must not be cut off or have the game data changed under it:
     /// the answer to BackgroundWorkRequestMessage (AppBusyCheck), which the in-app update, the
@@ -455,7 +475,9 @@ public sealed partial class MergeInstallViewModel
             return true;
         }
 
-        var refresh = Confirm(
+        // Update everything's build asks nothing mid-run: its Refresh game data step always runs, so
+        // game data still out of date here is refreshed, as Yes would.
+        var refresh = _buildAsksNothing || Confirm(
             "Icarus has been updated since your last Refresh game data.\n\n"
             + "Building now would put the old version of every game table your mods change back into the game, undoing the update there.\n\n"
             + "Refresh game data now, then build?",

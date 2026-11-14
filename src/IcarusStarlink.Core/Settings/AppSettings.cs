@@ -22,6 +22,21 @@ public sealed class AppSettings
     /// </summary>
     public bool RedrawMapsDuringGameUpdate { get; set; }
 
+    /// <summary>Update everything's window: Check for mod updates is ticked.</summary>
+    public bool GameUpdateChecksForModUpdates { get; set; } = true;
+
+    /// <summary>Update everything's window: Build the merge is ticked.</summary>
+    public bool GameUpdateBuildsMerge { get; set; } = true;
+
+    /// <summary>Update everything's window: Install it in the game is ticked (only with the build).</summary>
+    public bool GameUpdateInstalls { get; set; } = true;
+
+    /// <summary>
+    /// Update everything's window, what to do about sure problems: "show" (list them first and wait,
+    /// the default), "fix" (fix by itself) or "none" (don't fix). Anything else reads as "show".
+    /// </summary>
+    public string GameUpdateFix { get; set; } = "show";
+
     /// <summary>Map: what was ticked under Show ("Creatures", "Caves", "Grid" …); null = the first-time choice (creature zones, drop sites, caves).</summary>
     public List<string>? MapShown { get; set; }
 

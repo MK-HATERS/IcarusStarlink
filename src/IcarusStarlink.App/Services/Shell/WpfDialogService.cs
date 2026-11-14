@@ -1,4 +1,6 @@
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using IcarusStarlink.App.Views;
 using IcarusStarlink.Catalog.Nexus;
 using IcarusStarlink.PakIO.Install;
@@ -105,11 +107,103 @@ public sealed class WpfDialogService : IDialogService
 
     /// <summary>
     /// The active window (the Find the broken mod window, an editor over the main one), so a
-    /// question or picker opens over what the user is looking at; else the main window. Only a
-    /// window that is loaded and still has its handle: a closed window must never be an owner.
-    /// Null when neither is usable, and the dialog then opens in the middle of the screen.
+    /// question or picker opens over what the user is looking at. When Starlink has no active
+    /// window (the user is in another program while a long job runs), the front-most of its other
+    /// open windows, not the main window: a question owned by the main window opened behind the
+    /// Game update window, which sits over it, and the job waited on an answer nobody could see.
+    /// That window is brought forward (or flashes in the taskbar when Windows won't let it take
+    /// the focus). Only a window that is loaded and still has its handle: a closed window must
+    /// never be an owner. Null when none is usable, and the dialog then opens in the middle of
+    /// the screen.
     /// </summary>
-    private static Window? OwnerWindow() =>
-        Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive && w.IsLoaded && PresentationSource.FromVisual(w) is not null)
-        ?? (Application.Current?.MainWindow is { IsLoaded: true } main ? main : null);
+    private static Window? OwnerWindow()
+    {
+        if (Application.Current is not { } app)
+        {
+            return null;
+        }
+
+        var windows = app.Windows.OfType<Window>().ToList();
+        var order = ZOrderOfTopLevelWindows();
+        var index = PickOwner([.. windows.Select(w =>
+        {
+            var handle = new WindowInteropHelper(w).Handle;
+            return new OwnerCandidate(
+                w.IsActive,
+                IsUsable: w.IsLoaded && PresentationSource.FromVisual(w) is not null,
+                w.IsVisible,
+                IsMain: ReferenceEquals(w, app.MainWindow),
+                ZOrder: handle != IntPtr.Zero && order.TryGetValue(handle, out var z) ? z : int.MaxValue);
+        })]);
+        if (index < 0)
+        {
+            return null;
+        }
+
+        var owner = windows[index];
+        if (!owner.IsActive)
+        {
+            owner.Activate();
+        }
+
+        return owner;
+    }
+
+    /// <summary>A window as OwnerWindow sees it. ZOrder: 0 is the front-most window on screen, higher is further back.</summary>
+    internal readonly record struct OwnerCandidate(bool IsActive, bool IsUsable, bool IsVisible, bool IsMain, int ZOrder);
+
+    /// <summary>
+    /// Which window owns a dialog: the active one; else the front-most visible window other than
+    /// the main one (those sit over the main window, so a dialog owned by the main window would
+    /// open behind them); else the main window. -1 when no window is usable.
+    /// </summary>
+    internal static int PickOwner(IReadOnlyList<OwnerCandidate> windows)
+    {
+        var best = -1;
+        for (var i = 0; i < windows.Count; i++)
+        {
+            var window = windows[i];
+            if (!window.IsUsable)
+            {
+                continue;
+            }
+
+            if (window.IsActive)
+            {
+                return i;
+            }
+
+            if (best < 0 || Rank(window).CompareTo(Rank(windows[best])) < 0)
+            {
+                best = i;
+            }
+        }
+
+        return best;
+
+        // Visible windows over the main one first, front-most first; the main window after them.
+        static (int Group, int ZOrder) Rank(OwnerCandidate w) => (w.IsMain ? 1 : w.IsVisible ? 0 : 2, w.ZOrder);
+    }
+
+    /// <summary>Every top-level window on screen by its handle, front-most first (0).</summary>
+    private static Dictionary<IntPtr, int> ZOrderOfTopLevelWindows()
+    {
+        var order = new Dictionary<IntPtr, int>();
+        const uint next = 2; // GW_HWNDNEXT
+        var handle = GetTopWindow(IntPtr.Zero);
+        // The cap is only against a list that changes while it is walked.
+        for (var i = 0; handle != IntPtr.Zero && i < 20000; i++)
+        {
+            order.TryAdd(handle, i);
+            handle = GetWindow(handle, next);
+        }
+
+        return order;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetTopWindow(IntPtr parent);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr handle, uint command);
 }
