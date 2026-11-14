@@ -132,6 +132,52 @@ public class Ue4ssReleaseClientTests
     public async Task GetLatestDevBuildAsync_Unreachable_ReturnsNull() =>
         Assert.Null(await CreateClient(new Dictionary<string, string>()).GetLatestDevBuildAsync());
 
+    private const string ArchiveUrl = "https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases/tags/experimental2";
+    private const string Official301Url = "https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases/tags/v3.0.1";
+
+    // The real "experimental2" release, trimmed: older dev builds side by side, each with its big
+    // developer zip (zDEV-), which is never offered.
+    private const string RealisticArchiveJson = """
+        {
+            "tag_name": "experimental2",
+            "assets": [
+                { "name": "UE4SS_v3.0.1-1212-gd4aebbf0.zip", "browser_download_url": "https://example.com/1212.zip", "digest": "sha256:8196a66237dcd116051ce101659c7a73f0807cba8818dc2f798017f80a566039" },
+                { "name": "UE4SS_v3.0.1-1221-gaea3ed6e.zip", "browser_download_url": "https://example.com/1221.zip", "digest": "sha256:a0bd1b63b5c4eb066731bacc5780c438469028fe70c4013b645adecfb7192503" },
+                { "name": "UE4SS_v4.0.0-1-gf54b7332.zip", "browser_download_url": "https://example.com/4-1.zip", "digest": "sha256:813c52b5b55a90f44379e33a3336b9cf81108481725a1706f2fed34d8b0fba17" },
+                { "name": "zCustomGameConfigs.zip", "browser_download_url": "https://example.com/c.zip" },
+                { "name": "zDEV-UE4SS_v3.0.1-1221-gaea3ed6e.zip", "browser_download_url": "https://example.com/zDEV.zip" },
+                { "name": "zDEV-UE4SS_v4.0.0-1-gf54b7332.zip", "browser_download_url": "https://example.com/zDEV2.zip" }
+            ]
+        }
+        """;
+
+    /// <summary>Older builds: the dev builds GitHub archives in "experimental2", newest first, then the official 3.0.1. Developer zips are left out.</summary>
+    [Fact]
+    public async Task GetOlderBuildsAsync_ListsArchivedDevBuildsNewestFirst_ThenOfficial301()
+    {
+        var client = CreateClient(new Dictionary<string, string> { [ArchiveUrl] = RealisticArchiveJson, [Official301Url] = RealisticReleaseJson });
+
+        var builds = await client.GetOlderBuildsAsync();
+
+        Assert.Equal(
+            [("4.0.0", 1, "f54b7332"), ("3.0.1", 1221, "aea3ed6e"), ("3.0.1", 1212, "d4aebbf0"), ("3.0.1", null, Ue4ssBuild.OfficialReleaseCommit)],
+            builds.Select(b => (b.Version, b.BuildNumber, b.Commit!)));
+        Assert.Equal("sha256:a0bd1b63b5c4eb066731bacc5780c438469028fe70c4013b645adecfb7192503", builds[1].Digest);
+        Assert.Equal("https://github.com/UE4SS-RE/RE-UE4SS/releases/download/v3.0.1/UE4SS_v3.0.1.zip", builds[3].DownloadUrl);
+        Assert.DoesNotContain(builds, b => b.DownloadUrl.Contains("zDEV", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>One of the two lists missing still gives the other; both missing gives none, never a throw.</summary>
+    [Fact]
+    public async Task GetOlderBuildsAsync_PartlyOrWhollyUnreachable_GivesWhatItCould()
+    {
+        var onlyOfficial = await CreateClient(new Dictionary<string, string> { [Official301Url] = RealisticReleaseJson }).GetOlderBuildsAsync();
+        Assert.Equal("3.0.1 (official release)", Ue4ssBuild.Describe(Assert.Single(onlyOfficial).Version, onlyOfficial[0].Commit));
+
+        IcarusStarlink.Catalog.GitHub.GitHubApiCache.Reset();
+        Assert.Empty(await CreateClient(new Dictionary<string, string>()).GetOlderBuildsAsync());
+    }
+
     private static string CommitListJson(string sha, string date) =>
         $$"""[{ "sha": "{{sha}}", "commit": { "committer": { "date": "{{date}}" } } }]""";
 

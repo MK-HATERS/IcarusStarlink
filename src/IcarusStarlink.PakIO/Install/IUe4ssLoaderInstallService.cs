@@ -38,6 +38,14 @@ public interface IUe4ssLoaderInstallService
     IReadOnlyList<string> ListNativeMods(string icarusContentPath) => [];
 
     /// <summary>
+    /// An old UE4SS setup in the game folder (UE4SS.dll, Mods\ and UE4SS-settings.ini directly in
+    /// Binaries\Win64): the player's mods in it and the version it last ran as. Null when there is
+    /// none. InstallOrUpdateAsync moves it into Binaries\Win64\ue4ss (backed up first, moved back if
+    /// the install fails); this lets the confirmation say so before anything happens.
+    /// </summary>
+    Ue4ssOldLayout.Found? FindOldLayout(string icarusContentPath) => null;
+
+    /// <summary>
     /// Whether modName is one of UE4SS's own mods: the known built-ins plus the installed mods.json
     /// (Ue4ssFrameworkMods.In), shared\ included. The same classification ListUserAddedMods/UninstallAsync use, exposed per-name so
     /// a caller with the full known-mods union (enabled in-game AND disabled/staged in this app's

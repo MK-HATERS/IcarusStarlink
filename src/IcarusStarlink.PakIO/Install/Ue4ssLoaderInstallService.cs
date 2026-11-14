@@ -25,24 +25,33 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
         var dwmapiPath = Ue4ssGamePaths.ResolveDwmapiPath(icarusContentPath);
         if (!File.Exists(dllPath) || !File.Exists(dwmapiPath))
         {
-            return new Ue4ssLoaderStatus(IsInstalled: false, InstalledVersion: null);
+            // Not set up the way Starlink (and UE4SS 4) expects. An old setup, with its files
+            // directly in Binaries\Win64, is named so Install can offer to move it.
+            return FindOldLayout(icarusContentPath) is { } old
+                ? new Ue4ssLoaderStatus(IsInstalled: false, old.Version, old.Commit, HasOldLayout: true)
+                : new Ue4ssLoaderStatus(IsInstalled: false, InstalledVersion: null);
         }
 
         var (version, commit) = Ue4ssInstalledBuild.Read(Ue4ssGamePaths.ResolveLoaderFolder(icarusContentPath));
         return new Ue4ssLoaderStatus(IsInstalled: true, version, commit);
     }
 
+    public Ue4ssOldLayout.Found? FindOldLayout(string icarusContentPath) =>
+        Ue4ssOldLayout.Find(Ue4ssGamePaths.ResolveWin64Folder(icarusContentPath));
+
     public IReadOnlyList<string> ListNativeMods(string icarusContentPath)
     {
         var modsFolder = Ue4ssGamePaths.ResolveModsFolder(icarusContentPath);
-        if (!Directory.Exists(modsFolder))
-        {
-            return [];
-        }
+        var inLoaderFolder = !Directory.Exists(modsFolder)
+            ? []
+            : Directory.GetDirectories(modsFolder)
+                .Where(d => File.Exists(Path.Combine(d, "dlls", "main.dll")))
+                .Select(d => Path.GetFileName(d)!);
 
-        return [.. Directory.GetDirectories(modsFolder)
-            .Where(d => File.Exists(Path.Combine(d, "dlls", "main.dll")))
-            .Select(d => Path.GetFileName(d)!)
+        // An old setup's C++ mods count too: an install moves them into the ue4ss folder.
+        return [.. inLoaderFolder
+            .Concat(FindOldLayout(icarusContentPath)?.NativeMods ?? [])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
     }
 
@@ -104,13 +113,36 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
         }
 
         var hadLoaderFolder = Directory.Exists(loaderFolder);
-        var earlierBackups = FolderBackup.EnumerateFolderBackups(ue4ssBackupDirectory, "ue4ss").ToHashSet(StringComparer.OrdinalIgnoreCase);
-        FolderBackup.BackupFolder(loaderFolder, ue4ssBackupDirectory);
-        var loaderBackup = FolderBackup.EnumerateFolderBackups(ue4ssBackupDirectory, "ue4ss").FirstOrDefault(b => !earlierBackups.Contains(b));
-        var dwmapiBackup = FolderBackup.BackupFile(dwmapiPath, ue4ssBackupDirectory);
 
-        Directory.CreateDirectory(win64Folder);
-        Directory.CreateDirectory(loaderFolder);
+        // An old setup (UE4SS.dll, Mods\ and UE4SS-settings.ini directly in Binaries\Win64, the
+        // official 3.0.1 zip unpacked by hand) is moved into the ue4ss folder first, so the new
+        // build finds the player's mods, which ones are on, and their settings. It backs the old
+        // setup up before moving anything, and every failure below moves it back.
+        var oldLayout = Ue4ssOldLayout.MoveIntoUe4ssFolder(win64Folder, ue4ssBackupDirectory);
+        string? loaderBackup;
+        string? dwmapiBackup;
+        try
+        {
+            if (oldLayout.Changed)
+            {
+                // Planned again: the files just moved in are the player's, and are only added to.
+                plan = PlanWrites(archive, wrappingPrefix, gameLayout, win64Folder, loaderFolder);
+            }
+
+            // After the move, so a failed install can put back every file it replaced.
+            var earlierBackups = FolderBackup.EnumerateFolderBackups(ue4ssBackupDirectory, "ue4ss").ToHashSet(StringComparer.OrdinalIgnoreCase);
+            FolderBackup.BackupFolder(loaderFolder, ue4ssBackupDirectory);
+            loaderBackup = FolderBackup.EnumerateFolderBackups(ue4ssBackupDirectory, "ue4ss").FirstOrDefault(b => !earlierBackups.Contains(b));
+            dwmapiBackup = FolderBackup.BackupFile(dwmapiPath, ue4ssBackupDirectory);
+
+            Directory.CreateDirectory(win64Folder);
+            Directory.CreateDirectory(loaderFolder);
+        }
+        catch (Exception)
+        {
+            UndoOldLayoutMove(oldLayout, loaderFolder, keepLoaderFolder: hadLoaderFolder);
+            throw;
+        }
 
         // Pass 2: each file is written beside its place and moved in (a failed write leaves the old
         // file whole), dwmapi.dll last. If one can't be written, the ones already written are put back.
@@ -132,7 +164,12 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
         }
         catch (Exception ex)
         {
-            var notPutBack = PutBack(written, loaderFolder, loaderBackup, dwmapiBackup, hadLoaderFolder);
+            var notPutBack = PutBack(written, loaderFolder, loaderBackup, dwmapiBackup);
+
+            // The old setup returns to where it was; the ue4ss folder a first install made is
+            // removed only when every written file was put back.
+            notPutBack.AddRange(UndoOldLayoutMove(oldLayout, loaderFolder, keepLoaderFolder: hadLoaderFolder || notPutBack.Count > 0));
+
             throw new IOException(
                 notPutBack.Count == 0
                     ? $"{ex.Message} Nothing was changed: the files already written were put back."
@@ -222,8 +259,7 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
     /// one that was is copied back from the backup made just before. A file whose backup copy is
     /// missing is left as it is, never deleted. Returns the names that couldn't be put back.
     /// </summary>
-    private static List<string> PutBack(
-        List<PlannedWrite> written, string loaderFolder, string? loaderBackup, string? dwmapiBackup, bool hadLoaderFolder)
+    private static List<string> PutBack(List<PlannedWrite> written, string loaderFolder, string? loaderBackup, string? dwmapiBackup)
     {
         var notPutBack = new List<string>();
         foreach (var item in Enumerable.Reverse(written))
@@ -253,13 +289,24 @@ public sealed class Ue4ssLoaderInstallService : IUe4ssLoaderInstallService
             }
         }
 
-        // A first install: the loader folder holds only folders this install made.
-        if (!hadLoaderFolder && notPutBack.Count == 0)
+        return notPutBack;
+    }
+
+    /// <summary>
+    /// Moves an old setup back out of the ue4ss folder after a failed install, then, on a first
+    /// install, removes the ue4ss folder, which by then holds only folders the install made.
+    /// Returns what couldn't be moved back; the ue4ss folder is then left as it is, never deleted
+    /// with the player's mods inside.
+    /// </summary>
+    private static IReadOnlyList<string> UndoOldLayoutMove(Ue4ssOldLayout.Moved oldLayout, string loaderFolder, bool keepLoaderFolder)
+    {
+        var failed = oldLayout.Undo();
+        if (!keepLoaderFolder && failed.Count == 0)
         {
             Directories.TryDelete(loaderFolder);
         }
 
-        return notPutBack;
+        return failed.Count == 0 ? [] : ["your old UE4SS setup (a copy is in " + oldLayout.BackupFolder + ")"];
     }
 
     /// <summary>The single top-level folder every file entry sits under, as "Name/" — or null when files sit at the root (the classic flat layout) or the top level is mixed.</summary>

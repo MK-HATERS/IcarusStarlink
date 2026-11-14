@@ -6,34 +6,36 @@ using System.Security.Cryptography;
 namespace IcarusStarlink.App.Services;
 
 /// <summary>
-/// The UE4SS build that ships inside Starlink: a dev build from UE4SS-RE/RE-UE4SS's rolling
-/// "experimental-latest" release, embedded unchanged in the exe (about 8.7 MB, already
-/// compressed), so installing UE4SS needs no download and no extra file next to the app. Dev
-/// builds, not the old tagged v3.0.1, because that is what Icarus mods are made for (both C++ mods
-/// a real user ran shipped one, and their Lua API is newer). It is copied out to a temp file only
-/// when installing, checked against the hash recorded here (GitHub's own digest for the asset),
-/// and handed to the same installer a GitHub download uses. UE4SS's MIT licence is added if the
-/// zip has none (dev builds carry ue4ss/LICENSE; the old v3.0.1 zip didn't).
+/// The UE4SS build that ships inside Starlink: the official v4.0.0 release of
+/// UE4SS-RE/RE-UE4SS, embedded unchanged in the exe (about 8.8 MB, already compressed), so
+/// installing UE4SS needs no download and no extra file next to the app. It is copied out to a
+/// temp file only when installing, checked against the hash recorded here (GitHub's own digest
+/// for the asset), and handed to the same installer a GitHub download uses. UE4SS's MIT licence
+/// is added if the zip has none (4.0.0 and the dev builds carry ue4ss/LICENSE; the old v3.0.1 zip
+/// didn't).
 ///
-/// To bump it: download the newest UE4SS_v3.0.1-NNNN-gCOMMIT.zip from experimental-latest, put it
-/// in Assets\UE4SS (and update the csproj Include), set FileName, BuildNumber, Commit and Sha256,
-/// and update UE4SS's build in THIRD-PARTY-LICENSES.md.
+/// To bump it: download the release's UE4SS_vX.Y.Z.zip (or a dev build's
+/// UE4SS_vX.Y.Z-N-gCOMMIT.zip), put it in Assets\UE4SS (and update the csproj Include), set
+/// FileName, Version, BuildNumber, Commit and Sha256, add a new official release's tag commit to
+/// Ue4ssBuild, and update UE4SS's build in THIRD-PARTY-LICENSES.md.
 /// </summary>
 public static class BundledUe4ss
 {
-    public const string Version = "3.0.1";
+    public const string Version = "4.0.0";
 
-    /// <summary>The release asset's own name: version, build number (commits after the v3.0.1 tag) and commit.</summary>
-    public const string FileName = "UE4SS_v3.0.1-1181-g83330635.zip";
+    /// <summary>The release asset's own name.</summary>
+    public const string FileName = "UE4SS_v4.0.0.zip";
 
-    public const int BuildNumber = 1181;
+    /// <summary>Commits after the version's tag, for a dev build; null for an official release.</summary>
+    public static readonly int? BuildNumber = null;
 
-    public const string Commit = "83330635";
+    /// <summary>The v4.0.0 tag's commit.</summary>
+    public const string Commit = IcarusStarlink.Core.Ue4ss.Ue4ssBuild.Official400Commit;
 
     /// <summary>SHA-256 of that release asset (matches GitHub's digest for it).</summary>
-    public const string Sha256 = "b9a166a756605b21058a64cde93bcaab1a855dba3553e5c7e6ce0fa8fdfad7b9";
+    public const string Sha256 = "251ad0d1381a241750e036f5918cbf2b5d7ec58ebc608cb2dd09d459d0c81e45";
 
-    /// <summary>"3.0.1 dev build 1181", for buttons and messages.</summary>
+    /// <summary>"4.0.0 (official release)", for buttons and messages.</summary>
     public static string Label => IcarusStarlink.Core.Ue4ss.Ue4ssBuild.Describe(Version, Commit, BuildNumber);
 
     private const string ZipResource = "UE4SS.zip";

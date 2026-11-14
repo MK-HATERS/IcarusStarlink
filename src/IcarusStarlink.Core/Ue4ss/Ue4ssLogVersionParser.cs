@@ -28,11 +28,22 @@ public static partial class Ue4ssLogVersionParser
             }
 
             var match = CommitPattern().Match(line);
-            return match.Success ? match.Groups["commit"].Value.ToLowerInvariant() : null;
+            if (match.Success)
+            {
+                return match.Groups["commit"].Value.ToLowerInvariant();
+            }
+
+            // No "Git SHA" words: a version written the way git names a dev build still carries it.
+            var described = DescribedBuild().Match(VersionPattern().Match(line).Groups[1].Value);
+            return described.Success ? described.Groups["commit"].Value.ToLowerInvariant() : null;
         }
 
         return null;
     }
+
+    /// <summary>The tail git adds to a version for a build after a tag: "-6-gef15eba8" in "4.0.0-6-gef15eba8".</summary>
+    [GeneratedRegex(@"-\d+-g(?<commit>[0-9a-fA-F]{7,40})$")]
+    private static partial Regex DescribedBuild();
 
     /// <summary>Scans the first few lines (the version line isn't guaranteed to be the very first — a blank/console-setup line can precede it) for the version marker. Returns null if the log is empty, unreadable, or doesn't match the expected shape.</summary>
     public static string? Parse(IEnumerable<string> logLines)
@@ -42,7 +53,8 @@ public static partial class Ue4ssLogVersionParser
             var match = VersionPattern().Match(line);
             if (match.Success)
             {
-                return match.Groups[1].Value;
+                // "4.0.0-6-gef15eba8" is version 4.0.0 (the tail is the build, read by ParseCommit).
+                return DescribedBuild().Replace(match.Groups[1].Value, "");
             }
         }
 

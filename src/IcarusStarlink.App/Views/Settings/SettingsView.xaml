@@ -336,10 +336,21 @@
                                 </DockPanel>
                             </Expander.Header>
                         <StackPanel>
+                        <!-- Which build Install puts in. GitHub is only asked on a click: Install with a download picked, Show older builds, Check for update. -->
+                        <WrapPanel Margin="0,0,0,8">
+                            <TextBlock Text="Which UE4SS to install" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <ComboBox ItemsSource="{Binding Ue4ssBuildChoices}" SelectedItem="{Binding SelectedUe4ssBuildChoice, Mode=TwoWay}"
+                                      DisplayMemberPath="Label" MinWidth="340" Margin="0,0,8,0"
+                                      IsEnabled="{Binding CanInstallOrUpdateUe4ss}"
+                                      ToolTip="Pick the UE4SS that Install puts in your game. The one built into Starlink needs no download. The others are downloaded from GitHub when you press Install. Your mods and settings are kept whichever you pick."
+                                      AutomationProperties.Name="Which UE4SS to install"/>
+                            <Button Content="Show older builds" Command="{Binding ShowOlderUe4ssBuildsCommand}"
+                                    ToolTip="Asks GitHub for the older UE4SS builds it still keeps (the official 3.0.1 and earlier dev builds) and adds them to the list. Nothing is installed until you press Install."/>
+                        </WrapPanel>
                         <WrapPanel Margin="0,0,0,8">
                             <Button Command="{Binding InstallOrUpdateUe4ssCommand}"
                                     IsEnabled="{Binding CanInstallOrUpdateUe4ss}"
-                                    ToolTip="Installs the UE4SS dev build that comes with Starlink (or a newer one Check for update found on GitHub) into Binaries\Win64. Backs up what's there first and asks before writing anything."
+                                    ToolTip="Installs the UE4SS picked in the list into Binaries\Win64. Backs up what's there first, keeps your mods and settings, and asks before writing anything."
                                     AutomationProperties.Name="{Binding Ue4ssInstallButtonLabel}">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="{StaticResource IconDownload}" Stroke="{DynamicResource ForegroundBrush}" StrokeThickness="1.8"
@@ -365,6 +376,10 @@
                                     ToolTip="Asks GitHub for the newest UE4SS dev build and says whether it is newer than yours. Only runs when you press it (or the app's own Check for updates); nothing is installed until you choose to."/>
                         </WrapPanel>
                         <TextBlock Text="{Binding Ue4ssStatusText}" TextWrapping="Wrap" Style="{StaticResource FieldLabelStyle}" FontWeight="Normal"/>
+                        <!-- Which build the game and each server has (only with servers: the line above already names the game's). -->
+                        <TextBlock Text="{Binding Ue4ssInstalledBuildsText}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                   MaxWidth="560" HorizontalAlignment="Left" Margin="0,6,0,0"
+                                   Visibility="{Binding HasUe4ssInstalledBuildsText, Converter={StaticResource BoolToVisibilityConverter}}"/>
                         <TextBlock Text="{Binding Ue4ssStatusMessage}" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                    TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left" Margin="0,6,0,0"
                                    Visibility="{Binding Ue4ssStatusMessage, Converter={StaticResource NullToVisibilityConverter}}"/>

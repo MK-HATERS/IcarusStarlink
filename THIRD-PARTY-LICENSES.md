@@ -62,7 +62,7 @@ Full license text: <https://opensource.org/license/bsd-2-clause>
 
 ## Bundled with the app (not NuGet packages)
 
-- **[UE4SS](https://github.com/UE4SS-RE/RE-UE4SS)** (RE-UE4SS, build v3.0.1-1181-g83330635) — MIT
+- **[UE4SS](https://github.com/UE4SS-RE/RE-UE4SS)** (RE-UE4SS, official release v4.0.0) — MIT
   License, Copyright (c) 2022 Narknon. Ships inside `IcarusStarlink.exe` as its release zip,
   unchanged, and is installed into the game (or a local dedicated server) when you ask; its
   license file is installed with it. UE4SS is built from further open-source libraries of its

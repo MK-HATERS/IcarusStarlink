@@ -145,7 +145,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         // the activity log (ReportUe4ssProblem), since this page usually isn't the one showing.
         WeakReferenceMessenger.Default.Register<InstallUe4ssRequestedMessage>(this, (recipient, message) =>
         {
-            var install = ((SettingsViewModel)recipient).InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+            // The bar names the build inside Starlink, so that is the one it installs, whatever
+            // the UE4SS tab's list was left on.
+            var settings = (SettingsViewModel)recipient;
+            settings.SelectedUe4ssBuildChoice = settings.Ue4ssBuildChoices[0];
+            var install = settings.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
         });
         // Closing Starlink or updating it now would cut these off partway: the window close and
         // Update now ask every page what's running (AppBusyCheck).

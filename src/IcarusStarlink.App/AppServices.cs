@@ -407,6 +407,8 @@ internal static class AppServices
             // The diagnostics zip's mod-setup.txt (registered with the Library page, which copies it too).
             modSetupReport: sp.GetRequiredService<ModSetupReport>())
         {
+            // The UE4SS tab says which build the game and each server has.
+            Ue4ssServers = () => [.. sp.GetRequiredService<IDedicatedServerProfileStore>().GetAll().Select(p => (p.Name, p.InstallFolder))],
             Ue4ssConfig = new Ue4ssConfigViewModel(
                 sp.GetRequiredService<ISettingsService>(),
                 sp.GetRequiredService<IDedicatedServerProfileStore>(),

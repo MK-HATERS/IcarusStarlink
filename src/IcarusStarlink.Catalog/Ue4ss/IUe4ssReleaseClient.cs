@@ -11,6 +11,14 @@ public interface IUe4ssReleaseClient
     Task<Ue4ssReleaseInfo?> GetLatestDevBuildAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<Ue4ssReleaseInfo?>(null);
 
+    /// <summary>
+    /// Older builds a player can go back to, newest first: the dev builds GitHub keeps in its
+    /// "experimental2" release, then the official 3.0.1 release. Never the "zDEV-" developer zips.
+    /// Empty when GitHub can't be reached; never throws for a network-shaped failure.
+    /// </summary>
+    Task<IReadOnlyList<Ue4ssReleaseInfo>> GetOlderBuildsAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Ue4ssReleaseInfo>>([]);
+
     /// <summary>Whether <paramref name="candidateCommit"/> is newer or older than <paramref name="installedCommit"/> in UE4SS's history; Unknown when GitHub can't say.</summary>
     Task<Ue4ssBuildOrder> CompareBuildsAsync(string installedCommit, string candidateCommit, CancellationToken cancellationToken = default) =>
         Task.FromResult(Ue4ssBuildOrder.Unknown);

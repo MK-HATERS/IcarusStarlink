@@ -391,7 +391,8 @@ public sealed partial class SettingsViewModelTests
         var vm = harness.BuildViewModel();
         Assert.True(vm.CanInstallOrUpdateUe4ss);
         Assert.Equal($"Install {BundledUe4ss.Label}", vm.Ue4ssInstallButtonLabel);
-        Assert.Equal("3.0.1 dev build 1181", BundledUe4ss.Label);
+        Assert.Equal("4.0.0 (official release)", BundledUe4ss.Label);
+        Assert.Equal("UE4SS_v4.0.0.zip", BundledUe4ss.FileName);
 
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
 
@@ -429,8 +430,194 @@ public sealed partial class SettingsViewModelTests
         var vm = harness.BuildViewModel();
 
         Assert.Equal(0, harness.Ue4ssReleaseClient.DevBuildCallCount);
-        Assert.Equal("3.0.1 dev build 1c1a1497 installed.", vm.Ue4ssStatusText);
-        Assert.Equal($"Install {BundledUe4ss.Label}", vm.Ue4ssInstallButtonLabel);
+        Assert.Equal(0, harness.Ue4ssReleaseClient.OlderBuildsCallCount);
+        // No GitHub needed to know 4.0.0 is newer than any 3.0.1 build.
+        Assert.Equal("3.0.1 dev build 1c1a1497 installed — 4.0.0 (official release) available.", vm.Ue4ssStatusText);
+        Assert.Equal("Update to 4.0.0 (official release)", vm.Ue4ssInstallButtonLabel);
+    }
+
+    /// <summary>The list starts with the build inside Starlink and the newest dev build, in plain words, and picking one asks GitHub nothing.</summary>
+    [Fact]
+    public void Ue4ssBuildChoices_StartOnTheBuiltInBuild_AndPickingAsksGitHubNothing()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+
+        Assert.Equal(
+            ["Built into Starlink: 4.0.0 (official release) (no download)", "Newest dev build (asks GitHub when you install)"],
+            vm.Ue4ssBuildChoices.Select(c => c.Label));
+        Assert.Same(vm.Ue4ssBuildChoices[0], vm.SelectedUe4ssBuildChoice);
+
+        vm.SelectedUe4ssBuildChoice = vm.Ue4ssBuildChoices[1];
+
+        Assert.Equal("Install the newest dev build", vm.Ue4ssInstallButtonLabel);
+        Assert.Equal(0, harness.Ue4ssReleaseClient.DevBuildCallCount);
+    }
+
+    /// <summary>"Newest dev build" picked without a check first: pressing Install is the click that asks GitHub, and the confirmation names the build it found.</summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_NewestDevBuildPicked_AsksGitHubThenNamesTheBuild()
+    {
+        using var harness = new Harness(dialogConfirmResult: true, httpHandler: SucceedingHandler([1, 2, 3]));
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("4.0.0", "https://example.invalid/UE4SS.zip", null, 6, "ef15eba8");
+        harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, "4.0.0", "ef15eba8");
+        var vm = harness.BuildViewModel();
+        vm.SelectedUe4ssBuildChoice = vm.Ue4ssBuildChoices[1];
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, harness.Ue4ssReleaseClient.DevBuildCallCount);
+        Assert.Contains("downloads UE4SS 4.0.0 dev build 6 from GitHub", harness.DialogService.LastConfirmMessage);
+        Assert.Equal("ef15eba8", harness.Ue4ssLoaderInstallService.LastKnownCommit);
+        Assert.Equal("Installed UE4SS 4.0.0 dev build 6.", vm.Ue4ssStatusMessage);
+        Assert.Equal("Newest dev build: 4.0.0 dev build 6 (download)", vm.Ue4ssBuildChoices[1].Label);
+        Assert.Equal("4.0.0 dev build 6 installed.", vm.Ue4ssStatusText);
+    }
+
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_NewestDevBuildPicked_GitHubDown_InstallsNothing()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        var vm = harness.BuildViewModel();
+        vm.SelectedUe4ssBuildChoice = vm.Ue4ssBuildChoices[1];
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, harness.DialogService.ConfirmCallCount);
+        Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+        Assert.Contains("GitHub didn't answer", vm.Ue4ssStatusMessage);
+    }
+
+    /// <summary>Show older builds asks GitHub once, adds the archived builds in plain words, and an older pick is downloaded, installed and named as older, never refused.</summary>
+    [Fact]
+    public async Task ShowOlderUe4ssBuilds_AddsThemToTheList_AndAnOlderOneInstalls()
+    {
+        using var harness = new Harness(dialogConfirmResult: true, httpHandler: SucceedingHandler([1, 2, 3]));
+        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "4.0.0", Ue4ssBuild.Official400Commit[..8]);
+        harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, "3.0.1", "aea3ed6e");
+        harness.Ue4ssLoaderInstallService.NativeMods = ["NoStability"];
+        harness.Ue4ssReleaseClient.OlderBuilds =
+        [
+            new Ue4ssReleaseInfo("4.0.0", "https://example.invalid/4-1.zip", null, 1, "f54b7332"),
+            new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/1221.zip", null, 1221, "aea3ed6e"),
+            new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/301.zip", null, null, Ue4ssBuild.OfficialReleaseCommit),
+        ];
+        var vm = harness.BuildViewModel();
+        Assert.Equal("Reinstall", vm.Ue4ssInstallButtonLabel);
+
+        await vm.ShowOlderUe4ssBuildsCommand.ExecuteAsync(null);
+        await vm.ShowOlderUe4ssBuildsCommand.ExecuteAsync(null); // a second press adds nothing twice
+
+        Assert.Equal(
+            ["Dev build: 4.0.0 dev build 1 (download)", "Older: 3.0.1 dev build 1221 (download)", "Older: 3.0.1 (official release) (download)"],
+            vm.Ue4ssBuildChoices.Skip(2).Select(c => c.Label));
+        Assert.Equal("The older builds are already in the list.", vm.Ue4ssStatusMessage);
+
+        vm.SelectedUe4ssBuildChoice = vm.Ue4ssBuildChoices[3];
+        Assert.Equal("Install 3.0.1 dev build 1221 (older)", vm.Ue4ssInstallButtonLabel);
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        var confirm = harness.DialogService.LastConfirmMessage;
+        Assert.Contains("downloads UE4SS 3.0.1 dev build 1221 from GitHub", confirm);
+        Assert.Contains("replaces it with an older build", confirm);
+        Assert.Contains("This changes UE4SS 4 to UE4SS 3", confirm);
+        Assert.Equal(1, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+        Assert.Equal("aea3ed6e", harness.Ue4ssLoaderInstallService.LastKnownCommit);
+        Assert.Equal("3.0.1 dev build 1221 installed.", vm.Ue4ssStatusText);
+    }
+
+    [Fact]
+    public async Task ShowOlderUe4ssBuilds_GitHubDown_SaysSoAndKeepsTheList()
+    {
+        using var harness = new Harness();
+        var vm = harness.BuildViewModel();
+
+        await vm.ShowOlderUe4ssBuildsCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, vm.Ue4ssBuildChoices.Count);
+        Assert.Contains("Couldn't list the older UE4SS builds", vm.Ue4ssStatusMessage);
+    }
+
+    /// <summary>The user's rule: going from UE4SS 3 to 4 never refuses a mod. The confirmation adds a note naming the C++ mods that may not load yet and where to see what works.</summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_MajorVersionChange_NotesTheCppModsAndNeverRefuses()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "3.0.1", "83330635");
+        harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, BundledUe4ss.Version, BundledUe4ss.Commit);
+        harness.Ue4ssLoaderInstallService.NativeMods = ["IcarusStutterFix", "NoStability"];
+        var vm = harness.BuildViewModel();
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        var confirm = harness.DialogService.LastConfirmMessage;
+        Assert.Equal("Update UE4SS", harness.DialogService.LastConfirmTitle);
+        Assert.Contains("This changes UE4SS 3 to UE4SS 4. All your mods are kept.", confirm);
+        Assert.Contains("These C++ mods may not load until their authors update them for UE4SS 4: IcarusStutterFix, NoStability.", confirm);
+        Assert.Contains("each UE4SS mod shows Started or Didn't start", confirm);
+        Assert.Equal(1, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
+        Assert.Equal("Updated to UE4SS 4.0.0 (official release).", vm.Ue4ssStatusMessage);
+    }
+
+    /// <summary>An old setup (files directly in Binaries\Win64) is named on the status line, and the confirmation says which mods and settings move into the ue4ss folder.</summary>
+    [Fact]
+    public async Task InstallOrUpdateUe4ssCommand_OldSetup_SaysWhatMovesIntoTheUe4ssFolder()
+    {
+        using var harness = new Harness(dialogConfirmResult: true);
+        var service = harness.Ue4ssLoaderInstallService;
+        service.StatusToReturn = new Ue4ssLoaderStatus(false, "3.0.1", Ue4ssBuild.OfficialReleaseCommit[..8], HasOldLayout: true);
+        service.OldLayout = new Ue4ssOldLayout.Found(@"C:\Game\Icarus\Binaries\Win64", ["MiniMapa", "NoStability"], ["NoStability"], true, "3.0.1", Ue4ssBuild.OfficialReleaseCommit[..8]);
+        service.NativeMods = ["NoStability"];
+        service.StatusAfterInstall = new Ue4ssLoaderStatus(true, BundledUe4ss.Version, BundledUe4ss.Commit);
+        var vm = harness.BuildViewModel();
+
+        Assert.True(vm.Ue4ssHasOldLayout);
+        Assert.StartsWith("UE4SS 3.0.1 (official release) is set up the old way", vm.Ue4ssStatusText);
+        Assert.Equal("Install 4.0.0 (official release)", vm.Ue4ssInstallButtonLabel);
+
+        await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
+
+        var confirm = harness.DialogService.LastConfirmMessage;
+        Assert.Contains("You have UE4SS 3.0.1 (official release).", confirm);
+        Assert.Contains("Starlink moves your 2 mods (MiniMapa, NoStability), which ones are on, and your UE4SS settings there", confirm);
+        Assert.Contains("backed up first and moved back if the install fails", confirm);
+        Assert.Contains("for UE4SS 4: NoStability.", confirm);
+        Assert.Equal(1, service.InstallOrUpdateCallCount);
+        Assert.Equal("Installed UE4SS 4.0.0 (official release). Your 2 mods and your UE4SS settings are now in the ue4ss folder.", vm.Ue4ssStatusMessage);
+        Assert.False(vm.Ue4ssHasOldLayout);
+    }
+
+    /// <summary>With servers set up, one line says which build the game and each server has.</summary>
+    [Fact]
+    public void Ue4ssInstalledBuildsText_NamesTheGameAndEachServer()
+    {
+        using var harness = new Harness();
+        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "4.0.0", Ue4ssBuild.Official400Commit[..8]);
+        var withUe4ss = Path.Combine(harness.TempDir, "ServerA");
+        var win64 = Path.Combine(withUe4ss, "Icarus", "Binaries", "Win64");
+        Directory.CreateDirectory(Path.Combine(win64, "ue4ss"));
+        File.WriteAllText(Path.Combine(win64, "dwmapi.dll"), "x");
+        File.WriteAllText(Path.Combine(win64, "ue4ss", "UE4SS.dll"), "x");
+        File.WriteAllLines(Path.Combine(win64, "ue4ss", "UE4SS.log"), ["UE4SS - v3.0.1 Beta #0 - Git SHA #83330635"]);
+        harness.Ue4ssServers = [("Home", withUe4ss), ("Test", Path.Combine(harness.TempDir, "ServerB"))];
+
+        var vm = harness.BuildViewModel();
+
+        Assert.True(vm.HasUe4ssInstalledBuildsText);
+        Assert.StartsWith(
+            "Your game has 4.0.0 (official release). Server Home has 3.0.1 dev build 83330635. Server Test has no UE4SS.",
+            vm.Ue4ssInstalledBuildsText);
+    }
+
+    [Fact]
+    public void Ue4ssInstalledBuildsText_NoServers_IsHidden()
+    {
+        using var harness = new Harness();
+
+        var vm = harness.BuildViewModel();
+
+        Assert.False(vm.HasUe4ssInstalledBuildsText);
     }
 
     /// <summary>The check found the same build that comes with Starlink: no download.</summary>
@@ -452,9 +639,10 @@ public sealed partial class SettingsViewModelTests
     public async Task CheckForUe4ssUpdate_NewerBuild_OffersUpdateAndWarnsAboutCppMods()
     {
         using var harness = new Harness(dialogConfirmResult: false);
-        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "3.0.1", "1c1a1497");
+        // Same version, and the installed build's number isn't known: only here is GitHub asked which commit is later.
+        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "4.0.0", "1c1a1497");
         harness.Ue4ssLoaderInstallService.NativeMods = ["IcarusStutterFix", "NoStability"];
-        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("4.0.0", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
         harness.Ue4ssReleaseClient.OrderToReturn = Ue4ssBuildOrder.Newer;
         var vm = harness.BuildViewModel();
 
@@ -462,14 +650,15 @@ public sealed partial class SettingsViewModelTests
 
         Assert.Equal(1, harness.Ue4ssReleaseClient.DevBuildCallCount);
         Assert.Equal(("1c1a1497", "abcdef12"), harness.Ue4ssReleaseClient.LastCompared);
-        Assert.Equal("Update to 3.0.1 dev build 1200", vm.Ue4ssInstallButtonLabel);
-        Assert.Equal("3.0.1 dev build 1c1a1497 installed — 3.0.1 dev build 1200 available.", vm.Ue4ssStatusText);
-        Assert.Equal("UE4SS 3.0.1 dev build 1200 is available.", vm.Ue4ssStatusMessage);
+        Assert.Equal("Update to 4.0.0 dev build 1200", vm.Ue4ssInstallButtonLabel);
+        Assert.Equal("4.0.0 dev build 1c1a1497 installed — 4.0.0 dev build 1200 available.", vm.Ue4ssStatusText);
+        Assert.Same(vm.Ue4ssBuildChoices[1], vm.SelectedUe4ssBuildChoice);
+        Assert.Equal("UE4SS 4.0.0 dev build 1200 is available.", vm.Ue4ssStatusMessage);
 
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
 
         Assert.Equal("Update UE4SS", harness.DialogService.LastConfirmTitle);
-        Assert.Contains("downloads UE4SS 3.0.1 dev build 1200 from GitHub", harness.DialogService.LastConfirmMessage);
+        Assert.Contains("downloads UE4SS 4.0.0 dev build 1200 from GitHub", harness.DialogService.LastConfirmMessage);
         Assert.Contains("IcarusStutterFix, NoStability", harness.DialogService.LastConfirmMessage);
         Assert.Contains("C++ mods", harness.DialogService.LastConfirmMessage);
         Assert.Equal(0, harness.Ue4ssLoaderInstallService.InstallOrUpdateCallCount);
@@ -480,16 +669,16 @@ public sealed partial class SettingsViewModelTests
     public async Task CheckForUe4ssUpdate_SameBuild_SaysUpToDate()
     {
         using var harness = new Harness(dialogConfirmResult: false);
-        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "3.0.1", "abcdef12");
+        harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "4.0.0", "abcdef12");
         harness.Ue4ssLoaderInstallService.NativeMods = ["NoStability"];
-        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("4.0.0", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
         var vm = harness.BuildViewModel();
 
         await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null);
         await vm.InstallOrUpdateUe4ssCommand.ExecuteAsync(null);
 
         Assert.Equal("You have the newest UE4SS dev build.", vm.Ue4ssStatusMessage);
-        Assert.Equal("3.0.1 dev build 1200 installed (up to date).", vm.Ue4ssStatusText);
+        Assert.Equal("4.0.0 dev build 1200 installed (up to date).", vm.Ue4ssStatusText);
         Assert.Equal("Reinstall", vm.Ue4ssInstallButtonLabel);
         Assert.DoesNotContain("C++", harness.DialogService.LastConfirmMessage);
     }
@@ -561,7 +750,7 @@ public sealed partial class SettingsViewModelTests
         // than the bundled one); without it the bundled copy is used and no download is possible.
         var requests = 0;
         using var harness = new Harness(dialogConfirmResult: false, httpHandler: CountingHandler(() => requests++));
-        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("4.0.0", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
         var vm = harness.BuildViewModel();
         await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null);
 
@@ -578,8 +767,8 @@ public sealed partial class SettingsViewModelTests
     {
         var payloadBytes = new byte[] { 1, 2, 3, 4 };
         using var harness = new Harness(dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes));
-        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
-        harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, "3.0.1", "abcdef12");
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("4.0.0", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
+        harness.Ue4ssLoaderInstallService.StatusAfterInstall = new Ue4ssLoaderStatus(true, "4.0.0", "abcdef12");
         var vm = harness.BuildViewModel();
 
         await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null);
@@ -592,7 +781,7 @@ public sealed partial class SettingsViewModelTests
         Assert.True(vm.IsUe4ssInstalled);
         Assert.Equal("abcdef12", vm.Ue4ssInstalledCommit);
         Assert.Equal("abcdef12", harness.Ue4ssLoaderInstallService.LastKnownCommit);
-        Assert.Equal("Installed UE4SS 3.0.1 dev build 1200.", vm.Ue4ssStatusMessage);
+        Assert.Equal("Installed UE4SS 4.0.0 dev build 1200.", vm.Ue4ssStatusMessage);
         Assert.Empty(harness.Ue4ssLoaderInstallService.LastZipEntries); // the fake download isn't a real zip
         Assert.False(vm.IsInstallingUe4ss);
     }
@@ -601,7 +790,7 @@ public sealed partial class SettingsViewModelTests
     public async Task InstallOrUpdateUe4ssCommand_DownloadFails_ShowsInstallFailedMessage()
     {
         using var harness = new Harness(dialogConfirmResult: true);
-        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("4.0.0", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
         var vm = harness.BuildViewModel();
 
         await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null);
@@ -622,7 +811,7 @@ public sealed partial class SettingsViewModelTests
         var payloadBytes = "zip-bytes"u8.ToArray();
         using var harness = new Harness(dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes));
         var wrongDigest = "sha256:" + new string('0', 64);
-        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", wrongDigest, 1200, "abcdef12");
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("4.0.0", "https://example.invalid/UE4SS.zip", wrongDigest, 1200, "abcdef12");
         var vm = harness.BuildViewModel();
 
         await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null);
@@ -639,7 +828,7 @@ public sealed partial class SettingsViewModelTests
     {
         var payloadBytes = new byte[] { 9, 9 };
         using var harness = new Harness(dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes));
-        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("4.0.0", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
         harness.Ue4ssLoaderInstallService.StatusToReturn = new Ue4ssLoaderStatus(true, "3.0.1", "1c1a1497");
         harness.Ue4ssReleaseClient.OrderToReturn = Ue4ssBuildOrder.Newer;
         harness.Ue4ssLoaderInstallService.InstallOrUpdateException = new IOException("locked file");
@@ -725,7 +914,7 @@ public sealed partial class SettingsViewModelTests
     {
         var requests = 0;
         using var harness = new Harness(dialogConfirmResult: true, httpHandler: CountingHandler(() => requests++), gameProcessChecker: new FakeGameProcessChecker(true));
-        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("4.0.0", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
         var vm = harness.BuildViewModel();
         await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null);
 
@@ -782,7 +971,7 @@ public sealed partial class SettingsViewModelTests
         var payloadBytes = new byte[] { 1, 2, 3 };
         using var harness = new Harness(
             dialogConfirmResult: true, httpHandler: SucceedingHandler(payloadBytes), gameProcessChecker: new FakeGameProcessChecker(false, true));
-        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("3.0.1", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
+        harness.Ue4ssReleaseClient.DevBuildToReturn = new Ue4ssReleaseInfo("4.0.0", "https://example.invalid/UE4SS.zip", null, 1200, "abcdef12");
         var vm = harness.BuildViewModel();
         await vm.CheckForUe4ssUpdateCommand.ExecuteAsync(null); // so the install downloads, as the name says
 
@@ -1838,7 +2027,13 @@ public sealed partial class SettingsViewModelTests
             UnrealPakInstaller, ActivityLog, DialogService, GameProcessChecker,
             Path.Combine(TempDir, "Backups"), Path.Combine(TempDir, "Data"), Path.Combine(TempDir, "Logs"),
             Path.Combine(TempDir, "settings.json"), Path.Combine(TempDir, "Staged_UE4SS"),
-            gameCrashesFolder: CrashesFolder, tempDirectory: TempFolder, modSetupReport: ModSetupReport);
+            gameCrashesFolder: CrashesFolder, tempDirectory: TempFolder, modSetupReport: ModSetupReport)
+        {
+            Ue4ssServers = Ue4ssServers is { } servers ? () => servers : null,
+        };
+
+        /// <summary>Starlink's servers (name, install folder) for the UE4SS tab's "which build each has" line; null = none set up.</summary>
+        public IReadOnlyList<(string Name, string InstallFolder)>? Ue4ssServers;
 
         /// <summary>What Export diagnostics zip writes as mod-setup.txt; null leaves the VM's default (none).</summary>
         public ModSetupReport? ModSetupReport;
@@ -2148,8 +2343,14 @@ public sealed partial class SettingsViewModelTests
                 StatusToReturn = status;
             }
 
+            OldLayout = null; // the real install moves an old setup into the ue4ss folder
             return Task.CompletedTask;
         }
+
+        /// <summary>An old setup (files directly in Binaries\Win64) the game folder has; null = none.</summary>
+        public Ue4ssOldLayout.Found? OldLayout { get; set; }
+
+        public Ue4ssOldLayout.Found? FindOldLayout(string icarusContentPath) => OldLayout;
 
         public string? LastKnownCommit { get; private set; }
         public IReadOnlyList<string> NativeMods { get; set; } = [];
@@ -2197,6 +2398,15 @@ public sealed partial class SettingsViewModelTests
         {
             DevBuildCallCount++;
             return Task.FromResult(DevBuildToReturn);
+        }
+
+        public IReadOnlyList<Ue4ssReleaseInfo> OlderBuilds { get; set; } = [];
+        public int OlderBuildsCallCount { get; private set; }
+
+        public Task<IReadOnlyList<Ue4ssReleaseInfo>> GetOlderBuildsAsync(CancellationToken cancellationToken = default)
+        {
+            OlderBuildsCallCount++;
+            return Task.FromResult(OlderBuilds);
         }
 
         public Task<Ue4ssBuildOrder> CompareBuildsAsync(string installedCommit, string candidateCommit, CancellationToken cancellationToken = default)

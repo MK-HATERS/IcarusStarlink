@@ -108,9 +108,13 @@ public static class ServerModFiles
     /// verified to load on the server through dwmapi.dll): dwmapi.dll, the loader's files
     /// (Ue4ssServerFiles.LoaderFiles: no logs, no Mods), and the framework's Mods\shared + Keybinds +
     /// mods.txt. Never overwrites a settings file or mods.txt the server already has. Returns false
-    /// when the game has no UE4SS to copy.
+    /// when the game has no UE4SS to copy. A server whose UE4SS is set up the old way (UE4SS.dll,
+    /// Mods\ and UE4SS-settings.ini directly in Binaries\Win64) has its mods, their on/off state and
+    /// its settings moved into the ue4ss folder first (Ue4ssOldLayout), backed up under
+    /// <paramref name="backupsFolder"/> and moved back if the copy fails; with no backups folder an
+    /// old setup is left where it is.
     /// </summary>
-    public static bool InstallUe4ssFromGame(string gameWin64Folder, string installFolder)
+    public static bool InstallUe4ssFromGame(string gameWin64Folder, string installFolder, string? backupsFolder = null)
     {
         var gameUe4ss = Path.Combine(gameWin64Folder, "ue4ss");
         if (!File.Exists(Path.Combine(gameWin64Folder, "dwmapi.dll")) || !File.Exists(Path.Combine(gameUe4ss, "UE4SS.dll")))
@@ -119,6 +123,28 @@ public static class ServerModFiles
         }
 
         var serverWin64 = DedicatedServerLayout.Win64Folder(installFolder);
+        if (backupsFolder is null)
+        {
+            CopyUe4ssFromGame(gameWin64Folder, gameUe4ss, serverWin64);
+            return true;
+        }
+
+        var oldLayout = Ue4ssOldLayout.MoveIntoUe4ssFolder(serverWin64, Path.Combine(backupsFolder, "UE4SS-Loader"));
+        try
+        {
+            CopyUe4ssFromGame(gameWin64Folder, gameUe4ss, serverWin64);
+        }
+        catch (Exception)
+        {
+            oldLayout.Undo();
+            throw;
+        }
+
+        return true;
+    }
+
+    private static void CopyUe4ssFromGame(string gameWin64Folder, string gameUe4ss, string serverWin64)
+    {
         var serverUe4ss = Path.Combine(serverWin64, "ue4ss");
         Directory.CreateDirectory(Path.Combine(serverUe4ss, "Mods"));
         File.Copy(Path.Combine(gameWin64Folder, "dwmapi.dll"), Path.Combine(serverWin64, "dwmapi.dll"), overwrite: true);
@@ -149,8 +175,6 @@ public static class ServerModFiles
         // The server now runs the game's build: drop its stale UE4SS.log and say which build that is.
         var (version, commit) = Ue4ssInstalledBuild.Read(gameUe4ss);
         Ue4ssInstalledBuild.RecordInstalled(serverUe4ss, version, commit);
-
-        return true;
     }
 
     /// <summary>Moves a UE4SS mod folder off the server into the backups folder and drops its mods.txt line.</summary>

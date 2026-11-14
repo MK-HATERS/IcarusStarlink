@@ -7,17 +7,21 @@ using IcarusStarlink.Core.Ue4ss;
 namespace IcarusStarlink.Catalog.Ue4ss;
 
 /// <summary>
-/// UE4SS-RE/RE-UE4SS on GitHub. Two kinds of release: the tagged stable one (still v3.0.1, from
-/// 2024) and the rolling "experimental-latest" prerelease, rebuilt from main and named like
-/// "UE4SS_v3.0.1-1181-g83330635.zip". Icarus mods are built for the dev builds (both C++ mods the
-/// user runs ship one), so the dev build is what Starlink installs and offers updates to. Every
-/// call goes through GitHubApiCache and is only made on a manual "Check for updates".
+/// UE4SS-RE/RE-UE4SS on GitHub. Three places builds live: the tagged official releases (v3.0.1,
+/// v4.0.0), the rolling "experimental-latest" prerelease, rebuilt from main and named like
+/// "UE4SS_v4.0.0-6-gef15eba8.zip", and the "experimental2" release, which keeps older dev builds.
+/// Starlink ships the official 4.0.0; this offers the newest dev build and the older ones. Every
+/// call goes through GitHubApiCache and is only made when the user presses a button.
 /// </summary>
 public sealed partial class Ue4ssReleaseClient : IUe4ssReleaseClient
 {
     private const string Repo = "https://api.github.com/repos/UE4SS-RE/RE-UE4SS";
     private const string LatestReleaseUrl = Repo + "/releases/latest";
     private const string DevBuildReleaseUrl = Repo + "/releases/tags/experimental-latest";
+
+    /// <summary>The release tagged "experimental2": where older dev builds are kept once experimental-latest moves on.</summary>
+    private const string DevBuildArchiveUrl = Repo + "/releases/tags/experimental2";
+    private const string Official301ReleaseUrl = Repo + "/releases/tags/v3.0.1";
 
     // Matches the real "basic" (non-dev, non-Xinput-variant) asset name, e.g. "UE4SS_v3.0.1.zip" —
     // deliberately excludes the same release's own "zDEV-UE4SS_*.zip" (a much larger dev build with
@@ -79,6 +83,49 @@ public sealed partial class Ue4ssReleaseClient : IUe4ssReleaseClient
         catch (Exception)
         {
             return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<Ue4ssReleaseInfo>> GetOlderBuildsAsync(CancellationToken cancellationToken = default)
+    {
+        var builds = new List<Ue4ssReleaseInfo>();
+
+        // The archive of dev builds: each asset name says which build it is.
+        foreach (var asset in await ReleaseAssetsAsync(DevBuildArchiveUrl, cancellationToken))
+        {
+            if (Ue4ssBuild.TryParseDevAssetName(asset.Name, out var version, out var build, out var commit))
+            {
+                builds.Add(new Ue4ssReleaseInfo(version, asset.BrowserDownloadUrl, asset.Digest, build, commit));
+            }
+        }
+
+        // The official 3.0.1 release: its one basic zip, known by the tag's commit.
+        foreach (var asset in await ReleaseAssetsAsync(Official301ReleaseUrl, cancellationToken))
+        {
+            if (BasicAssetName().IsMatch(asset.Name) && Ue4ssBuild.TryParseAssetName(asset.Name, out var version, out _, out var commit))
+            {
+                builds.Add(new Ue4ssReleaseInfo(version, asset.BrowserDownloadUrl, asset.Digest, null, commit));
+            }
+        }
+
+        // Newest first: the higher version, then the higher build number (a release itself is build 0).
+        return [.. builds
+            .OrderByDescending(b => Version.TryParse(b.Version, out var parsed) ? parsed : new Version(0, 0))
+            .ThenByDescending(b => b.BuildNumber ?? 0)];
+    }
+
+    /// <summary>A release's assets; none when GitHub can't be reached or the answer isn't a release.</summary>
+    private async Task<IReadOnlyList<Ue4ssReleaseAssetDto>> ReleaseAssetsAsync(string url, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // An archive and an old release rarely change, and this only runs when the user asks.
+            var body = await GitHubApiCache.GetAsync(_httpClient, url, TimeSpan.FromHours(1), cancellationToken);
+            return body is null ? [] : JsonSerializer.Deserialize<Ue4ssReleaseDto>(body)?.Assets ?? [];
+        }
+        catch (Exception)
+        {
+            return [];
         }
     }
 

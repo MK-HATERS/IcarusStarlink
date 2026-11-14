@@ -398,6 +398,155 @@ public class Ue4ssLoaderInstallServiceTests : IDisposable
         Assert.Equal(["NoStability"], _service.ListNativeMods(_fakeContentPath));
     }
 
+    /// <summary>The official 4.0.0 zip's shape: only dwmapi.dll at the root, everything else under ue4ss\ (no mods.json).</summary>
+    private string CreateFake400Zip() => CreateZip(
+        ("dwmapi.dll", "4.0 dwmapi"),
+        ("ue4ss/UE4SS.dll", "4.0 dll"),
+        ("ue4ss/LICENSE", "MIT"),
+        ("ue4ss/UE4SS-settings.ini", "4.0 default settings"),
+        ("ue4ss/Mods/mods.txt", "Keybinds : 1"),
+        ("ue4ss/Mods/Keybinds/Scripts/main.lua", "-- 4.0 keybinds"),
+        ("ue4ss/Mods/shared/UEHelpers/UEHelpers.lua", "-- 4.0 helpers"));
+
+    /// <summary>An old 3.0.1 setup the way its zip unpacks: everything directly in Binaries\Win64, with two mods of the player's (one C++), one switched on by mods.txt and one by enabled.txt.</summary>
+    private void SeedOldFlatSetup()
+    {
+        Seed(Path.Combine(Win64Folder, "dwmapi.dll"), "3.0.1 dwmapi");
+        Seed(Path.Combine(Win64Folder, "UE4SS.dll"), "3.0.1 dll");
+        Seed(Path.Combine(Win64Folder, "UE4SS-settings.ini"), "my settings");
+        Seed(Path.Combine(Win64Folder, "UE4SS.log"), "UE4SS - v3.0.1 Beta #0 - Git SHA #d935b5b");
+        Seed(Path.Combine(Win64Folder, "Mods", "mods.txt"), "Keybinds : 0\nMiniMapa : 1\n");
+        Seed(Path.Combine(Win64Folder, "Mods", "Keybinds", "Scripts", "main.lua"), "-- 3.0.1 keybinds");
+        Seed(Path.Combine(Win64Folder, "Mods", "shared", "UEHelpers", "UEHelpers.lua"), "-- 3.0.1 helpers");
+        Seed(Path.Combine(Win64Folder, "Mods", "shared", "MyLib", "lib.lua"), "mine");
+        Seed(Path.Combine(Win64Folder, "Mods", "MiniMapa", "Scripts", "main.lua"), "-- my lua mod");
+        Seed(Path.Combine(Win64Folder, "Mods", "MiniMapa", "config.lua"), "zoom = 3");
+        Seed(Path.Combine(Win64Folder, "Mods", "NoStability", "dlls", "main.dll"), "cpp");
+        Seed(Path.Combine(Win64Folder, "Mods", "NoStability", "enabled.txt"), "");
+    }
+
+    /// <summary>An old setup isn't "installed" the way Starlink reads it, but it is named, with its version and its C++ mods, so Install can say what it will move.</summary>
+    [Fact]
+    public void GetStatus_OldSetupDirectlyInWin64_IsNamedWithItsVersionAndMods()
+    {
+        SeedOldFlatSetup();
+
+        var status = _service.GetStatus(_fakeContentPath);
+        var old = _service.FindOldLayout(_fakeContentPath);
+
+        Assert.False(status.IsInstalled);
+        Assert.True(status.HasOldLayout);
+        Assert.Equal(("3.0.1", "d935b5b"), (status.InstalledVersion, status.InstalledCommit));
+        Assert.NotNull(old);
+        Assert.Equal(["MiniMapa", "NoStability"], old.UserMods);
+        Assert.Equal(["NoStability"], old.NativeMods);
+        Assert.True(old.HasSettings);
+        Assert.Equal(["NoStability"], _service.ListNativeMods(_fakeContentPath));
+    }
+
+    /// <summary>The user's rule: old mods are never refused. Installing 4.0 over an old setup moves every mod, which ones are on, and the settings into ue4ss\, where 4.0 looks.</summary>
+    [Fact]
+    public async Task InstallOrUpdateAsync_OverAnOldSetup_MovesModsTheirOnOffStateAndSettingsIntoTheUe4ssFolder()
+    {
+        SeedOldFlatSetup();
+
+        await _service.InstallOrUpdateAsync(_fakeContentPath, CreateFake400Zip(), _backupDirectory, "4.0.0", Ue4ssBuild.Official400Commit);
+
+        var mods = Path.Combine(LoaderFolder, "Mods");
+        Assert.Equal("-- my lua mod", await File.ReadAllTextAsync(Path.Combine(mods, "MiniMapa", "Scripts", "main.lua")));
+        Assert.Equal("zoom = 3", await File.ReadAllTextAsync(Path.Combine(mods, "MiniMapa", "config.lua")));
+        Assert.Equal("cpp", await File.ReadAllTextAsync(Path.Combine(mods, "NoStability", "dlls", "main.dll")));
+        Assert.True(File.Exists(Path.Combine(mods, "NoStability", "enabled.txt")));
+        // The player's on/off list and settings, not the release's.
+        Assert.Equal("Keybinds : 0\nMiniMapa : 1\n", await File.ReadAllTextAsync(Path.Combine(mods, "mods.txt")));
+        Assert.Equal("my settings", await File.ReadAllTextAsync(Path.Combine(LoaderFolder, "UE4SS-settings.ini")));
+        Assert.Equal("4.0 default settings", await File.ReadAllTextAsync(Path.Combine(LoaderFolder, "UE4SS-settings.default.ini")));
+        // UE4SS's own parts are the new build's; the player's own library file stays.
+        Assert.Equal("-- 4.0 keybinds", await File.ReadAllTextAsync(Path.Combine(mods, "Keybinds", "Scripts", "main.lua")));
+        Assert.Equal("-- 4.0 helpers", await File.ReadAllTextAsync(Path.Combine(mods, "shared", "UEHelpers", "UEHelpers.lua")));
+        Assert.Equal("mine", await File.ReadAllTextAsync(Path.Combine(mods, "shared", "MyLib", "lib.lua")));
+        Assert.Equal("4.0 dll", await File.ReadAllTextAsync(Path.Combine(LoaderFolder, "UE4SS.dll")));
+        Assert.Equal("4.0 dwmapi", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "dwmapi.dll")));
+
+        // Nothing of the old setup is left for the game to load by mistake.
+        Assert.False(File.Exists(Path.Combine(Win64Folder, "UE4SS.dll")));
+        Assert.False(File.Exists(Path.Combine(Win64Folder, "UE4SS-settings.ini")));
+        Assert.False(Directory.Exists(Path.Combine(Win64Folder, "Mods")));
+        Assert.Null(_service.FindOldLayout(_fakeContentPath));
+
+        // Backed up first, whole.
+        var backup = Assert.Single(Directory.GetDirectories(Path.Combine(_backupDirectory, "UE4SS-Loader"), "old-layout_*"));
+        Assert.Equal("3.0.1 dll", await File.ReadAllTextAsync(Path.Combine(backup, "UE4SS.dll")));
+        Assert.Equal("my settings", await File.ReadAllTextAsync(Path.Combine(backup, "UE4SS-settings.ini")));
+        Assert.Equal("-- 3.0.1 keybinds", await File.ReadAllTextAsync(Path.Combine(backup, "Mods", "Keybinds", "Scripts", "main.lua")));
+        Assert.Equal("cpp", await File.ReadAllTextAsync(Path.Combine(backup, "Mods", "NoStability", "dlls", "main.dll")));
+
+        var status = _service.GetStatus(_fakeContentPath);
+        Assert.True(status.IsInstalled);
+        Assert.False(status.HasOldLayout);
+        Assert.Equal("4.0.0", status.InstalledVersion);
+        Assert.Equal(["MiniMapa", "NoStability"], _service.ListUserAddedMods(_fakeContentPath));
+    }
+
+    /// <summary>A mod the ue4ss folder already has is never written over: the old copy stays where it was.</summary>
+    [Fact]
+    public async Task InstallOrUpdateAsync_OverAnOldSetup_NeverOverwritesAModAlreadyInTheUe4ssFolder()
+    {
+        SeedOldFlatSetup();
+        Seed(Path.Combine(LoaderFolder, "Mods", "MiniMapa", "Scripts", "main.lua"), "-- newer copy");
+        Seed(Path.Combine(LoaderFolder, "UE4SS-settings.ini"), "current settings");
+
+        await _service.InstallOrUpdateAsync(_fakeContentPath, CreateFake400Zip(), _backupDirectory);
+
+        Assert.Equal("-- newer copy", await File.ReadAllTextAsync(Path.Combine(LoaderFolder, "Mods", "MiniMapa", "Scripts", "main.lua")));
+        Assert.Equal("current settings", await File.ReadAllTextAsync(Path.Combine(LoaderFolder, "UE4SS-settings.ini")));
+        Assert.Equal("-- my lua mod", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "Mods", "MiniMapa", "Scripts", "main.lua")));
+        Assert.Equal("my settings", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "UE4SS-settings.ini")));
+        Assert.True(Directory.Exists(Path.Combine(LoaderFolder, "Mods", "NoStability")));
+    }
+
+    /// <summary>An install that fails after the move puts the old setup back exactly where it was.</summary>
+    [Fact]
+    public async Task InstallOrUpdateAsync_OverAnOldSetup_AFailedInstallMovesEverythingBack()
+    {
+        SeedOldFlatSetup();
+        var dwmapi = Path.Combine(Win64Folder, "dwmapi.dll");
+
+        // Readable (so the backup can copy it), but not replaceable: the last write fails.
+        using (new FileStream(dwmapi, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            var ex = await Assert.ThrowsAnyAsync<IOException>(() =>
+                _service.InstallOrUpdateAsync(_fakeContentPath, CreateFake400Zip(), _backupDirectory));
+            Assert.Contains("Nothing was changed", ex.Message);
+        }
+
+        Assert.Equal("3.0.1 dwmapi", await File.ReadAllTextAsync(dwmapi));
+        Assert.Equal("3.0.1 dll", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "UE4SS.dll")));
+        Assert.Equal("my settings", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "UE4SS-settings.ini")));
+        Assert.Equal("Keybinds : 0\nMiniMapa : 1\n", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "Mods", "mods.txt")));
+        Assert.Equal("-- 3.0.1 keybinds", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "Mods", "Keybinds", "Scripts", "main.lua")));
+        Assert.Equal("-- 3.0.1 helpers", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "Mods", "shared", "UEHelpers", "UEHelpers.lua")));
+        Assert.Equal("mine", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "Mods", "shared", "MyLib", "lib.lua")));
+        Assert.Equal("-- my lua mod", await File.ReadAllTextAsync(Path.Combine(Win64Folder, "Mods", "MiniMapa", "Scripts", "main.lua")));
+        Assert.True(File.Exists(Path.Combine(Win64Folder, "Mods", "NoStability", "enabled.txt")));
+        Assert.False(Directory.Exists(LoaderFolder));
+    }
+
+    /// <summary>A zip that is refused (not a UE4SS release) leaves an old setup untouched: nothing moves before the zip is known to be good.</summary>
+    [Fact]
+    public async Task InstallOrUpdateAsync_OverAnOldSetup_ABadZipMovesNothing()
+    {
+        SeedOldFlatSetup();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _service.InstallOrUpdateAsync(_fakeContentPath, CreateZip(("readme.txt", "not ue4ss")), _backupDirectory));
+
+        Assert.True(File.Exists(Path.Combine(Win64Folder, "UE4SS.dll")));
+        Assert.True(Directory.Exists(Path.Combine(Win64Folder, "Mods", "MiniMapa")));
+        Assert.False(Directory.Exists(LoaderFolder));
+        Assert.False(Directory.Exists(Path.Combine(_backupDirectory, "UE4SS-Loader")));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))
