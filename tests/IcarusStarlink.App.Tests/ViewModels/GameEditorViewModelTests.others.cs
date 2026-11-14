@@ -105,7 +105,7 @@ public sealed partial class GameEditorViewModelTests
         Assert.NotNull(asked);
         Assert.Contains("Xigo Envirosuit · Weight: Heavy Suits sets 200 (later in the merge list)", asked);
         Assert.Contains("Move my mod last", asked);
-        Assert.Empty(Read(_library, mine).Rows.Where(r => r.CurrentFile == "Traits-D_Itemable.json"));
+        Assert.DoesNotContain(Read(_library, mine).Rows, r => r.CurrentFile == "Traits-D_Itemable.json");
         Assert.Equal(1, vm.PendingCount); // still typed
         Assert.Equal(0, queue.Moves);
     }
@@ -155,7 +155,7 @@ public sealed partial class GameEditorViewModelTests
         await vm.WaitForOtherModsAsync();
 
         Assert.Equal(0, queue.Moves);
-        Assert.NotEmpty(Read(_library, mine).Rows.Where(r => r.CurrentFile == "Traits-D_Itemable.json"));
+        Assert.Contains(Read(_library, mine).Rows, r => r.CurrentFile == "Traits-D_Itemable.json");
         Assert.Equal("Weight: game 100 · with your turned-on mods 200, from Heavy Suits. This mod's value loses.", Assert.Single(Itemable(vm).OtherModLines));
     }
 

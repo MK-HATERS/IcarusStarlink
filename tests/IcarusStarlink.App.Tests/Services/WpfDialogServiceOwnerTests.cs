@@ -6,15 +6,15 @@ namespace IcarusStarlink.App.Tests.Services;
 /// <summary>Which window a question opens over (WpfDialogService.PickOwner).</summary>
 public sealed class WpfDialogServiceOwnerTests
 {
-    private static Candidate Main(bool active = false, int z = 5) => new(active, IsUsable: true, IsVisible: true, IsMain: true, z);
+    private static Candidate MainWindow(bool active = false, int z = 5) => new(active, IsUsable: true, IsVisible: true, IsMain: true, z);
 
     private static Candidate Other(bool active = false, int z = 3, bool visible = true, bool usable = true) => new(active, usable, visible, IsMain: false, z);
 
     [Fact]
     public void TheActiveWindowOwnsTheDialog()
     {
-        Assert.Equal(0, WpfDialogService.PickOwner([Main(active: true), Other()]));
-        Assert.Equal(1, WpfDialogService.PickOwner([Main(), Other(active: true)]));
+        Assert.Equal(0, WpfDialogService.PickOwner([MainWindow(active: true), Other()]));
+        Assert.Equal(1, WpfDialogService.PickOwner([MainWindow(), Other(active: true)]));
     }
 
     /// <summary>
@@ -25,21 +25,21 @@ public sealed class WpfDialogServiceOwnerTests
     [Fact]
     public void NoActiveWindow_TheWindowOverTheMainOneOwnsTheDialog_NotTheMainWindow()
     {
-        Assert.Equal(1, WpfDialogService.PickOwner([Main(z: 1), Other(z: 2)]));
+        Assert.Equal(1, WpfDialogService.PickOwner([MainWindow(z: 1), Other(z: 2)]));
     }
 
     [Fact]
     public void NoActiveWindow_SeveralOpen_TheFrontMostOwnsTheDialog()
     {
-        Assert.Equal(2, WpfDialogService.PickOwner([Main(z: 9), Other(z: 7), Other(z: 4), Other(z: 6)]));
+        Assert.Equal(2, WpfDialogService.PickOwner([MainWindow(z: 9), Other(z: 7), Other(z: 4), Other(z: 6)]));
     }
 
     [Fact]
     public void NoActiveWindow_OnlyTheMainWindow_OwnsTheDialog()
     {
-        Assert.Equal(0, WpfDialogService.PickOwner([Main()]));
+        Assert.Equal(0, WpfDialogService.PickOwner([MainWindow()]));
         // A hidden window isn't in front of anything.
-        Assert.Equal(0, WpfDialogService.PickOwner([Main(), Other(visible: false, z: 0)]));
+        Assert.Equal(0, WpfDialogService.PickOwner([MainWindow(), Other(visible: false, z: 0)]));
     }
 
     /// <summary>
@@ -51,9 +51,9 @@ public sealed class WpfDialogServiceOwnerTests
     {
         var closesByItself = Other(z: 1) with { ClosesByItself = true };
 
-        Assert.Equal(0, WpfDialogService.PickOwner([Main(z: 5), closesByItself]));
+        Assert.Equal(0, WpfDialogService.PickOwner([MainWindow(z: 5), closesByItself]));
         // A window the user closes still comes first.
-        Assert.Equal(2, WpfDialogService.PickOwner([Main(z: 5), closesByItself, Other(z: 3)]));
+        Assert.Equal(2, WpfDialogService.PickOwner([MainWindow(z: 5), closesByItself, Other(z: 3)]));
         // Nothing else there: better than no owner.
         Assert.Equal(0, WpfDialogService.PickOwner([closesByItself]));
     }
@@ -61,7 +61,7 @@ public sealed class WpfDialogServiceOwnerTests
     [Fact]
     public void AClosedWindowIsNeverTheOwner()
     {
-        Assert.Equal(1, WpfDialogService.PickOwner([Other(active: true, usable: false), Main()]));
+        Assert.Equal(1, WpfDialogService.PickOwner([Other(active: true, usable: false), MainWindow()]));
         Assert.Equal(-1, WpfDialogService.PickOwner([Other(usable: false)]));
         Assert.Equal(-1, WpfDialogService.PickOwner([]));
     }
