@@ -121,7 +121,8 @@ public enum GameUpdateRowAction
 /// </summary>
 public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions actions) : ObservableObject
 {
-    public string WindowTitle => "Icarus updated — here's what changed";
+    /// <summary>What the window is for right now: choosing the steps before Start, then the run and what changed.</summary>
+    public string WindowTitle => IsChoosing ? "Update everything" : "Icarus updated — here's what changed";
 
     public ObservableCollection<GameUpdateStepRow> Steps { get; } =
         [.. Enum.GetValues<GameUpdateStep>().Select(s => new GameUpdateStepRow(s))];
@@ -195,6 +196,7 @@ public sealed partial class GameUpdateReviewViewModel(IGameUpdateReviewActions a
     /// <summary>The window is waiting for the ticks and Start (ChooseAsync): nothing has run yet.</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartCommand))]
+    [NotifyPropertyChangedFor(nameof(WindowTitle))]
     private bool _isChoosing;
 
     /// <summary>Redraw the maps that changed: the same setting as the Map page's box.</summary>

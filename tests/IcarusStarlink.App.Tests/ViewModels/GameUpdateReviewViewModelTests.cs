@@ -360,6 +360,24 @@ public sealed class GameUpdateReviewViewModelTests
         Assert.True(review.FixByItself);
     }
 
+    /// <summary>The title bar says what the window is for: choosing the steps before Start, what changed after.</summary>
+    [Fact]
+    public async Task WindowTitle_SaysUpdateEverythingWhileChoosing_ThenWhatChanged()
+    {
+        var review = new GameUpdateReviewViewModel(new FakeActions());
+        var titleChanges = 0;
+        review.PropertyChanged += (_, e) => titleChanges += e.PropertyName == nameof(GameUpdateReviewViewModel.WindowTitle) ? 1 : 0;
+
+        var choosing = review.ChooseAsync();
+        Assert.Equal("Update everything", review.WindowTitle);
+
+        review.StartCommand.Execute(null);
+        await choosing.WaitAsync(Limit);
+
+        Assert.Equal("Icarus updated — here's what changed", review.WindowTitle);
+        Assert.True(titleChanges >= 2);
+    }
+
     [Fact]
     public async Task ChooseAsync_WaitsForStart_AndGivesTheTicks()
     {
