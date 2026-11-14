@@ -57,7 +57,18 @@ public sealed class WorldMapStoreTests : IDisposable
         public WorldLayerPixels? ReadLayer(string heatmapAssetPath) => Readable ? new(2, [0x00FF90, 0x00FF90, 0, 0]) : null;
 
         public string Stamp(WorldMapInfo map) => Readable ? Stamps.GetValueOrDefault(map.Id, "1") : "unreadable";
+
+        /// <summary>The spots each world has (none unless set).</summary>
+        public Dictionary<string, WorldFeatures> Features { get; } = [];
+
+        public WorldFeatures ReadFeatures(WorldMapInfo map) => Features.GetValueOrDefault(map.Id, WorldFeatures.None);
     }
+
+    private static readonly DateTime Today = new(2030, 5, 17, 9, 30, 0, DateTimeKind.Utc);
+
+    private static WorldFeature Cave(double u, int worms = 5) => new(WorldFeatureKind.Cave, "Cave", new(u, 0.5)) { WormsMin = 1, WormsMax = worms };
+
+    private static WorldFeature Geyser(double u) => new(WorldFeatureKind.OilGeyser, "Oil geyser", new(u, 0.25));
 
     /// <summary>Throws (as closing Starlink would stop it) on the given call: Reload reports just before each world it draws.</summary>
     private sealed class StopAt(int call) : IProgress<string>
@@ -187,6 +198,154 @@ public sealed class WorldMapStoreTests : IDisposable
         Assert.Equal("Changed: Olympus: Conifer Hard: Desert Wolf added.", result.Summary);
         // Said once: the next Reload has nothing new to say.
         Assert.Equal("Nothing changed: the map is up to date.", store.Reload(everything: false).Summary);
+    }
+
+    /// <summary>
+    /// Regression: stamps used to name the pak and place of each file, so a game update that only
+    /// repacked its paks redrew every map. Maps drawn under those stamps keep their drawing the first
+    /// time the new stamps are used, and take the new stamp.
+    /// </summary>
+    [Fact]
+    public void MapsDrawnUnderOldStamps_AreKeptWithoutDrawing_AndZoneChangesAreStillSaid()
+    {
+        var renderer = new FakeRenderer();
+        var withDesertWolf = false;
+        var store = new WorldMapStore(_root,
+            () => [withDesertWolf ? Map("Terrain_016", "Olympus", Wolf, DesertWolf) : Map("Terrain_016", "Olympus", Wolf), Map("Terrain_017", "Styx", Wolf)], renderer);
+        renderer.Stamps["Terrain_016"] = "0123456789ABCDEF0123456789ABCDEF";
+        renderer.Stamps["Terrain_017"] = "FEDCBA9876543210FEDCBA9876543210";
+        store.Reload(everything: false);
+        renderer.Drawn.Clear();
+        renderer.Stamps["Terrain_016"] = "c2:AAAA";
+        renderer.Stamps["Terrain_017"] = "c2:BBBB";
+
+        Assert.False(store.Check().OutOfDate);
+        withDesertWolf = true;
+        var check = store.Check();
+        var result = store.Reload(everything: false);
+
+        Assert.DoesNotContain("redrawn", check.Summary);
+        Assert.Empty(renderer.Drawn);
+        Assert.Equal(0, result.Redrawn);
+        Assert.Equal("Changed: Olympus: Conifer Hard: Desert Wolf added. 1 map unchanged.", result.Summary);
+
+        // The new stamps were stored: from now a changed file redraws its map, and only that one.
+        renderer.Stamps["Terrain_017"] = "c2:CCCC";
+        var next = store.Reload(everything: false);
+
+        Assert.Equal(["Terrain_017"], renderer.Drawn);
+        Assert.Equal("Changed: Styx: map redrawn. 1 map unchanged.", next.Summary);
+    }
+
+    /// <summary>A world whose last drawing failed has no stamp: it's drawn, never taken as it is.</summary>
+    [Fact]
+    public void AMapWhoseLastDrawingFailed_IsStillDrawn_WhenTheStampsChangeScheme()
+    {
+        var renderer = new FakeRenderer();
+        var store = new WorldMapStore(_root, () => [Map("Terrain_016", "Olympus", Wolf)], renderer);
+        store.Reload(everything: false);
+        renderer.Stamps["Terrain_016"] = "2";
+        renderer.Broken.Add("Terrain_016");
+        store.Reload(everything: false);
+        renderer.Broken.Clear();
+        renderer.Drawn.Clear();
+        renderer.Stamps["Terrain_016"] = "c2:AAAA";
+
+        store.Reload(everything: false);
+
+        Assert.Equal(["Terrain_016"], renderer.Drawn);
+    }
+
+    [Fact]
+    public void AChangedWorld_RecordsItsZoneChanges_AndTheSpotsThatCameAndWent()
+    {
+        var renderer = new FakeRenderer();
+        var withDesertWolf = false;
+        var store = new WorldMapStore(_root,
+            () => [withDesertWolf ? Map("Terrain_016", "Olympus", Wolf, DesertWolf) : Map("Terrain_016", "Olympus", Wolf), Map("Terrain_017", "Styx", Wolf)],
+            renderer, () => Today);
+        renderer.Features["Terrain_016"] = new([Cave(0.1), Geyser(0.2)], []);
+        store.Reload(everything: false);
+
+        // A first drawing records nothing: every spot would read as new.
+        Assert.Empty(store.ChangeRecords());
+
+        renderer.Stamps["Terrain_016"] = "2";
+        renderer.Features["Terrain_016"] = new([Cave(0.1), Cave(0.7, worms: 9)], []);
+        withDesertWolf = true;
+        store.Reload(everything: false);
+
+        var records = store.ChangeRecords();
+        var record = Assert.Single(records).Value;
+        Assert.Equal("Terrain_016", records.Keys.Single());
+        Assert.Equal(Today, record.When);
+        Assert.Equal([new WorldZoneChange("Creatures", "OLY_Conifer_Hard", "Conifer Hard", "Desert Wolf added")], record.Zones);
+        Assert.Equal([Cave(0.7, worms: 9)], record.Added);
+        Assert.Equal([Geyser(0.2)], record.Removed);
+        Assert.Equal((1, 1), (record.AddedCount, record.RemovedCount));
+    }
+
+    [Fact]
+    public void AZoneChangeWithoutARedraw_IsRecordedToo()
+    {
+        var renderer = new FakeRenderer();
+        var withDesertWolf = false;
+        var store = new WorldMapStore(_root, () => [withDesertWolf ? Map("Terrain_016", "Olympus", Wolf, DesertWolf) : Map("Terrain_016", "Olympus", Wolf)], renderer);
+        store.Reload(everything: false);
+        withDesertWolf = true;
+
+        store.Reload(everything: false);
+
+        Assert.Equal("Conifer Hard: Desert Wolf added", Assert.Single(store.ChangeRecords()["Terrain_016"].Zones).Summary);
+    }
+
+    [Fact]
+    public void WhatChanged_IsKeptUntilTheWorldChangesAgain()
+    {
+        var renderer = new FakeRenderer();
+        var store = new WorldMapStore(_root, () => [Map("Terrain_016", "Olympus", Wolf)], renderer);
+        renderer.Features["Terrain_016"] = new([Cave(0.1), Geyser(0.2)], []);
+        store.Reload(everything: false);
+        renderer.Stamps["Terrain_016"] = "2";
+        renderer.Features["Terrain_016"] = new([Cave(0.1)], []);
+        store.Reload(everything: false);
+        Assert.Single(store.ChangeRecords());
+
+        // Nothing changed, then every map drawn again with nothing changed: still there.
+        store.Reload(everything: false);
+        store.Reload(everything: true);
+
+        Assert.Equal([Geyser(0.2)], store.ChangeRecords()["Terrain_016"].Removed);
+
+        // The game replaces its files again, with the same spots: nothing is left to show.
+        renderer.Stamps["Terrain_016"] = "3";
+        store.Reload(everything: false);
+
+        Assert.Empty(store.ChangeRecords());
+    }
+
+    [Fact]
+    public void SpotsThatCameAndWent_AreToldApartByKindNameAndPlace()
+    {
+        var mission = new WorldFeature(WorldFeatureKind.MissionSpot, "Foresty", new(0.5, 0.5)) { Category = "Objective · Foresty" };
+
+        var (added, removed) = WorldMapChanges.Spots(
+            [Cave(0.1), Cave(0.3), mission, mission with { }],
+            [Cave(0.1), Cave(0.30004), Cave(0.4), mission, mission with { Category = "Objective · Other" }]);
+
+        // 0.3 → 0.30004 is the same place (under a metre); the second of two alike mission spots went, and one with another category came.
+        Assert.Equal([Cave(0.4), mission with { Category = "Objective · Other" }], added);
+        Assert.Equal([mission], removed);
+    }
+
+    /// <summary>A world whose spots couldn't be read last time (or this time) would show every spot as new (or gone).</summary>
+    [Fact]
+    public void SpotsAreNotCompared_WhenEitherSideHasNone()
+    {
+        Assert.Equal((0, 0), Counts(WorldMapChanges.Spots([], [Cave(0.1), Geyser(0.2)])));
+        Assert.Equal((0, 0), Counts(WorldMapChanges.Spots([Cave(0.1), Geyser(0.2)], [])));
+
+        static (int, int) Counts((List<WorldFeature> Added, List<WorldFeature> Removed) spots) => (spots.Added.Count, spots.Removed.Count);
     }
 
     [Fact]

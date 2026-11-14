@@ -76,7 +76,11 @@ public interface IWorldMapRenderer
     /// <summary>A zone image (a GameplayTexture's TextureData); null when the game doesn't have it.</summary>
     WorldLayerPixels? ReadLayer(string heatmapAssetPath);
 
-    /// <summary>One line naming where every file the map is drawn from sits in the paks: changes when a game update replaces any of them.</summary>
+    /// <summary>
+    /// One line made from every file the map is drawn from: changes when a game update changes any of
+    /// them, and stays the same when the game only moves them between or inside its paks. It starts
+    /// with its scheme and a colon ("c2:…").
+    /// </summary>
     string Stamp(WorldMapInfo map);
 
     /// <summary>What's placed on the world (caves, geysers, spots, water), read from its level files; None when they can't be read.</summary>
@@ -163,6 +167,13 @@ public sealed class WorldMapRenderer(IBaseGameContentProvider game, Func<string?
             return new WorldLayerPixels(size, pixels);
         });
 
+    /// <summary>
+    /// Names how stamps are made, in front of each one ("c2:…": by each file's contents). The first
+    /// scheme, a bare hash, also named each file's pak and place, which a game update changes for
+    /// files it didn't touch; WorldMapStore keeps maps drawn under another scheme as they are.
+    /// </summary>
+    public const string StampScheme = "c2";
+
     public string Stamp(WorldMapInfo map)
     {
         var files = map.PictureTiles.Concat(map.HeightTiles).Select(t => t.AssetPath)
@@ -170,7 +181,7 @@ public sealed class WorldMapRenderer(IBaseGameContentProvider game, Func<string?
             .Concat(map.Levels)
             .Order(StringComparer.OrdinalIgnoreCase);
         var text = string.Join("\n", files.Select(f => $"{f}={game.FileStamp(f)}"));
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..32];
+        return StampScheme + ":" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..32];
     }
 
     private SKBitmap? StitchPicture(IReadOnlyList<WorldTile> tiles)

@@ -21,8 +21,14 @@ public sealed record WorldMapItemViewModel(WorldMapInfo Map)
     /// <summary>"Open world · 80 missions", "Outpost"; for a world no prospect uses yet, "Not playable yet".</summary>
     public string KindText => Map.KindText is { Length: > 0 } kind ? kind : "Not playable yet";
 
+    /// <summary>"Changed on 17 May 2030: …" when a Reload recorded what changed on it; null otherwise.</summary>
+    public string? ChangedText { get; init; }
+
+    /// <summary>Something is recorded as changed on it (a small mark shows in the list).</summary>
+    public bool HasChanges => ChangedText is not null;
+
     /// <summary>What a screen reader says for it.</summary>
-    public override string ToString() => $"{Name}, {KindText}{(InDevelopment ? ", in development" : "")}";
+    public override string ToString() => $"{Name}, {KindText}{(InDevelopment ? ", in development" : "")}{(HasChanges ? ", changed" : "")}";
 }
 
 /// <summary>A dropship drop site on the map: placed in the map's 1000 x 1000 square, with its landing spots.</summary>
@@ -501,6 +507,7 @@ public sealed partial class WorldMapViewModel : ObservableObject, IcarusStarlink
             // of the page carries on from there (LoadAsync finishes a build that isn't complete).
             _loadedOnce = false;
             _pictureSources = null;
+            _changeRecords = null;
             if (SelectedMap is not null)
             {
                 ShowPicked(_isShown); // its files may have just been redrawn
@@ -522,6 +529,7 @@ public sealed partial class WorldMapViewModel : ObservableObject, IcarusStarlink
         {
             // A reload that threw may still have saved part of the index.
             _pictureSources = null;
+            _changeRecords = null;
             _reloadCancel = null;
             IsDrawing = false;
             IsBusy = false;
@@ -572,6 +580,7 @@ public sealed partial class WorldMapViewModel : ObservableObject, IcarusStarlink
     private void ShowMaps(IReadOnlyList<WorldMapInfo> maps, bool showPicked = true)
     {
         _pictureSources = null;
+        _changeRecords = null;
         var keep = SelectedMap?.Map.Id;
         _refillingMaps = true;
         try
@@ -580,7 +589,7 @@ public sealed partial class WorldMapViewModel : ObservableObject, IcarusStarlink
             // Open world maps, then mission-only maps, then outposts, then those no prospect uses yet; in development last within each.
             foreach (var map in maps.OrderBy(m => m.KindOrder).ThenBy(m => m.InDevelopment))
             {
-                Maps.Add(new WorldMapItemViewModel(map));
+                Maps.Add(new WorldMapItemViewModel(map) { ChangedText = ChangedText(map.Id) });
             }
 
             SelectedMap = Maps.FirstOrDefault(m => m.Map.Id == keep) ?? Maps.FirstOrDefault();
@@ -682,6 +691,7 @@ public sealed partial class WorldMapViewModel : ObservableObject, IcarusStarlink
             MapNote = null;
             ShowFeatures(null);
             ShowLayers();
+            ShowChangeRecord(null);
             return;
         }
 
@@ -724,6 +734,7 @@ public sealed partial class WorldMapViewModel : ObservableObject, IcarusStarlink
         OnPropertyChanged(nameof(HasLayers));
         ShowFeatures(map);
         ShowLayers();
+        ShowChangeRecord(map);
     }
 
     private void OnLayerTicked(object? sender, System.ComponentModel.PropertyChangedEventArgs e)

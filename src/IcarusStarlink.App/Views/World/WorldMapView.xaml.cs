@@ -216,10 +216,12 @@ public partial class WorldMapView : UserControl
         }
 
         // A marker (cave, geyser, spot) under the mouse: its facts; anywhere else: the zones there.
-        var marker = (MapViewport.InputHitTest(e.GetPosition(MapViewport)) as FrameworkElement)?.DataContext as WorldFeatureMarkerViewModel;
-        if (marker is not null)
+        // A new or gone spot's mark (What changed) shows that spot's facts the same way.
+        var under = (MapViewport.InputHitTest(e.GetPosition(MapViewport)) as FrameworkElement)?.DataContext;
+        var feature = (under as WorldFeatureMarkerViewModel)?.Feature ?? (under as WorldChangeMarkerViewModel)?.Feature;
+        if (feature is not null)
         {
-            _viewModel?.SelectFeature(marker.Feature);
+            _viewModel?.SelectFeature(feature);
         }
         else if (MapPoint(e) is { } point)
         {

@@ -51,6 +51,12 @@
                                         Visibility="{Binding InDevelopment, Converter={StaticResource BoolToVisibilityConverter}}">
                                     <TextBlock Text="In development"/>
                                 </Border>
+                                <!-- A Reload recorded what changed on this world. -->
+                                <Border Style="{StaticResource BetaTagStyle}" ToolTip="{Binding ChangedText}"
+                                        BorderBrush="{DynamicResource InfoBrush}" Background="Transparent" TextElement.Foreground="{DynamicResource InfoBrush}"
+                                        Visibility="{Binding HasChanges, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="Changed"/>
+                                </Border>
                             </StackPanel>
                             <TextBlock Text="{Binding KindText}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                         </StackPanel>
@@ -124,6 +130,12 @@
                                Visibility="{Binding MissionPlaceholder, Converter={StaticResource NullToVisibilityConverter}}"/>
                 </Grid>
             </StackPanel>
+            <!-- Only for a world a Reload found changed. -->
+            <StackPanel Orientation="Horizontal" Visibility="{Binding HasChangeRecord, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Rectangle Width="1" Height="18" Fill="{DynamicResource BorderBrush}" Margin="12,0,4,0" VerticalAlignment="Center"/>
+                <CheckBox Style="{StaticResource ToggleSwitchStyle}" Content="What changed" IsChecked="{Binding ShowChanges}" Margin="8,0,0,0" VerticalAlignment="Center"
+                          AutomationProperties.Name="Show what changed on this map" ToolTip="{Binding ChangesToolTip}"/>
+            </StackPanel>
         </WrapPanel>
 
         <!-- What Reload / Rebuild all did, or what they're doing, with Stop while they draw. -->
@@ -177,6 +189,8 @@
                             <!-- Smoothed, so zone edges aren't blocky up close (clicks read the stored image, not this). -->
                             <Image Source="{Binding ZonesImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
                             <Image Source="{Binding HighlightImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
+                            <!-- What changed: the zones whose spawns changed, in light blue. -->
+                            <Image Source="{Binding ChangesImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality" IsHitTestVisible="False"/>
 
                             <!-- Lakes and rivers, and the in-game grid (its lines keep 1 pixel at any zoom: set in code). -->
                             <Canvas IsHitTestVisible="False">
@@ -315,6 +329,39 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+
+                            <!-- What changed: a green + on each new spot, a red − where one is gone; on top of everything. -->
+                            <ItemsControl ItemsSource="{Binding ChangeMarkers}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><Canvas/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemContainerStyle>
+                                    <Style TargetType="ContentPresenter">
+                                        <Setter Property="Canvas.Left" Value="{Binding X}"/>
+                                        <Setter Property="Canvas.Top" Value="{Binding Y}"/>
+                                    </Style>
+                                </ItemsControl.ItemContainerStyle>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Width="18" Height="18" ToolTip="{Binding ToolTip}" AutomationProperties.Name="{Binding ToolTip}" Cursor="Hand" Background="Transparent">
+                                            <Grid.RenderTransform>
+                                                <TransformGroup>
+                                                    <TranslateTransform X="-9" Y="-9"/>
+                                                    <StaticResource ResourceKey="MarkerScale"/>
+                                                </TransformGroup>
+                                            </Grid.RenderTransform>
+                                            <Ellipse x:Name="Disc" Fill="#2FBF6B" Stroke="White" StrokeThickness="2"/>
+                                            <TextBlock Text="{Binding Glyph}" FontSize="13" FontWeight="Bold" Foreground="White" Margin="0,-2,0,0"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Grid>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsRemoved}" Value="True">
+                                                <Setter TargetName="Disc" Property="Fill" Value="#E0453A"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                             </Grid>
                         </Grid>
                     </Canvas>
@@ -359,6 +406,32 @@
                     <StackPanel>
                         <TextBlock Text="{Binding MapNote}" TextWrapping="Wrap" Margin="0,0,0,12" Foreground="{DynamicResource WarningBrush}"
                                    Visibility="{Binding MapNote, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+                        <!-- What changed, in words (the switch above the map): zones, then new spots, then gone ones. -->
+                        <StackPanel Margin="0,0,0,14" Visibility="{Binding ShowChangeList, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="{Binding ChangeTitle}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,4,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}"
+                                       Text="Light blue zones: their spawns changed. Green +: a new spot. Red −: a spot that's gone. Click a spot's line to zoom to it."/>
+                            <ItemsControl ItemsSource="{Binding ChangeLines}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Command="{Binding DataContext.ZoomToChangeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}" IsHitTestVisible="{Binding CanZoom}" Focusable="{Binding CanZoom}"
+                                                Cursor="Hand" HorizontalAlignment="Stretch" Margin="0,0,0,6"
+                                                AutomationProperties.Name="{Binding Text}" ToolTip="Click to zoom the map to it.">
+                                            <Button.Template>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="Transparent">
+                                                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Button.Template>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Rectangle Height="1" Fill="{DynamicResource BorderBrush}" Margin="0,6,0,0"/>
+                        </StackPanel>
 
                         <TextBlock Text="{Binding ZoneHint}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryForegroundBrush}"
                                    Visibility="{Binding ZoneHint, Converter={StaticResource NullToVisibilityConverter}}"/>

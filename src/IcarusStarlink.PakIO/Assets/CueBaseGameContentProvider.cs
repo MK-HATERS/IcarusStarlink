@@ -236,7 +236,9 @@ public sealed class CueBaseGameContentProvider : IBaseGameContentProvider, IGame
                 {
                     var file = mounted.Provider.Files[key];
                     parts.Add(file is CUE4Parse.UE4.Pak.Objects.FPakEntry entry
-                        ? $"{extension}:{entry.Vfs.Name}:{entry.Offset}:{entry.Size}"
+                        ? PakContentStamp.Of(extension, new PakEntryShape(
+                            entry.Vfs.Name, entry.Offset, entry.UncompressedSize, entry.CompressedSize, entry.CompressionMethod.ToString(),
+                            [.. (entry.CompressionBlocks ?? []).Select(b => (b.CompressedStart, b.CompressedEnd))]))
                         : $"{extension}:{file.Size}");
                 }
             }

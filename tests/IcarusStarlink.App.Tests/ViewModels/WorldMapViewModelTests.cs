@@ -620,6 +620,126 @@ public sealed class WorldMapViewModelTests : IDisposable
         Assert.Equal(IcarusStarlink.Core.Activity.ActivityEntryKind.Warning, entry.Kind);
     }
 
+    /// <summary>A world with a creature zone on the left half of its (2 x 2) zone image.</summary>
+    private static WorldMapInfo Zoned(string id, string name, params WorldZoneEntry[] creatures) =>
+        new(id, name, false, [], [],
+            [new WorldLayer(WorldLayerKind.Creatures, $"Heatmaps/{id}/GT.uasset",
+                new Dictionary<uint, WorldZone> { [0x00FF90] = new("OLY_Conifer_Hard", "Conifer Hard", creatures) })]);
+
+    /// <summary>
+    /// Olympus and Styx drawn, then a game update: Olympus's zone gains a Desert Wolf, a cave is new
+    /// and a geyser is gone; Styx's files changed too, with nothing to show for it.
+    /// </summary>
+    private async Task<(WorldMapViewModel Vm, WorldFeature NewCave)> AfterAnUpdateThatChangedOlympusAsync()
+    {
+        var wolf = new WorldZoneEntry("Conifer_Wolf", "Wolf", 8);
+        var updated = false;
+        var renderer = new MapRenderer { Layer = new WorldLayerPixels(2, [0x00FF90, 0, 0x00FF90, 0]) };
+        var store = new WorldMapStore(Path.Combine(_root, "World"),
+            () => [updated ? Zoned("Terrain_016", "Olympus", wolf, new("Desert_Wolf", "Desert Wolf", 4)) : Zoned("Terrain_016", "Olympus", wolf), Zoned("Terrain_017", "Styx", wolf)],
+            renderer, () => new DateTime(2030, 5, 17, 12, 0, 0, DateTimeKind.Utc));
+        var cave = new WorldFeature(WorldFeatureKind.Cave, "Cave", new(0.25, 0.5)) { WormsMin = 2, WormsMax = 5 };
+        var newCave = new WorldFeature(WorldFeatureKind.Cave, "Cave", new(0.75, 0.25)) { WormsMin = 6, WormsMax = 9 };
+        renderer.Features["Terrain_016"] = new([cave, new WorldFeature(WorldFeatureKind.OilGeyser, "Oil geyser", new(0.5, 0.75))], []);
+        store.Reload(everything: false);
+        updated = true;
+        renderer.StampNow = "2";
+        renderer.Features["Terrain_016"] = new([cave, newCave], []);
+        store.Reload(everything: false);
+
+        var vm = new WorldMapViewModel(store, GameReady(), Path.Combine(_root, "Data")) { UiDispatcher = () => null };
+        await vm.LoadAsync();
+        return (vm, newCave);
+    }
+
+    [Fact]
+    public async Task AWorldThatChanged_IsMarkedInTheMapList_AndOffersWhatChanged()
+    {
+        var (vm, _) = await AfterAnUpdateThatChangedOlympusAsync();
+
+        Assert.Equal([true, false], vm.Maps.Select(m => m.HasChanges));
+        Assert.StartsWith("Changed on ", vm.Maps[0].ChangedText);
+        Assert.EndsWith(", changed", vm.Maps[0].ToString());
+        Assert.Equal("Olympus", vm.SelectedMap!.Name);
+        Assert.True(vm.HasChangeRecord);
+        Assert.StartsWith("What changed on ", vm.ChangeTitle);
+        Assert.Contains("1 zone changed, 1 new spot, 1 spot gone", vm.ChangesToolTip);
+
+        // Off until it's switched on: nothing extra is drawn on the map or listed.
+        Assert.False(vm.ShowChangeList);
+        Assert.Empty(vm.ChangeMarkers);
+        Assert.Null(vm.ChangesImage);
+
+        // A world with nothing recorded has no switch.
+        vm.SelectedMap = vm.Maps[1];
+
+        Assert.False(vm.HasChangeRecord);
+        Assert.Null(vm.ChangeTitle);
+    }
+
+    [Fact]
+    public async Task WhatChanged_LightsUpTheChangedZones_MarksNewAndGoneSpots_AndListsThemInWords()
+    {
+        var (vm, newCave) = await AfterAnUpdateThatChangedOlympusAsync();
+
+        vm.ShowChanges = true;
+
+        Assert.True(vm.ShowChangeList);
+        Assert.Equal(
+            ["Creature zone Conifer Hard: Desert Wolf added.", "New: Tier 3 cave · 6-9 cave worms", "Gone: Oil geyser"],
+            vm.ChangeLines.Select(l => l.Text));
+        Assert.Equal([false, true, true], vm.ChangeLines.Select(l => l.CanZoom));
+        Assert.Equal([(750d, 250d, "+"), (500d, 750d, "−")], vm.ChangeMarkers.Select(m => (m.X, m.Y, m.Glyph)));
+        Assert.Equal("New: Tier 3 cave · 6-9 cave worms", vm.ChangeMarkers[0].ToolTip);
+
+        // The changed zone (the left half of the zone image) is lit; the rest stays clear.
+        var image = Assert.IsAssignableFrom<System.Windows.Media.Imaging.BitmapSource>(vm.ChangesImage);
+        var pixels = new uint[4];
+        image.CopyPixels(pixels, 8, 0);
+        Assert.Equal([WorldMapViewModel.ChangedZoneColor, 0u, WorldMapViewModel.ChangedZoneColor, 0u], pixels);
+
+        // A spot's line zooms the map to it.
+        WorldMapPoint? zoomedTo = null;
+        vm.ZoomRequested += (at, _) => zoomedTo = at;
+        vm.ZoomToChangeCommand.Execute(vm.ChangeLines[1]);
+        Assert.Equal(newCave.At, zoomedTo);
+
+        // Another world has nothing to show; back on the changed one the switch is still on.
+        vm.SelectedMap = vm.Maps[1];
+        Assert.False(vm.ShowChangeList);
+        Assert.Empty(vm.ChangeMarkers);
+        Assert.Null(vm.ChangesImage);
+
+        vm.SelectedMap = vm.Maps[0];
+        Assert.Equal(2, vm.ChangeMarkers.Count);
+
+        vm.ShowChanges = false;
+        Assert.Empty(vm.ChangeMarkers);
+        Assert.Null(vm.ChangesImage);
+    }
+
+    /// <summary>A reload from the page picks up what it just recorded, without the page being reopened.</summary>
+    [Fact]
+    public async Task AReloadThatFindsAChange_ShowsTheMarkAndTheSwitchRightAway()
+    {
+        var renderer = new MapRenderer();
+        var store = new WorldMapStore(Path.Combine(_root, "World"), () => [World("Terrain_016", "Olympus")], renderer);
+        var cave = new WorldFeature(WorldFeatureKind.Cave, "Cave", new(0.25, 0.5)) { WormsMin = 2, WormsMax = 5 };
+        renderer.Features["Terrain_016"] = new([cave], []);
+        var vm = new WorldMapViewModel(store, GameReady(), Path.Combine(_root, "Data")) { UiDispatcher = () => null };
+        vm.OnPageShown();
+        await vm.ReloadCommand.ExecuteAsync(null);
+        Assert.False(vm.HasChangeRecord);
+        renderer.StampNow = "2";
+        renderer.Features["Terrain_016"] = new([cave, cave with { At = new(0.9, 0.9) }], []);
+
+        await vm.ReloadCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasChangeRecord);
+        Assert.True(vm.Maps[0].HasChanges);
+        Assert.Equal(["New: Tier 2 cave · 2-5 cave worms"], vm.ChangeLines.Select(l => l.Text));
+    }
+
     [Fact]
     public void PuttingTheChoicesBack_SavesNothing()
     {

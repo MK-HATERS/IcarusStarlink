@@ -196,6 +196,8 @@ public sealed partial class HelpViewModel : ObservableObject
 
             Starlink draws the maps once and keeps one copy. **Reload** checks the game's files and draws again only the maps that changed, then says what changed ("Olympus: Conifer Hard: Desert Wolf added"). **Rebuild all maps** draws every one again, changed or not (several minutes: each big map's caves and spots take about a minute to read). The page tells you when the game's files changed since the maps were made. Tick **Redraw during Update everything** to have **Update everything** redraw the changed ones after a game update; off (the default), it's left to your Reload.
 
+            A game update that only moves the game's files around no longer redraws anything: a map is drawn again only when its own files really changed. When Reload finds a map changed, that map gets a **Changed** tag in the map list and a **What changed** switch above the map. Switch it on to see the zones whose spawns changed in light blue, a green **+** on every cave, geyser or other spot that's new and a red **−** where one is gone, with the same listed in words beside the map (click a spot's line to zoom to it). It's kept until that map changes again.
+
             While Reload or Rebuild all is drawing, **Stop** next to the status line stops after the map being drawn now; the maps drawn so far are kept, and Reload (or opening Map again) draws the rest. If Starlink closes while the maps are being made, opening Map again carries on. A map that can't be drawn keeps its last drawing. If the game folder in Settings has no Paks folder, Map says so and changes nothing. When the maps finish while you're on another page, the Activity panel says what changed and which maps couldn't be drawn.
             """),
 

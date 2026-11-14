@@ -47,9 +47,10 @@ public interface IBaseGameContentProvider
     IReadOnlyDictionary<string, byte[]>? TryReadPackageFiles(string assetPath) => null;
 
     /// <summary>
-    /// Where the game keeps this package's files (pak, place in it, size, for each of its .uasset,
-    /// .umap, .uexp and .ubulk): changes when a game update replaces the package, read without
-    /// reading the files.
+    /// This package's files as the game lists them (PakContentStamp: size, compressed size, how it's
+    /// compressed and its compression blocks' lengths, for each of its .uasset, .umap, .uexp and
+    /// .ubulk), read without reading the files: changes when a game update changes the package, and
+    /// stays the same when the game only moves it between or inside its paks.
     /// Null when the game doesn't have it or its content can't be read.
     /// </summary>
     string? FileStamp(string assetPath) => null;

@@ -18,9 +18,11 @@ public sealed record WorldMapCheckResult(bool OutOfDate, string Summary);
 /// copy only: a map that changed is drawn again and its old copy replaced only once the new one is
 /// fully read; a world that fails to draw keeps its last drawing; a world the game dropped is
 /// deleted. Reload redraws only what changed; Rebuild all redraws every map. Nothing is touched when
-/// the game's files or its world list can't be read.
+/// the game's files or its world list can't be read. For a world a Reload found changed, the index
+/// also keeps what changed (zones, and spots that came or went) until it changes again.
 /// </summary>
-public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>> readCatalog, IWorldMapRenderer renderer)
+/// <param name="now">The time a change is dated with (UTC); the clock when left out.</param>
+public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>> readCatalog, IWorldMapRenderer renderer, Func<DateTime>? now = null)
 {
     private const string IndexFile = "index.json";
     private const string PictureFile = "picture.jpg";
@@ -71,6 +73,10 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
     public IReadOnlyDictionary<string, WorldPictureSource> PictureSources() =>
         (LoadIndex()?.Maps ?? []).ToDictionary(kv => kv.Key, kv => kv.Value.Picture, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>What changed on each world the last time a Reload found it changed; a world missing here has nothing to show.</summary>
+    public IReadOnlyDictionary<string, WorldMapChangeRecord> ChangeRecords() =>
+        (LoadIndex()?.Maps ?? []).Where(kv => kv.Value.Changed is not null).ToDictionary(kv => kv.Key, kv => kv.Value.Changed!, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Every world was drawn by a Reload that ran to the end (false: never made, or stopped half-way).</summary>
     public bool IsComplete() => LoadIndex() is { Complete: true, Maps.Count: > 0 };
 
@@ -87,7 +93,8 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
             return new WorldMapCheckResult(maps.Count > 0, maps.Count > 0 ? "The maps haven't been made yet." : "");
         }
 
-        var changes = Changes(maps, index, maps.ToDictionary(m => m.Id, renderer.Stamp, StringComparer.OrdinalIgnoreCase));
+        var stamps = maps.ToDictionary(m => m.Id, renderer.Stamp, StringComparer.OrdinalIgnoreCase);
+        var changes = Changes(maps, index, stamps, Adopted(maps, index, stamps));
         var missing = maps.Where(m => !IsDrawn(m, index)).ToList();
         return changes.Count == 0 && missing.Count == 0
             ? new WorldMapCheckResult(false, "")
@@ -116,6 +123,7 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
         }
 
         var stamps = maps.ToDictionary(m => m.Id, renderer.Stamp, StringComparer.OrdinalIgnoreCase);
+        var adopted = previous is null ? [] : Adopted(maps, previous, stamps);
         // Worlds not reached yet keep their entries while this runs: if it's stopped half-way (Starlink
         // closed, the PC restarted), the next Reload picks up where it left off.
         var index = new WorldMapIndex { Complete = false };
@@ -131,12 +139,26 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
             // Stop (Map page): between worlds only, so the one being drawn is finished and kept. The
             // index stays not Complete, and the next Reload draws the rest.
             cancel.ThrowIfCancellationRequested();
+            var before = previous?.Maps.GetValueOrDefault(map.Id);
+            var zoneChanges = before is null ? [] : ZoneChanges(map, before);
             var entry = old?.Maps.GetValueOrDefault(map.Id);
-            if (entry is not null && entry.Stamp == stamps[map.Id] && IsDrawn(map, old!))
+            // A stamp made the old way can't be compared with one made now: the world keeps its
+            // drawing and takes the new stamp, instead of every map being drawn again once.
+            if (entry is not null && (entry.Stamp == stamps[map.Id] || adopted.Contains(map.Id)) && IsDrawn(map, old!))
             {
-                index.Maps[map.Id] = entry with { Zones = ZoneFingerprints(map) };
+                index.Maps[map.Id] = entry with
+                {
+                    Stamp = stamps[map.Id],
+                    Zones = ZoneFingerprints(map),
+                    Changed = zoneChanges.Count > 0 ? Record(zoneChanges, null, null) : entry.Changed,
+                };
                 continue;
             }
+
+            // The game replaced this world's files (not: Rebuild all, a first drawing, a stamp made
+            // the old way): its spots as drawn last time are kept to say which came and went.
+            var filesChanged = before is not null && before.Stamp != stamps[map.Id] && !adopted.Contains(map.Id);
+            var oldFeatures = filesChanged && IsDrawn(map, previous!) ? ReadFeatures(map.Id) : null;
 
             progress?.Report($"Drawing {map.Name} and reading its caves and spots ({redrawn + 1} of up to {maps.Count}; a big map takes about a minute)…");
             PendingDrawing drawing;
@@ -180,7 +202,13 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
                 continue;
             }
 
-            index.Maps[map.Id] = entry with { Zones = ZoneFingerprints(map) };
+            // What changed is kept until the world changes again (its files or its zones); drawing it
+            // again with nothing changed (Rebuild all) keeps what was recorded.
+            index.Maps[map.Id] = entry with
+            {
+                Zones = ZoneFingerprints(map),
+                Changed = filesChanged || zoneChanges.Count > 0 ? Record(zoneChanges, oldFeatures, drawing.Features) : before?.Changed,
+            };
             SaveIndex(index);
             redrawn++;
         }
@@ -202,7 +230,7 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
         index.Complete = true;
         SaveIndex(index);
 
-        var changes = previous is null ? [] : Changes(maps, previous, stamps);
+        var changes = previous is null ? [] : Changes(maps, previous, stamps, adopted);
         string summary;
         if (previous is null)
         {
@@ -263,7 +291,8 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
     }
 
     /// <summary>A world's new drawing, read from the game but not written yet.</summary>
-    private sealed record PendingDrawing(byte[]? Jpeg, WorldPictureSource Source, IReadOnlyList<(WorldLayerKind Kind, byte[] Png)> Layers, string FeaturesJson);
+    private sealed record PendingDrawing(
+        byte[]? Jpeg, WorldPictureSource Source, IReadOnlyList<(WorldLayerKind Kind, byte[] Png)> Layers, WorldFeatures Features, string FeaturesJson);
 
     private PendingDrawing Read(WorldMapInfo map)
     {
@@ -277,7 +306,41 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
             }
         }
 
-        return new PendingDrawing(jpeg, source, layers, JsonSerializer.Serialize(renderer.ReadFeatures(map)));
+        var features = renderer.ReadFeatures(map);
+        return new PendingDrawing(jpeg, source, layers, features, JsonSerializer.Serialize(features));
+    }
+
+    /// <summary>
+    /// The scheme a stamp was made with: the text before its first colon ("c2:AB12…"); "" for the
+    /// first scheme's bare hash, which also changed whenever the game repacked its paks.
+    /// </summary>
+    private static string Scheme(string stamp) => stamp.IndexOf(':') is var colon and > 0 ? stamp[..colon] : "";
+
+    /// <summary>
+    /// The drawn worlds whose stamp was made with another scheme than today's: the two can't be
+    /// compared, so such a world isn't reported as changed, and Reload gives it today's stamp without
+    /// drawing it. A world whose last drawing failed (its stamp was cleared) is never one of them.
+    /// </summary>
+    private HashSet<string> Adopted(IReadOnlyList<WorldMapInfo> maps, WorldMapIndex index, IReadOnlyDictionary<string, string> stamps) =>
+        maps.Where(m => index.Maps.GetValueOrDefault(m.Id) is { Stamp.Length: > 0 } entry
+                && Scheme(entry.Stamp) != Scheme(stamps[m.Id]) && IsDrawn(m, index))
+            .Select(m => m.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>What changed on a world, to keep in the index; null when there's nothing to show.</summary>
+    private WorldMapChangeRecord? Record(List<WorldZoneChange> zones, WorldFeatures? before, WorldFeatures? after)
+    {
+        var (added, removed) = before is null || after is null ? ([], []) : WorldMapChanges.Spots(before.Features, after.Features);
+        return zones.Count == 0 && added.Count == 0 && removed.Count == 0
+            ? null
+            : new WorldMapChangeRecord
+            {
+                When = now?.Invoke() ?? DateTime.UtcNow,
+                Zones = zones,
+                Added = [.. added.Take(WorldMapChangeRecord.MaxSpots)],
+                Removed = [.. removed.Take(WorldMapChangeRecord.MaxSpots)],
+                AddedCount = added.Count,
+                RemovedCount = removed.Count,
+            };
     }
 
     private WorldMapIndexEntry Write(WorldMapInfo map, PendingDrawing drawing, string stamp)
@@ -310,7 +373,8 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
     /// What differs between the maps now and what an index was made from, one item per world:
     /// "Styx: map redrawn", "Olympus, Conifer Hard: Desert Wolf added, Bear gone", "ARK: new map".
     /// </summary>
-    private static List<string> Changes(IReadOnlyList<WorldMapInfo> maps, WorldMapIndex index, IReadOnlyDictionary<string, string> stamps)
+    /// <param name="adopted">Worlds whose stamp was made the old way (Adopted): not said to be redrawn.</param>
+    private static List<string> Changes(IReadOnlyList<WorldMapInfo> maps, WorldMapIndex index, IReadOnlyDictionary<string, string> stamps, HashSet<string> adopted)
     {
         var changes = new List<string>();
         foreach (var map in maps)
@@ -322,30 +386,12 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
             }
 
             var parts = new List<string>();
-            if (before.Stamp != stamps.GetValueOrDefault(map.Id))
+            if (before.Stamp != stamps.GetValueOrDefault(map.Id) && !adopted.Contains(map.Id))
             {
                 parts.Add("map redrawn");
             }
 
-            var now = ZoneFingerprints(map);
-            foreach (var (layer, zones) in now)
-            {
-                var old = before.Zones.GetValueOrDefault(layer) ?? [];
-                foreach (var (row, fingerprint) in zones)
-                {
-                    if (!old.TryGetValue(row, out var oldFingerprint))
-                    {
-                        parts.Add($"{WorldMapCatalog.ZoneName(row)} added");
-                    }
-                    else if (oldFingerprint != fingerprint)
-                    {
-                        parts.Add($"{WorldMapCatalog.ZoneName(row)}: {DescribeZoneChange(map, layer, row, oldFingerprint)}");
-                    }
-                }
-
-                parts.AddRange(old.Keys.Where(row => !zones.ContainsKey(row)).Select(row => $"{WorldMapCatalog.ZoneName(row)} gone"));
-            }
-
+            parts.AddRange(ZoneChanges(map, before).Select(z => z.Summary));
             if (parts.Count > 0)
             {
                 changes.Add($"{map.Name}: {string.Join(", ", parts.Distinct().Take(4))}{(parts.Distinct().Count() > 4 ? " and more" : "")}");
@@ -355,6 +401,31 @@ public sealed class WorldMapStore(string root, Func<IReadOnlyList<WorldMapInfo>>
         foreach (var gone in index.Maps.Keys.Where(id => !maps.Any(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase))))
         {
             changes.Add($"{gone}: no longer in the game");
+        }
+
+        return changes;
+    }
+
+    /// <summary>The creature and fishing zones that differ from what an index entry was made from: added, gone, or what changed in them.</summary>
+    private static List<WorldZoneChange> ZoneChanges(WorldMapInfo map, WorldMapIndexEntry before)
+    {
+        var changes = new List<WorldZoneChange>();
+        foreach (var (layer, zones) in ZoneFingerprints(map))
+        {
+            var old = before.Zones.GetValueOrDefault(layer) ?? [];
+            foreach (var (row, fingerprint) in zones)
+            {
+                if (!old.TryGetValue(row, out var oldFingerprint))
+                {
+                    changes.Add(new WorldZoneChange(layer, row, WorldMapCatalog.ZoneName(row), "added"));
+                }
+                else if (oldFingerprint != fingerprint)
+                {
+                    changes.Add(new WorldZoneChange(layer, row, WorldMapCatalog.ZoneName(row), DescribeZoneChange(map, layer, row, oldFingerprint)));
+                }
+            }
+
+            changes.AddRange(old.Keys.Where(row => !zones.ContainsKey(row)).Select(row => new WorldZoneChange(layer, row, WorldMapCatalog.ZoneName(row), "gone")));
         }
 
         return changes;
@@ -452,4 +523,7 @@ public sealed record WorldMapIndexEntry
 
     /// <summary>Layer → zone row → contents fingerprint, when it was last reloaded.</summary>
     public Dictionary<string, Dictionary<string, string>> Zones { get; init; } = [];
+
+    /// <summary>What changed the last time a Reload found this world changed; null when nothing is recorded.</summary>
+    public WorldMapChangeRecord? Changed { get; init; }
 }
