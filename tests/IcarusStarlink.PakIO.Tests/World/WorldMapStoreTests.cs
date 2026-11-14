@@ -317,11 +317,15 @@ public sealed class WorldMapStoreTests : IDisposable
 
         Assert.Equal([Geyser(0.2)], store.ChangeRecords()["Terrain_016"].Removed);
 
-        // The game replaces its files again, with the same spots: nothing is left to show.
+        // The game replaces its files again, with the same spots: the old record goes, and the new
+        // one says only that the files changed.
         renderer.Stamps["Terrain_016"] = "3";
         store.Reload(everything: false);
 
-        Assert.Empty(store.ChangeRecords());
+        var record = store.ChangeRecords()["Terrain_016"];
+        Assert.True(record.FilesChanged);
+        Assert.Empty(record.Removed);
+        Assert.Equal(0, record.RemovedCount);
     }
 
     [Fact]
@@ -360,7 +364,7 @@ public sealed class WorldMapStoreTests : IDisposable
         var result = store.Reload(everything: false);
 
         Assert.False(Directory.Exists(Path.GetDirectoryName(store.PicturePath("Outpost_DEV"))));
-        Assert.Contains("Outpost_DEV: no longer in the game", result.Summary);
+        Assert.Contains("No longer in the game: Devland.", result.Summary);
     }
 
     [Fact]

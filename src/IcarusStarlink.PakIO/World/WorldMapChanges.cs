@@ -15,9 +15,55 @@ public sealed record WorldZoneChange(string Layer, string Row, string Name, stri
 }
 
 /// <summary>
-/// What changed on one world the last time a Reload found it changed: the zones whose spawns
-/// changed, and the caves, geysers and other spots that came or went. Kept in the index until the
-/// world changes again.
+/// Where one of a world's images (its picture, or a zone image) differs from the one drawn before:
+/// the whole of it, or some cells of a grid laid over it.
+/// </summary>
+public sealed record WorldImageChange
+{
+    /// <summary>Which image: "Picture", or the layer ("Creatures", "Fishing", "Biomes").</summary>
+    public string What { get; init; } = "";
+
+    /// <summary>All of it changed (or its size did, or it's new or gone): no cells are listed.</summary>
+    public bool Whole { get; init; }
+
+    /// <summary>"new" when the world had no such image before, "gone" when it has none now; null otherwise.</summary>
+    public string? Note { get; init; }
+
+    /// <summary>The grid the cells are counted in (the in-game grid when the world has one).</summary>
+    public int Columns { get; init; }
+
+    public int Rows { get; init; }
+
+    /// <summary>The changed cells, each as row * Columns + column (left to right, top to bottom).</summary>
+    public List<int> Cells { get; init; } = [];
+}
+
+/// <summary>The game files of one kind ("Picture tiles", "Level files"…) that changed, came or went, by short name.</summary>
+public sealed record WorldFileChange
+{
+    /// <summary>The most names kept per list (the counts still say how many there were).</summary>
+    public const int MaxNames = 40;
+
+    public string Kind { get; init; } = "";
+
+    public List<string> Changed { get; init; } = [];
+
+    public List<string> Added { get; init; } = [];
+
+    public List<string> Gone { get; init; } = [];
+
+    public int ChangedCount { get; init; }
+
+    public int AddedCount { get; init; }
+
+    public int GoneCount { get; init; }
+}
+
+/// <summary>
+/// What changed on one world the last time a Reload found it changed: where its picture and zone
+/// shapes differ, which game files changed, the zones whose spawns changed, and the caves, geysers
+/// and other spots that came or went; or that the world is new. Kept in the index until the world
+/// changes again.
 /// </summary>
 public sealed record WorldMapChangeRecord
 {
@@ -26,6 +72,21 @@ public sealed record WorldMapChangeRecord
 
     /// <summary>When the Reload that found it ran (UTC).</summary>
     public DateTime When { get; init; }
+
+    /// <summary>The game added this world since the Reload before.</summary>
+    public bool NewMap { get; init; }
+
+    /// <summary>The game replaced some of the world's files (false: only its zones' spawns changed).</summary>
+    public bool FilesChanged { get; init; }
+
+    /// <summary>Where the picture differs; null when it looks the same.</summary>
+    public WorldImageChange? Picture { get; init; }
+
+    /// <summary>The zone images whose shapes differ.</summary>
+    public List<WorldImageChange> Shapes { get; init; } = [];
+
+    /// <summary>The game files that changed, came or went, by kind; empty when they weren't known before.</summary>
+    public List<WorldFileChange> Files { get; init; } = [];
 
     public List<WorldZoneChange> Zones { get; init; } = [];
 

@@ -57,6 +57,12 @@
                                         Visibility="{Binding HasChanges, Converter={StaticResource BoolToVisibilityConverter}}">
                                     <TextBlock Text="Changed"/>
                                 </Border>
+                                <!-- The game added this world since the Reload before the last. -->
+                                <Border Style="{StaticResource BetaTagStyle}" ToolTip="{Binding ChangedText}"
+                                        BorderBrush="{DynamicResource SuccessBrush}" Background="Transparent" TextElement.Foreground="{DynamicResource SuccessBrush}"
+                                        Visibility="{Binding IsNew, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock Text="New"/>
+                                </Border>
                             </StackPanel>
                             <TextBlock Text="{Binding KindText}" FontSize="11" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                         </StackPanel>
@@ -191,6 +197,10 @@
                             <Image Source="{Binding HighlightImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality"/>
                             <!-- What changed: the zones whose spawns changed, in light blue. -->
                             <Image Source="{Binding ChangesImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="HighQuality" IsHitTestVisible="False"/>
+                            <!-- What changed: the grid squares where the picture (pink) or a zone's shape (yellow) changed.
+                                 One pixel per square, stretched without smoothing so each square keeps its edges. -->
+                            <Image Source="{Binding PictureChangesImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor" IsHitTestVisible="False"/>
+                            <Image Source="{Binding ShapeChangesImage}" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor" IsHitTestVisible="False"/>
 
                             <!-- Lakes and rivers, and the in-game grid (its lines keep 1 pixel at any zoom: set in code). -->
                             <Canvas IsHitTestVisible="False">
@@ -407,11 +417,12 @@
                         <TextBlock Text="{Binding MapNote}" TextWrapping="Wrap" Margin="0,0,0,12" Foreground="{DynamicResource WarningBrush}"
                                    Visibility="{Binding MapNote, Converter={StaticResource NullToVisibilityConverter}}"/>
 
-                        <!-- What changed, in words (the switch above the map): zones, then new spots, then gone ones. -->
+                        <!-- What changed, in words (the switch above the map): the picture, zone shapes, zones' spawns, game files, then new spots and gone ones. -->
                         <StackPanel Margin="0,0,0,14" Visibility="{Binding ShowChangeList, Converter={StaticResource BoolToVisibilityConverter}}">
                             <TextBlock Text="{Binding ChangeTitle}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding ChangeWhenText}" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,0" Foreground="{DynamicResource SecondaryForegroundBrush}"/>
                             <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,4,0,8" Foreground="{DynamicResource SecondaryForegroundBrush}"
-                                       Text="Light blue zones: their spawns changed. Green +: a new spot. Red −: a spot that's gone. Click a spot's line to zoom to it."/>
+                                       Text="Pink squares: the picture changed there. Yellow squares: a zone's shape changed there. Light blue zones: their spawns changed. Green +: a new spot. Red −: a spot that's gone. Click a spot's line to zoom to it."/>
                             <ItemsControl ItemsSource="{Binding ChangeLines}" Focusable="False">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>

@@ -657,7 +657,7 @@ public sealed class WorldMapViewModelTests : IDisposable
     {
         var (vm, _) = await AfterAnUpdateThatChangedOlympusAsync();
 
-        Assert.Equal([true, false], vm.Maps.Select(m => m.HasChanges));
+        Assert.Equal([true, true], vm.Maps.Select(m => m.HasChanges));
         Assert.StartsWith("Changed on ", vm.Maps[0].ChangedText);
         Assert.EndsWith(", changed", vm.Maps[0].ToString());
         Assert.Equal("Olympus", vm.SelectedMap!.Name);
@@ -670,11 +670,134 @@ public sealed class WorldMapViewModelTests : IDisposable
         Assert.Empty(vm.ChangeMarkers);
         Assert.Null(vm.ChangesImage);
 
-        // A world with nothing recorded has no switch.
+        // A world whose files changed with nothing to see has the switch too, and says so.
         vm.SelectedMap = vm.Maps[1];
 
-        Assert.False(vm.HasChangeRecord);
-        Assert.Null(vm.ChangeTitle);
+        Assert.True(vm.HasChangeRecord);
+        Assert.Equal(["The game changed this map's files, but nothing that shows here: its picture, zones and spots are as they were."], vm.ChangeLines.Select(l => l.Text));
+        Assert.Contains("the game's files changed, with nothing to see on the map", vm.ChangesToolTip);
+    }
+
+    /// <summary>Olympus (a 4 x 4 in-game grid) drawn, with the given record put in the index as a Reload would have.</summary>
+    private async Task<WorldMapViewModel> WithRecordAsync(WorldMapChangeRecord record, bool grid = true)
+    {
+        var map = new WorldMapInfo("Terrain_016", "Olympus", true, [], [], [],
+            Extent: grid ? new WorldExtent(0, 0, 4 * WorldMapInfo.GridSquare, 4 * WorldMapInfo.GridSquare) : null);
+        var store = new WorldMapStore(Path.Combine(_root, "World"), () => [map], new MapRenderer());
+        store.Reload(everything: false);
+        var path = Path.Combine(_root, "World", "index.json");
+        var index = System.Text.Json.JsonSerializer.Deserialize<WorldMapIndex>(File.ReadAllText(path))!;
+        index.Maps["Terrain_016"] = index.Maps["Terrain_016"] with { Changed = record };
+        File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(index));
+        var vm = new WorldMapViewModel(store, GameReady(), Path.Combine(_root, "Data")) { UiDispatcher = () => null };
+        await vm.LoadAsync();
+        return vm;
+    }
+
+    private static readonly DateTime Recorded = new(2030, 5, 17, 12, 0, 0, DateTimeKind.Utc);
+
+    private static uint[] Pixels(System.Windows.Media.ImageSource? source, int count)
+    {
+        var image = Assert.IsAssignableFrom<System.Windows.Media.Imaging.BitmapSource>(source);
+        var pixels = new uint[count];
+        image.CopyPixels(pixels, image.PixelWidth * 4, 0);
+        return pixels;
+    }
+
+    [Fact]
+    public async Task WhatChanged_NamesTheSquaresWhereThePictureAndZoneShapesChanged_AndTheFiles()
+    {
+        var vm = await WithRecordAsync(new WorldMapChangeRecord
+        {
+            When = Recorded,
+            FilesChanged = true,
+            // E4 is past a 4 x 4 grid: D2 (row 1, column 3), then A3 and B3.
+            Picture = new WorldImageChange { What = "Picture", Columns = 4, Rows = 4, Cells = [1 * 4 + 3, 2 * 4 + 0, 2 * 4 + 1] },
+            Shapes = [new WorldImageChange { What = "Fishing", Columns = 4, Rows = 4, Cells = [0] }, new WorldImageChange { What = "Biomes", Whole = true }],
+            Files =
+            [
+                new WorldFileChange { Kind = "Picture tiles", Changed = ["T_x0_y1", "T_x3_y2"], ChangedCount = 2 },
+                new WorldFileChange { Kind = "Level files", Changed = ["Terrain_016"], ChangedCount = 1, Added = ["T016_Volcano_Lair"], AddedCount = 1, Gone = ["T016_Old"], GoneCount = 1 },
+            ],
+        });
+
+        vm.ShowChanges = true;
+
+        Assert.Equal(
+        [
+            "Picture changed in A3, B3, D2.",
+            "Fishing zones: their shapes changed in A1.",
+            "Biomes: their shapes changed all over the map.",
+            "Picture tiles changed: T_x0_y1, T_x3_y2.",
+            "Level files changed: Terrain_016.",
+            "New level files: T016_Volcano_Lair.",
+            "Level files gone: T016_Old.",
+        ], vm.ChangeLines.Select(l => l.Text));
+        Assert.StartsWith("Found by the Reload on ", vm.ChangeWhenText);
+        Assert.EndsWith("Kept until this map changes again.", vm.ChangeWhenText);
+        Assert.Contains("picture changed, zone shapes changed, 5 game files changed", vm.ChangesToolTip);
+
+        // The picture's squares in pink, the zone shape's in yellow: one pixel per grid square.
+        var pink = Pixels(vm.PictureChangesImage, 16);
+        Assert.Equal([7, 8, 9], Enumerable.Range(0, 16).Where(i => pink[i] == WorldMapViewModel.PictureChangeColor));
+        Assert.Equal(3, pink.Count(p => p != 0));
+        var yellow = Pixels(vm.ShapeChangesImage, 16);
+        Assert.Equal([0], Enumerable.Range(0, 16).Where(i => yellow[i] == WorldMapViewModel.ShapeChangeColor));
+        Assert.NotEqual(WorldMapViewModel.ChangedZoneColor, WorldMapViewModel.PictureChangeColor);
+
+        vm.ShowChanges = false;
+        Assert.Null(vm.PictureChangesImage);
+        Assert.Null(vm.ShapeChangesImage);
+    }
+
+    /// <summary>A whole map that changed is said once, and many squares are counted, not listed one by one.</summary>
+    [Fact]
+    public async Task WhatChanged_StaysShort_WhenAWholeMapChanged()
+    {
+        var vm = await WithRecordAsync(new WorldMapChangeRecord
+        {
+            When = Recorded,
+            FilesChanged = true,
+            Picture = new WorldImageChange { What = "Picture", Whole = true },
+            Shapes = [new WorldImageChange { What = "Creatures", Columns = 4, Rows = 4, Cells = [.. Enumerable.Range(0, 13)] }],
+            Files = [new WorldFileChange { Kind = "Level files", Changed = [.. Enumerable.Range(0, 40).Select(i => $"L{i:00}")], ChangedCount = 64 }],
+        });
+
+        vm.ShowChanges = true;
+
+        Assert.Equal(
+        [
+            "The whole picture changed.",
+            "Creature zones: their shapes changed in 13 of 16 grid squares (tinted yellow on the map).",
+            "Level files changed: L00, L01, L02, L03, L04, L05, L06, L07, L08, L09, L10, L11 and 52 more.",
+        ], vm.ChangeLines.Select(l => l.Text));
+        Assert.Null(vm.PictureChangesImage);
+        Assert.NotNull(vm.ShapeChangesImage);
+    }
+
+    [Fact]
+    public async Task AWorldWithoutTheInGameGrid_CountsTheChangedParts()
+    {
+        var vm = await WithRecordAsync(
+            new WorldMapChangeRecord { When = Recorded, FilesChanged = true, Picture = new WorldImageChange { What = "Picture", Columns = 8, Rows = 8, Cells = [0, 9] } },
+            grid: false);
+
+        Assert.Equal(["Picture changed in 2 of 64 parts of the map (tinted pink)."], vm.ChangeLines.Select(l => l.Text));
+    }
+
+    [Fact]
+    public async Task AWorldTheGameAdded_IsTaggedNew_NotChanged()
+    {
+        var vm = await WithRecordAsync(new WorldMapChangeRecord { When = Recorded, NewMap = true });
+
+        var item = Assert.Single(vm.Maps);
+        Assert.True(item.IsNew);
+        Assert.False(item.HasChanges);
+        Assert.StartsWith("New: the game added this map.", item.ChangedText);
+        Assert.EndsWith(", in development, new", item.ToString());
+        Assert.True(vm.HasChangeRecord);
+        Assert.StartsWith("New map, first seen on ", vm.ChangeTitle);
+        Assert.Equal(["New map: the game added this world. What changes on it from now on is listed here."], vm.ChangeLines.Select(l => l.Text));
     }
 
     [Fact]
@@ -704,9 +827,8 @@ public sealed class WorldMapViewModelTests : IDisposable
         vm.ZoomToChangeCommand.Execute(vm.ChangeLines[1]);
         Assert.Equal(newCave.At, zoomedTo);
 
-        // Another world has nothing to show; back on the changed one the switch is still on.
+        // Another world has nothing to draw on the map; back on the changed one the switch is still on.
         vm.SelectedMap = vm.Maps[1];
-        Assert.False(vm.ShowChangeList);
         Assert.Empty(vm.ChangeMarkers);
         Assert.Null(vm.ChangesImage);
 

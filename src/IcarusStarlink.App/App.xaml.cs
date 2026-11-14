@@ -344,6 +344,13 @@ public partial class App : Application
                 WhileRunning(System.Windows.Threading.DispatcherPriority.ApplicationIdle,
                     () => _ = Task.Run(() => TempScratchSweeper.Sweep(Path.GetTempPath(), DateTime.UtcNow, TimeSpan.FromDays(1))));
 
+                // Map: the drawn maps take today's stamps of the game's map files (nothing is drawn),
+                // so the next game update is compared with the game as it is now. In the background,
+                // a while after start; only the maps' index is read unless there's something to do.
+                WhileRunning(System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+                    () => _ = _host.Services.GetRequiredService<IcarusStarlink.PakIO.World.WorldMapStore>()
+                        .AdoptWhenReadableAsync(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(2)));
+
                 // Find the broken mod: built now so Merge & Install's menu entry reaches it, and a
                 // search the app closed in the middle of offers to put the mods back.
                 WhileRunning(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () =>

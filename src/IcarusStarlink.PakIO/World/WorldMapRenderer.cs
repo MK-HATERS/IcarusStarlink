@@ -83,6 +83,13 @@ public interface IWorldMapRenderer
     /// </summary>
     string Stamp(WorldMapInfo map);
 
+    /// <summary>
+    /// One game file's contents as a short line (it changes when the file's contents do, not when the
+    /// game only moves it); null when the game doesn't have the file. The store keeps one per file a
+    /// map is drawn from, to say which files a game update changed.
+    /// </summary>
+    string? FileStamp(string assetPath) => null;
+
     /// <summary>What's placed on the world (caves, geysers, spots, water), read from its level files; None when they can't be read.</summary>
     WorldFeatures ReadFeatures(WorldMapInfo map) => WorldFeatures.None;
 
@@ -173,6 +180,8 @@ public sealed class WorldMapRenderer(IBaseGameContentProvider game, Func<string?
     /// files it didn't touch; WorldMapStore keeps maps drawn under another scheme as they are.
     /// </summary>
     public const string StampScheme = "c2";
+
+    public string? FileStamp(string assetPath) => game.FileStamp(assetPath);
 
     public string Stamp(WorldMapInfo map)
     {

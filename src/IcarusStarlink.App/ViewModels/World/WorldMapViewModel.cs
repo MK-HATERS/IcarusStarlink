@@ -24,11 +24,14 @@ public sealed record WorldMapItemViewModel(WorldMapInfo Map)
     /// <summary>"Changed on 17 May 2030: …" when a Reload recorded what changed on it; null otherwise.</summary>
     public string? ChangedText { get; init; }
 
+    /// <summary>The game added this world since the Reload before the last (a New tag shows in the list, instead of Changed).</summary>
+    public bool IsNew { get; init; }
+
     /// <summary>Something is recorded as changed on it (a small mark shows in the list).</summary>
-    public bool HasChanges => ChangedText is not null;
+    public bool HasChanges => ChangedText is not null && !IsNew;
 
     /// <summary>What a screen reader says for it.</summary>
-    public override string ToString() => $"{Name}, {KindText}{(InDevelopment ? ", in development" : "")}{(HasChanges ? ", changed" : "")}";
+    public override string ToString() => $"{Name}, {KindText}{(InDevelopment ? ", in development" : "")}{(IsNew ? ", new" : "")}{(HasChanges ? ", changed" : "")}";
 }
 
 /// <summary>A dropship drop site on the map: placed in the map's 1000 x 1000 square, with its landing spots.</summary>
@@ -589,7 +592,7 @@ public sealed partial class WorldMapViewModel : ObservableObject, IcarusStarlink
             // Open world maps, then mission-only maps, then outposts, then those no prospect uses yet; in development last within each.
             foreach (var map in maps.OrderBy(m => m.KindOrder).ThenBy(m => m.InDevelopment))
             {
-                Maps.Add(new WorldMapItemViewModel(map) { ChangedText = ChangedText(map.Id) });
+                Maps.Add(new WorldMapItemViewModel(map) { ChangedText = ChangedText(map.Id), IsNew = IsNewMap(map.Id) });
             }
 
             SelectedMap = Maps.FirstOrDefault(m => m.Map.Id == keep) ?? Maps.FirstOrDefault();
